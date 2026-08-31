@@ -66,19 +66,57 @@ DEFAULT_TOLERANCE = 0.005
 # Mode d'un TP
 # --------------------------------------------------------------------------
 
+MODE_FILES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
+
+
 def detect_mode(tp_dir):
-    """quiz / io / unity / None, d'après ce que le répertoire contient."""
-    if os.path.exists(os.path.join(tp_dir, "quiz.json")):
-        return "quiz"
-    if os.path.exists(os.path.join(tp_dir, "io.json")):
-        return "io"
-    try:
-        if any(f.startswith("test_") and f.endswith(".c")
-               for f in os.listdir(tp_dir)):
-            return "unity"
-    except OSError:
-        pass
+    """quiz / io / unity / None, d'après le fichier de configuration présent.
+
+    UN SEUL MÉCANISME POUR LES TROIS MODES. Unity était détecté autrement --
+    par la présence d'un test_*.c -- et ça n'avait pas d'endroit où déclarer un
+    libellé ni la liste des fichiers attendus. Uniformiser coûte un fichier
+    unity.json par TP et supprime une exception.
+    """
+    for mode, conf in MODE_FILES:
+        if os.path.exists(os.path.join(tp_dir, conf)):
+            return mode
     return None
+
+
+def config_name(mode):
+    return dict(MODE_FILES)[mode]
+
+
+# Les noms de fichiers viennent de la CONFIGURATION DES TESTS, écrite par
+# l'enseignant, jamais de l'étudiant. Ils sont quand même validés : une faute de
+# frappe qui produirait « ../../etc/passwd » ne doit pas devenir un chemin.
+FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
+
+
+def declared_files(conf):
+    """Les fichiers que l'étudiant doit fournir, [{name, template}].
+
+    Le nom est IMPOSÉ PAR L'ÉNONCÉ et pas choisi par l'étudiant : à partir du
+    laboratoire 5, il écrit un module `calendrier.h` + `calendrier.c`, et le
+    `#include "calendrier.h"` de son propre code comme celui du fichier de test
+    ne tombent juste que si le fichier porte exactement ce nom. Laisser
+    l'étudiant nommer ses fichiers ne serait pas de la liberté, ce serait une
+    classe d'erreur de plus.
+
+    Par défaut, un seul fichier `submission.c` -- la forme des laboratoires 2 à
+    4, un programme complet dans un seul fichier.
+    """
+    files = conf.get("files")
+    if not files:
+        return [{"name": "submission.c", "template": ""}]
+    out = []
+    for item in files:
+        name = str(item.get("name", "")) if isinstance(item, dict) else str(item)
+        if not FILE_RE.match(name):
+            continue
+        template = item.get("template", "") if isinstance(item, dict) else ""
+        out.append({"name": name, "template": str(template)})
+    return out or [{"name": "submission.c", "template": ""}]
 
 
 def load_config(tp_dir, name):
@@ -113,11 +151,38 @@ def public_quiz(quiz):
     }
 
 
+# Le nom du répertoire porte la structure du cours : tp<N> ou tp<N>-ex<M>. C'est
+# de là que sortent le regroupement du menu et l'ordre d'affichage.
+ORDER_RE = re.compile(r"\Atp(\d+)(?:-ex(\d+))?")
+# Le libellé répète souvent « TP2 : » que le premier menu affiche déjà. On le
+# retire pour le second menu, avec repli sur le libellé entier s'il n'y est pas.
+PREFIX_RE = re.compile(r"\A\s*TP\s*\d+\s*[:—\-]\s*", re.I)
+
+
+def sort_key(name):
+    """Ordre du menu. NUMÉRIQUE, et c'est tout l'intérêt.
+
+    Trié comme du texte, tp10 passe avant tp2 -- invisible avec deux TP, et le
+    menu part en désordre au dixième. Les noms hors convention finissent à la
+    fin plutôt que de s'insérer n'importe où.
+    """
+    match = ORDER_RE.match(name)
+    if not match:
+        return (1, 0, 0, name)
+    # -1 pour l'entrée du TP lui-même (tp1), qui précède ses exercices.
+    return (0, int(match.group(1)), int(match.group(2) or -1), name)
+
+
+def group_of(name):
+    match = ORDER_RE.match(name)
+    return "TP " + match.group(1) if match else "Autres"
+
+
 def catalogue():
-    """[{id, mode, label}] pour chaque TP publiable, trié."""
+    """[{id, mode, label, group, short}] pour chaque TP publiable, dans l'ordre."""
     entries = []
     try:
-        names = sorted(os.listdir(TESTS))
+        names = sorted(os.listdir(TESTS), key=sort_key)
     except OSError:
         return entries
     for name in names:
@@ -127,13 +192,28 @@ def catalogue():
         mode = detect_mode(tp_dir)
         if mode is None:
             continue
-        label = name
+        label, files = name, declared_files({})
         try:
-            conf = load_config(tp_dir, "quiz.json" if mode == "quiz" else "io.json")
+            conf = load_config(tp_dir, config_name(mode))
             label = conf.get("label") or name
+            files = declared_files(conf)
         except (OSError, ValueError):
-            pass  # unity, ou un fichier cassé : le nom du répertoire suffit
-        entries.append({"id": name, "mode": mode, "label": label})
+            pass  # fichier cassé : le nom du répertoire et un fichier par défaut
+        entries.append({
+            "id": name,
+            "mode": mode,
+            "label": label,
+            # Les noms de fichiers attendus voyagent jusqu'au navigateur : ils
+            # sont dans l'énoncé, ils ne sont pas secrets, et ce sont eux qui
+            # deviennent les onglets de l'éditeur ET la liste blanche que l'API
+            # oppose à une soumission.
+            "files": files,
+            "group": group_of(name),
+            # Libellé pour le second menu, sans le « TP2 : » que le premier
+            # affiche déjà. Purement cosmétique : si le préfixe n'est pas là, on
+            # garde le libellé entier et rien n'est perdu.
+            "short": PREFIX_RE.sub("", label) or label,
+        })
     return entries
 
 
@@ -465,7 +545,11 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
         "--user", "65534:65534",
         "--ulimit", "fsize=8388608",
         "--ulimit", "nofile=64",
-        "-v", job_dir + "/submission.c:/in/submission.c:ro",
+        # LE RÉPERTOIRE, PAS UN FICHIER. Depuis le laboratoire 5 une soumission
+        # est un module -- calendrier.h ET calendrier.c -- et `#include
+        # "calendrier.h"` ne résout que si les deux sont côte à côte. Un montage
+        # par fichier ne donnerait pas ça.
+        "-v", job_dir + "/src:/in/src:ro",
     ]
     if mode == "io":
         argv += [
@@ -601,10 +685,32 @@ def run_job(job_dir):
             answers = json.load(fh)
         return grade_quiz(load_config(tp_dir, "quiz.json"), answers)
 
-    with open(os.path.join(job_dir, "submission.c"), encoding="utf-8",
-              errors="replace") as fh:
-        code = fh.read()
-    bad = forbidden_includes(code, read_allowed(tp_dir))
+    conf = load_config(tp_dir, config_name(mode))
+
+    # Les fichiers sont écrits ICI, sous les noms DÉCLARÉS par la configuration
+    # des tests -- jamais sous ceux que la soumission propose. Le web a déjà
+    # refusé les autres, mais ce processus est root et ne délègue pas cette
+    # vérification : ce qui n'est pas déclaré n'est pas écrit.
+    with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
+        sent = json.load(fh)
+    src_dir = os.path.join(job_dir, "src")
+    os.makedirs(src_dir, exist_ok=True)
+    code = ""
+    for declared in declared_files(conf):
+        contenu = str(sent.get(declared["name"], ""))
+        code += contenu + "\n"
+        with open(os.path.join(src_dir, declared["name"]), "w",
+                  encoding="utf-8") as fh:
+            fh.write(contenu)
+
+    # Un module qui inclut son propre en-tête n'est pas une dépendance interdite :
+    # `#include "calendrier.h"` est précisément ce que l'énoncé demande. Les
+    # fichiers déclarés s'ajoutent donc d'office à la liste blanche.
+    allowed = read_allowed(tp_dir)
+    if allowed is not None:
+        allowed = allowed | {f["name"] for f in declared_files(conf)}
+
+    bad = forbidden_includes(code, allowed)
     if bad:
         # Rejeté sans dépenser un conteneur.
         return {
@@ -617,7 +723,6 @@ def run_job(job_dir):
         }
 
     if mode == "io":
-        conf = load_config(tp_dir, "io.json")
         cases = conf.get("cases", [])
         tol = float(conf.get("tolerance", DEFAULT_TOLERANCE))
         case_dir = os.path.join(job_dir, "cases")

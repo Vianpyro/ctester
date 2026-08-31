@@ -32,9 +32,14 @@ cd /work || exit 70
 
 # -lm inconditionnel : les exercices 4 et 5 utilisent pow() et sqrt(), et lier
 # la bibliothèque mathématique ne coûte rien aux autres.
+#
+# /in/src ET PAS UN FICHIER : depuis le laboratoire 5 une soumission peut être
+# un module (calendrier.h + calendrier.c + main.c). Tous les .c du répertoire
+# sont compilés ensemble, et -I/in/src fait résoudre les `#include "..."` de
+# l'étudiant vers ses propres en-têtes.
 timeout -s KILL {{ ctester_compile_timeout }} \
-    gcc -std={{ ctester_c_std }} -Wall -Wextra \
-        /in/submission.c -o /work/t -lm 2>/work/gcc.err
+    gcc -std={{ ctester_c_std }} -Wall -Wextra -I/in/src \
+        /in/src/*.c -o /work/t -lm 2>/work/gcc.err
 rc=$?
 if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
     exit 12

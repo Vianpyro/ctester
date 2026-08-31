@@ -312,14 +312,32 @@ class Handler(BaseHTTPRequestHandler):
                 return
             name, blob = "answers.json", json.dumps(trimmed).encode()
         else:
-            blob = str(data.get("code", "")).encode("utf-8", "replace")
-            if not blob.strip():
+            # LES NOMS DE FICHIERS VIENNENT DU CATALOGUE, pas de la requête. À
+            # partir du laboratoire 5 une soumission est un module dont l'énoncé
+            # impose les noms (calendrier.h, calendrier.c) : c'est une liste
+            # blanche, et un nom qu'elle ne contient pas est refusé plutôt
+            # qu'ignoré en silence -- un étudiant doit savoir que son fichier
+            # n'a pas été pris.
+            declares = [f["name"] for f in entry.get("files") or []] or \
+                       ["submission.c"]
+            envoyes = data.get("files")
+            if not isinstance(envoyes, dict):
+                self._json(400, {"error": "fichiers manquants"})
+                return
+            inconnus = sorted(k for k in envoyes if k not in declares)
+            if inconnus:
+                self._json(400, {"error": "fichier inattendu : "
+                                          + ", ".join(inconnus[:3])})
+                return
+            fichiers = {n: str(envoyes.get(n, "")) for n in declares}
+            if not any(v.strip() for v in fichiers.values()):
                 self._json(400, {"error": "soumission vide"})
                 return
+            blob = json.dumps(fichiers).encode()
             if len(blob) > MAX_CODE:
-                self._json(413, {"error": f"fichier > {MAX_CODE // 1024} Ko"})
+                self._json(413, {"error": f"soumission > {MAX_CODE // 1024} Ko"})
                 return
-            name = "submission.c"
+            name = "files.json"
 
         who = client_id(self.headers, self.client_address[0])
         with self.lock:

@@ -45,6 +45,26 @@
   p.sub { margin: 0 0 1.5rem; color: var(--muted); }
   .row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap;
          margin-bottom: .75rem; }
+  .field { display: inline-flex; align-items: center; gap: .4rem; }
+  .field label { color: var(--muted); }
+  .grow { flex: 1 1 auto; }
+
+  /* RAPPEL PERMANENT DE CE QU'ON TESTE, juste au-dessus de la zone de saisie.
+     Deux menus laissent le choix hors du champ de vision une fois qu'on
+     travaille dans l'éditeur ; cette barre garde l'exercice sous les yeux, et
+     dit du même coup ce qu'on attend (du code ou des réponses). */
+  #now {
+    display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
+    margin: 0 0 .6rem; padding: .55rem .75rem;
+    background: var(--card);
+    border: 1px solid var(--line); border-left: 3px solid var(--muted);
+    border-radius: 6px;
+  }
+  #now b { font-size: .98rem; }
+  #now .badge {
+    font-size: 12px; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
+  }
   select, button, textarea, input {
     font: inherit; color: inherit; background: var(--card);
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem .7rem;
@@ -61,7 +81,19 @@
      des espaces : tout ce qui décale le texte d'un pixel décale les couleurs.
      Les deux règles ci-dessous sont donc écrites ENSEMBLE et doivent le rester.
      Si les couleurs dérivent du texte, c'est ici qu'il faut regarder. */
-  #editor { position: relative; }
+  /* Le calque coloré se superpose au PANNEAU, pas à l'éditeur entier : sinon il
+     recouvrirait la barre d'onglets. */
+  #pane { position: relative; }
+  #tabs { display: flex; gap: .25rem; flex-wrap: wrap; margin-bottom: -1px; }
+  .tab {
+    font: inherit; font-size: 13px; cursor: pointer;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    background: transparent; color: var(--muted);
+    border: 1px solid transparent; border-bottom: none;
+    border-radius: 6px 6px 0 0; padding: .35rem .7rem;
+  }
+  .tab.on { background: var(--card); color: var(--fg); border-color: var(--line); }
+  .tab:focus-visible { outline: 2px solid var(--syn-key); outline-offset: -2px; }
   #hl, #code {
     margin: 0; box-sizing: border-box;
     padding: .5rem .7rem;
@@ -140,16 +172,28 @@
      saisis tes réponses selon l'exercice. Les résultats ne sont pas une note.</p>
 
   <div class="row">
-    <label for="tp">TP&nbsp;:</label>
-    <select id="tp"></select>
+    <span class="field">
+      <label for="tp">TP</label>
+      <select id="tp"></select>
+    </span>
+    <span class="field" id="exwrap">
+      <label for="ex">Exercice</label>
+      <select id="ex"></select>
+    </span>
+    <span class="grow"></span>
     <input type="file" id="file" accept=".c,.txt">
     <button id="go">Tester</button>
   </div>
 
+  <div id="now" aria-live="polite"></div>
+
   <div id="editor">
-    <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
-    <textarea id="code" spellcheck="false"
-              placeholder="// Colle ici le contenu de ton fichier .c"></textarea>
+    <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
+    <div id="pane">
+      <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
+      <textarea id="code" spellcheck="false"
+                placeholder="// Colle ici le contenu de ton fichier"></textarea>
+    </div>
   </div>
 
   <div id="quiz" hidden></div>
@@ -198,21 +242,44 @@ function block(text) {
 // tout ce qui suit : ce que la page affiche, et ce qu'elle envoie.
 let catalogue = [];
 
-const current = () => catalogue.find(t => t.id === $("tp").value) || null;
+const current = () => catalogue.find(t => t.id === $("ex").value) || null;
+
+function addOption(sel, value, text) {
+  const o = document.createElement("option");
+  o.value = value;
+  o.textContent = text;
+  sel.append(o);
+}
 
 fetch("tps.json").then(r => r.json()).then(tps => {
   catalogue = tps;
-  for (const tp of tps) {
-    const o = document.createElement("option");
-    o.value = tp.id;
-    o.textContent = tp.label || tp.id;
-    $("tp").append(o);
-  }
-  if (!tps.length) show("bad", "Aucun TP n'est publié pour l'instant.");
-  switchMode();
+  if (!tps.length) { show("bad", "Aucun TP n'est publié pour l'instant."); return; }
+  // DEUX MENUS DÉPENDANTS, ET PAS UNE LISTE PLATE. À 13 TP de 8 exercices, une
+  // liste unique fait plus de cent lignes qu'il faut parcourir pour retrouver
+  // une entrée dont on connaît déjà les deux coordonnées. Deux menus courts
+  // suivent la structure du cours et suppriment le défilement.
+  for (const g of [...new Set(tps.map(t => t.group))]) addOption($("tp"), g, g);
+  // Lien profond : ?tp=tp2-ex3 ouvre directement sur cet exercice, ce qui rend
+  // publiable un lien par semaine sur Moodle.
+  const wanted = catalogue.find(
+    t => t.id === new URLSearchParams(location.search).get("tp"));
+  if (wanted) $("tp").value = wanted.group;
+  fillExercises(wanted && wanted.id);
 });
 
-$("tp").addEventListener("change", switchMode);
+$("tp").addEventListener("change", () => fillExercises());
+$("ex").addEventListener("change", switchMode);
+
+function fillExercises(preselect) {
+  const items = catalogue.filter(t => t.group === $("tp").value);
+  $("ex").innerHTML = "";
+  for (const t of items) addOption($("ex"), t.id, t.short);
+  if (preselect) $("ex").value = preselect;
+  // Un TP qui n'a qu'une entrée -- un quiz, typiquement -- n'a pas d'exercice à
+  // choisir : un menu à une seule option ne serait qu'un clic de plus.
+  $("exwrap").hidden = items.length <= 1;
+  switchMode();
+}
 
 function switchMode() {
   const tp = current();
@@ -222,8 +289,24 @@ function switchMode() {
   $("editor").hidden = quiz;
   $("file").hidden = quiz;
   $("quiz").hidden = !quiz;
+
+  // La barre de contexte. Ce n'est PAS décoratif : la première vraie confusion
+  // sur cette page a été de soumettre l'exercice 3 avec l'exercice 2 sélectionné,
+  // et le verdict était alors incompréhensible. Le titre reste sous les yeux, et
+  // la pastille dit ce qu'on attend -- du code ou des réponses.
+  $("now").innerHTML = "";
+  if (tp) {
+    const titre = document.createElement("b");
+    titre.textContent = tp.label;
+    const pastille = document.createElement("span");
+    pastille.className = "badge";
+    pastille.textContent = quiz ? "réponses à saisir"
+                                : "programme complet, avec son main()";
+    $("now").append(titre, pastille);
+  }
+
   out.className = "";
-  if (quiz) loadQuiz(tp.id); else paint();
+  if (quiz) loadQuiz(tp.id); else setupFiles(tp);
 }
 
 async function loadQuiz(id) {
@@ -310,9 +393,72 @@ function paint() {
 $("code").addEventListener("input", paint);
 $("code").addEventListener("scroll", paint);
 
+// --- Les fichiers de la soumission ----------------------------------------
+// UN ONGLET PAR FICHIER DÉCLARÉ PAR L'ÉNONCÉ, et les noms ne sont pas au choix
+// de l'étudiant : à partir du laboratoire 5 il écrit un module, et le
+// `#include "calendrier.h"` de son propre code ne tombe juste que si le fichier
+// porte exactement ce nom. Des onglets pré-nommés suppriment cette erreur au
+// lieu de la sanctionner.
+let sources = {};
+let actif = null;
+
+function setupFiles(tp) {
+  const files = (tp && tp.files && tp.files.length)
+    ? tp.files : [{ name: "submission.c", template: "" }];
+  sources = {};
+  for (const f of files) sources[f.name] = f.template || "";
+  actif = null;
+  $("tabs").innerHTML = "";
+  for (const f of files) {
+    const onglet = document.createElement("button");
+    onglet.type = "button";
+    onglet.className = "tab";
+    onglet.textContent = f.name;
+    onglet.dataset.name = f.name;
+    onglet.setAttribute("role", "tab");
+    onglet.addEventListener("click", () => activer(f.name));
+    $("tabs").append(onglet);
+  }
+  // Un seul fichier : une barre d'onglets à un onglet n'apprend rien.
+  $("tabs").hidden = files.length <= 1;
+  activer(files[0].name);
+}
+
+function activer(nom) {
+  // Sauver AVANT de changer : le textarea est la seule copie vivante du fichier
+  // courant, et perdre le travail d'un étudiant en cliquant sur un onglet est
+  // le genre de bug qu'on ne se fait pas pardonner.
+  if (actif !== null) sources[actif] = $("code").value;
+  actif = nom;
+  $("code").value = sources[nom] || "";
+  for (const onglet of $("tabs").children) {
+    const courant = onglet.dataset.name === nom;
+    onglet.className = courant ? "tab on" : "tab";
+    onglet.setAttribute("aria-selected", courant ? "true" : "false");
+    onglet.tabIndex = courant ? 0 : -1;
+  }
+  paint();
+}
+
+// Flèches gauche/droite dans la barre d'onglets : c'est le comportement que la
+// convention ARIA attend d'un tablist, et il est gratuit ici.
+$("tabs").addEventListener("keydown", (e) => {
+  const pas = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+  if (!pas) return;
+  const noms = [...$("tabs").children].map(o => o.dataset.name);
+  const i = noms.indexOf(actif);
+  if (i >= 0) activer(noms[(i + pas + noms.length) % noms.length]);
+});
+
 $("file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
-  if (f) { $("code").value = await f.text(); paint(); }
+  if (!f) return;
+  // Le fichier déposé remplit l'ONGLET COURANT. Deviner l'onglet d'après le nom
+  // du fichier serait plus malin et plus surprenant : l'étudiant qui dépose
+  // « calendrier.c » en ayant l'onglet .h ouvert saurait pourquoi il s'est
+  // trompé, alors qu'un remplissage silencieux ailleurs le laisserait perplexe.
+  $("code").value = await f.text();
+  paint();
 });
 
 // Les cas ratés : le numéro, LES ENTRÉES et TA sortie. Jamais la valeur
@@ -379,8 +525,13 @@ $("go").addEventListener("click", async () => {
       show("bad", "Aucune réponse saisie."); return;
     }
   } else {
-    body.code = $("code").value;
-    if (!body.code.trim()) { show("bad", "Il n'y a rien à tester."); return; }
+    // L'onglet courant n'est dans `sources` qu'après ce transfert : le textarea
+    // en est la copie vivante tant qu'on n'a pas changé d'onglet.
+    sources[actif] = $("code").value;
+    body.files = sources;
+    if (!Object.values(sources).some(v => v.trim())) {
+      show("bad", "Il n'y a rien à tester."); return;
+    }
   }
   $("go").disabled = true;
   show("wait", "Envoi…");

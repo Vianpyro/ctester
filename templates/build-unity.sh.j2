@@ -24,17 +24,28 @@
 set -u
 cd /work || exit 70
 
-# --- Phase 1 : le fichier de l'étudiant, seul -------------------------------
+# --- Phase 1 : les fichiers de l'étudiant, seuls ----------------------------
 # -std={{ ctester_c_std }} ne s'applique qu'ICI. Voir defaults/main.yml.
-timeout -s KILL {{ ctester_compile_timeout }} \
-    gcc -std={{ ctester_c_std }} -Wall -Wextra \
-        -c /in/submission.c -o /work/sub.o 2>/work/gcc.err
-rc=$?
+#
+# UN .o PAR .c, et pas une compilation groupée : à partir du laboratoire 5 la
+# soumission est un module (calendrier.h + calendrier.c), et -I/in/src fait
+# résoudre le `#include "calendrier.h"` de l'étudiant vers SON en-tête.
+# La stderr des deux est accumulée dans le même fichier, elle ne parle que de
+# ses fichiers à lui.
+rc=0
+for source in /in/src/*.c; do
+    [ -e "$source" ] || continue
+    timeout -s KILL {{ ctester_compile_timeout }} \
+        gcc -std={{ ctester_c_std }} -Wall -Wextra -I/in/src \
+            -c "$source" -o "/work/$(basename "$source" .c).o" 2>>/work/gcc.err
+    rc=$?
+    [ $rc -eq 0 ] || break
+done
 if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
     exit 12
 fi
 if [ $rc -ne 0 ]; then
-    # SA stderr, sur SON fichier : c'est le retour pédagogique principal.
+    # SA stderr, sur SES fichiers : c'est le retour pédagogique principal.
     cat /work/gcc.err
     exit 10
 fi
@@ -48,9 +59,12 @@ fi
 # 2>/dev/null EST LA MESURE DE SÉCURITÉ. Une erreur d'édition de liens cite les
 # symboles attendus, et une erreur de compilation des tests citerait leurs
 # lignes. L'étudiant reçoit un message générique construit par le worker.
+# -I/in/src pour que LE FICHIER DE TEST puisse écrire `#include "calendrier.h"`
+# et tomber sur l'en-tête que l'étudiant vient d'écrire. C'est ce qui permet de
+# tester un module dont l'interface est dictée par l'énoncé.
 timeout -s KILL {{ ctester_compile_timeout }} \
-    gcc /work/sub.o /in/tests/*.c /in/unity/unity.c \
-        -I/in/unity -I/in/tests -o /work/t -lm 2>/dev/null
+    gcc /work/*.o /in/tests/*.c /in/unity/unity.c \
+        -I/in/unity -I/in/tests -I/in/src -o /work/t -lm 2>/dev/null
 rc=$?
 if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
     exit 12

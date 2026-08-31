@@ -1,21 +1,42 @@
 // Exécute VRAIMENT le JS de index.html, avec un DOM minimal en trompe-l'oeil.
-// C'est le contrôle que `node --check` ne pouvait pas faire : une erreur de zone
-// morte temporelle est une erreur d'exécution, pas de syntaxe.
+// C'est le contrôle que `node --check` ne peut pas faire : la seule panne que
+// cette page ait connue en production était une ReferenceError de zone morte
+// temporelle -- une erreur d'exécution, pas de syntaxe.
+//
+//   node test_page.js index.html
 const fs = require("fs");
-const path = require("path");
 
 const html = fs.readFileSync(process.argv[2], "utf8");
 const js = html.match(/<script>([\s\S]*)<\/script>/)[1];
 
-// --- DOM en carton -------------------------------------------------------
+// --- DOM en carton --------------------------------------------------------
 function el(id) {
-  return {
-    id, value: "", hidden: false, className: "", innerHTML: "", textContent: "",
-    disabled: false, dataset: {}, files: [], children: [], listeners: {},
+  const node = {
+    id, value: "", hidden: false, className: "", textContent: "",
+    disabled: false, tabIndex: 0, dataset: {}, files: [], children: [],
+    listeners: {}, attrs: {},
+    setAttribute(k, v) { this.attrs[k] = v; },
+    getAttribute(k) { return this.attrs[k]; },
     addEventListener(ev, fn) { this.listeners[ev] = fn; },
-    append(...kids) { this.children.push(...kids); },
+    append(...kids) {
+      this.children.push(...kids);
+      // FIDÉLITÉ AU NAVIGATEUR, et elle est load-bearing : un <select> adopte
+      // la première option comme valeur courante dès qu'on la lui ajoute. Sans
+      // ça, le harnais testerait un menu qui ne sélectionne jamais rien et
+      // laisserait passer un bug bien réel.
+      const opts = this.children.filter(k => k.value);
+      if (opts.length && !opts.some(k => k.value === this.value)) {
+        this.value = opts[0].value;
+      }
+    },
     querySelectorAll() { return []; },
   };
+  let html = "";
+  Object.defineProperty(node, "innerHTML", {
+    get: () => html,
+    set(v) { html = v; if (v === "") node.children.length = 0; },
+  });
+  return node;
 }
 const nodes = {};
 global.document = {
@@ -26,14 +47,26 @@ global.location = { search: "?k=cle-de-test" };
 global.URLSearchParams = URLSearchParams;
 global.setTimeout = () => {};
 
+const UN_FICHIER = [{ name: "submission.c", template: "" }];
+const CATALOGUE = [
+  { id: "tp1", mode: "quiz", label: "TP1 : encodage binaire",
+    group: "TP 1", short: "encodage binaire", files: [] },
+  { id: "tp2-ex0", mode: "io", label: "TP2 : ex.0 âge",
+    group: "TP 2", short: "ex.0 âge", files: UN_FICHIER },
+  { id: "tp2-ex3", mode: "io", label: "TP2 : ex.3 loi d'Ohm",
+    group: "TP 2", short: "ex.3 loi d'Ohm", files: UN_FICHIER },
+  { id: "tp6-ex1", mode: "unity", label: "TP6 : ex.1 est_bissextile",
+    group: "TP 6", short: "ex.1 est_bissextile",
+    files: [{ name: "calendrier.h", template: "#define VRAI 1\n" },
+            { name: "calendrier.c", template: "#include \"calendrier.h\"\n" }] },
+];
+
 const calls = [];
+let SUBMIT_RESPONSE;
 global.fetch = async (url, opts) => {
   calls.push({ url, opts });
   if (url === "tps.json") {
-    return { ok: true, status: 200, json: async () => ([
-      { id: "tp1", mode: "quiz", label: "TP1 : encodage" },
-      { id: "tp2-ex0", mode: "io", label: "TP2 : ex.0" },
-    ]) };
+    return { ok: true, status: 200, json: async () => CATALOGUE };
   }
   if (url.startsWith("quiz/")) {
     return { ok: true, status: 200, json: async () => ({
@@ -44,9 +77,7 @@ global.fetch = async (url, opts) => {
   if (url === "submit") return SUBMIT_RESPONSE;
   return { ok: true, status: 200, json: async () => ({ state: "queued", position: 1 }) };
 };
-let SUBMIT_RESPONSE;
 
-// --- Chargement ----------------------------------------------------------
 new Function(js)();
 
 const sleep = () => new Promise((r) => setImmediate(r));
@@ -55,13 +86,38 @@ function check(cond, label) {
   console.log((cond ? "ok   " : "ÉCHEC ") + label);
   if (!cond) failures++;
 }
+const shown = () => nodes.out.children.map(c => c.textContent).join(" ");
+const contexte = () => nodes.now.children.map(c => c.textContent).join(" | ");
+
+function choisir(groupe, id) {
+  nodes.tp.value = groupe;
+  nodes.tp.listeners.change();
+  if (id) { nodes.ex.value = id; nodes.ex.listeners.change(); }
+}
 
 (async () => {
-  await sleep(); await sleep();           // laisse le fetch de tps.json se résoudre
+  await sleep(); await sleep();
   check(calls.some(c => c.url === "tps.json"), "le catalogue est demandé au chargement");
 
+  // --- Le sélecteur à deux niveaux ---
+  check(nodes.tp.children.map(o => o.value).join(",") === "TP 1,TP 2,TP 6",
+        "le premier menu liste les TP, sans doublon");
+  choisir("TP 2");
+  check(nodes.ex.children.map(o => o.value).join(",") === "tp2-ex0,tp2-ex3",
+        "le second menu ne montre que les exercices du TP choisi");
+  check(nodes.ex.children[0].textContent === "ex.0 âge",
+        "le second menu n'y répète pas le préfixe « TP2 : »");
+  check(nodes.exwrap.hidden === false, "le second menu est visible quand il sert");
+  check(/ex\.0/.test(contexte()), "la barre de contexte nomme l'exercice courant");
+  check(/main\(\)/.test(contexte()), "et rappelle ce qu'on attend comme soumission");
+
+  choisir("TP 1");
+  check(nodes.exwrap.hidden === true,
+        "un TP sans exercices masque le second menu au lieu d'en offrir un seul");
+  check(/réponses à saisir/.test(contexte()), "la pastille suit le mode du TP");
+
   // --- Le cas qui était cassé : une soumission de code ---
-  nodes.tp.value = "tp2-ex0";
+  choisir("TP 2", "tp2-ex3");
   nodes.code.value = "int main(void){return 0;}";
   SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "a".repeat(32) }) };
   calls.length = 0;
@@ -72,11 +128,15 @@ function check(cond, label) {
   check(!!post, "le fetch de soumission part réellement");
   if (post) {
     const sent = JSON.parse(post.opts.body);
-    check(sent.code === "int main(void){return 0;}", "le code est bien dans la charge utile");
-    check(sent.tp === "tp2-ex0" && sent.key === "cle-de-test", "TP et clé transmis");
+    check(sent.files["submission.c"] === "int main(void){return 0;}",
+          "le code est bien dans la charge utile, sous son nom de fichier");
+    check(sent.tp === "tp2-ex3" && sent.key === "cle-de-test",
+          "l'exercice envoyé est celui du SECOND menu, pas le TP");
     check(!("answers" in sent), "pas de réponses de quiz sur un TP de code");
   }
-  check(!/injoignable|ne répond pas/.test(nodes.out.children.map(c => c.textContent).join(" ")),
+  check(nodes.tabs.hidden === true,
+        "un exercice à un seul fichier n'affiche pas de barre d'onglets");
+  check(!/injoignable|ne répond pas/.test(shown()),
         "aucune erreur affichée sur le chemin heureux");
 
   // --- Une réponse non JSON (page de blocage Cloudflare, erreur nginx) ---
@@ -85,8 +145,7 @@ function check(cond, label) {
   calls.length = 0;
   await nodes.go.listeners.click();
   await sleep(); await sleep();
-  const shown = nodes.out.children.map(c => c.textContent).join(" ");
-  check(/403/.test(shown), "un blocage HTML affiche son vrai statut : " + JSON.stringify(shown));
+  check(/403/.test(shown()), "un blocage HTML affiche son vrai statut");
 
   // --- Coloration syntaxique ---
   const colorer = (src) => {
@@ -110,22 +169,57 @@ function check(cond, label) {
   check(!/<script/i.test(x) && !/<img/i.test(x), "aucune balise brute ne survit");
   check(x.includes("&lt;script&gt;"), "le HTML de l'étudiant est échappé");
 
-  // Priorité des branches : un // dans une chaîne n'ouvre pas un commentaire,
-  // une apostrophe dans un commentaire n'ouvre pas une chaîne.
   const p = colorer('char *u = "http://x"; // l\'heure\nint apres;');
   check(/class="ts">"http:\/\/x"/.test(p), "le // d'une chaîne reste une chaîne");
   check(/class="tk">int</.test(p), "le code après un commentaire reste coloré");
 
-  // Le texte doit survivre intact : on colore, on ne réécrit pas.
   const brut = 'int x = 3;\n\tfloat y;\n';
-  const html = colorer(brut);
-  const rendu = html.replace(/<[^>]*>/g, "")
-                    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-                    .replace(/&amp;/g, "&");
+  const rendu = colorer(brut).replace(/<[^>]*>/g, "")
+                  .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
   check(rendu === brut + "\n", "le texte coloré est identique à la source");
 
+  // --- Multi-fichiers : un module .h + .c ---
+  choisir("TP 6", "tp6-ex1");
+  check(nodes.tabs.hidden === false, "un module affiche sa barre d'onglets");
+  check(nodes.tabs.children.map(o => o.textContent).join(",")
+        === "calendrier.h,calendrier.c", "un onglet par fichier imposé par l'énoncé");
+  check(nodes.code.value === "#define VRAI 1\n",
+        "le premier onglet s'ouvre pré-rempli avec son gabarit");
+  check(nodes.tabs.children[0].getAttribute("aria-selected") === "true" &&
+        nodes.tabs.children[1].getAttribute("aria-selected") === "false",
+        "l'onglet courant est annoncé aux lecteurs d'écran");
+
+  // LE BUG QUI NE SE PARDONNE PAS : perdre le travail en changeant d'onglet.
+  nodes.code.value = "#define VRAI 1\nint est_bissextile(int annee);\n";
+  nodes.tabs.children[1].listeners.click();
+  check(nodes.code.value === '#include "calendrier.h"\n',
+        "changer d'onglet charge l'autre fichier");
+  nodes.code.value = '#include "calendrier.h"\nint est_bissextile(int a){return 1;}';
+  nodes.tabs.children[0].listeners.click();
+  check(nodes.code.value === "#define VRAI 1\nint est_bissextile(int annee);\n",
+        "et le premier fichier a bien été conservé");
+
+  // Les flèches déplacent la sélection, comme l'attend un tablist ARIA.
+  nodes.tabs.listeners.keydown({ key: "ArrowRight" });
+  check(nodes.code.value.startsWith('#include "calendrier.h"'),
+        "flèche droite passe à l'onglet suivant");
+
+  SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "c".repeat(32) }) };
+  calls.length = 0;
+  await nodes.go.listeners.click();
+  await sleep(); await sleep();
+  const modulePost = calls.find(c => c.url === "submit");
+  check(!!modulePost, "le module part en une seule soumission");
+  if (modulePost) {
+    const sent = JSON.parse(modulePost.opts.body);
+    check(Object.keys(sent.files).join(",") === "calendrier.h,calendrier.c",
+          "les deux fichiers sont envoyés, sous leurs noms imposés");
+    check(sent.files["calendrier.c"].includes("est_bissextile(int a)"),
+          "y compris l'onglet ouvert au moment du clic");
+  }
+
   // --- Mode quiz : des réponses, pas du code ---
-  nodes.tp.value = "tp1";
+  choisir("TP 1");
   nodes.quiz.querySelectorAll = () => [{ dataset: { qid: "q1" }, value: "00010111" }];
   SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "b".repeat(32) }) };
   calls.length = 0;
@@ -135,6 +229,7 @@ function check(cond, label) {
   check(!!quizPost, "le fetch part aussi en mode quiz");
   if (quizPost) {
     const sent = JSON.parse(quizPost.opts.body);
+    check(sent.tp === "tp1", "le quiz est soumis sous l'identifiant du TP");
     check(sent.answers && sent.answers.q1 === "00010111", "les réponses sont transmises");
     check(!("code" in sent), "pas de code sur un TP de quiz");
   }

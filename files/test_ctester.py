@@ -314,7 +314,7 @@ def test_detect_mode():
     tmp = tempfile.mkdtemp(prefix="ctester-")
     try:
         for name, fichier in (("quiz", "quiz.json"), ("io", "io.json"),
-                              ("unity", "test_pile.c"), ("vide", None)):
+                              ("unity", "unity.json"), ("vide", None)):
             d = os.path.join(tmp, name)
             os.makedirs(d)
             if fichier:
@@ -325,6 +325,71 @@ def test_detect_mode():
         assert runner.detect_mode(os.path.join(tmp, "vide")) is None
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_declared_files():
+    """Les noms de fichiers viennent de l'énoncé, jamais de l'étudiant."""
+    # Défaut : la forme des laboratoires 2 à 4, un seul programme.
+    assert runner.declared_files({}) == [{"name": "submission.c", "template": ""}]
+
+    module = runner.declared_files({"files": [
+        {"name": "calendrier.h", "template": "#define VRAI 1\n"},
+        {"name": "calendrier.c"},
+    ]})
+    assert [f["name"] for f in module] == ["calendrier.h", "calendrier.c"]
+    assert module[0]["template"] == "#define VRAI 1\n"
+    assert module[1]["template"] == ""
+
+    # La configuration est écrite à la main : une faute de frappe ne doit pas
+    # devenir un chemin. Ce qui n'est pas un simple nom de fichier est ignoré.
+    sales = runner.declared_files({"files": [
+        {"name": "../../etc/passwd"}, {"name": "a/b.c"}, {"name": "bon.c"},
+        {"name": "script.sh"}, {"name": ".hidden"},
+    ]})
+    assert [f["name"] for f in sales] == ["bon.c"], sales
+    # Et si TOUT est rejeté, on retombe sur le défaut plutôt que sur zéro fichier.
+    assert runner.declared_files({"files": [{"name": "x.sh"}]})[0]["name"] \
+        == "submission.c"
+
+
+def test_catalogue_order_and_grouping():
+    """L'ordre du menu est NUMÉRIQUE, et le regroupement sort du nom du dossier.
+
+    Le tri texte est le piège : avec 13 TP, tp10 passerait avant tp2 et le menu
+    partirait en désordre au dixième laboratoire -- invisible tant qu'il n'y en
+    a que deux.
+    """
+    assert runner.group_of("tp2-ex3") == "TP 2"
+    assert runner.group_of("tp10") == "TP 10"
+    assert runner.group_of("bricolage") == "Autres"
+
+    desordre = ["tp10-ex1", "tp2-ex3", "tp1", "tp2-ex0", "tp13-ex0", "bricolage"]
+    assert sorted(desordre, key=runner.sort_key) == [
+        "tp1", "tp2-ex0", "tp2-ex3", "tp10-ex1", "tp13-ex0", "bricolage"]
+
+    tmp = tempfile.mkdtemp(prefix="ctester-")
+    ancien = runner.TESTS
+    try:
+        runner.TESTS = tmp
+        for name, label in (("tp1", "TP1 : encodage"),
+                            ("tp2-ex0", "TP2 : ex.0 âge"),
+                            ("tp10-ex0", "TP 10 — ex.0 pointeurs")):
+            os.makedirs(os.path.join(tmp, name))
+            conf = "quiz.json" if name == "tp1" else "io.json"
+            with open(os.path.join(tmp, name, conf), "w", encoding="utf-8") as fh:
+                json.dump({"label": label, "questions": [], "cases": []}, fh)
+        entries = runner.catalogue()
+    finally:
+        runner.TESTS = ancien
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    assert [e["id"] for e in entries] == ["tp1", "tp2-ex0", "tp10-ex0"], entries
+    assert [e["group"] for e in entries] == ["TP 1", "TP 2", "TP 10"]
+    # Le second menu ne répète pas ce que le premier affiche déjà. Deux formes de
+    # préfixe sont acceptées, parce que les libellés sont écrits à la main.
+    assert [e["short"] for e in entries] == ["encodage", "ex.0 âge", "ex.0 pointeurs"]
+    # Et un libellé sans préfixe survit entier plutôt que d'être raboté.
+    assert runner.PREFIX_RE.sub("", "Aire d'un cercle") == "Aire d'un cercle"
 
 
 def test_docker_argv():
@@ -341,6 +406,13 @@ def test_docker_argv():
         for i, item in enumerate(argv):
             if item == "-v":
                 assert argv[i + 1].endswith(":ro"), argv[i + 1]
+
+    # LE RÉPERTOIRE DE SOURCES, pas un fichier : `#include "calendrier.h"` ne
+    # résout que si le .h et le .c sont montés côte à côte.
+    for mode in ("unity", "io"):
+        argv = runner.docker_argv("/spool/abc", "/tests/tp1", "c", mode, "n")
+        assert "/spool/abc/src:/in/src:ro" in " ".join(argv), mode
+        assert "submission.c" not in " ".join(argv), mode
 
     io_argv = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "io", "n0nce")
     mounts = " ".join(io_argv)
@@ -416,14 +488,20 @@ def test_http_end_to_end():
     os.makedirs(spool)
     os.makedirs(os.path.join(static, "quiz"))
     with open(os.path.join(static, "tps.json"), "w", encoding="utf-8") as fh:
-        json.dump([{"id": "tp1", "mode": "quiz", "label": "TP1"},
-                   {"id": "tp2-ex3", "mode": "io", "label": "TP2 ex.3"}], fh)
+        json.dump([
+            {"id": "tp1", "mode": "quiz", "label": "TP1", "files": []},
+            {"id": "tp2-ex3", "mode": "io", "label": "TP2 ex.3",
+             "files": [{"name": "submission.c", "template": ""}]},
+            {"id": "tp6-ex1", "mode": "unity", "label": "TP6 ex.1",
+             "files": [{"name": "calendrier.h", "template": ""},
+                       {"name": "calendrier.c", "template": ""}]},
+        ], fh)
     with open(os.path.join(static, "quiz", "tp1.json"), "w", encoding="utf-8") as fh:
         json.dump(runner.public_quiz(QUIZ), fh, ensure_ascii=False)
     with open(os.path.join(static, "index.html"), "w", encoding="utf-8") as fh:
         fh.write("<!doctype html>")
 
-    app.SPOOL, app.STATIC, app.KEY, app.QUEUE_MAX = spool, static, "cle-de-test", 2
+    app.SPOOL, app.STATIC, app.KEY, app.QUEUE_MAX = spool, static, "cle-de-test", 4
     app.Handler.quota = app.Quota(cooldown=0, hourly=100)  # testés ailleurs
     srv = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -442,13 +520,15 @@ def test_http_end_to_end():
             return resp.status, raw
 
     def submit(**over):
-        payload = {"key": "cle-de-test", "tp": "tp2-ex3", "code": "int main(){}"}
+        payload = {"key": "cle-de-test", "tp": "tp2-ex3",
+                   "files": {"submission.c": "int main(){}"}}
         payload.update(over)
         return call("POST", "/submit", payload)
 
     try:
         assert call("GET", "/healthz") == (200, {"ok": True})
-        assert [t["id"] for t in call("GET", "/tps.json")[1]] == ["tp1", "tp2-ex3"]
+        assert ([t["id"] for t in call("GET", "/tps.json")[1]]
+                == ["tp1", "tp2-ex3", "tp6-ex1"])
         assert call("GET", "/")[0] == 200
         # Rien d'autre n'est servi : liste blanche, pas de racine de fichiers.
         for path in ("/etc/passwd", "/../app/app.py", "/app.py", "/tps.json/../app.py"):
@@ -464,19 +544,35 @@ def test_http_end_to_end():
         assert submit(key="")[0] == 403
         assert submit(tp="../etc")[0] == 400
         assert submit(tp="tp9")[0] == 400
-        assert submit(code="   ")[0] == 400
-        assert submit(code="x" * (app.MAX_CODE + 1))[0] == 413
+        assert submit(files={"submission.c": "   "})[0] == 400
+        assert submit(files={"submission.c": "x" * (app.MAX_CODE + 1)})[0] == 413
+        assert submit(files="pas un objet")[0] == 400
+        # LA LISTE BLANCHE DES NOMS. Un fichier que le TP ne déclare pas est
+        # refusé -- pas ignoré en silence, sinon l'étudiant croit l'avoir soumis.
+        rejet = submit(files={"submission.c": "int main(){}", "evil.c": "x"})
+        assert rejet[0] == 400 and "evil.c" in rejet[1]["error"], rejet
         # Un quiz veut des réponses, pas du code.
         assert call("POST", "/submit",
-                    {"key": "cle-de-test", "tp": "tp1", "code": "int main(){}"})[0] == 400
+                    {"key": "cle-de-test", "tp": "tp1",
+                     "files": {"submission.c": "int main(){}"}})[0] == 400
 
-        status, body = submit(code="int main(void){return 0;}")
+        status, body = submit(files={"submission.c": "int main(void){return 0;}"})
         assert status == 200 and len(body["id"]) == 32, body
         job = os.path.join(spool, body["id"])
         with open(os.path.join(job, "job.json"), encoding="utf-8") as fh:
             assert json.load(fh)["tp"] == "tp2-ex3"
-        with open(os.path.join(job, "submission.c"), encoding="utf-8") as fh:
-            assert fh.read() == "int main(void){return 0;}"
+        with open(os.path.join(job, "files.json"), encoding="utf-8") as fh:
+            assert json.load(fh) == {"submission.c": "int main(void){return 0;}"}
+
+        # Un module : les deux fichiers arrivent, sous leurs noms imposés.
+        status, mod = call("POST", "/submit", {
+            "key": "cle-de-test", "tp": "tp6-ex1",
+            "files": {"calendrier.h": "#define VRAI 1",
+                      "calendrier.c": "#include \"calendrier.h\""}})
+        assert status == 200, mod
+        with open(os.path.join(spool, mod["id"], "files.json"), encoding="utf-8") as fh:
+            depose = json.load(fh)
+        assert sorted(depose) == ["calendrier.c", "calendrier.h"], depose
 
         # Une soumission de quiz dépose answers.json, pas submission.c : c'est
         # ce que le worker lira, et il n'y a pas de conteneur au bout.
@@ -499,9 +595,11 @@ def test_http_end_to_end():
         assert call("GET", "/r/" + "f" * 32)[0] == 404      # balayé ou inexistant
         assert call("GET", "/r/pasunid")[0] == 400
 
-        # Il reste le job de quiz en file ; un de plus atteint QUEUE_MAX=2.
-        assert submit(code="int b;")[0] == 200
-        assert submit(code="int c;")[0] == 503
+        # Il reste le module et le quiz en file (2). Deux de plus atteignent
+        # QUEUE_MAX=4, et le suivant est refusé.
+        assert submit(files={"submission.c": "int b;"})[0] == 200
+        assert submit(files={"submission.c": "int c;"})[0] == 200
+        assert submit(files={"submission.c": "int d;"})[0] == 503
     finally:
         srv.shutdown()
         srv.server_close()

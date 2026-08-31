@@ -100,16 +100,34 @@ tp5/allowed_includes.txt      ← optionnel, tous modes compilés
 unity/{unity.c,unity.h,unity_internals.h}
 ```
 
-Un répertoire = un TP = une entrée du menu déroulant (`unity/` et tout ce qui ne
-correspond pas à `[a-z0-9_-]{1,32}` sont exclus). **Le mode se déduit du fichier
-présent**, il n'est configuré nulle part — un champ `"mode"` serait une deuxième
-source de vérité à tenir d'accord avec la première.
+Un répertoire = une entrée du menu (`unity/` et tout ce qui ne correspond pas à
+`[a-z0-9_-]{1,32}` sont exclus). **Le mode se déduit du fichier présent**, il
+n'est configuré nulle part — un champ `"mode"` serait une deuxième source de
+vérité à tenir d'accord avec la première.
+
+**Le nom du répertoire porte la structure du cours** : `tp<N>` ou `tp<N>-ex<M>`.
+Il donne le regroupement du premier menu (« TP 7 ») et l'ordre d'affichage, qui
+est **numérique** — trié comme du texte, `tp10` passerait avant `tp2`, ce qui ne
+se voit pas avec deux laboratoires et met le menu en désordre au dixième. Un nom
+hors convention finit dans un groupe « Autres », à la fin, plutôt que de
+s'insérer n'importe où.
+
+Le `label` gagne à commencer par `TP<N> :` — le second menu retire ce préfixe,
+que le premier affiche déjà, et garde le libellé entier s'il n'y est pas.
 
 | Fichier | Mode | Ce que fait le juge |
 |---|---|---|
 | `quiz.json` | **quiz** | corrige des réponses. Aucune compilation, aucun conteneur, verdict en millisecondes |
 | `io.json` | **io** | compile un programme complet **avec** son `main()`, l'exécute une fois par cas sur une entrée standard, compare la sortie |
-| `test_*.c` | **unity** | compile les fonctions de l'étudiant, **sans** `main()`, et les lie aux tests |
+| `unity.json` | **unity** | compile le module de l'étudiant, **sans** `main()`, et le lie aux tests |
+
+**Une soumission est un ensemble de fichiers, pas un fichier.** À partir du
+laboratoire 5, l'étudiant écrit un module — `calendrier.h` + `calendrier.c` — et
+les deux doivent être montés côte à côte pour que son propre `#include` résolve.
+La configuration du TP **déclare les noms**, qui deviennent les onglets de
+l'éditeur et la liste blanche que l'API oppose à la soumission ; l'étudiant ne
+les choisit pas, parce qu'un fichier mal nommé ne compile pas et que sanctionner
+ça n'apprend rien. Sans déclaration, un seul fichier `submission.c`.
 
 Le format de chacun est documenté dans le README du dépôt de tests, avec les
 pièges qui comptent (la règle « toute valeur attendue dépasse 1 », le champ
