@@ -99,7 +99,28 @@ ctester_max_code_bytes: 65536
 # par ne pas aimer C23 (il est écrit en C99), c'est son problème et pas celui du
 # cours. Deux unités de traduction, deux normes, un seul édition de liens --
 # c'est légal et c'est ce qui rend ce choix gratuit.
-ctester_c_std: c23
+#
+# `gnu23` ET PAS `c23`, ET CE N'EST PAS UN DÉTAIL DE PURETÉ. Un mode ISO strict
+# définit __STRICT_ANSI__, ce qui désactive _DEFAULT_SOURCE dans la glibc, ce qui
+# retire M_PI de <math.h> -- M_PI n'est pas dans le C standard, c'est une
+# extension POSIX. L'exercice 4 du TP2 (aire d'un cercle) échouait donc à la
+# compilation sur du code parfaitement correct, avec « 'M_PI' undeclared ».
+#
+# Mesuré le 2026-08-31 : `-std=c17` échoue, `-std=gnu17` compile, et le même code
+# sans -lm compile et lie quand même (glibc a fusionné libm dans libc). Ce n'a
+# donc jamais été un problème d'édition de liens, contrairement à ce que le
+# commentaire de l'énoncé laisse croire.
+#
+# `-D_DEFAULT_SOURCE` corrigerait aussi le symptôme, mais seulement les EN-TÊTES.
+# CLion compile avec un dialecte gnu (CMAKE_C_EXTENSIONS vaut ON par défaut), donc
+# une extension GNU acceptée par l'IDE de l'étudiant serait encore refusée ici, et
+# on rejouerait la même scène plus tard dans la session. Le juge doit accepter ce
+# que leur outil accepte : c'est toute la définition de « seamless ».
+#
+# LIÉ À LA VERSION DE gcc : `gnu23` demande gcc 14 (l'image du bac à sable). Sur
+# gcc 13 il faut écrire `gnu2x`. Repasser cette valeur à `c23` recasse M_PI en
+# silence, jusqu'à ce qu'un étudiant tombe dessus.
+ctester_c_std: gnu23
 
 # --- Limites du bac à sable ---------------------------------------------
 # TROIS chronomètres, parce qu'ils ne rattrapent pas les mêmes pannes :

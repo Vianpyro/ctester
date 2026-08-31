@@ -145,10 +145,24 @@ test doivent tenir dans `[A-Za-z0-9_]{1,64}` pour remonter à l'étudiant — ce
 sont eux qu'il verra, donc autant les écrire pour lui : `test_pop_pile_vide`
 plutôt que `test_3b`.
 
-**C23** (`-std=c23`, gcc 14) est appliqué au fichier de l'étudiant. En mode
-unity, les tests et Unity sont compilés à part et gardent le `-std` par défaut :
-deux unités de traduction, deux normes, une seule édition de liens. Si Unity
-finit par ne pas aimer C23, ça ne touche pas le cours.
+**C23 en dialecte GNU** (`-std=gnu23`, gcc 14) est appliqué au fichier de
+l'étudiant. En mode unity, les tests et Unity sont compilés à part et gardent le
+`-std` par défaut : deux unités de traduction, deux normes, une seule édition de
+liens. Si Unity finit par ne pas aimer C23, ça ne touche pas le cours.
+
+**`gnu23` et pas `c23`**, et ça a coûté un exercice avant d'être compris : un
+mode ISO strict définit `__STRICT_ANSI__`, la glibc désactive alors
+`_DEFAULT_SOURCE`, et `M_PI` disparaît de `<math.h>` — `M_PI` n'est pas dans le C
+standard, c'est une extension POSIX. Du code correct, qui compile dans CLion,
+était refusé par le juge avec `'M_PI' undeclared`.
+
+CLion compile en dialecte gnu (`CMAKE_C_EXTENSIONS` vaut `ON` par défaut). Le
+juge doit accepter ce que l'outil de l'étudiant accepte, sinon on rejoue la même
+scène à chaque extension GNU rencontrée. `-D_DEFAULT_SOURCE` aurait soigné le
+symptôme sans traiter ça.
+
+Et non, ce n'était **pas** `-lm`, que le juge passe déjà : la glibc moderne a
+fusionné libm dans libc, et l'erreur était de compilation, pas d'édition de liens.
 
 **Deux scripts de bac à sable, et ils ne sont pas interchangeables.**
 `build-unity.sh` tait la stderr de l'édition de liens, parce qu'elle citerait le

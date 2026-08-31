@@ -245,6 +245,22 @@ def test_check_case_diagnostics():
     faux = runner.check_case(case, "resultat : 42.0", tol)
     assert faux == "la sortie ne contient pas les valeurs attendues, dans l'ordre"
 
+    # Le cas réel de l'exercice 7 : le calcul est juste, le printf oublie la
+    # troisième valeur. Deux nombres affichés, trois attendus -- déduction sûre,
+    # une sous-suite de 3 ne tient pas dans 2 nombres.
+    partiel = runner.check_case(
+        {"expect": [4, 3, 4]},
+        "Entrez le nombre de pennys : On obtient ainsi 4 livre(s) et 3 shilling(s).",
+        tol)
+    assert "que 2 nombres" in partiel and "en attend 3" in partiel, partiel
+    # Le NOMBRE de valeurs est dans l'énoncé ; leurs VALEURS ne sortent pas d'ici.
+    assert "[4, 3, 4]" not in partiel
+
+    # Assez de nombres mais les mauvais : on retombe sur le message générique,
+    # parce que là c'est bien la formule qui est fausse.
+    assert runner.check_case({"expect": [4, 3, 4]}, "9 puis 9 puis 9", tol) == \
+        "la sortie ne contient pas les valeurs attendues, dans l'ordre"
+
     # Et surtout, aucun faux positif sur des mots français ordinaires.
     for mot in ("inferieur", "inférieur", "nanometre", "information", "infini"):
         assert runner.NONFINITE_RE.search(mot) is None, mot

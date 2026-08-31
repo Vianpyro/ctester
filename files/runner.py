@@ -324,6 +324,20 @@ def check_case(case, output, tol):
         if not numbers:
             return ("ta sortie ne contient aucun nombre : vérifie que tu "
                     "affiches bien le résultat, et que c'est le bon exercice")
+        if len(numbers) < len(expected):
+            # DÉDUCTION SÛRE, pas une heuristique : une sous-suite de M valeurs
+            # ne peut pas tenir dans moins de M nombres. Quand un exercice en
+            # demande trois et que le programme en affiche deux, c'est presque
+            # toujours un calcul juste et un printf incomplet -- le dire évite
+            # de chercher une erreur de formule qui n'existe pas.
+            #
+            # Le NOMBRE de valeurs attendues n'est pas un secret : il est dans
+            # l'énoncé. Leurs valeurs, elles, ne sortent toujours pas d'ici.
+            return ("ta sortie ne contient que %d nombre%s, or ce cas en attend "
+                    "%d : vérifie que tu affiches TOUTES les valeurs demandées "
+                    "par l'énoncé" % (len(numbers),
+                                      "" if len(numbers) == 1 else "s",
+                                      len(expected)))
         return "la sortie ne contient pas les valeurs attendues, dans l'ordre"
     return ""
 
