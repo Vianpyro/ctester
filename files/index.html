@@ -21,12 +21,18 @@
     --bg: #fbfbfa; --fg: #1a1a18; --muted: #6b6b66;
     --line: #d8d8d2; --card: #fff;
     --ok: #1f7a3d; --bad: #b3261e; --wait: #8a6d1f;
+    --syn-comment: #7d8a7d; --syn-string: #1f7a3d; --syn-pre: #9b2f8f;
+    --syn-key: #1d4ed8; --syn-num: #a55200; --syn-fn: #7a5c00;
+    --syn-const: #8a3d9b;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #16171a; --fg: #e8e8e4; --muted: #9a9a94;
       --line: #303236; --card: #1d1f23;
       --ok: #6cc48a; --bad: #f2837c; --wait: #d8bb6a;
+      --syn-comment: #6e7a70; --syn-string: #9ecf8a; --syn-pre: #d68fd0;
+      --syn-key: #7fb0f2; --syn-num: #e0a06a; --syn-fn: #e8d08a;
+      --syn-const: #c9a2e8;
     }
   }
   * { box-sizing: border-box; }
@@ -43,11 +49,59 @@
     font: inherit; color: inherit; background: var(--card);
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem .7rem;
   }
-  textarea {
-    width: 100%; min-height: 22rem; resize: vertical; tab-size: 4;
+  /* L'ÉDITEUR COLORÉ, ET POURQUOI IL EST BÂTI COMME ÇA.
+     Un <textarea> ne sait afficher que du texte brut : aucune propriété CSS ne
+     colore son contenu. La seule façon de garder une vraie zone de saisie --
+     avec Ctrl+Z, le collage, le correcteur du navigateur, la sélection -- est
+     de superposer un <pre> coloré DERRIÈRE un textarea dont le texte est
+     transparent. On voit le pre, on tape dans le textarea.
+
+     CE QUI CASSE CE MONTAGE : la moindre différence de métrique entre les deux.
+     Police, taille, interligne, marge intérieure, bordure, tabulation, gestion
+     des espaces : tout ce qui décale le texte d'un pixel décale les couleurs.
+     Les deux règles ci-dessous sont donc écrites ENSEMBLE et doivent le rester.
+     Si les couleurs dérivent du texte, c'est ici qu'il faut regarder. */
+  #editor { position: relative; }
+  #hl, #code {
+    margin: 0; box-sizing: border-box;
+    padding: .5rem .7rem;
+    border: 1px solid var(--line); border-radius: 6px;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 13.5px; white-space: pre;
+    font-size: 13.5px; line-height: 1.5; tab-size: 4;
+    white-space: pre;
   }
+  #hl {
+    position: absolute; inset: 0;
+    background: var(--card); color: var(--fg);
+    overflow: hidden;          /* le défilement est piloté par le textarea */
+    pointer-events: none;      /* les clics traversent jusqu'à la saisie */
+  }
+  #code {
+    position: relative; width: 100%; min-height: 22rem; resize: vertical;
+    overflow: auto;
+    background: transparent;
+    color: transparent;        /* on lit le calque, pas le textarea */
+    caret-color: var(--fg);    /* mais le curseur, lui, doit rester visible */
+  }
+  /* Le texte du textarea est transparent -- son PLACEHOLDER l'était donc aussi,
+     et l'invite « colle ici ton fichier » disparaissait. Il faut le recolorer
+     explicitement. */
+  #code::placeholder { color: var(--muted); opacity: 1; }
+  /* Sélection semi-transparente, et c'est structurel : le textarea est AU-DESSUS
+     du calque coloré, donc une sélection opaque masquerait le texte qu'on est en
+     train de sélectionner. En rgba() plutôt qu'en color-mix() pour que ça marche
+     aussi sur un navigateur d'école qui a trois ans. */
+  #code::selection { background: rgba(125, 160, 255, .35); }
+
+  /* Palette de coloration. Volontairement sobre : six catégories, pas trente,
+     parce qu'un TP de première session n'en contient pas plus. */
+  .tc { color: var(--syn-comment); font-style: italic; }
+  .ts { color: var(--syn-string); }
+  .tp { color: var(--syn-pre); }
+  .tk { color: var(--syn-key); font-weight: 600; }
+  .tn { color: var(--syn-num); }
+  .tf { color: var(--syn-fn); }
+  .tu { color: var(--syn-const); }
   button { cursor: pointer; font-weight: 600; }
   button:disabled { cursor: not-allowed; opacity: .55; }
   #out {
@@ -92,8 +146,11 @@
     <button id="go">Tester</button>
   </div>
 
-  <textarea id="code" spellcheck="false"
-            placeholder="// Colle ici le contenu de ton fichier .c"></textarea>
+  <div id="editor">
+    <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
+    <textarea id="code" spellcheck="false"
+              placeholder="// Colle ici le contenu de ton fichier .c"></textarea>
+  </div>
 
   <div id="quiz" hidden></div>
 
@@ -160,11 +217,13 @@ $("tp").addEventListener("change", switchMode);
 function switchMode() {
   const tp = current();
   const quiz = tp && tp.mode === "quiz";
-  $("code").hidden = quiz;
+  // #editor et pas #code : le calque coloré est un frère du textarea, cacher
+  // l'un sans l'autre laisserait le pre seul à l'écran.
+  $("editor").hidden = quiz;
   $("file").hidden = quiz;
   $("quiz").hidden = !quiz;
   out.className = "";
-  if (quiz) loadQuiz(tp.id);
+  if (quiz) loadQuiz(tp.id); else paint();
 }
 
 async function loadQuiz(id) {
@@ -199,9 +258,61 @@ const answers = () => Object.fromEntries(
   [...$("quiz").querySelectorAll("input[data-qid]")].map(i => [i.dataset.qid, i.value])
 );
 
+// --- Coloration syntaxique -------------------------------------------------
+const ESC = {"&": "&amp;", "<": "&lt;", ">": "&gt;"};
+const esc = (s) => s.replace(/[&<>]/g, (c) => ESC[c]);
+
+const KEYWORDS = "auto|break|case|char|const|continue|default|do|double|else|" +
+  "enum|extern|float|for|goto|if|inline|int|long|register|restrict|return|" +
+  "short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|" +
+  "volatile|while|bool|true|false|NULL";
+
+// UNE SEULE passe et UNE SEULE alternation : l'ordre des branches EST la
+// priorité. Le commentaire d'abord, la chaîne ensuite -- sinon le `//` d'une
+// URL dans une chaîne ouvrirait un commentaire, et une apostrophe dans un
+// commentaire ouvrirait une chaîne. Colorer par remplacements successifs
+// produit exactement ces deux bugs, et ils sont pénibles à voir venir.
+const C_RE = new RegExp([
+  "(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)",                  // 1 commentaire
+  "(\"(?:\\\\.|[^\"\\\\\\n])*\"|'(?:\\\\.|[^'\\\\\\n])*')",  // 2 chaîne / caractère
+  "(^[ \\t]*#[ \\t]*\\w+)",                                  // 3 préprocesseur
+  "\\b(" + KEYWORDS + ")\\b",                                // 4 mot-clé
+  "\\b(\\d[\\w.]*)",                                         // 5 nombre
+  "([A-Za-z_]\\w*)(?=\\s*\\()",                              // 6 appel de fonction
+  "\\b([A-Z][A-Z0-9_]{2,})\\b"                               // 7 constante
+].join("|"), "gm");
+
+const CLASS = ["tc", "ts", "tp", "tk", "tn", "tf", "tu"];
+
+function highlight(src) {
+  let out = "", last = 0;
+  for (const m of src.matchAll(C_RE)) {
+    out += esc(src.slice(last, m.index));
+    const which = m.slice(1, CLASS.length + 1).findIndex(g => g !== undefined);
+    // ÉCHAPPEMENT APRÈS LE DÉCOUPAGE, JAMAIS AVANT. Tokeniser du HTML déjà
+    // échappé ferait matcher `&lt;` et `&amp;` comme du code -- et surtout,
+    // oublier d'échapper laisserait un printf("<script>") d'étudiant s'exécuter
+    // dans sa propre page. Tout ce qui sort d'ici passe par esc().
+    out += '<span class="' + CLASS[which] + '">' + esc(m[0]) + "</span>";
+    last = m.index + m[0].length;
+  }
+  // Le \n final : sans lui, la dernière ligne vide du textarea manque au calque
+  // et le défilement dérive d'une ligne en bas de fichier.
+  return out + esc(src.slice(last)) + "\n";
+}
+
+function paint() {
+  $("hlcode").innerHTML = highlight($("code").value);
+  $("hl").scrollTop = $("code").scrollTop;
+  $("hl").scrollLeft = $("code").scrollLeft;
+}
+
+$("code").addEventListener("input", paint);
+$("code").addEventListener("scroll", paint);
+
 $("file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
-  if (f) $("code").value = await f.text();
+  if (f) { $("code").value = await f.text(); paint(); }
 });
 
 // Les cas ratés : le numéro, LES ENTRÉES et TA sortie. Jamais la valeur

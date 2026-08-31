@@ -88,6 +88,42 @@ function check(cond, label) {
   const shown = nodes.out.children.map(c => c.textContent).join(" ");
   check(/403/.test(shown), "un blocage HTML affiche son vrai statut : " + JSON.stringify(shown));
 
+  // --- Coloration syntaxique ---
+  const colorer = (src) => {
+    nodes.code.value = src;
+    nodes.code.listeners.input();
+    return nodes.hlcode.innerHTML;
+  };
+
+  const c = colorer('#include <stdio.h>\nint main(void) {\n  // salut & fin\n' +
+                    '  printf("a > b & c");\n  return EXIT_SUCCESS;\n}\n');
+  check(/class="tk">int</.test(c), "les mots-clés sont colorés");
+  check(/class="tp">#include</.test(c), "les directives préprocesseur aussi");
+  check(/class="tf">printf</.test(c), "les appels de fonction aussi");
+  check(/class="tc">\/\/ salut &amp; fin</.test(c), "les commentaires aussi, échappés");
+  check(/class="tu">EXIT_SUCCESS</.test(c), "les constantes en majuscules aussi");
+  check(c.includes("&lt;stdio.h&gt;"), "les chevrons de #include sont échappés");
+
+  // LE POINT QUI COMPTE : la sortie va dans innerHTML. Du code étudiant non
+  // échappé s'exécuterait dans sa propre page.
+  const x = colorer('printf("<script>alert(1)</script>");\n/* <img onerror=x> */');
+  check(!/<script/i.test(x) && !/<img/i.test(x), "aucune balise brute ne survit");
+  check(x.includes("&lt;script&gt;"), "le HTML de l'étudiant est échappé");
+
+  // Priorité des branches : un // dans une chaîne n'ouvre pas un commentaire,
+  // une apostrophe dans un commentaire n'ouvre pas une chaîne.
+  const p = colorer('char *u = "http://x"; // l\'heure\nint apres;');
+  check(/class="ts">"http:\/\/x"/.test(p), "le // d'une chaîne reste une chaîne");
+  check(/class="tk">int</.test(p), "le code après un commentaire reste coloré");
+
+  // Le texte doit survivre intact : on colore, on ne réécrit pas.
+  const brut = 'int x = 3;\n\tfloat y;\n';
+  const html = colorer(brut);
+  const rendu = html.replace(/<[^>]*>/g, "")
+                    .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+                    .replace(/&amp;/g, "&");
+  check(rendu === brut + "\n", "le texte coloré est identique à la source");
+
   // --- Mode quiz : des réponses, pas du code ---
   nodes.tp.value = "tp1";
   nodes.quiz.querySelectorAll = () => [{ dataset: { qid: "q1" }, value: "00010111" }];
