@@ -366,28 +366,53 @@ def test_catalogue_order_and_grouping():
     desordre = ["tp10-ex1", "tp2-ex3", "tp1", "tp2-ex0", "tp13-ex0", "bricolage"]
     assert sorted(desordre, key=runner.sort_key) == [
         "tp1", "tp2-ex0", "tp2-ex3", "tp10-ex1", "tp13-ex0", "bricolage"]
+    # LE MÊME PIÈGE UN CRAN PLUS BAS : les exercices d'un TP sont triés entre
+    # eux, et ex10 ne doit pas passer avant ex2.
+    assert sorted(["ex10", "ex2", "ex1", "ex0"], key=runner.sort_key) == [
+        "ex0", "ex1", "ex2", "ex10"]
 
+    # Arborescence à DEUX NIVEAUX : un dossier par TP, un sous-dossier par
+    # exercice. Un TP dont la configuration est à sa racine (le quiz) reste une
+    # entrée à lui seul.
     tmp = tempfile.mkdtemp(prefix="ctester-")
     ancien = runner.TESTS
     try:
         runner.TESTS = tmp
-        for name, label in (("tp1", "TP1 : encodage"),
-                            ("tp2-ex0", "TP2 : ex.0 âge"),
-                            ("tp10-ex0", "TP 10 — ex.0 pointeurs")):
-            os.makedirs(os.path.join(tmp, name))
-            conf = "quiz.json" if name == "tp1" else "io.json"
-            with open(os.path.join(tmp, name, conf), "w", encoding="utf-8") as fh:
+        arbre = (("tp1", None, "quiz.json", "TP1 : encodage"),
+                 ("tp2", "ex0", "io.json", "TP2 : ex.0 âge"),
+                 ("tp2", "ex10", "io.json", "TP2 : ex.10 tardif"),
+                 ("tp2", "ex2", "io.json", "TP2 : ex.2 Watt"),
+                 ("tp10", "ex0", "unity.json", "TP 10 — ex.0 chaînes"))
+        for tp, exercice, conf, label in arbre:
+            d = os.path.join(tmp, tp) if exercice is None \
+                else os.path.join(tmp, tp, exercice)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, conf), "w", encoding="utf-8") as fh:
                 json.dump({"label": label, "questions": [], "cases": []}, fh)
         entries = runner.catalogue()
+        chemin_ex2 = runner.tp_path("tp2-ex2")
+        introuvable = runner.tp_path("tp99-ex1")
+        publiable = [{k: v for k, v in e.items() if k != "path"} for e in entries]
     finally:
         runner.TESTS = ancien
         shutil.rmtree(tmp, ignore_errors=True)
 
-    assert [e["id"] for e in entries] == ["tp1", "tp2-ex0", "tp10-ex0"], entries
-    assert [e["group"] for e in entries] == ["TP 1", "TP 2", "TP 10"]
+    assert [e["id"] for e in entries] == [
+        "tp1", "tp2-ex0", "tp2-ex2", "tp2-ex10", "tp10-ex0"], entries
+    # L'identifiant reste PLAT : il repart vers le navigateur et revient dans une
+    # soumission, et une barre oblique dedans rouvrirait la traversée de
+    # répertoire que TP_RE ferme.
+    assert all(runner.TP_RE.match(e["id"]) for e in entries)
+    assert chemin_ex2.endswith(os.path.join("tp2", "ex2")), chemin_ex2
+    assert introuvable is None
+    # Le chemin serveur ne doit pas partir vers le conteneur web.
+    assert all("path" not in e for e in publiable)
+    assert [e["group"] for e in entries] == [
+        "TP 1", "TP 2", "TP 2", "TP 2", "TP 10"]
     # Le second menu ne répète pas ce que le premier affiche déjà. Deux formes de
     # préfixe sont acceptées, parce que les libellés sont écrits à la main.
-    assert [e["short"] for e in entries] == ["encodage", "ex.0 âge", "ex.0 pointeurs"]
+    assert [e["short"] for e in entries] == [
+        "encodage", "ex.0 âge", "ex.2 Watt", "ex.10 tardif", "ex.0 chaînes"]
     # Et un libellé sans préfixe survit entier plutôt que d'être raboté.
     assert runner.PREFIX_RE.sub("", "Aire d'un cercle") == "Aire d'un cercle"
 

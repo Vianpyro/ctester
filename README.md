@@ -93,24 +93,31 @@ seule** (GitHub → Settings → Deploy keys, case *Allow write access* décoch�
 une clé volée sur le Dell ne peut alors pas réécrire les tests).
 
 ```
-tp1/quiz.json                 ← mode quiz
-tp2-ex3/io.json               ← mode io
-tp5/test_pile.c               ← mode unity
-tp5/allowed_includes.txt      ← optionnel, tous modes compilés
+tp1/quiz.json                 ← quiz : la config est à la racine du TP
+tp2/ex3/io.json               ← un sous-dossier par exercice
+tp6/ex1/unity.json
+tp6/ex1/test_calendrier.c
+tp6/ex1/allowed_includes.txt  ← optionnel, tous modes compilés
 unity/{unity.c,unity.h,unity_internals.h}
 ```
 
-Un répertoire = une entrée du menu (`unity/` et tout ce qui ne correspond pas à
-`[a-z0-9_-]{1,32}` sont exclus). **Le mode se déduit du fichier présent**, il
-n'est configuré nulle part — un champ `"mode"` serait une deuxième source de
-vérité à tenir d'accord avec la première.
+**Deux niveaux : un dossier par TP, un sous-dossier par exercice.** À 13
+laboratoires de 8 exercices, une racine plate ferait 104 dossiers. Un TP dont la
+configuration est à sa racine — le quiz, qui n'a pas d'exercices — reste une
+entrée à lui seul. **Le mode se déduit du fichier présent**, il n'est configuré
+nulle part : un champ `"mode"` serait une deuxième source de vérité.
 
-**Le nom du répertoire porte la structure du cours** : `tp<N>` ou `tp<N>-ex<M>`.
-Il donne le regroupement du premier menu (« TP 7 ») et l'ordre d'affichage, qui
-est **numérique** — trié comme du texte, `tp10` passerait avant `tp2`, ce qui ne
-se voit pas avec deux laboratoires et met le menu en désordre au dixième. Un nom
-hors convention finit dans un groupe « Autres », à la fin, plutôt que de
-s'insérer n'importe où.
+**L'IDENTIFIANT PUBLIC RESTE PLAT** : `tp6-ex1`, jamais `tp6/ex1`. Il part vers
+le navigateur, revient dans une soumission, et est ensuite joint à un chemin
+racine — y autoriser une barre oblique rouvrirait exactement la traversée de
+répertoire que `TP_RE` existe pour fermer. Le chemin réel est porté par le
+catalogue (`tp_path()`), jamais reconstruit par découpage du nom, et il est
+**retiré avant publication** vers le conteneur web : c'est un chemin serveur, il
+décrit l'arborescence des secrets et n'apprend rien au navigateur.
+
+L'ordre du menu est **numérique à tous les niveaux** : trié comme du texte,
+`tp10` passerait avant `tp2` et `ex10` avant `ex2`. Un nom hors convention finit
+dans un groupe « Autres », à la fin, plutôt que de s'insérer n'importe où.
 
 Le `label` gagne à commencer par `TP<N> :` — le second menu retire ce préfixe,
 que le premier affiche déjà, et garde le libellé entier s'il n'y est pas.

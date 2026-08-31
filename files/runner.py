@@ -159,18 +159,26 @@ ORDER_RE = re.compile(r"\Atp(\d+)(?:-ex(\d+))?")
 PREFIX_RE = re.compile(r"\A\s*TP\s*\d+\s*[:—\-]\s*", re.I)
 
 
-def sort_key(name):
-    """Ordre du menu. NUMÉRIQUE, et c'est tout l'intérêt.
+CONFORME_RE = re.compile(r"\Atp\d", re.I)
+CHUNKS_RE = re.compile(r"(\d+)")
 
-    Trié comme du texte, tp10 passe avant tp2 -- invisible avec deux TP, et le
-    menu part en désordre au dixième. Les noms hors convention finissent à la
-    fin plutôt que de s'insérer n'importe où.
+
+def sort_key(name):
+    """Ordre du menu. NUMÉRIQUE, et pas seulement au premier niveau.
+
+    Trié comme du texte, `tp10` passe avant `tp2` -- invisible avec deux
+    laboratoires, et le menu part en désordre au dixième. Le même piège attend
+    un cran plus bas avec `ex10` avant `ex2`, d'où un tri naturel générique
+    plutôt qu'une expression rationnelle sur `tp<N>-ex<M>` : il découpe le nom
+    en morceaux de chiffres et de lettres, et compare les chiffres comme des
+    nombres. Il vaut donc à tous les niveaux, quel que soit le préfixe.
+
+    Les noms hors convention finissent à la fin plutôt que de s'insérer
+    n'importe où.
     """
-    match = ORDER_RE.match(name)
-    if not match:
-        return (1, 0, 0, name)
-    # -1 pour l'entrée du TP lui-même (tp1), qui précède ses exercices.
-    return (0, int(match.group(1)), int(match.group(2) or -1), name)
+    morceaux = [(1, "", int(c)) if c.isdigit() else (0, c, 0)
+                for c in CHUNKS_RE.split(name.lower()) if c]
+    return (0 if CONFORME_RE.match(name) else 1, morceaux)
 
 
 def group_of(name):
@@ -178,20 +186,58 @@ def group_of(name):
     return "TP " + match.group(1) if match else "Autres"
 
 
-def catalogue():
-    """[{id, mode, label, group, short}] pour chaque TP publiable, dans l'ordre."""
-    entries = []
+def sous_dossiers(chemin):
     try:
-        names = sorted(os.listdir(TESTS), key=sort_key)
+        return sorted((n for n in os.listdir(chemin)
+                       if os.path.isdir(os.path.join(chemin, n))), key=sort_key)
     except OSError:
-        return entries
-    for name in names:
-        tp_dir = os.path.join(TESTS, name)
-        if not os.path.isdir(tp_dir) or not TP_RE.match(name):
+        return []
+
+
+def entrees_brutes():
+    """(identifiant, chemin) pour chaque exercice publiable, dans l'ordre.
+
+    DEUX NIVEAUX : `tp6/ex1/unity.json`. Un dossier par TP, un sous-dossier par
+    exercice -- à 13 laboratoires de 8 exercices, une racine plate ferait 104
+    dossiers et personne ne retrouverait rien.
+
+    Un TP dont la configuration est directement à sa racine (`tp1/quiz.json`)
+    reste une entrée à lui seul : c'est le cas du quiz, qui n'a pas d'exercices.
+
+    L'IDENTIFIANT RESTE PLAT -- `tp6-ex1` et jamais `tp6/ex1`. Il voyage jusqu'au
+    navigateur, revient dans une soumission, et est ensuite joint à un chemin
+    racine : y autoriser une barre oblique rouvrirait exactement la traversée de
+    répertoire que `TP_RE` existe pour fermer. Le chemin, lui, est porté par
+    l'entrée du catalogue, donc il n'y a jamais à le reconstruire par analyse du
+    nom.
+    """
+    entrees = []
+    for tp in sous_dossiers(TESTS):
+        if not TP_RE.match(tp):
             continue  # écarte .git, unity, et tout nom qu'un TP ne peut porter
-        mode = detect_mode(tp_dir)
-        if mode is None:
+        chemin_tp = os.path.join(TESTS, tp)
+        if detect_mode(chemin_tp):
+            entrees.append((tp, chemin_tp))
             continue
+        for exercice in sous_dossiers(chemin_tp):
+            identifiant = tp + "-" + exercice
+            if not TP_RE.match(identifiant):
+                continue
+            chemin = os.path.join(chemin_tp, exercice)
+            if detect_mode(chemin):
+                entrees.append((identifiant, chemin))
+    return entrees
+
+
+def catalogue():
+    """[{id, mode, label, group, short, files, path}] dans l'ordre du cours.
+
+    `path` est un chemin du SERVEUR : il sert au worker et il est retiré avant
+    publication vers le conteneur web (voir publish_catalogue).
+    """
+    entries = []
+    for name, tp_dir in entrees_brutes():
+        mode = detect_mode(tp_dir)
         label, files = name, declared_files({})
         try:
             conf = load_config(tp_dir, config_name(mode))
@@ -201,6 +247,7 @@ def catalogue():
             pass  # fichier cassé : le nom du répertoire et un fichier par défaut
         entries.append({
             "id": name,
+            "path": tp_dir,
             "mode": mode,
             "label": label,
             # Les noms de fichiers attendus voyagent jusqu'au navigateur : ils
@@ -241,10 +288,30 @@ def publish_catalogue():
     for entry in entries:
         if entry["mode"] != "quiz":
             continue
-        quiz = load_config(os.path.join(TESTS, entry["id"]), "quiz.json")
+        quiz = load_config(entry["path"], "quiz.json")
         write_json(os.path.join(quiz_dir, entry["id"] + ".json"), public_quiz(quiz))
-    write_json(os.path.join(APP, "tps.json"), entries)
+    # `path` NE FRANCHIT PAS LA FRONTIÈRE. C'est un chemin du serveur : il
+    # n'apprend rien d'utile au navigateur et il décrit l'arborescence des
+    # secrets. Même discipline que public_quiz -- on reconstruit ce qui sort,
+    # on ne retire pas d'une copie.
+    write_json(os.path.join(APP, "tps.json"), [
+        {k: v for k, v in e.items() if k != "path"} for e in entries])
     return entries
+
+
+def tp_path(tp_id):
+    """Le répertoire d'un exercice, d'après le catalogue. None s'il n'existe pas.
+
+    LA SEULE FAÇON DE PASSER D'UN IDENTIFIANT À UN CHEMIN. Reconstruire
+    `tp6-ex1` en `tp6/ex1` par découpage marcherait, jusqu'au jour où un nom
+    contient un tiret de plus. Surtout, passer par le catalogue veut dire qu'un
+    exercice non publié n'est pas exécutable, ce qui est plus strict que « le
+    répertoire existe ».
+    """
+    for entry in catalogue():
+        if entry["id"] == tp_id:
+            return entry["path"]
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -673,8 +740,8 @@ def run_job(job_dir):
     # REVALIDÉ ICI, même si le web l'a déjà fait. Ce processus est root et
     # compose un chemin à partir de cette valeur : il ne fait confiance à
     # personne, y compris à notre propre conteneur web.
-    tp_dir = os.path.join(TESTS, tp)
-    if not TP_RE.match(tp) or not os.path.isdir(tp_dir):
+    tp_dir = tp_path(tp) if TP_RE.match(tp) else None
+    if tp_dir is None:
         return {"status": "error", "message": "TP inconnu."}
     mode = detect_mode(tp_dir)
     if mode is None:

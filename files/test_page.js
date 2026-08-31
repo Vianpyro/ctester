@@ -29,12 +29,32 @@ function el(id) {
         this.value = opts[0].value;
       }
     },
-    querySelectorAll() { return []; },
+    // Le sélecteur est ignoré : la page n'en utilise qu'un seul, et parser du
+    // CSS pour un harnais serait un projet à part. On rend les descendants qui
+    // portent un data-qid, ce que fait `input[data-qid]`.
+    querySelectorAll() {
+      const trouves = [];
+      (function descendre(n) {
+        for (const k of n.children) {
+          if (k.dataset && k.dataset.qid) trouves.push(k);
+          descendre(k);
+        }
+      })(this);
+      return trouves;
+    },
   };
   let html = "";
   Object.defineProperty(node, "innerHTML", {
     get: () => html,
     set(v) { html = v; if (v === "") node.children.length = 0; },
+  });
+  let ident = id;
+  Object.defineProperty(node, "id", {
+    get: () => ident,
+    // Un élément créé dynamiquement puis nommé doit devenir trouvable par
+    // getElementById, comme dans un vrai document : la pagination du quiz crée
+    // ses boutons puis les récupère par identifiant.
+    set(v) { ident = v; nodes[v] = node; },
   });
   return node;
 }
@@ -71,7 +91,9 @@ global.fetch = async (url, opts) => {
   if (url.startsWith("quiz/")) {
     return { ok: true, status: 200, json: async () => ({
       label: "TP1", questions: [
-        { id: "q1", group: "G1", label: "23", type: "bin8" },
+        { id: "q1", group: "Exercice 1 : binaire", label: "23", type: "bin8" },
+        { id: "q2", group: "Exercice 1 : binaire", label: "167", type: "bin8" },
+        { id: "q3", group: "Exercice 2 : hexadécimal", label: "23", type: "hex8" },
       ] }) };
   }
   if (url === "submit") return SUBMIT_RESPONSE;
@@ -218,9 +240,43 @@ function choisir(groupe, id) {
           "y compris l'onglet ouvert au moment du clic");
   }
 
-  // --- Mode quiz : des réponses, pas du code ---
+  // --- Navigation entre exercices, et les brouillons ---
+  choisir("TP 2", "tp2-ex0");
+  nodes.code.value = "// mon travail sur l'ex 0";
+  nodes.next.listeners.click();
+  check(nodes.ex.value === "tp2-ex3", "« suivant » avance d'un exercice");
+  nodes.next.listeners.click();
+  check(nodes.tp.value === "TP 6" && nodes.ex.value === "tp6-ex1",
+        "« suivant » franchit la fin d'un TP");
+  check(nodes.next.disabled === true, "le bouton se désactive au dernier exercice");
+  nodes.prev.listeners.click();
+  nodes.prev.listeners.click();
+  check(nodes.ex.value === "tp2-ex0", "« précédent » revient sur ses pas");
+  // LE PIÈGE QUE LES BROUILLONS FERMENT : sans eux, ce clic aurait effacé le
+  // travail de l'étudiant, et le bouton « suivant » l'aurait rendu banal.
+  check(nodes.code.value === "// mon travail sur l'ex 0",
+        "le travail en cours survit à un aller-retour entre exercices");
+
+  // --- Mode quiz : pagination puis soumission complète ---
   choisir("TP 1");
-  nodes.quiz.querySelectorAll = () => [{ dataset: { qid: "q1" }, value: "00010111" }];
+  await sleep(); await sleep();
+  check(nodes.quiznav.hidden === false, "un quiz à plusieurs exercices est paginé");
+  check(/page 1 sur 2/.test(nodes.qpos.textContent),
+        "la position est annoncée : " + nodes.qpos.textContent);
+  check(nodes.qprev.disabled === true, "pas de « précédent » sur la première page");
+  const pages = nodes.quiz.children;
+  check(pages.length === 2 && pages[0].hidden === false && pages[1].hidden === true,
+        "seule la page courante est visible");
+
+  // On répond sur la page 1, on passe à la page 2, on répond aussi.
+  const champs = nodes.quiz.querySelectorAll();
+  check(champs.length === 3, "les champs de toutes les pages restent dans le document");
+  champs[0].value = "00010111";
+  nodes.qnext.listeners.click();
+  check(pages[1].hidden === false && nodes.qnext.disabled === true,
+        "« suivant » affiche la page 2 et se désactive au bout");
+  champs[2].value = "0x17";
+
   SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "b".repeat(32) }) };
   calls.length = 0;
   await nodes.go.listeners.click();
@@ -230,7 +286,10 @@ function choisir(groupe, id) {
   if (quizPost) {
     const sent = JSON.parse(quizPost.opts.body);
     check(sent.tp === "tp1", "le quiz est soumis sous l'identifiant du TP");
-    check(sent.answers && sent.answers.q1 === "00010111", "les réponses sont transmises");
+    // LE POINT DE LA PAGINATION : masquer une page ne doit pas perdre ses
+    // réponses. La soumission ramasse les trois champs, pas la page visible.
+    check(sent.answers.q1 === "00010111" && sent.answers.q3 === "0x17",
+          "les réponses des DEUX pages sont transmises");
     check(!("code" in sent), "pas de code sur un TP de quiz");
   }
 

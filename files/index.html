@@ -151,6 +151,12 @@
     flex: 0 0 11rem;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   }
+  #quiznav {
+    display: flex; align-items: center; gap: .75rem; margin-top: 1.2rem;
+    padding-top: .8rem; border-top: 1px solid var(--line);
+  }
+  #quiznav .pos { color: var(--muted); font-size: 13px; }
+  .nav { padding: .35rem .75rem; line-height: 1; }
   .case { margin-top: .9rem; }
   .case .why { color: var(--bad); }
   .verdict { font-size: 1.1rem; font-weight: 700; margin-bottom: .5rem; }
@@ -180,6 +186,12 @@
       <label for="ex">Exercice</label>
       <select id="ex"></select>
     </span>
+    <span class="field">
+      <button type="button" id="prev" class="nav" aria-label="Exercice précédent"
+              title="Exercice précédent">‹</button>
+      <button type="button" id="next" class="nav" aria-label="Exercice suivant"
+              title="Exercice suivant">›</button>
+    </span>
     <span class="grow"></span>
     <input type="file" id="file" accept=".c,.txt">
     <button id="go">Tester</button>
@@ -196,7 +208,10 @@
     </div>
   </div>
 
-  <div id="quiz" hidden></div>
+  <div id="quizwrap" hidden>
+    <div id="quiz"></div>
+    <div id="quiznav"></div>
+  </div>
 
   <div id="out"></div>
 
@@ -270,6 +285,19 @@ fetch("tps.json").then(r => r.json()).then(tps => {
 $("tp").addEventListener("change", () => fillExercises());
 $("ex").addEventListener("change", switchMode);
 
+// PASSER À L'EXERCICE SUIVANT SANS TOUCHER AUX DEUX MENUS, y compris en
+// franchissant la fin d'un TP : c'est le geste qu'on fait vingt fois par
+// séance, et il ne doit pas coûter deux clics dans deux listes.
+function aller(pas) {
+  const i = catalogue.findIndex(t => t.id === $("ex").value);
+  const cible = catalogue[i + pas];
+  if (!cible) return;
+  $("tp").value = cible.group;
+  fillExercises(cible.id);
+}
+$("prev").addEventListener("click", () => aller(-1));
+$("next").addEventListener("click", () => aller(1));
+
 function fillExercises(preselect) {
   const items = catalogue.filter(t => t.group === $("tp").value);
   $("ex").innerHTML = "";
@@ -281,14 +309,28 @@ function fillExercises(preselect) {
   switchMode();
 }
 
+// Un brouillon par exercice, gardé en mémoire pour la session. Sans lui, le
+// bouton « suivant » deviendrait un piège : un clic, et le code qu'on venait
+// d'écrire aurait disparu au retour.
+const brouillons = {};
+let courantId = null;
+
 function switchMode() {
+  if (courantId !== null && actif !== null) {
+    sources[actif] = $("code").value;
+    brouillons[courantId] = sources;
+  }
   const tp = current();
+  courantId = tp ? tp.id : null;
   const quiz = tp && tp.mode === "quiz";
+  const i = catalogue.findIndex(t => t.id === $("ex").value);
+  $("prev").disabled = i <= 0;
+  $("next").disabled = i < 0 || i >= catalogue.length - 1;
   // #editor et pas #code : le calque coloré est un frère du textarea, cacher
   // l'un sans l'autre laisserait le pre seul à l'écran.
   $("editor").hidden = quiz;
   $("file").hidden = quiz;
-  $("quiz").hidden = !quiz;
+  $("quizwrap").hidden = !quiz;
 
   // La barre de contexte. Ce n'est PAS décoratif : la première vraie confusion
   // sur cette page a été de soumettre l'exercice 3 avec l'exercice 2 sélectionné,
@@ -309,19 +351,36 @@ function switchMode() {
   if (quiz) loadQuiz(tp.id); else setupFiles(tp);
 }
 
+// UNE PAGE PAR EXERCICE. Le TP1 fait 40 questions : d'un seul tenant, l'étudiant
+// défile sans savoir où il en est, et une faute de frappe en haut se corrige
+// après un aller-retour de deux écrans. Les groupes existaient déjà dans le
+// corrigé -- il suffisait de les afficher un à la fois.
+//
+// LES CHAMPS DES AUTRES PAGES RESTENT DANS LE DOCUMENT, seulement masqués : la
+// soumission ramasse tout, donc on peut remplir l'exercice 1, sauter au 4, et
+// tester l'ensemble. Les vider en changeant de page perdrait des réponses.
+let pagesQuiz = [];
+let pageQuiz = 0;
+let groupeDeQuestion = {};
+
 async function loadQuiz(id) {
   const box = $("quiz");
   box.textContent = "Chargement…";
   const data = await (await fetch("quiz/" + id + ".json")).json();
-  box.textContent = "";
-  let group = null;
+  box.innerHTML = "";
+  pagesQuiz = [];
+  groupeDeQuestion = {};
+  let courante = null;
   for (const q of data.questions) {
-    if (q.group !== group) {
-      group = q.group;
+    groupeDeQuestion[q.id] = q.group;
+    if (!courante || courante.titre !== q.group) {
+      courante = { titre: q.group, noeud: document.createElement("div") };
+      pagesQuiz.push(courante);
       const head = document.createElement("div");
       head.className = "qgroup";
-      head.textContent = group;
-      box.append(head);
+      head.textContent = q.group;
+      courante.noeud.append(head);
+      box.append(courante.noeud);
     }
     const row = document.createElement("div");
     row.className = "qrow";
@@ -333,8 +392,43 @@ async function loadQuiz(id) {
     input.autocomplete = "off";
     input.dataset.qid = q.id;
     row.append(label, input);
-    box.append(row);
+    courante.noeud.append(row);
   }
+  construireNavQuiz();
+  montrerPage(0);
+}
+
+function construireNavQuiz() {
+  const nav = $("quiznav");
+  nav.innerHTML = "";
+  nav.hidden = pagesQuiz.length <= 1;
+  if (nav.hidden) return;
+  const avant = document.createElement("button");
+  avant.type = "button";
+  avant.className = "nav";
+  avant.id = "qprev";
+  avant.textContent = "‹ Précédent";
+  avant.addEventListener("click", () => montrerPage(pageQuiz - 1));
+  const pos = document.createElement("span");
+  pos.className = "pos";
+  pos.id = "qpos";
+  const apres = document.createElement("button");
+  apres.type = "button";
+  apres.className = "nav";
+  apres.id = "qnext";
+  apres.textContent = "Suivant ›";
+  apres.addEventListener("click", () => montrerPage(pageQuiz + 1));
+  nav.append(avant, pos, apres);
+}
+
+function montrerPage(i) {
+  if (!pagesQuiz.length) return;
+  pageQuiz = Math.min(Math.max(i, 0), pagesQuiz.length - 1);
+  pagesQuiz.forEach((p, n) => { p.noeud.hidden = n !== pageQuiz; });
+  if ($("quiznav").hidden) return;
+  $("qpos").textContent = `page ${pageQuiz + 1} sur ${pagesQuiz.length}`;
+  $("qprev").disabled = pageQuiz === 0;
+  $("qnext").disabled = pageQuiz === pagesQuiz.length - 1;
 }
 
 const answers = () => Object.fromEntries(
@@ -405,8 +499,13 @@ let actif = null;
 function setupFiles(tp) {
   const files = (tp && tp.files && tp.files.length)
     ? tp.files : [{ name: "submission.c", template: "" }];
-  sources = {};
-  for (const f of files) sources[f.name] = f.template || "";
+  // Le brouillon d'abord : revenir sur un exercice doit retrouver son travail,
+  // pas le gabarit vierge.
+  sources = (tp && brouillons[tp.id]) || null;
+  if (!sources) {
+    sources = {};
+    for (const f of files) sources[f.name] = f.template || "";
+  }
   actif = null;
   $("tabs").innerHTML = "";
   for (const f of files) {
@@ -491,8 +590,12 @@ function render(r) {
   const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}`;
   if (all) { show("ok", title); return; }
   if (r.kind === "quiz") {
-    show("bad", title,
-         list(r.wrong.map(w => w.label + (w.hint ? " — " + w.hint : ""))));
+    // Le numéro d'exercice en tête : maintenant que le quiz est paginé, savoir
+    // QUELLE question est fausse ne suffit plus, il faut savoir où la retrouver.
+    show("bad", title, list(r.wrong.map(w => {
+      const ex = (groupeDeQuestion[w.id] || "").match(/Exercice\s*\d+/i);
+      return (ex ? ex[0] + " — " : "") + w.label + (w.hint ? " — " + w.hint : "");
+    })));
   } else if (r.kind === "io") {
     show("bad", title, cases(r.cases));
   } else {
