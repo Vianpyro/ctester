@@ -49,6 +49,13 @@ FAIL_RE = re.compile(r"^[^\n:]*:\d+:([A-Za-z0-9_]{1,64}):FAIL", re.M)
 INCLUDE_RE = re.compile(r"^[ \t]*#[ \t]*include[ \t]*[<\"]([^>\"\n]+)", re.M)
 NUMBER_RE = re.compile(r"[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?")
 
+# `inf` et `nan` tels que printf les écrit. Les gardes de part et d'autre sont
+# des « pas une lettre », pas des \b : \b considère `é` comme une lettre selon
+# les cas, et « inférieur » ou « nanomètre » dans une invite ne doivent pas
+# déclencher le message. [^\W\d_] = une lettre, Unicode compris.
+NONFINITE_RE = re.compile(
+    r"(?<![^\W\d_])-?(?:inf(?:inity)?|nan)(?![^\W\d_])", re.I)
+
 MAX_GCC_CHARS = 8000
 MAX_FAILED_NAMES = 50
 MAX_CASE_OUTPUT = 600
@@ -300,7 +307,23 @@ def check_case(case, output, tol):
     if wanted and fold(wanted) not in folded:
         return "la sortie ne contient pas le mot attendu"
     expected = case.get("expect")
-    if expected and not match_subsequence(extract_numbers(output), expected, tol):
+    if expected:
+        numbers = extract_numbers(output)
+        if match_subsequence(numbers, expected, tol):
+            return ""
+        # DEUX ÉCHECS TRÈS FRÉQUENTS MÉRITENT LEUR PROPRE MESSAGE. « la sortie
+        # ne contient pas les valeurs attendues » est vrai mais inutile quand la
+        # sortie vaut `inf` ou ne contient aucun chiffre : l'étudiant ne fait
+        # alors pas une erreur de calcul, il lit une variable qui n'a jamais été
+        # remplie, ou il teste le mauvais exercice.
+        if NONFINITE_RE.search(output):
+            return ("ta sortie contient inf ou nan : division par zéro, ou une "
+                    "variable utilisée alors que sa lecture a échoué. Vérifie "
+                    "que ton programme lit exactement autant de valeurs que le "
+                    "cas lui en fournit")
+        if not numbers:
+            return ("ta sortie ne contient aucun nombre : vérifie que tu "
+                    "affiches bien le résultat, et que c'est le bon exercice")
         return "la sortie ne contient pas les valeurs attendues, dans l'ordre"
     return ""
 

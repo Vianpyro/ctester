@@ -223,6 +223,35 @@ def test_check_case():
     assert runner.check_case(case, invite, tol) != ""
 
 
+def test_check_case_diagnostics():
+    """Les deux échecs fréquents disent CE QUI s'est passé, pas juste « faux ».
+
+    Le cas réel : un étudiant teste l'exercice 3 (deux scanf) contre les entrées
+    de l'exercice 2 (une seule valeur). Le second scanf échoue, la variable reste
+    non initialisée, la division donne inf. « la sortie ne contient pas les
+    valeurs attendues » serait vrai et parfaitement inutile.
+    """
+    tol = runner.DEFAULT_TOLERANCE
+    case = {"expect": [23.88459]}
+    inf = runner.check_case(
+        case, "Entrez la tension (V) : L'intensite est : inf A", tol)
+    assert "inf ou nan" in inf and "autant de valeurs" in inf, inf
+
+    aucun = runner.check_case(case, "Entrez la tension (V) : ", tol)
+    assert "aucun nombre" in aucun and "bon exercice" in aucun, aucun
+
+    # Une vraie erreur de calcul garde le message générique : c'est bien une
+    # erreur de valeur, et il ne faut pas envoyer l'étudiant sur une fausse piste.
+    faux = runner.check_case(case, "resultat : 42.0", tol)
+    assert faux == "la sortie ne contient pas les valeurs attendues, dans l'ordre"
+
+    # Et surtout, aucun faux positif sur des mots français ordinaires.
+    for mot in ("inferieur", "inférieur", "nanometre", "information", "infini"):
+        assert runner.NONFINITE_RE.search(mot) is None, mot
+    for mot in ("inf", "-inf", "NaN", "Inf A", "nan\n", "-nan"):
+        assert runner.NONFINITE_RE.search(mot) is not None, mot
+
+
 def test_split_runs_and_verdict_io():
     nonce = "abc123"
     sortie = (
