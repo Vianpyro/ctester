@@ -1,0 +1,311 @@
+<!doctype html>
+<!-- ctester -- la page étudiante. Fichier géré par Ansible : éditer le rôle.
+
+     Aucun framework et aucune ressource externe : la page est servie par le
+     même processus Python que l'API, dans un conteneur en lecture seule. Ce
+     qu'elle sait faire tient en 80 lignes de JS, et une dépendance CDN serait
+     une requête vers l'extérieur sur une page qui n'en fait aucune.
+
+     LA CLÉ DE SESSION VIENT DE L'URL (?k=...), telle que distribuée sur Moodle.
+     Elle n'authentifie personne : elle empêche seulement que le premier scanner
+     venu trouve un endpoint qui compile du C. -->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>TCH009 — Tester mon code</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfa; --fg: #1a1a18; --muted: #6b6b66;
+    --line: #d8d8d2; --card: #fff;
+    --ok: #1f7a3d; --bad: #b3261e; --wait: #8a6d1f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a; --fg: #e8e8e4; --muted: #9a9a94;
+      --line: #303236; --card: #1d1f23;
+      --ok: #6cc48a; --bad: #f2837c; --wait: #d8bb6a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1rem; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  main { max-width: 52rem; margin: 0 auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
+  p.sub { margin: 0 0 1.5rem; color: var(--muted); }
+  .row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap;
+         margin-bottom: .75rem; }
+  select, button, textarea, input {
+    font: inherit; color: inherit; background: var(--card);
+    border: 1px solid var(--line); border-radius: 6px; padding: .5rem .7rem;
+  }
+  textarea {
+    width: 100%; min-height: 22rem; resize: vertical; tab-size: 4;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 13.5px; white-space: pre;
+  }
+  button { cursor: pointer; font-weight: 600; }
+  button:disabled { cursor: not-allowed; opacity: .55; }
+  #out {
+    margin-top: 1rem; padding: 1rem; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--card); display: none;
+  }
+  #out.show { display: block; }
+  #quiz .qgroup {
+    margin: 1.4rem 0 .4rem; font-weight: 700; font-size: .95rem;
+    border-bottom: 1px solid var(--line); padding-bottom: .3rem;
+  }
+  #quiz .qrow { display: flex; gap: .75rem; align-items: center; margin: .35rem 0; }
+  #quiz .qrow span { flex: 1 1 20rem; }
+  #quiz .qrow input {
+    flex: 0 0 11rem;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  .case { margin-top: .9rem; }
+  .case .why { color: var(--bad); }
+  .verdict { font-size: 1.1rem; font-weight: 700; margin-bottom: .5rem; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
+  ul { margin: .5rem 0 0; padding-left: 1.2rem; }
+  li { font-family: ui-monospace, Consolas, monospace; font-size: 13.5px; }
+  pre {
+    margin: .5rem 0 0; padding: .75rem; overflow-x: auto;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    font-size: 13px; white-space: pre-wrap; word-break: break-word;
+  }
+  footer { margin-top: 2rem; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>TCH009 — Tester mon code</h1>
+  <p class="sub">Choisis ton TP, puis colle ton fichier <code>.c</code> ou
+     saisis tes réponses selon l'exercice. Les résultats ne sont pas une note.</p>
+
+  <div class="row">
+    <label for="tp">TP&nbsp;:</label>
+    <select id="tp"></select>
+    <input type="file" id="file" accept=".c,.txt">
+    <button id="go">Tester</button>
+  </div>
+
+  <textarea id="code" spellcheck="false"
+            placeholder="// Colle ici le contenu de ton fichier .c"></textarea>
+
+  <div id="quiz" hidden></div>
+
+  <div id="out"></div>
+
+  <footer>
+    Un exercice à la fois. Les tests utilisés ici sont un
+    sous-ensemble&nbsp;: ils t'aident à trouver tes erreurs, ils ne remplacent
+    pas la correction.
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const key = new URLSearchParams(location.search).get("k") || "";
+const out = $("out");
+
+function show(cls, title, extra) {
+  out.className = "show";
+  out.innerHTML = "";
+  const h = document.createElement("div");
+  h.className = "verdict " + cls;
+  h.textContent = title;
+  out.append(h);
+  if (extra) out.append(extra);
+}
+
+function list(items) {
+  const ul = document.createElement("ul");
+  for (const it of items) {
+    const li = document.createElement("li");
+    li.textContent = it;               // textContent : la sortie du juge n'est
+    ul.append(li);                     // jamais interprétée comme du HTML
+  }
+  return ul;
+}
+
+function block(text) {
+  const pre = document.createElement("pre");
+  pre.textContent = text;
+  return pre;
+}
+
+// Le catalogue est [{id, mode, label}], publié par le worker. Le MODE décide de
+// tout ce qui suit : ce que la page affiche, et ce qu'elle envoie.
+let catalogue = [];
+
+const current = () => catalogue.find(t => t.id === $("tp").value) || null;
+
+fetch("tps.json").then(r => r.json()).then(tps => {
+  catalogue = tps;
+  for (const tp of tps) {
+    const o = document.createElement("option");
+    o.value = tp.id;
+    o.textContent = tp.label || tp.id;
+    $("tp").append(o);
+  }
+  if (!tps.length) show("bad", "Aucun TP n'est publié pour l'instant.");
+  switchMode();
+});
+
+$("tp").addEventListener("change", switchMode);
+
+function switchMode() {
+  const tp = current();
+  const quiz = tp && tp.mode === "quiz";
+  $("code").hidden = quiz;
+  $("file").hidden = quiz;
+  $("quiz").hidden = !quiz;
+  out.className = "";
+  if (quiz) loadQuiz(tp.id);
+}
+
+async function loadQuiz(id) {
+  const box = $("quiz");
+  box.textContent = "Chargement…";
+  const data = await (await fetch("quiz/" + id + ".json")).json();
+  box.textContent = "";
+  let group = null;
+  for (const q of data.questions) {
+    if (q.group !== group) {
+      group = q.group;
+      const head = document.createElement("div");
+      head.className = "qgroup";
+      head.textContent = group;
+      box.append(head);
+    }
+    const row = document.createElement("div");
+    row.className = "qrow";
+    const label = document.createElement("span");
+    label.textContent = q.label;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    input.dataset.qid = q.id;
+    row.append(label, input);
+    box.append(row);
+  }
+}
+
+const answers = () => Object.fromEntries(
+  [...$("quiz").querySelectorAll("input[data-qid]")].map(i => [i.dataset.qid, i.value])
+);
+
+$("file").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  if (f) $("code").value = await f.text();
+});
+
+// Les cas ratés : le numéro, LES ENTRÉES et TA sortie. Jamais la valeur
+// attendue -- elle transformerait le débogage en recopie.
+function cases(items) {
+  const box = document.createElement("div");
+  for (const c of items) {
+    const wrap = document.createElement("div");
+    wrap.className = "case";
+    const why = document.createElement("div");
+    why.className = "why";
+    why.textContent = `Cas ${c.case} : ${c.reason}`;
+    const io = document.createElement("pre");
+    io.textContent = "entrées :\n" + c.stdin +
+                     "\nta sortie :\n" + (c.stdout || "(rien)");
+    wrap.append(why, io);
+    box.append(wrap);
+  }
+  return box;
+}
+
+const UNITS = {quiz: "réponses justes", io: "cas réussis", unity: "tests réussis"};
+
+function render(r) {
+  if (r.status !== "ok") {
+    show("bad", r.message, r.status === "compile_error" ? block(r.gcc || "") : null);
+    return;
+  }
+  const all = r.passed === r.total;
+  const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}`;
+  if (all) { show("ok", title); return; }
+  if (r.kind === "quiz") {
+    show("bad", title,
+         list(r.wrong.map(w => w.label + (w.hint ? " — " + w.hint : ""))));
+  } else if (r.kind === "io") {
+    show("bad", title, cases(r.cases));
+  } else {
+    show("bad", title, r.failed.length ? list(r.failed) : null);
+  }
+}
+
+async function poll(id, tries) {
+  const r = await fetch("r/" + id);
+  const body = await r.json().catch(() => ({state: "error"}));
+  if (body.state === "done") { render(body); $("go").disabled = false; return; }
+  if (r.status === 404 || tries <= 0) {
+    show("bad", "Résultat perdu. Relance les tests.");
+    $("go").disabled = false;
+    return;
+  }
+  show("wait", body.state === "running"
+       ? "Compilation en cours…"
+       : `En file d'attente — ${body.position}${body.position === 1 ? "er" : "e"}`);
+  setTimeout(() => poll(id, tries - 1), 2000);
+}
+
+$("go").addEventListener("click", async () => {
+  const tp = current();
+  if (!tp) { show("bad", "Choisis un TP."); return; }
+  const body = {key, tp: tp.id};
+  if (tp.mode === "quiz") {
+    body.answers = answers();
+    if (!Object.values(body.answers).some(v => v.trim())) {
+      show("bad", "Aucune réponse saisie."); return;
+    }
+  } else {
+    body.code = $("code").value;
+    if (!body.code.trim()) { show("bad", "Il n'y a rien à tester."); return; }
+  }
+  $("go").disabled = true;
+  show("wait", "Envoi…");
+  try {
+    const r = await fetch("submit", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    });
+    // `out` et pas `body` : ce nom est déjà celui de la charge utile juste
+    // au-dessus, et le redéclarer ici le masquait dans TOUT ce bloc -- y
+    // compris sur la ligne qui l'utilise, plus haut. Zone morte temporelle,
+    // ReferenceError, fetch jamais parti, et le catch en dessous qui maquillait
+    // le tout en panne serveur. Ne pas réutiliser ce nom.
+    //
+    // La réponse n'est pas toujours du JSON : une page de blocage Cloudflare ou
+    // une erreur nginx arrive en HTML, et `r.json()` lève. Sans ce garde, une
+    // règle WAF ressemble exactement à un serveur éteint.
+    let out = null;
+    try { out = await r.json(); } catch (parseError) { out = null; }
+    if (!r.ok || !out) {
+      show("bad", (out && out.error) ||
+                  `Le serveur a répondu ${r.status} sans JSON exploitable.`);
+      $("go").disabled = false;
+      return;
+    }
+    // 150 tentatives x 2 s = 5 minutes, largement au-dessus du pire cas d'une
+    // classe entière qui soumet en même temps.
+    poll(out.id, 150);
+  } catch (e) {
+    // Le message de l'exception, pas un texte générique : c'est la différence
+    // entre « diagnostic en cinq secondes » et « aller-retour avec le serveur ».
+    show("bad", "Le serveur est injoignable : " + e.message);
+    $("go").disabled = false;
+  }
+});
+</script>
+</body>
+</html>

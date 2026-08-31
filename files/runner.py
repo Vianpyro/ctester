@@ -1,0 +1,686 @@
+#!/usr/bin/env python3
+"""ctester -- le worker de l'hôte. Fichier géré par Ansible : éditer le rôle.
+
+Tourne en root sur le Dell, en N instances (ctester-runner@1..N), et fait les
+seules choses que le conteneur web n'a pas le droit de faire : lancer Docker, et
+lire les tests. Il LIT le spool, il ne l'exécute jamais -- rien de ce qui vient
+du web n'est passé à un shell, et `subprocess` reçoit une liste d'arguments,
+jamais une chaîne.
+
+En Python et pas en bash pour cette raison précise : construire une ligne de
+commande docker autour d'un nom de TP venu du réseau est exactement le genre de
+chose qu'on écrit correctement une fois sur deux en shell. Ici il n'y a pas de
+shell à échapper, et le parsing des verdicts devient testable (test_ctester.py).
+
+TROIS MODES, DÉDUITS DU CONTENU DU RÉPERTOIRE DE TP -- pas d'un champ de
+configuration qu'il faudrait tenir synchronisé avec la réalité :
+
+  quiz.json   exercices sur papier. Aucune compilation, aucun conteneur.
+  io.json     un programme complet avec main(), exécuté sur des entrées.
+  test_*.c    des fonctions liées à Unity, sans main().
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import unicodedata
+import uuid
+
+SPOOL = os.environ.get("CTESTER_SPOOL", "/opt/ctester/spool")
+TESTS = os.environ.get("CTESTER_TESTS", "/opt/ctester/tests")
+APP = os.environ.get("CTESTER_APP", "/opt/ctester/app")
+BUILD_UNITY = os.environ.get("CTESTER_BUILD_UNITY", "/opt/ctester/build-unity.sh")
+BUILD_IO = os.environ.get("CTESTER_BUILD_IO", "/opt/ctester/build-io.sh")
+IMAGE = os.environ.get("CTESTER_IMAGE", "gcc:14-bookworm")
+RUNTIME = os.environ.get("CTESTER_RUNTIME", "runsc")
+JOB_TIMEOUT = int(os.environ.get("CTESTER_JOB_TIMEOUT", "60"))
+MEMORY = os.environ.get("CTESTER_MEMORY", "256m")
+PIDS = os.environ.get("CTESTER_PIDS", "64")
+CPUS = os.environ.get("CTESTER_CPUS", "1")
+SWEEP_AFTER = int(os.environ.get("CTESTER_SWEEP_AFTER", "600"))
+
+TP_RE = re.compile(r"\A[a-z0-9_-]{1,32}\Z")
+SUMMARY_RE = re.compile(r"^(\d+) Tests (\d+) Failures (\d+) Ignored", re.M)
+FAIL_RE = re.compile(r"^[^\n:]*:\d+:([A-Za-z0-9_]{1,64}):FAIL", re.M)
+INCLUDE_RE = re.compile(r"^[ \t]*#[ \t]*include[ \t]*[<\"]([^>\"\n]+)", re.M)
+NUMBER_RE = re.compile(r"[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?")
+
+MAX_GCC_CHARS = 8000
+MAX_FAILED_NAMES = 50
+MAX_CASE_OUTPUT = 600
+DEFAULT_TOLERANCE = 0.005
+
+
+# --------------------------------------------------------------------------
+# Mode d'un TP
+# --------------------------------------------------------------------------
+
+def detect_mode(tp_dir):
+    """quiz / io / unity / None, d'après ce que le répertoire contient."""
+    if os.path.exists(os.path.join(tp_dir, "quiz.json")):
+        return "quiz"
+    if os.path.exists(os.path.join(tp_dir, "io.json")):
+        return "io"
+    try:
+        if any(f.startswith("test_") and f.endswith(".c")
+               for f in os.listdir(tp_dir)):
+            return "unity"
+    except OSError:
+        pass
+    return None
+
+
+def load_config(tp_dir, name):
+    with open(os.path.join(tp_dir, name), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+# --------------------------------------------------------------------------
+# Catalogue public -- LA FRONTIÈRE
+# --------------------------------------------------------------------------
+
+def public_quiz(quiz):
+    """Le quiz débarrassé de son corrigé, tel que le navigateur peut le voir.
+
+    C'EST LA FONCTION QUI GARDE LE SECRET, et c'est pour ça qu'elle reconstruit
+    un dictionnaire champ par champ au lieu de retirer `answer` d'une copie. Une
+    clé ajoutée au corrigé demain (un commentaire, une variante acceptée) ne
+    fuit donc pas par défaut : elle est simplement absente tant que personne ne
+    l'ajoute ici. test_ctester.py vérifie qu'aucune clé 'answer' ne survit.
+    """
+    return {
+        "label": quiz.get("label", ""),
+        "questions": [
+            {
+                "id": str(q.get("id", "")),
+                "group": str(q.get("group", "")),
+                "label": str(q.get("label", "")),
+                "type": str(q.get("type", "int")),
+            }
+            for q in quiz.get("questions", [])
+        ],
+    }
+
+
+def catalogue():
+    """[{id, mode, label}] pour chaque TP publiable, trié."""
+    entries = []
+    try:
+        names = sorted(os.listdir(TESTS))
+    except OSError:
+        return entries
+    for name in names:
+        tp_dir = os.path.join(TESTS, name)
+        if not os.path.isdir(tp_dir) or not TP_RE.match(name):
+            continue  # écarte .git, unity, et tout nom qu'un TP ne peut porter
+        mode = detect_mode(tp_dir)
+        if mode is None:
+            continue
+        label = name
+        try:
+            conf = load_config(tp_dir, "quiz.json" if mode == "quiz" else "io.json")
+            label = conf.get("label") or name
+        except (OSError, ValueError):
+            pass  # unity, ou un fichier cassé : le nom du répertoire suffit
+        entries.append({"id": name, "mode": mode, "label": label})
+    return entries
+
+
+def write_json(path, payload):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
+def publish_catalogue():
+    """Écrit ce que le conteneur web a le droit de savoir, et rien de plus.
+
+    Publié par LE WORKER et pas par Ansible : c'est lui qui a le droit de lire
+    les tests, et surtout « le corrigé ne franchit jamais la frontière »
+    devient une fonction Python qu'un test vérifie, au lieu d'une boucle Jinja
+    que personne ne relit.
+
+    Les N workers écrivent le même contenu au démarrage. La course est sans
+    conséquence : les écritures sont atomiques et le contenu est identique.
+    """
+    entries = catalogue()
+    quiz_dir = os.path.join(APP, "quiz")
+    os.makedirs(quiz_dir, exist_ok=True)
+    for entry in entries:
+        if entry["mode"] != "quiz":
+            continue
+        quiz = load_config(os.path.join(TESTS, entry["id"]), "quiz.json")
+        write_json(os.path.join(quiz_dir, entry["id"] + ".json"), public_quiz(quiz))
+    write_json(os.path.join(APP, "tps.json"), entries)
+    return entries
+
+
+# --------------------------------------------------------------------------
+# Mode quiz
+# --------------------------------------------------------------------------
+
+def norm_bin(text):
+    """Chiffres binaires, ou None. Accepte les espaces, les _ et le préfixe 0b."""
+    s = re.sub(r"[\s_]", "", str(text)).lower()
+    s = re.sub(r"\A0b", "", s)
+    return s if s and set(s) <= {"0", "1"} else None
+
+
+def norm_hex(text):
+    """Valeur d'un hexadécimal écrit 1F, 0x1f, 1Fh ou 001f. None si illisible."""
+    s = re.sub(r"[\s_]", "", str(text)).lower()
+    s = re.sub(r"\A0x", "", s)
+    s = re.sub(r"h\Z", "", s)
+    try:
+        return int(s, 16)
+    except ValueError:
+        return None
+
+
+def norm_int(text):
+    # Le signe moins Unicode arrive par copier-coller depuis le PDF de l'énoncé,
+    # où il est écrit "-45". Le refuser serait punir un copier-coller réussi.
+    s = re.sub(r"[\s_]", "", str(text)).replace("\u2212", "-")
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
+def check_answer(kind, given, expected):
+    """(juste, indice). L'indice explique une erreur de FORME, jamais la réponse."""
+    if kind == "bin8":
+        got, want = norm_bin(given), norm_bin(expected)
+        if got is None:
+            return False, "ce n'est pas une suite de 0 et de 1"
+        if got == want:
+            return True, ""
+        if want is not None and int(got, 2) == int(want, 2):
+            # La valeur est bonne, l'écriture ne l'est pas. Le dire : l'énoncé
+            # demande 8 bits, et un étudiant qui répond 10111 a compris la
+            # conversion mais pas la consigne. Les deux méritent d'être
+            # distingués, sans donner la réponse pour autant.
+            return False, "bonne valeur, mais l'énoncé demande 8 bits"
+        return False, ""
+    if kind == "hex8":
+        got, want = norm_hex(given), norm_hex(expected)
+        if got is None:
+            return False, "ce n'est pas un nombre hexadécimal"
+        return got == want, ""
+    got, want = norm_int(given), norm_int(expected)
+    if got is None:
+        return False, "ce n'est pas un nombre entier"
+    return got == want, ""
+
+
+def grade_quiz(quiz, answers):
+    """Corrige un quiz. `answers` est {id: texte} tel que soumis."""
+    wrong, total = [], 0
+    for question in quiz.get("questions", []):
+        total += 1
+        qid = str(question.get("id", ""))
+        given = answers.get(qid, "")
+        ok, hint = check_answer(question.get("type", "int"), given,
+                                question.get("answer", ""))
+        if not ok:
+            wrong.append({
+                "id": qid,
+                "label": str(question.get("label", qid)),
+                "hint": ("non répondu" if not str(given).strip() else hint),
+            })
+    return {
+        "status": "ok",
+        "kind": "quiz",
+        "total": total,
+        "passed": total - len(wrong),
+        "wrong": wrong,
+    }
+
+
+# --------------------------------------------------------------------------
+# Mode io
+# --------------------------------------------------------------------------
+
+def extract_numbers(text):
+    """Tous les nombres d'une sortie libre, dans l'ordre.
+
+    La virgule décimale est acceptée : `printf("%.2f")` produit un point, mais
+    un étudiant qui formate à la main peut produire une virgule.
+    """
+    out = []
+    for match in NUMBER_RE.findall(text):
+        try:
+            out.append(float(match.replace(",", ".")))
+        except ValueError:
+            continue
+    return out
+
+
+def close_enough(got, want, tol):
+    return abs(got - want) <= max(abs(want) * tol, 1e-9)
+
+
+def match_subsequence(numbers, expected, tol):
+    """Les valeurs attendues apparaissent-elles dans l'ordre parmi les nombres ?
+
+    SOUS-SUITE ET PAS ÉGALITÉ, parce que l'énoncé ne dit jamais quoi afficher :
+    « Surface = 15 cm2 » et « 15 » doivent passer tous les deux, et une
+    invite « Entrez la longueur : » ne doit rien casser. Le prix est un faux
+    positif possible si une invite contient par hasard la valeur attendue --
+    acceptable pour un outil de feedback.
+    """
+    index = 0
+    for want in expected:
+        while index < len(numbers) and not close_enough(numbers[index], want, tol):
+            index += 1
+        if index >= len(numbers):
+            return False
+        index += 1
+    return True
+
+
+def fold(text):
+    """Minuscules sans accents, pour comparer un mot à une sortie d'étudiant."""
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def check_case(case, output, tol):
+    """'' si le cas passe, sinon la raison, en français, pour l'étudiant."""
+    folded = fold(output)
+    for word in case.get("absent", []):
+        if fold(word) in folded:
+            return "la sortie mentionne « " + word + " », qui ne devrait pas y etre"
+    wanted = case.get("contains")
+    if wanted and fold(wanted) not in folded:
+        return "la sortie ne contient pas le mot attendu"
+    expected = case.get("expect")
+    if expected and not match_subsequence(extract_numbers(output), expected, tol):
+        return "la sortie ne contient pas les valeurs attendues, dans l'ordre"
+    return ""
+
+
+def split_runs(output, nonce):
+    """Decoupe la sortie du bac a sable en {nom du cas: (texte, code de sortie)}.
+
+    Le séparateur est un nonce tiré par job, invisible de l'étudiant : sans ça,
+    un programme qui imprime le marqueur se fabriquerait des cas réussis.
+    """
+    runs, name, buf = {}, None, []
+    for line in output.splitlines():
+        if line.startswith(nonce + " BEGIN "):
+            name, buf = line[len(nonce) + 7:].strip(), []
+        elif line.startswith(nonce + " END ") and name is not None:
+            parts = line[len(nonce) + 5:].split()
+            code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            runs[name] = ("\n".join(buf), code)
+            name = None
+        elif name is not None:
+            buf.append(line)
+    return runs
+
+
+def verdict_io(rc, output, cases, nonce, tol):
+    # Compilation (10/11/12) et plafond du conteneur entier (124/137) : mêmes
+    # codes que le mode unity, et un seul message. Le 137 ne peut venir que du
+    # chronomètre EXTERNE -- build-io.sh sort toujours 0 après sa boucle, et le
+    # dépassement d'un cas isolé se lit dans son marqueur de fin, pas ici.
+    if rc in (10, 11, 12, 124, 137):
+        return verdict(rc, output)
+    runs = split_runs(output, nonce)
+    failed = []
+    for number, case in enumerate(cases, 1):
+        name = "%02d" % number
+        if name not in runs:
+            failed.append({"case": number, "stdin": case.get("stdin", ""),
+                           "stdout": "", "reason": "le programme n'a pas terminé"})
+            continue
+        text, code = runs[name]
+        if code in (124, 137):
+            reason = ("le programme a été interrompu : boucle infinie, ou il "
+                      "attend plus de valeurs qu'il n'en reçoit")
+        elif code != 0:
+            reason = "le programme s'est terminé anormalement (code %d)" % code
+        else:
+            reason = check_case(case, text, tol)
+        if reason:
+            failed.append({
+                "case": number,
+                # Les ENTRÉES sont montrées (l'étudiant a la formule, elles lui
+                # servent à déboguer), la valeur ATTENDUE ne l'est jamais : elle
+                # inviterait à écrire un printf de constantes.
+                "stdin": case.get("stdin", ""),
+                "stdout": text[:MAX_CASE_OUTPUT],
+                "reason": reason,
+            })
+    return {
+        "status": "ok",
+        "kind": "io",
+        "total": len(cases),
+        "passed": len(cases) - len(failed),
+        "cases": failed,
+    }
+
+
+# --------------------------------------------------------------------------
+# Bac a sable
+# --------------------------------------------------------------------------
+
+def forbidden_includes(code, allowed):
+    """Les #include de la soumission qui ne sont pas dans la liste blanche.
+
+    `allowed` à None (pas de fichier allowed_includes.txt pour ce TP) désactive
+    la vérification.
+
+    ponytail: une regex sur le texte brut. Elle voit un #include dans un
+    commentaire ou une chaîne, et ne voit pas un #include produit par macro.
+    Les deux sont hors de portée d'un étudiant de première session, et un faux
+    positif coûte un message d'erreur clair, pas une mauvaise note.
+    """
+    if allowed is None:
+        return []
+    return sorted({h for h in INCLUDE_RE.findall(code) if h not in allowed})
+
+
+def read_allowed(tp_dir):
+    path = os.path.join(tp_dir, "allowed_includes.txt")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return {line.strip() for line in fh if line.strip()}
+    except OSError:
+        return None
+
+
+def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
+    """La ligne de commande du bac à sable.
+
+    Chaque option ferme une porte, et aucune n'est décorative :
+      --network=none      rien à exfiltrer, rien à scanner, pas de relais de spam
+      --pids-limit        la fork bomb est LE classique du TP de C
+      --read-only + tmpfs le conteneur ne survit à rien, y compris à lui-même
+      --cap-drop=ALL      aucune capability, même pas celles par défaut
+      --user 65534        jamais root, même à l'intérieur
+      --rm                un conteneur = un job = jetable, jamais réutilisé
+      --runtime=runsc     le code natif tape sur un noyau réimplémenté en
+                          espace utilisateur, pas sur celui du Dell
+
+    EN MODE io, LE RÉPERTOIRE DES TESTS N'EST PAS MONTÉ DU TOUT. Les entrées ont
+    déjà été extraites dans le répertoire du job ; io.json, qui contient les
+    valeurs attendues, n'entre jamais dans le conteneur.
+    """
+    argv = [
+        "docker", "run", "--rm", "--name", name,
+        "--runtime", RUNTIME,
+        "--network", "none",
+        "--read-only",
+        "--tmpfs", "/work:rw,exec,size=32m,mode=0777",
+        "--tmpfs", "/tmp:rw,size=16m",
+        "--memory", MEMORY, "--memory-swap", MEMORY,
+        "--pids-limit", PIDS,
+        "--cpus", CPUS,
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--user", "65534:65534",
+        "--ulimit", "fsize=8388608",
+        "--ulimit", "nofile=64",
+        "-v", job_dir + "/submission.c:/in/submission.c:ro",
+    ]
+    if mode == "io":
+        argv += [
+            "-e", "CTESTER_NONCE=" + nonce,
+            "-v", job_dir + "/cases:/in/cases:ro",
+            "-v", BUILD_IO + ":/in/build.sh:ro",
+        ]
+    else:
+        argv += [
+            "-v", tp_dir + ":/in/tests:ro",
+            "-v", os.path.join(TESTS, "unity") + ":/in/unity:ro",
+            "-v", BUILD_UNITY + ":/in/build.sh:ro",
+        ]
+    return argv + [IMAGE, "bash", "/in/build.sh"]
+
+
+def parse_unity(out):
+    """Extrait le verdict de la sortie Unity. None si elle n'a pas de résumé.
+
+    CETTE ENTRÉE N'EST PAS FIABLE. Le code étudiant tourne dans le même
+    processus que les tests et peut écrire ce qu'il veut sur stdout, y compris
+    imiter Unity. On ne renvoie donc que ce que les expressions rationnelles
+    ci-dessus acceptent : des entiers, et des noms de test réduits à
+    [A-Za-z0-9_] -- jamais le champ MESSAGE d'une ligne FAIL, qui contient la
+    valeur attendue par le test et donc le test lui-même.
+
+    ponytail: un `printf` bien placé peut fabriquer un faux « 0 Failures ».
+    C'est inhérent au fait de lier le code étudiant aux tests, ce service est du
+    feedback et pas de la notation, et le README le dit. Ne pas essayer de
+    durcir ça ici.
+    """
+    match = None
+    for match in SUMMARY_RE.finditer(out):
+        pass  # le DERNIER résumé : celui qu'Unity écrit en sortant
+    if match is None:
+        return None
+    total, failures, ignored = (int(g) for g in match.groups())
+    names = FAIL_RE.findall(out)[:MAX_FAILED_NAMES]
+    return {
+        "total": total,
+        "passed": max(total - failures - ignored, 0),
+        "ignored": ignored,
+        "failed": names,
+    }
+
+
+def verdict(rc, out):
+    """Traduit un code de sortie de build.sh en réponse pour l'étudiant."""
+    if rc == 10:
+        return {
+            "status": "compile_error",
+            "message": "Ton fichier ne compile pas.",
+            "gcc": out[:MAX_GCC_CHARS],
+        }
+    if rc == 11:
+        # Volontairement vague : le détail citerait les tests. Les deux causes
+        # de loin les plus fréquentes sont nommées, ce qui suffit à débloquer
+        # sans rien révéler des cas de test.
+        return {
+            "status": "link_error",
+            "message": (
+                "Ton code compile, mais l'édition de liens avec les tests a "
+                "échoué. Vérifie que les fonctions demandées ont exactement le "
+                "nom et la signature de l'énoncé, et que tu ne définis pas de "
+                "fonction main()."
+            ),
+        }
+    if rc == 12:
+        return {
+            "status": "compile_timeout",
+            "message": "La compilation a été trop longue et a été abandonnée.",
+        }
+    if rc in (124, 137):
+        return {
+            "status": "timeout",
+            "message": (
+                "Le programme a été interrompu : boucle infinie, attente d'une "
+                "entrée, ou trop de processus créés."
+            ),
+        }
+    parsed = parse_unity(out)
+    if parsed is None:
+        return {
+            "status": "error",
+            "message": (
+                "Les tests se sont arrêtés avant la fin (plantage probable : "
+                "segfault, débordement, pointeur invalide)."
+            ),
+        }
+    parsed["status"] = "ok"
+    parsed["kind"] = "unity"
+    return parsed
+
+
+def sandbox(job_dir, tp_dir, mode, nonce=""):
+    """Lance le conteneur et rend (code de sortie, sortie standard)."""
+    name = "ctester-" + os.path.basename(job_dir)[:16]
+    try:
+        done = subprocess.run(
+            docker_argv(job_dir, tp_dir, name, mode, nonce),
+            capture_output=True, text=True, errors="replace",
+            timeout=JOB_TIMEOUT, check=False,
+        )
+        return done.returncode, done.stdout
+    except subprocess.TimeoutExpired:
+        # `docker run --rm` ne suffit pas : tuer le CLIENT docker laisse le
+        # conteneur tourner. Sans ce rm -f, un job pathologique garde un coeur
+        # du Dell jusqu'au prochain redémarrage du démon.
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True,
+                       check=False)
+        return 137, ""
+
+
+# --------------------------------------------------------------------------
+# Traitement d'un job
+# --------------------------------------------------------------------------
+
+def run_job(job_dir):
+    with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
+        tp = str(json.load(fh).get("tp", ""))
+    # REVALIDÉ ICI, même si le web l'a déjà fait. Ce processus est root et
+    # compose un chemin à partir de cette valeur : il ne fait confiance à
+    # personne, y compris à notre propre conteneur web.
+    tp_dir = os.path.join(TESTS, tp)
+    if not TP_RE.match(tp) or not os.path.isdir(tp_dir):
+        return {"status": "error", "message": "TP inconnu."}
+    mode = detect_mode(tp_dir)
+    if mode is None:
+        return {"status": "error", "message": "Ce TP n'a pas de tests publiés."}
+
+    if mode == "quiz":
+        with open(os.path.join(job_dir, "answers.json"), encoding="utf-8") as fh:
+            answers = json.load(fh)
+        return grade_quiz(load_config(tp_dir, "quiz.json"), answers)
+
+    with open(os.path.join(job_dir, "submission.c"), encoding="utf-8",
+              errors="replace") as fh:
+        code = fh.read()
+    bad = forbidden_includes(code, read_allowed(tp_dir))
+    if bad:
+        # Rejeté sans dépenser un conteneur.
+        return {
+            "status": "forbidden_include",
+            "message": (
+                "En-têtes non autorisés pour ce TP : "
+                + ", ".join(bad)
+                + ". Utilise seulement ce qui a été vu en cours."
+            ),
+        }
+
+    if mode == "io":
+        conf = load_config(tp_dir, "io.json")
+        cases = conf.get("cases", [])
+        tol = float(conf.get("tolerance", DEFAULT_TOLERANCE))
+        case_dir = os.path.join(job_dir, "cases")
+        os.makedirs(case_dir, exist_ok=True)
+        for number, case in enumerate(cases, 1):
+            with open(os.path.join(case_dir, "%02d.in" % number), "w",
+                      encoding="utf-8") as fh:
+                fh.write(case.get("stdin", ""))
+        nonce = uuid.uuid4().hex
+        rc, out = sandbox(job_dir, tp_dir, mode, nonce)
+        return verdict_io(rc, out, cases, nonce, tol)
+
+    rc, out = sandbox(job_dir, tp_dir, mode)
+    return verdict(rc, out)
+
+
+def write_result(job_dir, payload):
+    payload["state"] = "done"
+    write_json(os.path.join(job_dir, "result.json"), payload)
+
+
+def claim(job_dir):
+    """Réserve un job. mkdir échoue si le répertoire existe, et c'est atomique.
+
+    ponytail: c'est tout le verrou dont N workers sur UN hôte ont besoin. Un
+    vrai verrou distribué le jour où il y a un deuxième hôte, ce qui n'arrivera
+    probablement jamais.
+    """
+    try:
+        os.mkdir(os.path.join(job_dir, ".lock"))
+        return True
+    except OSError:
+        return False
+
+
+def pending_jobs():
+    jobs = []
+    for entry in os.scandir(SPOOL):
+        if not entry.is_dir():
+            continue
+        job = os.path.join(entry.path, "job.json")
+        if not os.path.exists(job) or os.path.exists(
+            os.path.join(entry.path, "result.json")
+        ):
+            continue
+        try:
+            jobs.append((os.stat(job).st_mtime, entry.path))
+        except OSError:
+            continue
+    jobs.sort()  # FIFO : le rang affiché à l'étudiant doit être vrai
+    return [path for _, path in jobs]
+
+
+def sweep(now):
+    """Efface les jobs vieux de SWEEP_AFTER, verrouillés ou non.
+
+    Y compris ceux d'un worker tué en plein travail : le .lock disparaît avec le
+    répertoire, sinon un redémarrage malheureux laisserait un job coincé pour
+    toujours.
+    """
+    for entry in os.scandir(SPOOL):
+        try:
+            if entry.is_dir() and entry.stat().st_mtime < now - SWEEP_AFTER:
+                shutil.rmtree(entry.path, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def main():
+    os.makedirs(SPOOL, exist_ok=True)
+    try:
+        published = publish_catalogue()
+        print("ctester: %d TP publiés" % len(published), file=sys.stderr,
+              flush=True)
+    except (OSError, ValueError) as exc:
+        # Un catalogue illisible ne doit pas empêcher les jobs déjà en file
+        # d'être traités : le service dégrade en « menu vide », pas en panne.
+        print("ctester: catalogue: %s" % exc, file=sys.stderr, flush=True)
+    while True:
+        worked = False
+        for job_dir in pending_jobs():
+            if not claim(job_dir):
+                continue
+            worked = True
+            try:
+                write_result(job_dir, run_job(job_dir))
+            except Exception as exc:  # noqa: BLE001 -- un job ne tue pas le worker
+                print("ctester: %s: %s" % (job_dir, exc), file=sys.stderr,
+                      flush=True)
+                write_result(job_dir, {
+                    "status": "error",
+                    "message": "Erreur interne du juge. Réessaie.",
+                })
+        sweep(time.time())
+        if not worked:
+            # ponytail: sondage à 0,5 s. Une unité systemd .path le jour où
+            # cette latence se voit, ce qui demanderait des jobs plus courts que
+            # la compilation elle-même.
+            time.sleep(0.5)
+
+
+if __name__ == "__main__":
+    main()

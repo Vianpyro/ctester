@@ -1,0 +1,130 @@
+# ctester -- juge C en libre-service pour le cours TCH009.
+#
+# Les étudiants collent un fichier .c, choisissent leur TP, et reçoivent un
+# verdict contre des tests unitaires qui restent secrets. Pas de compte : une
+# clé de session dans le lien, distribuée par Moodle.
+#
+# CE N'EST PAS UN OUTIL ANTI-TRICHE, et le README du rôle le développe. Le code
+# étudiant est lié dans le même processus que les tests, donc un `exit(0)` bien
+# placé simule une réussite. C'est du feedback, pas de la notation.
+#
+# TROIS PROCESSUS SÉPARÉS PAR PRIVILÈGE, et c'est le seul point d'architecture
+# qui compte ici :
+#
+#   conteneur `web`   parle HTTP, n'a NI le socket Docker NI accès aux tests
+#     v  écrit dans le spool (bind mount)
+#   ctester-runner@N  sur l'hôte, en root, lit le spool -- ne l'exécute jamais
+#     v  docker run jetable, sans réseau, sous gVisor
+#   gcc:14-bookworm   compile et exécute, avec les tests montés en lecture seule
+#
+# Le spool coûte quelques dizaines de lignes et retire le socket Docker du seul
+# conteneur exposé à Internet. Monter ce socket dans le web -- ce que fait
+# Judge0 avec --privileged -- ferait de n'importe quelle RCE dans app.py un root
+# sur la machine qui sert le DNS, le DHCP et le VPN de la maison.
+
+ctester_project_dir: /opt/ctester
+
+# Dérivé, pas écrit deux fois : Compose construit le nom du conteneur à partir
+# du répertoire du projet et du nom du service. Le taper à la main est une façon
+# de vérifier un conteneur que personne ne déploie.
+#
+# CE NOM EST CE QUE NPM PROXIFIE (tch009.thevhome.com -> http://ctester-web-1:8000),
+# et le proxy host vit dans la base SQLite de NPM, que ce dépôt ne voit pas.
+# Renommer le répertoire du projet renomme le conteneur et casse le site.
+ctester_container_name: "{{ ctester_project_dir | basename }}-web-1"
+
+# --- Images -------------------------------------------------------------
+# L'API n'utilise QUE la bibliothèque standard : pas de pip install au
+# démarrage, pas d'image à construire, pas d'arbre de dépendances à patcher.
+# L'image officielle suffit et se met à jour toute seule dans la mineure.
+ctester_web_image: "python:3.13-slim"
+
+# Le bac à sable. Image officielle + Unity (3 fichiers) monté en lecture seule
+# depuis le dépôt de tests : rien à construire, rien à republier quand une CVE
+# tombe dans gcc.
+ctester_sandbox_image: "gcc:14-bookworm"
+
+# --- gVisor -------------------------------------------------------------
+# Le runtime du bac à sable. Le code étudiant est du natif compilé : il peut
+# émettre n'importe quel appel système, ce qui est une autre catégorie de risque
+# qu'un langage interprété. gVisor réimplémente le noyau en espace utilisateur,
+# donc un exploit noyau dans le conteneur tape sur runsc et pas sur le vrai.
+#
+# NE PAS BASCULER SUR `runc` POUR FAIRE PARTIR LE DÉPLOIEMENT. Le rôle vérifie
+# que ce runtime est enregistré et échoue s'il ne l'est pas -- voir tasks/main.yml
+# et le README pour la fenêtre de redémarrage Docker que ça implique. Un repli
+# silencieux, c'est le service qui tourne sans la couche pour laquelle il a été
+# conçu, et personne qui le sait.
+ctester_runtime: runsc
+
+# Répété depuis roles/docker plutôt que réutilisé : les valeurs par défaut d'un
+# rôle ne sont en portée que pendant son exécution, et dépendre du fait qu'elles
+# fuient vers les rôles suivants d'une même play est un pari qu'on perd le jour
+# où quelqu'un déploie ctester seul. Une ligne, explicite.
+ctester_apt_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+# --- Dépôt de tests (PRIVÉ) ---------------------------------------------
+# Cloné en SSH avec une deploy key en LECTURE SEULE, propre à ce dépôt : sa
+# moitié privée sur le Dell ne peut que lire les tests, et ne donne accès à rien
+# d'autre dans l'organisation -- contrairement à un PAT.
+ctester_tests_repo: "git@github.com:ETS-TCH009-S26/unittests.git"
+ctester_tests_version: main
+ctester_tests_key_path: /root/.ssh/ctester_tests
+
+# --- Files d'attente et quotas ------------------------------------------
+# LE SCÉNARIO DIMENSIONNANT : 40 étudiants qui soumettent dans la même minute,
+# la veille de la remise.
+#
+# Nombre de workers, donc de compilations simultanées. Chaque conteneur est
+# plafonné à 1 CPU, donc cette valeur EST le nombre de cœurs que le juge peut
+# prendre au Dell. Ne pas monter sans regarder ce que Kea et AdGuard laissent
+# libre : ce sont les mêmes cœurs.
+ctester_workers: 2
+
+# Délai minimal entre deux soumissions d'un même client, et plafond horaire.
+# Le bon chiffre se découvre au premier TP -- ce sont des variables pour ça.
+ctester_cooldown_seconds: 15
+ctester_hourly_quota: 40
+
+# Au-delà, /submit répond 503 « le serveur est saturé ». C'est CE plafond qui
+# protège le Dell ; les quotas par client ne font que répartir l'équité.
+ctester_queue_max: 60
+
+# Taille maximale d'une soumission. Un TP de C tient largement dedans.
+ctester_max_code_bytes: 65536
+
+# --- Norme du langage ---------------------------------------------------
+# Appliquée AU SEUL FICHIER DE L'ÉTUDIANT. Les tests et Unity sont compilés par
+# une deuxième invocation de gcc, qui garde le -std par défaut : si Unity finit
+# par ne pas aimer C23 (il est écrit en C99), c'est son problème et pas celui du
+# cours. Deux unités de traduction, deux normes, un seul édition de liens --
+# c'est légal et c'est ce qui rend ce choix gratuit.
+ctester_c_std: c23
+
+# --- Limites du bac à sable ---------------------------------------------
+# TROIS chronomètres, parce qu'ils ne rattrapent pas les mêmes pannes :
+#   compile  une compilation qui part en vrille (macro récursive, template
+#            d'erreur pathologique). Au-delà on abandonne CE job et on passe au
+#            suivant de la file -- un étudiant ne monopolise pas un worker.
+#   run      une boucle infinie dans le code étudiant.
+#   job      filet de sécurité sur le conteneur entier, compilation comprise :
+#            il rattrape un conteneur qui ne rend jamais la main, y compris pour
+#            une raison qui n'a rien à voir avec le code soumis.
+#
+# `run` est PAR CAS et non par job : en mode io, un exercice a trois entrées
+# différentes et chacune a droit à son chronomètre. `job` doit donc couvrir la
+# compilation PLUS toutes les exécutions -- 10 + 3 x 5 dans le pire cas d'un TP
+# à trois cas, plus le démarrage du conteneur sous gVisor. D'où 45 et pas 25 :
+# une marge, parce qu'un job coupé par ce plafond-là ne dit rien d'utile à
+# l'étudiant, contrairement aux deux autres.
+ctester_compile_timeout: 10
+ctester_run_timeout: 5
+ctester_job_timeout: 45
+
+ctester_sandbox_memory: 256m
+ctester_sandbox_pids: 64
+ctester_sandbox_cpus: "1"
+
+# Le conteneur web ne fait que parler HTTP et écrire des fichiers de 64 Ko.
+ctester_web_cpu_limit: "0.25"
+ctester_web_mem_limit: 128m

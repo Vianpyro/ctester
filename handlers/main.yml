@@ -1,0 +1,22 @@
+# Handlers du rôle ctester.
+
+# Le conteneur web relit son code et sa configuration au recréage. Il ne détient
+# aucun état : la file est sur l'hôte, et un job en cours survit à ce redémarrage
+# -- le worker écrira son verdict, et le navigateur de l'étudiant le trouvera au
+# sondage suivant.
+- name: Recreate ctester
+  community.docker.docker_compose_v2:
+    project_src: "{{ ctester_project_dir }}"
+    state: present
+    recreate: always
+  when: not ansible_check_mode
+
+# Redémarrer un worker en plein job laisse un répertoire verrouillé sans verdict.
+# Le balayage l'efface au bout de dix minutes, et l'étudiant voit « Résultat
+# perdu. Relance les tests. » -- une relance, pas une file bloquée.
+- name: Restart ctester workers
+  ansible.builtin.systemd:
+    name: "ctester-runner@{{ item }}.service"
+    state: restarted
+    daemon_reload: true
+  loop: "{{ range(1, ctester_workers | int + 1) | list }}"

@@ -1,0 +1,60 @@
+#!/bin/bash
+# Mode io : ce qui tourne DANS le bac à sable. Fichier géré par Ansible.
+#
+# Pour les laboratoires où l'étudiant écrit un PROGRAMME COMPLET, avec son
+# main(), qui lit sur l'entrée standard et écrit sur la sortie standard. C'est
+# la forme de tout le laboratoire 2, et c'est exactement ce que le mode Unity
+# refuse (deux main() ne s'éditent pas ensemble).
+#
+# CE SCRIPT NE VOIT AUCUN SECRET, contrairement à build-unity.sh. Les valeurs
+# attendues restent dans io.json, sur l'hôte : le conteneur ne reçoit que les
+# ENTRÉES, déjà extraites dans /in/cases par le worker. Il n'y a donc rien à
+# taire ici, et la stderr de gcc peut remonter entière -- elle ne parle que du
+# fichier de l'étudiant.
+#
+# CODES DE SORTIE, lus par le worker :
+#   10  la compilation a échoué (stdout = la stderr de gcc)
+#   12  la compilation a dépassé {{ ctester_compile_timeout }} s
+#   0   les cas ont été exécutés -- le verdict se lit dans les marqueurs
+#
+# LE PROTOCOLE DE SORTIE. Chaque exécution est encadrée par un nonce tiré par
+# job et passé en variable d'environnement :
+#
+#   <nonce> BEGIN 01
+#   ...ce que le programme a écrit...
+#   <nonce> END 01 <code de sortie>
+#
+# Le nonce, et pas un marqueur fixe : l'étudiant ne le connaît pas, donc il ne
+# peut pas imprimer de faux séparateurs et se fabriquer des cas réussis.
+
+set -u
+cd /work || exit 70
+
+# -lm inconditionnel : les exercices 4 et 5 utilisent pow() et sqrt(), et lier
+# la bibliothèque mathématique ne coûte rien aux autres.
+timeout -s KILL {{ ctester_compile_timeout }} \
+    gcc -std={{ ctester_c_std }} -Wall -Wextra \
+        /in/submission.c -o /work/t -lm 2>/work/gcc.err
+rc=$?
+if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
+    exit 12
+fi
+if [ $rc -ne 0 ]; then
+    cat /work/gcc.err
+    exit 10
+fi
+
+for case_file in /in/cases/*.in; do
+    # Le glob ne s'étend pas quand il ne correspond à rien : sans ce garde-fou,
+    # un TP sans cas exécuterait le programme avec un nom de fichier littéral.
+    [ -e "$case_file" ] || continue
+    name=$(basename "$case_file" .in)
+    printf '%s BEGIN %s\n' "$CTESTER_NONCE" "$name"
+    timeout -s KILL {{ ctester_run_timeout }} /work/t < "$case_file"
+    # Le \n de tête garantit que le marqueur commence sa propre ligne, même
+    # quand le programme oublie le \n final -- ce que fait la moitié d'un
+    # groupe de première session.
+    printf '\n%s END %s %s\n' "$CTESTER_NONCE" "$name" "$?"
+done
+
+exit 0

@@ -1,0 +1,67 @@
+#!/bin/bash
+# Ce qui tourne DANS le bac à sable. Fichier géré par Ansible : éditer le rôle.
+#
+# Monté en lecture seule dans un conteneur jetable, sans réseau, sous gVisor,
+# en uid 65534, avec pour seul système de fichiers inscriptible un tmpfs. Il
+# voit /in/submission.c (le code étudiant), /in/tests (SECRET) et /in/unity.
+#
+# LA SÉPARATION EN TROIS PHASES EST LE MÉCANISME DE CONFIDENTIALITÉ, pas une
+# organisation du code. La phase 1 compile le fichier de l'étudiant SEUL, donc
+# sa stderr ne parle que de son fichier et peut lui être rendue intégralement.
+# La phase 2 touche aux tests, donc sa stderr cite leur code source -- elle est
+# jetée, et l'étudiant ne reçoit qu'un message générique. Sans cette coupure,
+# les cas de test se reconstituent en soumettant du code qui provoque des
+# erreurs bavardes.
+#
+# CODES DE SORTIE, lus par le worker :
+#   10  la compilation du fichier étudiant a échoué (stdout = sa stderr gcc)
+#   11  l'édition de liens avec les tests a échoué (stdout jeté)
+#   12  la compilation a dépassé {{ ctester_compile_timeout }} s
+#   0   les tests ont tous passé
+#   1+  Unity retourne le nombre d'échecs
+#   124/137  le binaire de test a dépassé {{ ctester_run_timeout }} s
+
+set -u
+cd /work || exit 70
+
+# --- Phase 1 : le fichier de l'étudiant, seul -------------------------------
+# -std={{ ctester_c_std }} ne s'applique qu'ICI. Voir defaults/main.yml.
+timeout -s KILL {{ ctester_compile_timeout }} \
+    gcc -std={{ ctester_c_std }} -Wall -Wextra \
+        -c /in/submission.c -o /work/sub.o 2>/work/gcc.err
+rc=$?
+if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
+    exit 12
+fi
+if [ $rc -ne 0 ]; then
+    # SA stderr, sur SON fichier : c'est le retour pédagogique principal.
+    cat /work/gcc.err
+    exit 10
+fi
+
+# ponytail: les warnings d'une compilation RÉUSSIE sont jetés ici. Les faire
+# remonter voudrait dire les mêler à la sortie Unity dans le même flux, donc un
+# protocole entre ce script et le worker. Ajouter le jour où le cours veut noter
+# la propreté du code -- et ce jour-là, un marqueur de section, pas un cat.
+
+# --- Phase 2 : liaison avec les tests secrets -------------------------------
+# 2>/dev/null EST LA MESURE DE SÉCURITÉ. Une erreur d'édition de liens cite les
+# symboles attendus, et une erreur de compilation des tests citerait leurs
+# lignes. L'étudiant reçoit un message générique construit par le worker.
+timeout -s KILL {{ ctester_compile_timeout }} \
+    gcc /work/sub.o /in/tests/*.c /in/unity/unity.c \
+        -I/in/unity -I/in/tests -o /work/t -lm 2>/dev/null
+rc=$?
+if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
+    exit 12
+fi
+if [ $rc -ne 0 ]; then
+    exit 11
+fi
+
+# --- Phase 3 : exécution ----------------------------------------------------
+# La sortie est celle d'Unity, MAIS elle est aussi sous le contrôle de
+# l'étudiant (son code peut écrire sur stdout, y compris imiter Unity). Le
+# worker la parse défensivement ; rien ici ne lui fait confiance.
+timeout -s KILL {{ ctester_run_timeout }} /work/t
+exit $?
