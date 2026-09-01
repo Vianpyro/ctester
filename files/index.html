@@ -176,6 +176,16 @@
   .nav { padding: .35rem .75rem; line-height: 1; }
   .case { margin-top: .9rem; }
   .case .why { color: var(--bad); }
+  .case .vu { color: var(--muted); font-size: 12.5px; margin-top: .35rem; }
+  /* Les avertissements ne sont PAS une erreur : bordure ambre, jamais rouge.
+     Un étudiant qui réussit 9/9 et voit un cadre rouge croit avoir échoué. */
+  .avert {
+    margin-top: 1rem; padding: .6rem .75rem;
+    border: 1px solid var(--line); border-left: 3px solid var(--wait);
+    border-radius: 6px; background: var(--bg);
+  }
+  .avert .titre { color: var(--wait); font-weight: 600; font-size: 13px; }
+  .avert .quoi { color: var(--muted); font-size: 12.5px; margin: .2rem 0 .4rem; }
   .verdict { font-size: 1.1rem; font-weight: 700; margin-bottom: .5rem; }
   .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
   ul { margin: .5rem 0 0; padding-left: 1.2rem; }
@@ -516,6 +526,29 @@ function paint() {
 $("code").addEventListener("input", paint);
 $("code").addEventListener("scroll", paint);
 
+// Tab indente au lieu de quitter le champ. Dans une zone où l'on écrit du C,
+// perdre le curseur à chaque indentation est une friction quotidienne.
+//
+// ÉCHAP PUIS TAB RESTE LA SORTIE AU CLAVIER, et ce n'est pas un détail : sans
+// ce chemin, quelqu'un qui navigue sans souris se retrouve enfermé dans le
+// textarea, incapable d'atteindre le bouton « Tester ». Régler un confort en
+// cassant l'accessibilité serait un mauvais échange.
+let sortieClavier = false;
+$("code").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { sortieClavier = true; return; }
+  if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey) {
+    sortieClavier = false;
+    return;
+  }
+  if (sortieClavier) { sortieClavier = false; return; }   // on laisse sortir
+  e.preventDefault();
+  const zone = $("code");
+  const debut = zone.selectionStart, fin = zone.selectionEnd;
+  zone.value = zone.value.slice(0, debut) + "    " + zone.value.slice(fin);
+  zone.selectionStart = zone.selectionEnd = debut + 4;
+  paint();
+});
+
 // --- Les fichiers de la soumission ----------------------------------------
 // UN ONGLET PAR FICHIER DÉCLARÉ PAR L'ÉNONCÉ, et les noms ne sont pas au choix
 // de l'étudiant : à partir du laboratoire 5 il écrit un module, et le
@@ -599,13 +632,45 @@ function cases(items) {
     const why = document.createElement("div");
     why.className = "why";
     why.textContent = `Cas ${c.case} : ${c.reason}`;
+    let texte = "entrées :\n" + c.stdin + "\nta sortie :\n" + (c.stdout || "(rien)");
+    // La sortie d'erreur du programme, quand il y en a une : c'est là
+    // qu'atterrissent ses fprintf(stderr, ...) de mise au point.
+    if (c.stderr) texte += "\nta sortie d'erreur :\n" + c.stderr;
     const io = document.createElement("pre");
-    io.textContent = "entrées :\n" + c.stdin +
-                     "\nta sortie :\n" + (c.stdout || "(rien)");
+    io.textContent = texte;
     wrap.append(why, io);
+    // CE QUE LE JUGE A LU dans sa sortie. Sans ça, l'appariement des nombres
+    // est une boîte noire : celui qui écrit « 1 234 » ne peut pas deviner que
+    // sa ligne a été coupée en deux.
+    if (c.nombres) {
+      const vu = document.createElement("div");
+      vu.className = "vu";
+      vu.textContent = c.nombres.length
+        ? "nombres lus dans ta sortie : " + c.nombres.join(", ")
+        : "aucun nombre lu dans ta sortie";
+      wrap.append(vu);
+    }
     box.append(wrap);
   }
   return box;
+}
+
+// Les avertissements du compilateur, sur SES fichiers. Affichés aussi quand
+// tout passe : c'est le seul moment où l'étudiant a le temps de les lire.
+function avertissements(texte) {
+  const bloc = document.createElement("div");
+  bloc.className = "avert";
+  const titre = document.createElement("div");
+  titre.className = "titre";
+  titre.textContent = "Avertissements du compilateur";
+  const quoi = document.createElement("div");
+  quoi.className = "quoi";
+  quoi.textContent = "Ce n'est pas une erreur : ton programme compile. "
+                   + "Mais gcc a remarqué ceci, et ça vaut le coup d'œil.";
+  const corps = document.createElement("pre");
+  corps.textContent = texte;
+  bloc.append(titre, quoi, corps);
+  return bloc;
 }
 
 const UNITS = {quiz: "réponses justes", io: "cas réussis", unity: "tests réussis"};
@@ -613,23 +678,29 @@ const UNITS = {quiz: "réponses justes", io: "cas réussis", unity: "tests réus
 function render(r) {
   if (r.status !== "ok") {
     show("bad", r.message, r.status === "compile_error" ? block(r.gcc || "") : null);
-    return;
-  }
-  const all = r.passed === r.total;
-  const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}`;
-  if (all) { show("ok", title); return; }
-  if (r.kind === "quiz") {
-    // Le numéro d'exercice en tête : maintenant que le quiz est paginé, savoir
-    // QUELLE question est fausse ne suffit plus, il faut savoir où la retrouver.
-    show("bad", title, list(r.wrong.map(w => {
-      const ex = (groupeDeQuestion[w.id] || "").match(/Exercice\s*\d+/i);
-      return (ex ? ex[0] + " — " : "") + w.label + (w.hint ? " — " + w.hint : "");
-    })));
-  } else if (r.kind === "io") {
-    show("bad", title, cases(r.cases));
   } else {
-    show("bad", title, r.failed.length ? list(r.failed) : null);
+    const all = r.passed === r.total;
+    const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}`;
+    if (all) {
+      show("ok", title);
+    } else if (r.kind === "quiz") {
+      // Le numéro d'exercice ET la réponse saisie : le quiz étant paginé,
+      // savoir QUELLE question est fausse ne suffit plus, il faut pouvoir la
+      // retrouver et se rappeler ce qu'on avait tapé.
+      show("bad", title, list(r.wrong.map(w => {
+        const ex = (groupeDeQuestion[w.id] || "").match(/Exercice\s*\d+/i);
+        const saisi = w.given && w.given.trim() ? ` (tu as répondu « ${w.given} »)` : "";
+        return (ex ? ex[0] + " — " : "") + w.label + saisi
+             + (w.hint ? " — " + w.hint : "");
+      })));
+    } else if (r.kind === "io") {
+      show("bad", title, cases(r.cases));
+    } else {
+      show("bad", title, r.failed.length ? list(r.failed) : null);
+    }
   }
+  // APRÈS le verdict, quel qu'il soit : réussite comprise.
+  if (r.warnings) out.append(avertissements(r.warnings));
 }
 
 async function poll(id, tries) {

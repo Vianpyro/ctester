@@ -27,6 +27,11 @@ import runner  # noqa: E402
 CC = os.environ.get("CC", "gcc")
 STD = os.environ.get("CTESTER_STD", "gnu2x")
 TIMEOUT = 30
+# Drapeaux gcc supplementaires, pour mesurer une option avant de la deployer :
+#   CTESTER_EXTRA="-fsanitize=undefined -fno-sanitize-recover" ... valider_contenu.py
+# Les 72 corriges de reference servent alors de banc d'essai : un diagnostic sur
+# du code juste est soit un vrai defaut du corrige, soit un faux positif a ecarter.
+EXTRA = os.environ.get("CTESTER_EXTRA", "").split()
 
 
 def gcc(args, cwd):
@@ -44,7 +49,7 @@ def valider_unity(entree, sol_dir, unity_dir, travail):
     objets = []
     for src in sources(sol_dir):
         obj = os.path.join(travail, src[:-2] + ".o")
-        rc, err = gcc(["-std=" + STD, "-Wall", "-I" + sol_dir, "-c",
+        rc, err = gcc(EXTRA + ["-std=" + STD, "-Wall", "-I" + sol_dir, "-c",
                        os.path.join(sol_dir, src), "-o", obj], travail)
         if rc:
             return "la solution ne compile pas :\n" + err.strip()[:400]
@@ -55,7 +60,7 @@ def valider_unity(entree, sol_dir, unity_dir, travail):
     # souche qui ÉCHOUE, et la validation contredirait le juge -- ou, pire,
     # validerait un contenu que le juge refuse.
     binaire = os.path.join(travail, "t")
-    rc, err = gcc(["-DUNITY_INCLUDE_DOUBLE"] + objets
+    rc, err = gcc(EXTRA + ["-DUNITY_INCLUDE_DOUBLE"] + objets
                   + [os.path.join(entree["path"], f)
                      for f in sources(entree["path"])]
                   + [os.path.join(unity_dir, "unity.c"),
@@ -79,7 +84,7 @@ def valider_io(entree, sol_dir, travail):
     """Compile la solution, la lance sur chaque cas, applique les règles du juge."""
     conf = runner.load_config(entree["path"], "io.json")
     binaire = os.path.join(travail, "t")
-    rc, err = gcc(["-std=" + STD, "-Wall", "-I" + sol_dir]
+    rc, err = gcc(EXTRA + ["-std=" + STD, "-Wall", "-I" + sol_dir]
                   + [os.path.join(sol_dir, f) for f in sources(sol_dir)]
                   + ["-o", binaire, "-lm"], travail)
     if rc:

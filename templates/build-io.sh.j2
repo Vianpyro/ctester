@@ -37,8 +37,13 @@ cd /work || exit 70
 # un module (calendrier.h + calendrier.c + main.c). Tous les .c du répertoire
 # sont compilés ensemble, et -I/in/src fait résoudre les `#include "..."` de
 # l'étudiant vers ses propres en-têtes.
+#
+# LES SANITIZERS SONT SÛRS ICI, ET SEULEMENT ICI. Ce conteneur ne contient
+# aucun test : le rapport d'ASan peut donc être rendu entier à l'étudiant, sur
+# la stderr du cas. En mode unity la même pile d'appels nommerait la fonction
+# de test appelante, d'où le traitement différent dans build-unity.sh.
 timeout -s KILL {{ ctester_compile_timeout }} \
-    gcc -std={{ ctester_c_std }} -Wall -Wextra -I/in/src \
+    gcc -std={{ ctester_c_std }} -Wall -Wextra {{ ctester_sanitizers }} -I/in/src \
         /in/src/*.c -o /work/t -lm 2>/work/gcc.err
 rc=$?
 if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
@@ -49,17 +54,38 @@ if [ $rc -ne 0 ]; then
     exit 10
 fi
 
+# LES AVERTISSEMENTS D'UNE COMPILATION RÉUSSIE, qui étaient jetés jusqu'ici.
+# `warning: 'x' is used uninitialized`, `format '%d' expects int *` (le scanf
+# sans &), `suggest parentheses around assignment` (le if (x = 5))... gcc nomme
+# déjà les deux erreurs les plus classiques du cours, et on les mettait à la
+# poubelle. Elles portent sur les fichiers de l'étudiant SEULS -- rien des tests
+# n'entre dans cette compilation -- donc elles ne peuvent rien révéler.
+if [ -s /work/gcc.err ]; then
+    printf '%s WARN\n' "$CTESTER_NONCE"
+    cat /work/gcc.err
+    printf '\n%s ENDWARN\n' "$CTESTER_NONCE"
+fi
+
 for case_file in /in/cases/*.in; do
     # Le glob ne s'étend pas quand il ne correspond à rien : sans ce garde-fou,
     # un TP sans cas exécuterait le programme avec un nom de fichier littéral.
     [ -e "$case_file" ] || continue
     name=$(basename "$case_file" .in)
     printf '%s BEGIN %s\n' "$CTESTER_NONCE" "$name"
-    timeout -s KILL {{ ctester_run_timeout }} /work/t < "$case_file"
+    ASAN_OPTIONS={{ ctester_asan_options }} \
+        timeout -s KILL {{ ctester_run_timeout }} /work/t < "$case_file" 2>/work/err
+    # Le code de sortie DOIT être saisi avant tout autre commande, sinon c'est
+    # celui du printf qu'on rapporterait.
+    code=$?
+    # La stderr du programme : c'est là qu'atterrissent ses propres
+    # fprintf(stderr, ...) de débogage et les messages de la bibliothèque C.
+    # Elle lui appartient, elle ne contient rien de secret.
+    printf '\n%s ERR %s\n' "$CTESTER_NONCE" "$name"
+    cat /work/err
     # Le \n de tête garantit que le marqueur commence sa propre ligne, même
     # quand le programme oublie le \n final -- ce que fait la moitié d'un
     # groupe de première session.
-    printf '\n%s END %s %s\n' "$CTESTER_NONCE" "$name" "$?"
+    printf '\n%s END %s %s\n' "$CTESTER_NONCE" "$name" "$code"
 done
 
 exit 0

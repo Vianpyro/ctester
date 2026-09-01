@@ -117,6 +117,41 @@ def test_verdict_codes():
     assert runner.verdict(139, "Segmentation fault")["status"] == "error"
 
 
+def test_abandon_asan():
+    """Le code 86 dit « débordement », et le dit differemment selon le mode.
+
+    C'EST LA DISSYMETRIE QUI EST TESTEE, pas le message. En mode unity le
+    rapport d'ASan a ete jeté par build-unity.sh (sa pile nomme la fonction de
+    test), donc le verdict ne doit RIEN porter d'autre qu'un texte generique.
+    En mode io il n'y a aucun test dans le conteneur, donc le rapport complet
+    remonte par la stderr du cas.
+    """
+    unity = runner.verdict(runner.ASAN_EXIT, "peu importe ce qu'il a imprime")
+    assert unity["status"] == "memory_error", unity
+    assert "tableau" in unity["message"]
+    # Rien de la sortie du conteneur ne doit transiter : ni champ gcc, ni echos.
+    assert set(unity) == {"status", "message"}, unity
+    assert "peu importe" not in str(unity)
+
+    nonce = "n" * 32
+    rapport = ("ERROR: AddressSanitizer: stack-buffer-overflow\n"
+               "    #0 in remplir tableaux.c:12")
+    sortie = ("%s BEGIN 01\n%s ERR 01\n%s\n%s END 01 %d\n"
+              % (nonce, nonce, rapport, nonce, runner.ASAN_EXIT))
+    io_res = runner.verdict_io(0, sortie, [{"stdin": "", "expect": [1]}],
+                               nonce, 0.005)
+    cas = io_res["cases"][0]
+    assert "débordé" in cas["reason"], cas
+    assert "tableaux.c:12" in cas["stderr"], cas
+
+    # Le rapport complet passe : il fait plus long qu'une sortie de programme.
+    long_rapport = ("%s BEGIN 01\n%s ERR 01\n%s\n%s END 01 %d\n"
+                    % (nonce, nonce, "z" * 5000, nonce, runner.ASAN_EXIT))
+    long_res = runner.verdict_io(0, long_rapport, [{"stdin": "", "expect": [1]}],
+                                 nonce, 0.005)
+    assert len(long_res["cases"][0]["stderr"]) == runner.MAX_STDERR
+
+
 # --------------------------------------------------------------------------
 # Mode quiz
 # --------------------------------------------------------------------------
@@ -297,8 +332,8 @@ def test_split_runs_and_verdict_io():
     )
     runs = runner.split_runs(sortie, nonce)
     assert set(runs) == {"01", "02", "03"}
-    assert runs["01"] == ("Surface = 15", 0)
-    assert runs["03"][1] == 137
+    assert runs["01"] == ("Surface = 15", "", 0)
+    assert runs["03"][2] == 137
 
     cases = [{"stdin": "5\n3\n", "expect": [15]},
              {"stdin": "12\n7\n", "expect": [84]},
@@ -308,6 +343,9 @@ def test_split_runs_and_verdict_io():
     par_cas = {c["case"]: c for c in got["cases"]}
     assert par_cas[2]["stdin"] == "12\n7\n"       # ses entrées : oui
     assert par_cas[2]["stdout"] == "Surface = 9"  # sa sortie : oui
+    # Les nombres que le juge a vus dans SA sortie : c'est ce qui rend
+    # l'appariement en sous-suite lisible au lieu d'être une boîte noire.
+    assert par_cas[2]["nombres"] == [9.0], par_cas[2]
     assert "84" not in json.dumps(got)            # la valeur attendue : jamais
     assert "interrompu" in par_cas[3]["reason"]
 
@@ -323,6 +361,51 @@ def test_split_runs_and_verdict_io():
     # terminé » qui laisseraient croire à trois pannes distinctes.
     coupe = runner.verdict_io(137, "", cases, nonce, 0.005)
     assert coupe["status"] == "timeout" and "cases" not in coupe, coupe
+
+
+def test_stderr_et_avertissements():
+    """La stderr du programme et les avertissements gcc reviennent a l'etudiant.
+
+    Les deux lui APPARTIENNENT : ce sont sa sortie d'erreur et les remarques du
+    compilateur sur ses propres fichiers. Les jeter, comme on le faisait, privait
+    du diagnostic le plus formateur qui soit.
+    """
+    nonce = "n0nce"
+    sortie = (
+        nonce + " WARN\n"
+        "sub.c:4:9: warning: 'somme' is used uninitialized\n"
+        + nonce + " ENDWARN\n"
+        + nonce + " BEGIN 01\nResultat 12\n"
+        + nonce + " ERR 01\nmise au point : i vaut 3\n"
+        + nonce + " END 01 0\n"
+    )
+    avertissements, reste = runner.extraire_avertissements(sortie, nonce)
+    assert "is used uninitialized" in avertissements
+    # RETIRÉ du reste : un avertissement contenant `:FAIL` ou un nombre
+    # tromperait les parseurs qui lisent ensuite.
+    assert "warning" not in reste and "WARN" not in reste
+
+    runs = runner.split_runs(reste, nonce)
+    assert runs["01"] == ("Resultat 12", "mise au point : i vaut 3", 0)
+
+    # Attachés a une REUSSITE : c'est la qu'ils servent le plus.
+    reussite = runner.avec_avertissements({"status": "ok", "passed": 3,
+                                           "total": 3}, avertissements)
+    assert "uninitialized" in reussite["warnings"]
+    # Mais pas a une erreur de compilation : la stderr complete est deja la.
+    rate = runner.avec_avertissements(
+        {"status": "compile_error", "gcc": "..."}, avertissements)
+    assert "warnings" not in rate
+    # Rien a signaler : pas de champ du tout, plutot qu'un bloc vide.
+    assert "warnings" not in runner.avec_avertissements({"status": "ok"}, "")
+
+    # Sans bloc, la sortie ressort intacte.
+    assert runner.extraire_avertissements("abc", nonce) == ("", "abc")
+
+    # Un faux bloc d'avertissements ne peut pas etre fabrique : le nonce est
+    # tire par job et l'etudiant ne le voit jamais.
+    faux = "deadbeef WARN\nmenteur\ndeadbeef ENDWARN\n"
+    assert runner.extraire_avertissements(faux, nonce) == ("", faux)
 
 
 # --------------------------------------------------------------------------

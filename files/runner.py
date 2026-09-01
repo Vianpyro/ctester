@@ -59,6 +59,16 @@ NONFINITE_RE = re.compile(
 MAX_GCC_CHARS = 8000
 MAX_FAILED_NAMES = 50
 MAX_CASE_OUTPUT = 600
+
+# Le code de sortie qu'ASan reçoit par ctester_asan_options. Choisi hors de la
+# plage d'Unity, qui retourne SON NOMBRE D'ÉCHECS : un abandon d'ASan sortirait
+# sinon en 1, indistinguable de « un test raté ». Garder les deux en accord.
+ASAN_EXIT = 86
+
+# Plus large que MAX_CASE_OUTPUT : un rapport d'ASan tient en une vingtaine
+# de lignes, et sa PREMIÈRE ligne -- celle qui nomme le fichier et la ligne
+# -- serait perdue si on coupait à la taille d'une sortie de programme.
+MAX_STDERR = 2000
 DEFAULT_TOLERANCE = 0.005
 
 
@@ -391,6 +401,9 @@ def grade_quiz(quiz, answers):
             wrong.append({
                 "id": qid,
                 "label": str(question.get("label", qid)),
+                # Sa propre réponse : avec 40 questions paginées, se rappeler ce
+                # qu'on a tapé demande sinon un aller-retour de deux écrans.
+                "given": str(given)[:64],
                 "hint": ("non répondu" if not str(given).strip() else hint),
             })
     return {
@@ -516,18 +529,55 @@ def split_runs(output, nonce):
     Le séparateur est un nonce tiré par job, invisible de l'étudiant : sans ça,
     un programme qui imprime le marqueur se fabriquerait des cas réussis.
     """
-    runs, name, buf = {}, None, []
+    runs, name, buf, err, dans_err = {}, None, [], [], False
     for line in output.splitlines():
         if line.startswith(nonce + " BEGIN "):
-            name, buf = line[len(nonce) + 7:].strip(), []
+            name, buf, err, dans_err = (line[len(nonce) + 7:].strip(),
+                                        [], [], False)
+        elif line.startswith(nonce + " ERR ") and name is not None:
+            dans_err = True
         elif line.startswith(nonce + " END ") and name is not None:
             parts = line[len(nonce) + 5:].split()
             code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-            runs[name] = ("\n".join(buf), code)
-            name = None
+            runs[name] = ("\n".join(buf).strip(), "\n".join(err).strip(), code)
+            name, dans_err = None, False
         elif name is not None:
-            buf.append(line)
+            (err if dans_err else buf).append(line)
     return runs
+
+
+def avec_avertissements(resultat, avertissements):
+    """Attache les avertissements du compilateur au verdict, s'il y en a.
+
+    Attachés MÊME EN CAS DE RÉUSSITE : c'est là qu'ils sont les plus utiles, et
+    c'est aussi le seul moment où l'étudiant a le temps de les lire. La page se
+    charge de ne pas les faire passer pour un échec.
+
+    Pas attachés à une erreur de compilation : la stderr complète est déjà dans
+    le champ `gcc`, les répéter n'ajouterait rien.
+    """
+    if avertissements and resultat.get("status") != "compile_error":
+        resultat["warnings"] = avertissements
+    return resultat
+
+
+def extraire_avertissements(output, nonce):
+    """Sépare le bloc d'avertissements gcc du reste de la sortie.
+
+    Rend (avertissements, reste). Le bloc est RETIRÉ du reste : les parseurs
+    suivants lisent le résumé Unity et les cas avec des expressions
+    rationnelles, et un avertissement contenant `:FAIL` ou un nombre les
+    tromperait.
+    """
+    debut, fin = nonce + " WARN\n", nonce + " ENDWARN"
+    i = output.find(debut)
+    if i < 0:
+        return "", output
+    j = output.find(fin, i)
+    if j < 0:
+        return "", output
+    texte = output[i + len(debut):j].strip()
+    return texte[:MAX_GCC_CHARS], output[:i] + output[j + len(fin):]
 
 
 def verdict_io(rc, output, cases, nonce, tol):
@@ -545,10 +595,16 @@ def verdict_io(rc, output, cases, nonce, tol):
             failed.append({"case": number, "stdin": case.get("stdin", ""),
                            "stdout": "", "reason": "le programme n'a pas terminé"})
             continue
-        text, code = runs[name]
+        text, err, code = runs[name]
         if code in (124, 137):
             reason = ("le programme a été interrompu : boucle infinie, ou il "
                       "attend plus de valeurs qu'il n'en reçoit")
+        elif code == ASAN_EXIT:
+            # ICI le rapport EST montré, par la stderr du cas juste en dessous :
+            # ce conteneur-là ne monte aucun test, il n'a rien à taire. ASan
+            # nomme le fichier et la ligne de l'étudiant.
+            reason = ("le programme a débordé de la mémoire qu'il a réservée "
+                      "(voir le rapport ci-dessous : il nomme la ligne)")
         elif code != 0:
             reason = "le programme s'est terminé anormalement (code %d)" % code
         else:
@@ -561,6 +617,12 @@ def verdict_io(rc, output, cases, nonce, tol):
                 # inviterait à écrire un printf de constantes.
                 "stdin": case.get("stdin", ""),
                 "stdout": text[:MAX_CASE_OUTPUT],
+                # LES NOMBRES QUE LE JUGE A VUS. L'appariement en sous-suite
+                # était une boîte noire : un étudiant qui écrit « 1 234 » ou
+                # « 3,5 » ne pouvait pas deviner comment sa ligne avait été
+                # découpée. C'est sa sortie, relue à voix haute.
+                "nombres": extract_numbers(text)[:20],
+                "stderr": err[:MAX_STDERR],
                 "reason": reason,
             })
     return {
@@ -639,9 +701,11 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
         # par fichier ne donnerait pas ça.
         "-v", job_dir + "/src:/in/src:ro",
     ]
+    # Le nonce est passé DANS LES DEUX MODES : il séparait les cas en io, il
+    # encadre aussi le bloc d'avertissements du compilateur, qui existe partout.
+    argv += ["-e", "CTESTER_NONCE=" + nonce]
     if mode == "io":
         argv += [
-            "-e", "CTESTER_NONCE=" + nonce,
             "-v", job_dir + "/cases:/in/cases:ro",
             "-v", BUILD_IO + ":/in/build.sh:ro",
         ]
@@ -710,6 +774,22 @@ def verdict(rc, out):
             "status": "compile_timeout",
             "message": "La compilation a été trop longue et a été abandonnée.",
         }
+    if rc == ASAN_EXIT:
+        # LE FAIT SANS LE RAPPORT. build-unity.sh a jeté la sortie d'ASan parce
+        # que sa pile d'appels nomme la fonction de test appelante. Il reste
+        # qu'un débordement mémoire est infiniment plus actionnable qu'un
+        # « segfault » : on nomme la CLASSE d'erreur et les endroits où la
+        # chercher, sans une ligne ni un nom qui vienne des tests.
+        return {
+            "status": "memory_error",
+            "message": (
+                "Ton code sort des limites de la mémoire qu'il a le droit "
+                "d'utiliser : un indice hors des bornes d'un tableau, une "
+                "chaîne sans son '\\0', ou un pointeur qui ne pointe plus sur "
+                "rien. Revois tes conditions de boucle (< et non <=) et la "
+                "taille que tu réserves."
+            ),
+        }
     if rc in (124, 137):
         return {
             "status": "timeout",
@@ -741,7 +821,10 @@ def sandbox(job_dir, tp_dir, mode, nonce=""):
             capture_output=True, text=True, errors="replace",
             timeout=JOB_TIMEOUT, check=False,
         )
-        return done.returncode, done.stdout
+        # gcc cite ses fichiers par leur chemin DANS le conteneur. L'étudiant
+        # n'a jamais vu /in/src et n'a pas à le voir : il reconnaît son fichier
+        # par son nom, « submission.c:9:13 ».
+        return done.returncode, done.stdout.replace("/in/src/", "")
     except subprocess.TimeoutExpired:
         # `docker run --rm` ne suffit pas : tuer le CLIENT docker laisse le
         # conteneur tourner. Sans ce rm -f, un job pathologique garde un coeur
@@ -821,10 +904,14 @@ def run_job(job_dir):
                 fh.write(case.get("stdin", ""))
         nonce = uuid.uuid4().hex
         rc, out = sandbox(job_dir, tp_dir, mode, nonce)
-        return verdict_io(rc, out, cases, nonce, tol)
+        avertissements, out = extraire_avertissements(out, nonce)
+        resultat = verdict_io(rc, out, cases, nonce, tol)
+        return avec_avertissements(resultat, avertissements)
 
-    rc, out = sandbox(job_dir, tp_dir, mode)
-    return verdict(rc, out)
+    nonce = uuid.uuid4().hex
+    rc, out = sandbox(job_dir, tp_dir, mode, nonce)
+    avertissements, out = extraire_avertissements(out, nonce)
+    return avec_avertissements(verdict(rc, out), avertissements)
 
 
 def write_result(job_dir, payload):

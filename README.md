@@ -237,7 +237,16 @@ contenu :
 ```sh
 node roles/ctester/files/test_page.js roles/ctester/files/index.html
 python3 roles/ctester/files/valider_contenu.py unittests
+python3 roles/ctester/files/test_bac_a_sable.py
 ```
+
+Le troisième rend les deux templates de `build.sh` et les exécute avec un vrai
+gcc, chemins déplacés, sans Docker : c'est le seul contrôle qui éprouve
+l'**invariant de confidentialité** plutôt que d'en parler. Il soumet un module
+qui déborde d'un tableau et vérifie qu'en mode unity le verdict ne contient
+aucun identifiant du fichier de test — ni le rapport d'ASan, dont la pile
+d'appels nommerait la fonction de test appelante. Il lui faut gcc, donc il ne
+tourne pas sur le Dell.
 
 Le second compile la **solution de référence** de chaque exercice et la passe
 dans le vrai juge — il importe `runner.py` plutôt que de refaire ses

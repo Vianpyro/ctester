@@ -14,7 +14,7 @@ function el(id) {
   const node = {
     id, value: "", hidden: false, className: "", textContent: "",
     disabled: false, tabIndex: 0, dataset: {}, files: [], children: [],
-    listeners: {}, attrs: {},
+    listeners: {}, attrs: {}, selectionStart: 0, selectionEnd: 0,
     setAttribute(k, v) { this.attrs[k] = v; },
     getAttribute(k) { return this.attrs[k]; },
     addEventListener(ev, fn) { this.listeners[ev] = fn; },
@@ -83,6 +83,7 @@ const CATALOGUE = [
 
 const calls = [];
 let SUBMIT_RESPONSE;
+let POLL_RESPONSE = { state: "queued", position: 1 };
 global.fetch = async (url, opts) => {
   calls.push({ url, opts });
   if (url === "tps.json") {
@@ -97,7 +98,7 @@ global.fetch = async (url, opts) => {
       ] }) };
   }
   if (url === "submit") return SUBMIT_RESPONSE;
-  return { ok: true, status: 200, json: async () => ({ state: "queued", position: 1 }) };
+  return { ok: true, status: 200, json: async () => POLL_RESPONSE };
 };
 
 new Function(js)();
@@ -292,6 +293,61 @@ function choisir(groupe, id) {
           "les réponses des DEUX pages sont transmises");
     check(!("code" in sent), "pas de code sur un TP de quiz");
   }
+
+  // --- Le verdict rend a l'etudiant ce qui lui appartient ---
+  // On passe par le VRAI chemin -- soumission puis sondage -- parce que render()
+  // vit dans la portee du script de la page et n'est pas joignable autrement.
+  function afficheTout(n) {
+    return (n.textContent || "") + " " +
+           (n.children || []).map(afficheTout).join(" ");
+  }
+  async function verdictAffiche(v) {
+    POLL_RESPONSE = Object.assign({ state: "done" }, v);
+    SUBMIT_RESPONSE = { ok: true, status: 200,
+                        json: async () => ({ id: "d".repeat(32) }) };
+    choisir("TP 2", "tp2-ex0");
+    nodes.code.value = "int main(void){return 0;}";
+    await nodes.go.listeners.click();
+    await sleep(); await sleep(); await sleep();
+    return nodes.out.children.map(afficheTout).join(" | ");
+  }
+
+  // LE POINT LE PLUS IMPORTANT : les avertissements s'affichent AUSSI sur une
+  // reussite. C'est la qu'ils servent, et il ne faut pas les faire passer pour
+  // un echec.
+  const gagne = await verdictAffiche({ status: "ok", kind: "io", passed: 3, total: 3,
+                        cases: [], warnings: "sub.c:4: warning: unused variable" });
+  check(/3 \/ 3/.test(gagne), "une reussite reste une reussite");
+  check(/unused variable/.test(gagne),
+        "les avertissements s'affichent meme quand tout passe");
+  check(/pas une erreur/.test(gagne),
+        "et sont explicitement presentes comme n'etant pas un echec");
+
+  const rate = await verdictAffiche({ status: "ok", kind: "io", passed: 0, total: 1, cases: [
+    { case: 1, stdin: "5\n", stdout: "resultat 1 234", reason: "valeurs absentes",
+      nombres: [1, 234], stderr: "mise au point : i vaut 3" } ] });
+  check(/nombres lus dans ta sortie : 1, 234/.test(rate),
+        "les nombres que le juge a lus sont montres");
+  check(/mise au point/.test(rate), "la sortie d'erreur du programme aussi");
+
+  const quiz = await verdictAffiche({ status: "ok", kind: "quiz", passed: 0, total: 1,
+                       wrong: [{ id: "q1", label: "23", given: "10111",
+                                 hint: "l'enonce demande 8 bits" }] });
+  check(/tu as répondu « 10111 »/.test(quiz), "le quiz rappelle la reponse saisie");
+
+  // --- Tab indente, mais Echap+Tab laisse sortir ---
+  choisir("TP 2", "tp2-ex0");
+  nodes.code.value = "int main";
+  nodes.code.selectionStart = nodes.code.selectionEnd = 8;
+  let bloque = false;
+  nodes.code.listeners.keydown({ key: "Tab", preventDefault: () => { bloque = true; } });
+  check(bloque && nodes.code.value === "int main    ",
+        "Tab indente au lieu de quitter le champ");
+
+  bloque = false;
+  nodes.code.listeners.keydown({ key: "Escape", preventDefault: () => {} });
+  nodes.code.listeners.keydown({ key: "Tab", preventDefault: () => { bloque = true; } });
+  check(!bloque, "Echap puis Tab laisse sortir : on n'enferme pas le clavier");
 
   console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nla page fonctionne");
   process.exit(failures ? 1 : 0);

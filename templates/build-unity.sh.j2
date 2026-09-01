@@ -36,7 +36,7 @@ rc=0
 for source in /in/src/*.c; do
     [ -e "$source" ] || continue
     timeout -s KILL {{ ctester_compile_timeout }} \
-        gcc -std={{ ctester_c_std }} -Wall -Wextra -I/in/src \
+        gcc -std={{ ctester_c_std }} -Wall -Wextra {{ ctester_sanitizers }} -I/in/src \
             -c "$source" -o "/work/$(basename "$source" .c).o" 2>>/work/gcc.err
     rc=$?
     [ $rc -eq 0 ] || break
@@ -50,10 +50,16 @@ if [ $rc -ne 0 ]; then
     exit 10
 fi
 
-# ponytail: les warnings d'une compilation RÉUSSIE sont jetés ici. Les faire
-# remonter voudrait dire les mêler à la sortie Unity dans le même flux, donc un
-# protocole entre ce script et le worker. Ajouter le jour où le cours veut noter
-# la propreté du code -- et ce jour-là, un marqueur de section, pas un cat.
+# LES AVERTISSEMENTS D'UNE COMPILATION RÉUSSIE, qui étaient jetés jusqu'ici.
+# Le protocole que la note précédente appelait de ses vœux existe maintenant :
+# le nonce, tiré par job et inconnu de l'étudiant, sert de marqueur de section.
+# Ces avertissements portent sur les fichiers de l'étudiant SEULS -- la phase 1
+# ne voit pas /in/tests -- donc ils ne peuvent rien révéler du corrigé.
+if [ -s /work/gcc.err ]; then
+    printf '%s WARN\n' "$CTESTER_NONCE"
+    cat /work/gcc.err
+    printf '\n%s ENDWARN\n' "$CTESTER_NONCE"
+fi
 
 # --- Phase 2 : liaison avec les tests secrets -------------------------------
 # 2>/dev/null EST LA MESURE DE SÉCURITÉ. Une erreur d'édition de liens cite les
@@ -71,7 +77,8 @@ fi
 # Mesuré le 2026-08-31 : sans la macro, 1 échec sur 2 ; avec, 0 sur 2.
 # Tous les laboratoires de calcul (5, 9, 10) et le devoir en dépendent.
 timeout -s KILL {{ ctester_compile_timeout }} \
-    gcc -DUNITY_INCLUDE_DOUBLE /work/*.o /in/tests/*.c /in/unity/unity.c \
+    gcc -DUNITY_INCLUDE_DOUBLE {{ ctester_sanitizers }} \
+        /work/*.o /in/tests/*.c /in/unity/unity.c \
         -I/in/unity -I/in/tests -I/in/src -o /work/t -lm 2>/dev/null
 rc=$?
 if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
@@ -85,5 +92,12 @@ fi
 # La sortie est celle d'Unity, MAIS elle est aussi sous le contrôle de
 # l'étudiant (son code peut écrire sur stdout, y compris imiter Unity). Le
 # worker la parse défensivement ; rien ici ne lui fait confiance.
-timeout -s KILL {{ ctester_run_timeout }} /work/t
+#
+# 2>/dev/null EST UNE MESURE DE SÉCURITÉ, comme celui de la phase 2. Un
+# rapport d'ASan est une PILE D'APPELS : son cadre appelant est la fonction
+# de test qui a provoqué le débordement, et son nom dit ce qui est testé. On
+# jette donc le texte et on ne garde que le FAIT, par le code de sortie 86,
+# que le worker traduit en un message générique -- sans ligne ni nom.
+ASAN_OPTIONS={{ ctester_asan_options }} \
+    timeout -s KILL {{ ctester_run_timeout }} /work/t 2>/dev/null
 exit $?
