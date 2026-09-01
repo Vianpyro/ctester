@@ -11,16 +11,53 @@ et leurs deploy keys) vit dans `VHome`, sous `roles/ctester`. Le serveur clone c
 dépôt-ci dans `/opt/ctester/src` et suit `main` tout seul, à cinq minutes près.
 
 ```
-app/app.py        l'API, stdlib seule, dans le conteneur exposé (uid 65534)
+app/app.py        l'API, dans le conteneur exposé (uid 65534)
 app/index.html    la page, JS inclus
+app/etat.py       la persistance des comptes -- facultative, voir plus bas
+app/schema.sql    les deux tables Postgres, et pourquoi ce n'est pas SQLite
+requirements.txt  psycopg, la seule dépendance externe, et seulement pour ça
 runner.py         le worker de l'hôte : lit la file, lance le bac à sable
 build-unity.sh    ce qui tourne DANS le bac à sable, mode tests unitaires
 build-io.sh       idem, mode programme complet (entrée/sortie)
 ```
 
+Sans `CTESTER_DB_DSN`, rien de tout ça ne démarre : `app.py` reste ce qu'il
+était, l'image n'a besoin d'aucune dépendance, et la page ne propose même pas de
+se connecter.
+
 Tout se règle par variables d'environnement — l'unité systemd du rôle les
 fournit, et chaque script porte ses propres défauts pour tourner hors
 déploiement.
+
+## La connexion facultative (OIDC + Postgres)
+
+Un étudiant peut se connecter pour retrouver son travail d'une machine à
+l'autre et voir ce qu'il a déjà validé. **C'est facultatif de bout en bout** :
+le parcours anonyme reste le défaut, et il est intact.
+
+Trois variables l'activent, et il les faut toutes les trois — sinon
+`/oidc.json` répond `{}` et la page se comporte comme avant :
+
+```
+CTESTER_OIDC_ISSUER      https://... (https exigé : un jeton en clair est un jeton donné)
+CTESTER_OIDC_CLIENT_ID   le client public déclaré dans Rauthy (PKCE, sans secret)
+CTESTER_DB_DSN           la connexion Postgres du rôle applicatif
+```
+
+Ce que le rôle Ansible doit fournir en plus, côté `VHome` : le service
+Postgres, `app/schema.sql` appliqué, un rôle SQL limité à ces deux tables, le
+client Rauthy avec `https://tch009.thevhome.com/` en URI de redirection, et
+`pip install -r requirements.txt` dans l'image.
+
+**Ce que la base contient :** l'identifiant opaque `sub` émis par Rauthy, le
+code écrit par exercice, et un statut. Ni nom, ni courriel, ni code permanent.
+Le jeton est validé en appelant `/userinfo` de Rauthy — pas de bibliothèque de
+crypto embarquée, pas de rotation de clés à tenir. Le bouton « Supprimer mes
+données » efface tout ce qui précède, et la phrase de consentement le dit avant
+la première redirection.
+
+Rien de tout cela ne touche au bac à sable : le conteneur exposé gagne une
+connexion Postgres, pas l'accès aux tests.
 
 ## Ce que ce service n'est pas
 

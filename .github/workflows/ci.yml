@@ -1,0 +1,61 @@
+# CI de ctester. Deux jobs, et rien de plus.
+#
+#   tests   les deux suites qui tournent sans le dépôt privé de corrigés.
+#           test_bac_a_sable.py et valider_contenu.py exigent `unittests` :
+#           ils restent des outils de contrôleur et n'entrent pas ici. Une CI
+#           publique n'a pas à détenir la deploy key des corrigés.
+#   codeql  l'analyse statique. Ce dépôt sert une API exposée à Internet sur
+#           une infra personnelle ; un scan sur le chemin de la requête vaut
+#           mieux qu'une relecture une fois par an.
+#
+# LES PERMISSIONS SONT AU PLUS BAS À LA RACINE et remontées job par job. Un
+# workflow qui laisse le GITHUB_TOKEN en écriture par défaut donne ce droit à
+# tout ce qui s'exécute dedans, y compris à la dépendance d'une action.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Le jeton n'a aucune raison de rester dans .git/config après le
+          # clone : rien ici ne pousse.
+          persist-credentials: false
+      # LA MÊME VERSION QUE LA PRODUCTION (python:3.13-slim). Tester sur le
+      # python du runner laisserait passer ce qui casse sur le serveur.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      # Pas d'action pour node : test_page.js est du CommonJS sans dépendance et
+      # le runner en fournit déjà un. Une version de moins à tenir à jour.
+      - run: python3 test_ctester.py
+      - run: node test_page.js
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # le seul droit d'écriture du fichier : publier les alertes
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@v4
+        with:
+          # javascript-typescript couvre aussi le <script> de index.html.
+          # Pas d'autobuild : rien ici ne se compile.
+          languages: python, javascript-typescript
+      - uses: github/codeql-action/analyze@v4
