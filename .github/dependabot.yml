@@ -1,0 +1,9 @@
+# Les versions d'actions rouillent en silence -- personne ne lit les notes de
+# version d'actions/checkout. Dependabot ouvre la PR, la CI dit si elle passe.
+# Mensuel : ce dépôt n'a pas besoin d'une pull request par semaine.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
