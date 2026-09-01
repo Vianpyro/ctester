@@ -4,13 +4,13 @@
     python3 test_bac_a_sable.py [chemin/vers/unittests]
 
 test_ctester.py teste runner.py sur des sorties fabriquees, test_page.js teste
-la page sur un DOM en carton. Personne ne testait build-io.sh.j2 ni
-build-unity.sh.j2 -- or c'est LA que vit l'invariant de confidentialite : le
+la page sur un DOM en carton. Personne ne testait build-io.sh ni
+build-unity.sh -- or c'est LA que vit l'invariant de confidentialite : le
 decoupage en phases, le protocole du nonce, et le fait que la stderr de la
 phase 2 soit jetee. Un template casse ne se voit qu'en production.
 
-On rend donc les vrais templates, on deplace /in et /work vers un repertoire
-temporaire, et on execute le script tel quel avec bash, puis on passe sa sortie
+On prend donc les vrais scripts, on deplace /in et /work vers un repertoire
+temporaire, et on les execute tels quels avec bash, puis on passe leur sortie
 au vrai runner.py. Ce qui n'est PAS couvert : gVisor, les capabilities,
 l'absence de reseau -- aucun n'influe sur la sortie du script.
 
@@ -26,9 +26,8 @@ import sys
 import tempfile
 
 ICI = pathlib.Path(__file__).resolve().parent
-ROLE = ICI.parent
 TESTS = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
-                     else ROLE.parent.parent / "unittests").resolve()
+                     else ICI.parent / "unittests").resolve()
 
 spec = importlib.util.spec_from_file_location("runner", ICI / "runner.py")
 runner = importlib.util.module_from_spec(spec)
@@ -44,21 +43,24 @@ if subprocess.run(["gcc", "-std=gnu23", "-E", "-"], input="", capture_output=Tru
     STD = "gnu2x"
 
 
-def rendre(nom, racine):
-    """Le template Jinja, avec ses variables et ses chemins deplaces.
+# Ce que le worker passe au conteneur en deploiement (SANDBOX_ENV dans
+# runner.py). Les scripts ont les MEMES valeurs par defaut : les repeter ici
+# fait que ce test verifie le chemin reellement emprunte en production, celui ou
+# les variables sont fournies, et pas seulement les defauts.
+REGLAGES = {
+    "CTESTER_C_STD": STD,
+    "CTESTER_SANITIZERS": "-fsanitize=address,undefined",
+    "CTESTER_ASAN_OPTIONS": "exitcode=86:detect_leaks=0",
+    "CTESTER_COMPILE_TIMEOUT": "10",
+    "CTESTER_RUN_TIMEOUT": "5",
+}
 
-    Les valeurs doivent rester en accord avec defaults/main.yml -- c'est le prix
-    de ne pas faire tourner Ansible pour un test.
-    """
-    texte = (ROLE / "templates" / nom).read_text(encoding="utf-8")
-    for cle, val in (("ctester_c_std", STD),
-                     ("ctester_compile_timeout", "10"),
-                     ("ctester_run_timeout", "5"),
-                     ("ctester_sanitizers", "-fsanitize=address,undefined"),
-                     ("ctester_asan_options", "exitcode=86:detect_leaks=0")):
-        texte = texte.replace("{{ " + cle + " }}", val)
+
+def rendre(nom, racine):
+    """Le vrai script, avec /in et /work deplaces vers le repertoire temporaire."""
+    texte = (ICI / nom).read_text(encoding="utf-8")
     texte = texte.replace("/in/", f"{racine}/in/").replace("/work", f"{racine}/work")
-    script = racine / nom.replace(".j2", "")
+    script = racine / nom
     script.write_text(texte, encoding="utf-8")
     script.chmod(0o755)
     return script
@@ -78,16 +80,16 @@ def lancer(mode, fichiers, exercice):
         # Les noms que verdict_io attend : "01", "02"... et pas autre chose.
         for i, cas in enumerate(conf["cases"], 1):
             (racine / "in/cases" / ("%02d.in" % i)).write_text(cas["stdin"], encoding="utf-8")
-        script = rendre("build-io.sh.j2", racine)
+        script = rendre("build-io.sh", racine)
         cases = conf["cases"]
     else:
         shutil.copytree(TESTS / exercice, racine / "in/tests")
         shutil.copytree(TESTS / "unity", racine / "in/unity")
-        script = rendre("build-unity.sh.j2", racine)
+        script = rendre("build-unity.sh", racine)
         cases = None
 
     done = subprocess.run(["bash", str(script)], capture_output=True, text=True,
-                          env={**os.environ, "CTESTER_NONCE": NONCE}, cwd=racine)
+                          env={**os.environ, **REGLAGES, "CTESTER_NONCE": NONCE}, cwd=racine)
     return done.returncode, done.stdout, cases, racine
 
 

@@ -3,10 +3,10 @@
 // cette page ait connue en production était une ReferenceError de zone morte
 // temporelle -- une erreur d'exécution, pas de syntaxe.
 //
-//   node test_page.js index.html
+//   node test_page.js [app/index.html]
 const fs = require("fs");
 
-const html = fs.readFileSync(process.argv[2], "utf8");
+const html = fs.readFileSync(process.argv[2] || __dirname + "/app/index.html", "utf8");
 const js = html.match(/<script>([\s\S]*)<\/script>/)[1];
 
 // --- DOM en carton --------------------------------------------------------

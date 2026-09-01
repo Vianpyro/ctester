@@ -5,6 +5,23 @@ choisit son TP, et reçoit un verdict contre des tests unitaires qui restent
 secrets. Pas de compte : une clé de session dans le lien, distribuée sur Moodle,
 la même pour tous les TP.
 
+**Le déploiement n'est pas ici.** Ce dépôt porte l'application ; le rôle Ansible
+qui l'installe sur le serveur (gVisor, systemd, Compose, les deux dépôts privés
+et leurs deploy keys) vit dans `VHome`, sous `roles/ctester`. Le serveur clone ce
+dépôt-ci dans `/opt/ctester/src` et suit `main` tout seul, à cinq minutes près.
+
+```
+app/app.py        l'API, stdlib seule, dans le conteneur exposé (uid 65534)
+app/index.html    la page, JS inclus
+runner.py         le worker de l'hôte : lit la file, lance le bac à sable
+build-unity.sh    ce qui tourne DANS le bac à sable, mode tests unitaires
+build-io.sh       idem, mode programme complet (entrée/sortie)
+```
+
+Tout se règle par variables d'environnement — l'unité systemd du rôle les
+fournit, et chaque script porte ses propres défauts pour tourner hors
+déploiement.
+
 ## Ce que ce service n'est pas
 
 **Un outil de notation, ni un anti-triche.** Le code de l'étudiant est compilé
@@ -38,9 +55,11 @@ Quatre lignes de défense, dans l'ordre où elles portent :
    RCE dans l'API ne donne donc que ce que l'API offre déjà publiquement :
    soumettre du C au bac à sable. C'est ce que Judge0 n'a pas (il tourne en
    `--privileged`), et c'est le seul point d'architecture qui compte ici.
-3. **Le tier web n'a pas accès aux tests.** `/opt/ctester/tests` est en `0700
-   root` et n'est monté que dans le bac à sable. Le web connaît les *noms* des
-   TP, via un `tps.json` rendu par Ansible.
+3. **Le tier web n'a pas accès aux tests.** `/opt/ctester/tests` n'est monté
+   que dans le bac à sable — c'est le montage, et non le mode du fichier, qui
+   fait cette séparation (voir « Une permission qui surprend » plus bas : ce
+   répertoire est délibérément lisible par tous). Le web ne connaît que les
+   *noms* des TP, via un `tps.json` que le worker publie au démarrage.
 4. **La clé de session**, qui filtre le bruit d'Internet et rien d'autre. Une
    clé partagée par 40 étudiants est publique en pratique ; elle n'est pas ce
    qui protège l'hôte.
@@ -202,7 +221,7 @@ confidentialité d'un `if` bien placé.
 
 ```sh
 openssl rand -hex 24
-ansible-vault edit inventory/group_vars/ctester_hosts/vault.yml
+ansible-vault edit inventory/group_vars/ctester_hosts/vault.yml   # dans VHome
 ansible-playbook playbooks/ctester.yml --ask-vault-pass
 ```
 
@@ -227,21 +246,22 @@ journalctl -u 'ctester-runner@*' -n 50         # ce que dit un job en erreur
 docker logs ctester-web-1                      # l'API (silencieuse si tout va bien)
 ls /opt/ctester/spool                          # la file, vide au repos
 docker exec nginx-manager-npm-1 getent hosts ctester-web-1   # NPM résout-il ?
-python3 /opt/ctester/test_ctester.py           # les défenses tiennent-elles ?
-grep -rl answer /opt/ctester/app/              # DOIT ne rien trouver
+python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?
+grep -rl answer /opt/ctester/src/app/          # DOIT ne rien trouver
 ```
 
 Et sur le contrôleur, avant de déployer une modification de la page ou du
 contenu :
 
 ```sh
-node roles/ctester/files/test_page.js roles/ctester/files/index.html
-python3 roles/ctester/files/valider_contenu.py unittests
-python3 roles/ctester/files/test_bac_a_sable.py
+python3 test_ctester.py          # les défenses, sans rien installer
+node test_page.js                # le JS de la page, sur un DOM en carton
+python3 valider_contenu.py ../unittests
+python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
 ```
 
-Le troisième rend les deux templates de `build.sh` et les exécute avec un vrai
-gcc, chemins déplacés, sans Docker : c'est le seul contrôle qui éprouve
+Le dernier prend les deux scripts `build-*.sh` tels quels et les exécute avec
+un vrai gcc, chemins déplacés, sans Docker : c'est le seul contrôle qui éprouve
 l'**invariant de confidentialité** plutôt que d'en parler. Il soumet un module
 qui déborde d'un tableau et vérifie qu'en mode unity le verdict ne contient
 aucun identifiant du fichier de test — ni le rapport d'ASan, dont la pile

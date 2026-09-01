@@ -1,5 +1,6 @@
 #!/bin/bash
-# Mode io : ce qui tourne DANS le bac à sable. Fichier géré par Ansible.
+# Mode io : ce qui tourne DANS le bac à sable. Réglé par variables
+# d'environnement (bas de cet en-tête).
 #
 # Pour les laboratoires où l'étudiant écrit un PROGRAMME COMPLET, avec son
 # main(), qui lit sur l'entrée standard et écrit sur la sortie standard. C'est
@@ -14,7 +15,7 @@
 #
 # CODES DE SORTIE, lus par le worker :
 #   10  la compilation a échoué (stdout = la stderr de gcc)
-#   12  la compilation a dépassé {{ ctester_compile_timeout }} s
+#   12  la compilation a dépassé $COMPILE_TIMEOUT s
 #   0   les cas ont été exécutés -- le verdict se lit dans les marqueurs
 #
 # LE PROTOCOLE DE SORTIE. Chaque exécution est encadrée par un nonce tiré par
@@ -28,6 +29,29 @@
 # peut pas imprimer de faux séparateurs et se fabriquer des cas réussis.
 
 set -u
+
+# --- Réglages ---------------------------------------------------------------
+# Passés par le worker au conteneur (`docker run -e`, voir runner.py). Les
+# valeurs par défaut ci-dessous sont celles du rôle Ansible : ce script tourne
+# donc tel quel hors déploiement, ce dont test_bac_a_sable.py se sert pour
+# l'éprouver avec un vrai gcc et sans Docker.
+#
+# DEUX PRÉCAUTIONS AUTOUR DE $SANITIZERS, ET AUCUNE DES DEUX N'EST DU STYLE.
+# Le repli prévu si gVisor refuse la réserve d'adressage d'ASan est de VIDER
+# CTESTER_SANITIZERS, pas de la supprimer -- l'unité systemd la définit toujours.
+#
+#   `-` et non `:-` : avec `:-`, bash considère une variable vide comme absente
+#   et remet le défaut, donc le repli ne désactivait rien du tout. Mesuré.
+#
+#   pas de guillemets À L'USAGE, plus bas : une expansion entre guillemets d'une
+#   valeur vide passerait un argument VIDE à gcc, qui échouerait sur « no input
+#   file » au lieu de compiler sans sanitizers.
+C_STD="${CTESTER_C_STD:-gnu23}"
+SANITIZERS="${CTESTER_SANITIZERS-"-fsanitize=address,undefined"}"
+ASAN_OPTS="${CTESTER_ASAN_OPTIONS:-exitcode=86:detect_leaks=0}"
+COMPILE_TIMEOUT="${CTESTER_COMPILE_TIMEOUT:-10}"
+RUN_TIMEOUT="${CTESTER_RUN_TIMEOUT:-5}"
+
 cd /work || exit 70
 
 # -lm inconditionnel : les exercices 4 et 5 utilisent pow() et sqrt(), et lier
@@ -42,8 +66,8 @@ cd /work || exit 70
 # aucun test : le rapport d'ASan peut donc être rendu entier à l'étudiant, sur
 # la stderr du cas. En mode unity la même pile d'appels nommerait la fonction
 # de test appelante, d'où le traitement différent dans build-unity.sh.
-timeout -s KILL {{ ctester_compile_timeout }} \
-    gcc -std={{ ctester_c_std }} -Wall -Wextra {{ ctester_sanitizers }} -I/in/src \
+timeout -s KILL $COMPILE_TIMEOUT \
+    gcc -std=$C_STD -Wall -Wextra $SANITIZERS -I/in/src \
         /in/src/*.c -o /work/t -lm 2>/work/gcc.err
 rc=$?
 if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
@@ -72,8 +96,8 @@ for case_file in /in/cases/*.in; do
     [ -e "$case_file" ] || continue
     name=$(basename "$case_file" .in)
     printf '%s BEGIN %s\n' "$CTESTER_NONCE" "$name"
-    ASAN_OPTIONS={{ ctester_asan_options }} \
-        timeout -s KILL {{ ctester_run_timeout }} /work/t < "$case_file" 2>/work/err
+    ASAN_OPTIONS="$ASAN_OPTS" \
+        timeout -s KILL $RUN_TIMEOUT /work/t < "$case_file" 2>/work/err
     # Le code de sortie DOIT être saisi avant tout autre commande, sinon c'est
     # celui du printf qu'on rapporterait.
     code=$?

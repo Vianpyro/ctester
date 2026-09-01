@@ -43,6 +43,21 @@ PIDS = os.environ.get("CTESTER_PIDS", "64")
 CPUS = os.environ.get("CTESTER_CPUS", "1")
 SWEEP_AFTER = int(os.environ.get("CTESTER_SWEEP_AFTER", "600"))
 
+# Les réglages de compilation, RELAYÉS et non interprétés : leur sens est dans
+# build-unity.sh / build-io.sh, qui portent aussi leurs valeurs par défaut. Ce
+# qui est passé ici prime, et `docker run` ne propage rien tout seul.
+#
+# ABSENT VEUT DIRE « défaut du script ». Une variable non définie ici n'est pas
+# transmise, plutôt que transmise vide -- vider CTESTER_SANITIZERS est le repli
+# explicite qui désactive les sanitizers, et confondre les deux les couperait
+# par accident dès qu'un worker démarrerait sans son unité systemd.
+SANDBOX_ENV = {
+    k: os.environ[k]
+    for k in ("CTESTER_C_STD", "CTESTER_SANITIZERS", "CTESTER_ASAN_OPTIONS",
+              "CTESTER_COMPILE_TIMEOUT", "CTESTER_RUN_TIMEOUT")
+    if k in os.environ
+}
+
 TP_RE = re.compile(r"\A[a-z0-9_-]{1,32}\Z")
 SUMMARY_RE = re.compile(r"^(\d+) Tests (\d+) Failures (\d+) Ignored", re.M)
 FAIL_RE = re.compile(r"^[^\n:]*:\d+:([A-Za-z0-9_]{1,64}):FAIL", re.M)
@@ -704,6 +719,10 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
     # Le nonce est passé DANS LES DEUX MODES : il séparait les cas en io, il
     # encadre aussi le bloc d'avertissements du compilateur, qui existe partout.
     argv += ["-e", "CTESTER_NONCE=" + nonce]
+    # Les mêmes dans les deux modes : le dialecte, les sanitizers et les
+    # chronomètres ne dépendent pas de la présence de secrets dans /in.
+    for key, value in SANDBOX_ENV.items():
+        argv += ["-e", key + "=" + value]
     if mode == "io":
         argv += [
             "-v", job_dir + "/cases:/in/cases:ro",

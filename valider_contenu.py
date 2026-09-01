@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Valide le CONTENU du dépôt de tests : chaque corrigé passe-t-il son test ?
 
-    python3 valider_contenu.py ../../../unittests
+    python3 valider_contenu.py ../unittests
 
 Un test faux envoie un étudiant chercher un bug qui n'existe pas -- c'est pire
 que pas de test du tout. Ce script est la seule preuve qu'un test est juste : il

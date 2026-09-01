@@ -20,10 +20,10 @@ import sys
 import tempfile
 import time
 
-# Les deux chemins, parce que le déploiement sépare ce que le dépôt garde
-# ensemble : runner.py vit à la racine du projet (il tourne sur l'hôte), app.py
-# dans app/ (il est monté dans le conteneur). Dans le dépôt, les trois fichiers
-# sont côte à côte et le second chemin ne résout rien.
+# Les deux chemins, parce que les deux processus ne vivent pas au même endroit :
+# runner.py à la racine (il tourne sur l'hôte), app.py dans app/ (il est monté
+# dans le conteneur). Le dépôt a EXACTEMENT cette forme, et le clone déployé
+# aussi -- ce fichier tourne donc à l'identique sur le contrôleur et sur le Dell.
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 

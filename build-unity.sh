@@ -1,5 +1,6 @@
 #!/bin/bash
-# Ce qui tourne DANS le bac à sable. Fichier géré par Ansible : éditer le rôle.
+# Ce qui tourne DANS le bac à sable. Réglé par variables d'environnement (bas de
+# cet en-tête) ; le déploiement Ansible vit dans le dépôt VHome, rôle ctester.
 #
 # Monté en lecture seule dans un conteneur jetable, sans réseau, sous gVisor,
 # en uid 65534, avec pour seul système de fichiers inscriptible un tmpfs. Il
@@ -16,16 +17,39 @@
 # CODES DE SORTIE, lus par le worker :
 #   10  la compilation du fichier étudiant a échoué (stdout = sa stderr gcc)
 #   11  l'édition de liens avec les tests a échoué (stdout jeté)
-#   12  la compilation a dépassé {{ ctester_compile_timeout }} s
+#   12  la compilation a dépassé $COMPILE_TIMEOUT s
 #   0   les tests ont tous passé
 #   1+  Unity retourne le nombre d'échecs
-#   124/137  le binaire de test a dépassé {{ ctester_run_timeout }} s
+#   124/137  le binaire de test a dépassé $RUN_TIMEOUT s
 
 set -u
+
+# --- Réglages ---------------------------------------------------------------
+# Passés par le worker au conteneur (`docker run -e`, voir runner.py). Les
+# valeurs par défaut ci-dessous sont celles du rôle Ansible : ce script tourne
+# donc tel quel hors déploiement, ce dont test_bac_a_sable.py se sert pour
+# l'éprouver avec un vrai gcc et sans Docker.
+#
+# DEUX PRÉCAUTIONS AUTOUR DE $SANITIZERS, ET AUCUNE DES DEUX N'EST DU STYLE.
+# Le repli prévu si gVisor refuse la réserve d'adressage d'ASan est de VIDER
+# CTESTER_SANITIZERS, pas de la supprimer -- l'unité systemd la définit toujours.
+#
+#   `-` et non `:-` : avec `:-`, bash considère une variable vide comme absente
+#   et remet le défaut, donc le repli ne désactivait rien du tout. Mesuré.
+#
+#   pas de guillemets À L'USAGE, plus bas : une expansion entre guillemets d'une
+#   valeur vide passerait un argument VIDE à gcc, qui échouerait sur « no input
+#   file » au lieu de compiler sans sanitizers.
+C_STD="${CTESTER_C_STD:-gnu23}"
+SANITIZERS="${CTESTER_SANITIZERS-"-fsanitize=address,undefined"}"
+ASAN_OPTS="${CTESTER_ASAN_OPTIONS:-exitcode=86:detect_leaks=0}"
+COMPILE_TIMEOUT="${CTESTER_COMPILE_TIMEOUT:-10}"
+RUN_TIMEOUT="${CTESTER_RUN_TIMEOUT:-5}"
+
 cd /work || exit 70
 
 # --- Phase 1 : les fichiers de l'étudiant, seuls ----------------------------
-# -std={{ ctester_c_std }} ne s'applique qu'ICI. Voir defaults/main.yml.
+# -std=$C_STD ne s'applique qu'ICI. Voir le bloc « Réglages » ci-dessus.
 #
 # UN .o PAR .c, et pas une compilation groupée : à partir du laboratoire 5 la
 # soumission est un module (calendrier.h + calendrier.c), et -I/in/src fait
@@ -35,8 +59,8 @@ cd /work || exit 70
 rc=0
 for source in /in/src/*.c; do
     [ -e "$source" ] || continue
-    timeout -s KILL {{ ctester_compile_timeout }} \
-        gcc -std={{ ctester_c_std }} -Wall -Wextra {{ ctester_sanitizers }} -I/in/src \
+    timeout -s KILL $COMPILE_TIMEOUT \
+        gcc -std=$C_STD -Wall -Wextra $SANITIZERS -I/in/src \
             -c "$source" -o "/work/$(basename "$source" .c).o" 2>>/work/gcc.err
     rc=$?
     [ $rc -eq 0 ] || break
@@ -76,8 +100,8 @@ fi
 # correcte, ce qui est le pire défaut possible pour un outil pédagogique.
 # Mesuré le 2026-08-31 : sans la macro, 1 échec sur 2 ; avec, 0 sur 2.
 # Tous les laboratoires de calcul (5, 9, 10) et le devoir en dépendent.
-timeout -s KILL {{ ctester_compile_timeout }} \
-    gcc -DUNITY_INCLUDE_DOUBLE {{ ctester_sanitizers }} \
+timeout -s KILL $COMPILE_TIMEOUT \
+    gcc -DUNITY_INCLUDE_DOUBLE $SANITIZERS \
         /work/*.o /in/tests/*.c /in/unity/unity.c \
         -I/in/unity -I/in/tests -I/in/src -o /work/t -lm 2>/dev/null
 rc=$?
@@ -98,6 +122,6 @@ fi
 # de test qui a provoqué le débordement, et son nom dit ce qui est testé. On
 # jette donc le texte et on ne garde que le FAIT, par le code de sortie 86,
 # que le worker traduit en un message générique -- sans ligne ni nom.
-ASAN_OPTIONS={{ ctester_asan_options }} \
-    timeout -s KILL {{ ctester_run_timeout }} /work/t 2>/dev/null
+ASAN_OPTIONS="$ASAN_OPTS" \
+    timeout -s KILL $RUN_TIMEOUT /work/t 2>/dev/null
 exit $?

@@ -1,0 +1,4 @@
+# eol=lf : build-unity.sh et build-io.sh sont exécutés par bash dans le bac à
+# sable. Un CR final y donne « ^M: command not found », un message qui ne dit
+# nulle part que la cause est une fin de ligne Windows.
+* text=auto eol=lf
