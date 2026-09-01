@@ -71,6 +71,19 @@ ctester_tests_repo: "git@github.com:ETS-TCH009-S26/unittests.git"
 ctester_tests_version: main
 ctester_tests_key_path: /root/.ssh/ctester_tests
 
+# --- Dépôt de solutions (PRIVÉ, sous-module de unittests) ----------------
+# Le sous-module est déclaré en HTTPS dans .gitmodules et GitHub demande alors
+# un mot de passe qu'aucun TTY ne peut fournir : `git submodule update` échoue.
+# Plutôt que de patcher .gitmodules à distance, on le clone ici comme un dépôt
+# ordinaire, dans le répertoire que le sous-module occuperait.
+#
+# SA PROPRE deploy key, et pas celle des tests : GitHub refuse la même clé sur
+# deux dépôts (« Key is already in use »). Deux clés en lecture seule valent
+# mieux qu'un PAT qui, lui, ouvrirait toute l'organisation.
+ctester_solutions_repo: "git@github.com:ETS-TCH009-S26/solutions.git"
+ctester_solutions_version: main
+ctester_solutions_key_path: /root/.ssh/ctester_solutions
+
 # --- Files d'attente et quotas ------------------------------------------
 # LE SCÉNARIO DIMENSIONNANT : 40 étudiants qui soumettent dans la même minute,
 # la veille de la remise.

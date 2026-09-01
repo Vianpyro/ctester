@@ -130,6 +130,34 @@
     key_file: "{{ ctester_tests_key_path }}"
     accept_newhostkey: true
     force: true
+    # Le sous-module `solutions` est cloné par la tâche suivante, avec sa propre
+    # clé : la résolution récursive d'Ansible utiliserait l'URL HTTPS de
+    # .gitmodules et se bloquerait sur une invite de mot de passe.
+    recursive: false
+  notify: Restart ctester workers
+  tags: [tests]
+
+- name: Install the read-only deploy key for the solutions repository
+  ansible.builtin.copy:
+    content: "{{ ctester_solutions_deploy_key }}"
+    dest: "{{ ctester_solutions_key_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  tags: [tests]
+
+# ponytail: on suit la branche du dépôt de solutions, pas le commit épinglé par
+# le gitlink du sous-module. Passer à `ctester_solutions_version: <sha>` le jour
+# où les deux dépôts doivent avancer ensemble.
+- name: Clone or update the solutions repository into the submodule path
+  ansible.builtin.git:
+    repo: "{{ ctester_solutions_repo }}"
+    dest: "{{ ctester_project_dir }}/tests/solutions"
+    version: "{{ ctester_solutions_version }}"
+    key_file: "{{ ctester_solutions_key_path }}"
+    accept_newhostkey: true
+    force: true
   notify: Restart ctester workers
   tags: [tests]
 
