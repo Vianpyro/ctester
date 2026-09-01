@@ -231,11 +231,20 @@ python3 /opt/ctester/test_ctester.py           # les défenses tiennent-elles ?
 grep -rl answer /opt/ctester/app/              # DOIT ne rien trouver
 ```
 
-Et sur le contrôleur, avant de déployer une modification de la page :
+Et sur le contrôleur, avant de déployer une modification de la page ou du
+contenu :
 
 ```sh
 node roles/ctester/files/test_page.js roles/ctester/files/index.html
+python3 roles/ctester/files/valider_contenu.py unittests
 ```
+
+Le second compile la **solution de référence** de chaque exercice et la passe
+dans le vrai juge — il importe `runner.py` plutôt que de refaire ses
+vérifications, sinon la validation et le juge diriraient deux choses
+différentes. Un exercice sans corrigé apparaît comme « non prouvé », ce qui est
+la formulation honnête : rien ne garantit alors que son test soit juste. Il lui
+faut gcc, donc il tourne sur le contrôleur, jamais sur le Dell.
 
 Il exécute le JavaScript de la page contre un DOM en carton et vérifie que la
 soumission part vraiment. **`node --check` ne suffit pas** : il valide la

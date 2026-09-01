@@ -62,8 +62,16 @@ fi
 # -I/in/src pour que LE FICHIER DE TEST puisse écrire `#include "calendrier.h"`
 # et tomber sur l'en-tête que l'étudiant vient d'écrire. C'est ce qui permet de
 # tester un module dont l'interface est dictée par l'énoncé.
+#
+# -DUNITY_INCLUDE_DOUBLE EST OBLIGATOIRE, ET SON ABSENCE NE SE VOIT PAS.
+# Unity 2.6 définit UNITY_EXCLUDE_DOUBLE par défaut : sans cette macro,
+# TEST_ASSERT_DOUBLE_WITHIN compile quand même -- Unity fournit une souche -- et
+# ÉCHOUE. Le juge annoncerait donc un test raté sur une solution parfaitement
+# correcte, ce qui est le pire défaut possible pour un outil pédagogique.
+# Mesuré le 2026-08-31 : sans la macro, 1 échec sur 2 ; avec, 0 sur 2.
+# Tous les laboratoires de calcul (5, 9, 10) et le devoir en dépendent.
 timeout -s KILL {{ ctester_compile_timeout }} \
-    gcc /work/*.o /in/tests/*.c /in/unity/unity.c \
+    gcc -DUNITY_INCLUDE_DOUBLE /work/*.o /in/tests/*.c /in/unity/unity.c \
         -I/in/unity -I/in/tests -I/in/src -o /work/t -lm 2>/dev/null
 rc=$?
 if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then

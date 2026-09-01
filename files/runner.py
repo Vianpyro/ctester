@@ -238,7 +238,7 @@ def catalogue():
     entries = []
     for name, tp_dir in entrees_brutes():
         mode = detect_mode(tp_dir)
-        label, files = name, declared_files({})
+        conf, label, files = {}, name, declared_files({})
         try:
             conf = load_config(tp_dir, config_name(mode))
             label = conf.get("label") or name
@@ -248,6 +248,12 @@ def catalogue():
         entries.append({
             "id": name,
             "path": tp_dir,
+            # La consigne, affichée au-dessus de l'éditeur. Elle existe parce que
+            # la moitié des énoncés ne donnent PAS de prototype exact (« une
+            # fonction qui renvoie le nombre de chiffres ») alors qu'un test
+            # unity appelle par nom : il faut bien imposer un contrat, et un
+            # contrat qu'on impose sans l'afficher est indevinable.
+            "statement": str(conf.get("statement", "")),
             "mode": mode,
             "label": label,
             # Les noms de fichiers attendus voyagent jusqu'au navigateur : ils
@@ -453,6 +459,21 @@ def check_case(case, output, tol):
     wanted = case.get("contains")
     if wanted and fold(wanted) not in folded:
         return "la sortie ne contient pas le mot attendu"
+    # Intervalle plutôt que valeur : pour un programme qui tire au hasard, la
+    # sortie n'a pas de valeur attendue, seulement des bornes. « au moins N
+    # nombres dans [min, max] » et pas « tous », parce qu'une invite comme
+    # « Lancer 100 fois » ajoute un 100 que la borne rejetterait sur un
+    # programme parfaitement correct.
+    borne = case.get("in_range")
+    if borne:
+        combien = int(case.get("count", 1))
+        dedans = sum(1 for n in extract_numbers(output)
+                     if borne[0] <= n <= borne[1])
+        if dedans < combien:
+            return ("ta sortie contient %d valeur%s entre %g et %g, il en faut "
+                    "au moins %d" % (dedans, "" if dedans == 1 else "s",
+                                     borne[0], borne[1], combien))
+
     expected = case.get("expect")
     if expected:
         numbers = extract_numbers(output)

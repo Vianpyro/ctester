@@ -61,6 +61,23 @@
     border-radius: 6px;
   }
   #now b { font-size: .98rem; }
+  /* La consigne. <details> plutôt qu'un panneau maison : l'ouverture et la
+     fermeture au clavier, l'annonce aux lecteurs d'écran et l'état plié sont
+     natifs. Ouvert par défaut -- une consigne qu'il faut penser à déplier ne
+     sert à rien. */
+  #consigne {
+    margin: 0 0 .6rem; padding: .5rem .75rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+  }
+  #consigne summary {
+    cursor: pointer; color: var(--muted); font-size: 13px;
+    user-select: none;
+  }
+  #consigne pre {
+    margin: .5rem 0 0; padding: 0; border: 0; background: none;
+    white-space: pre-wrap; font-size: 13.5px;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
   #now .badge {
     font-size: 12px; color: var(--muted);
     border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
@@ -198,6 +215,11 @@
   </div>
 
   <div id="now" aria-live="polite"></div>
+
+  <details id="consigne" open hidden>
+    <summary>Consigne</summary>
+    <pre id="consignetexte"></pre>
+  </details>
 
   <div id="editor">
     <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
@@ -346,6 +368,13 @@ function switchMode() {
                                 : "programme complet, avec son main()";
     $("now").append(titre, pastille);
   }
+
+  // textContent et pas innerHTML : la consigne vient du dépôt de tests, mais
+  // elle contient des prototypes pleins de `*` et de chevrons, et rien de ce
+  // qui s'affiche sur cette page ne doit jamais être interprété comme du HTML.
+  const consigne = (tp && tp.statement) || "";
+  $("consignetexte").textContent = consigne;
+  $("consigne").hidden = !consigne;
 
   out.className = "";
   if (quiz) loadQuiz(tp.id); else setupFiles(tp);

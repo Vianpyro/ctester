@@ -223,6 +223,25 @@ def test_check_case():
     assert runner.check_case(case, invite, tol) != ""
 
 
+def test_in_range():
+    """Intervalle plutot que valeur : pour un programme qui tire au hasard."""
+    tol = runner.DEFAULT_TOLERANCE
+    cinq_des = {"in_range": [1, 6], "count": 5}
+    assert runner.check_case(cinq_des, "3 1 6 2 4", tol) == ""
+    # AU MOINS N, ET PAS TOUS : une invite qui contient un nombre hors bornes
+    # ne doit pas faire echouer un programme correct.
+    assert runner.check_case(cinq_des, "Lancer 100 fois : 3 1 6 2 4", tol) == ""
+    rate = runner.check_case(cinq_des, "3 1 6", tol)
+    assert "3 valeurs entre 1 et 6" in rate and "au moins 5" in rate, rate
+    # Des valeurs hors bornes ne comptent pas.
+    assert runner.check_case(cinq_des, "0 7 8 9 10", tol) != ""
+
+    # La moyenne d'un million de lances : bornes serrees, une seule valeur.
+    moyenne = {"in_range": [3.4, 3.6]}
+    assert runner.check_case(moyenne, "Moyenne : 3.4997", tol) == ""
+    assert runner.check_case(moyenne, "Moyenne : 2.9", tol) != ""
+
+
 def test_check_case_diagnostics():
     """Les deux échecs fréquents disent CE QUI s'est passé, pas juste « faux ».
 
@@ -378,7 +397,8 @@ def test_catalogue_order_and_grouping():
     ancien = runner.TESTS
     try:
         runner.TESTS = tmp
-        arbre = (("tp1", None, "quiz.json", "TP1 : encodage"),
+        arbre = (("solutions", "tp1", None, None),
+                 ("tp1", None, "quiz.json", "TP1 : encodage"),
                  ("tp2", "ex0", "io.json", "TP2 : ex.0 âge"),
                  ("tp2", "ex10", "io.json", "TP2 : ex.10 tardif"),
                  ("tp2", "ex2", "io.json", "TP2 : ex.2 Watt"),
@@ -387,6 +407,11 @@ def test_catalogue_order_and_grouping():
             d = os.path.join(tmp, tp) if exercice is None \
                 else os.path.join(tmp, tp, exercice)
             os.makedirs(d, exist_ok=True)
+            if conf is None:
+                # Un corrigé de référence : du code, aucune configuration.
+                with open(os.path.join(d, "calendrier.c"), "w") as fh:
+                    fh.write("int f(void){return 0;}\n")
+                continue
             with open(os.path.join(d, conf), "w", encoding="utf-8") as fh:
                 json.dump({"label": label, "questions": [], "cases": []}, fh)
         entries = runner.catalogue()
@@ -404,6 +429,12 @@ def test_catalogue_order_and_grouping():
     # répertoire que TP_RE ferme.
     assert all(runner.TP_RE.match(e["id"]) for e in entries)
     assert chemin_ex2.endswith(os.path.join("tp2", "ex2")), chemin_ex2
+    # `solutions/` NE DOIT JAMAIS DEVENIR UNE ENTRÉE. Les corrigés de référence y
+    # vivent, et une entrée de catalogue est montée dans le bac à sable : ce
+    # serait servir la solution au code de l'étudiant. Ils sont hors d'atteinte
+    # parce qu'aucun fichier de configuration ne se trouve à ces deux niveaux --
+    # ce test est là pour que ça reste vrai.
+    assert not any(e["id"].startswith("solutions") for e in entries), entries
     assert introuvable is None
     # Le chemin serveur ne doit pas partir vers le conteneur web.
     assert all("path" not in e for e in publiable)
