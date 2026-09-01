@@ -126,7 +126,12 @@
     pointer-events: none;      /* les clics traversent jusqu'à la saisie */
   }
   #code {
-    position: relative; width: 100%; min-height: 22rem; resize: vertical;
+    /* La hauteur suit le VIEWPORT, pas une valeur absolue : 22rem fixes
+       débordaient d'un portable 13 pouces à barre d'onglets ouverte, et
+       gaspillaient un écran vertical. Les bornes gardent l'éditeur utilisable
+       aux deux extrêmes. */
+    position: relative; width: 100%; min-height: clamp(12rem, 45vh, 26rem);
+    resize: vertical;
     overflow: auto;
     background: transparent;
     color: transparent;        /* on lit le calque, pas le textarea */
@@ -196,6 +201,32 @@
     font-size: 13px; white-space: pre-wrap; word-break: break-word;
   }
   footer { margin-top: 2rem; color: var(--muted); font-size: 13px; }
+
+  /* L'ÉTAT DU BROUILLON, à côté du bouton qui compte. Discret par défaut, mais
+     en rouge s'il n'a PAS pu être enregistré : c'est la seule chose que cet
+     indicateur doit garantir -- croire son travail sauvé alors qu'il ne l'est
+     pas est pire que de ne rien afficher du tout. */
+  #brouillon { color: var(--muted); font-size: 13px; }
+  #brouillon.rate { color: var(--bad); font-weight: 600; }
+  #purger { font-size: 12px; font-weight: 400; color: var(--muted); }
+
+  /* DEUX COLONNES SUR LES GRANDS ÉCRANS, et rien d'autre.
+     `display: contents` fait disparaître le conteneur de la mise en page en
+     dessous du seuil : la consigne et l'éditeur restent alors exactement les
+     blocs empilés qu'ils étaient, sans règle à annuler. Au-delà, le même
+     conteneur devient une grille. Pas de JS, pas de poignée de
+     redimensionnement -- l'étudiant lit à gauche et tape à droite. */
+  #travail { display: contents; }
+  @media (min-width: 1100px) {
+    /* Sans cet élargissement, deux colonnes tiendraient dans les 52rem de
+       `main` et donneraient 25rem chacune : trop étroit pour une ligne de C. */
+    main { max-width: 76rem; }
+    #travail {
+      display: grid; gap: .6rem; align-items: start;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    #consigne { margin-bottom: 0; }
+  }
 </style>
 </head>
 <body>
@@ -222,21 +253,28 @@
     <span class="grow"></span>
     <input type="file" id="file" accept=".c,.txt">
     <button id="go">Tester</button>
+    <span id="brouillon" aria-live="polite"></span>
+    <button type="button" id="purger" class="nav" hidden>Effacer mes brouillons</button>
   </div>
 
   <div id="now" aria-live="polite"></div>
 
-  <details id="consigne" open hidden>
-    <summary>Consigne</summary>
-    <pre id="consignetexte"></pre>
-  </details>
+  <!-- Ces deux-là ensemble, et dans cet ordre : au-delà de 1100px ils passent
+       côte à côte (voir #travail dans la feuille de style). En dessous, le
+       conteneur n'existe pas pour la mise en page. -->
+  <div id="travail">
+    <details id="consigne" open hidden>
+      <summary>Consigne</summary>
+      <pre id="consignetexte"></pre>
+    </details>
 
-  <div id="editor">
-    <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
-    <div id="pane">
-      <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
-      <textarea id="code" spellcheck="false"
-                placeholder="// Colle ici le contenu de ton fichier"></textarea>
+    <div id="editor">
+      <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
+      <div id="pane">
+        <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
+        <textarea id="code" spellcheck="false"
+                  placeholder="// Colle ici le contenu de ton fichier"></textarea>
+      </div>
     </div>
   </div>
 
@@ -341,17 +379,92 @@ function fillExercises(preselect) {
   switchMode();
 }
 
-// Un brouillon par exercice, gardé en mémoire pour la session. Sans lui, le
-// bouton « suivant » deviendrait un piège : un clic, et le code qu'on venait
-// d'écrire aurait disparu au retour.
-const brouillons = {};
+// --- LE BROUILLON, ENREGISTRÉ TOUT SEUL ------------------------------------
+// Un brouillon par exercice. Sans lui, le bouton « suivant » serait un piège :
+// un clic, et le code qu'on venait d'écrire aurait disparu au retour.
+//
+// localStorage, ET PAS UN ENDPOINT : un brouillon n'a besoin de personne pour
+// survivre à un F5, et le serveur n'a pas à connaître ce qui n'a pas encore été
+// soumis. Contrepartie assumée : sur un poste de laboratoire partagé, le code
+// reste sur la machine après le départ -- d'où « effacer mes brouillons ».
+const CLE_BROUILLONS = "ctester.brouillons";
+
+// CE QUI SORT DU STOCKAGE EST UNE ENTRÉE, pas une donnée de confiance : tout ce
+// qui tourne sur cette origine a pu l'écrire, y compris la console de
+// l'étudiant. On ne garde que la forme attendue -- {exercice: {fichier: texte}}
+// -- pour que rien d'autre n'atteigne l'éditeur ni la soumission.
+function assainirBrouillons(brut) {
+  const propre = {};
+  if (!brut || typeof brut !== "object" || Array.isArray(brut)) return propre;
+  for (const [ex, fichiers] of Object.entries(brut)) {
+    if (!fichiers || typeof fichiers !== "object" || Array.isArray(fichiers)) continue;
+    const garde = {};
+    for (const [nom, texte] of Object.entries(fichiers)) {
+      if (typeof texte === "string") garde[nom] = texte;
+    }
+    propre[ex] = garde;
+  }
+  return propre;
+}
+
+function chargerBrouillons() {
+  try {
+    return assainirBrouillons(JSON.parse(localStorage.getItem(CLE_BROUILLONS)));
+  } catch (e) {
+    return {};   // navigation privée, stockage refusé, JSON abîmé : on repart à vide
+  }
+}
+
+const brouillons = chargerBrouillons();
 let courantId = null;
+let minuteur = null;
+
+function etatBrouillon(texte, rate) {
+  $("brouillon").textContent = texte;
+  $("brouillon").className = rate ? "rate" : "";
+}
+
+const deuxChiffres = (n) => String(n).padStart(2, "0");
+
+// L'ÉCRITURE, ET SURTOUT SON ÉCHEC. Un try/catch qui avalerait l'erreur en
+// silence serait le pire des deux mondes : « brouillon enregistré » affiché
+// alors que rien ne l'est. Navigation privée, quota plein, stockage désactivé
+// par une politique d'école : les trois arrivent, et doivent se voir. Le bouton
+// d'effacement est juste à côté, c'est aussi le recours quand le quota est plein.
+function sauvegarder() {
+  if (courantId === null || actif === null) return;
+  sources[actif] = $("code").value;
+  brouillons[courantId] = sources;
+  try {
+    localStorage.setItem(CLE_BROUILLONS, JSON.stringify(brouillons));
+  } catch (e) {
+    etatBrouillon("brouillon NON enregistré — garde une copie de ton code", true);
+    return;
+  }
+  const t = new Date();
+  etatBrouillon("brouillon enregistré à "
+                + deuxChiffres(t.getHours()) + ":" + deuxChiffres(t.getMinutes()));
+  $("purger").hidden = false;
+}
+$("purger").hidden = !Object.keys(brouillons).length;
+
+// Effacer vide le STOCKAGE, pas l'éditeur : couper le texte sous les doigts de
+// quelqu'un qui travaille serait pire que le problème qu'on règle. L'exercice
+// ouvert sera donc réécrit à la frappe suivante, ce qui est le comportement
+// voulu -- on efface ce qu'on laisse derrière soi, pas ce qu'on est en train
+// d'écrire. Pour partir d'un poste partagé : effacer, puis fermer l'onglet.
+$("purger").addEventListener("click", () => {
+  clearTimeout(minuteur);
+  for (const ex of Object.keys(brouillons)) delete brouillons[ex];
+  try { localStorage.removeItem(CLE_BROUILLONS); } catch (e) { /* rien à effacer */ }
+  etatBrouillon("brouillons effacés");
+  $("purger").hidden = true;
+});
 
 function switchMode() {
-  if (courantId !== null && actif !== null) {
-    sources[actif] = $("code").value;
-    brouillons[courantId] = sources;
-  }
+  // Changer d'exercice EST une fin de saisie : on n'attend pas le délai.
+  clearTimeout(minuteur);
+  sauvegarder();
   const tp = current();
   courantId = tp ? tp.id : null;
   const quiz = tp && tp.mode === "quiz";
@@ -523,7 +636,14 @@ function paint() {
   $("hl").scrollLeft = $("code").scrollLeft;
 }
 
-$("code").addEventListener("input", paint);
+// UN SEUL écouteur `input`, qui fait les deux. La coloration est immédiate,
+// l'enregistrement attend 1,5 s de silence : écrire dans le stockage à chaque
+// touche sérialiserait tout le brouillon quarante fois par ligne, pour rien.
+$("code").addEventListener("input", () => {
+  paint();
+  clearTimeout(minuteur);
+  minuteur = setTimeout(sauvegarder, 1500);
+});
 $("code").addEventListener("scroll", paint);
 
 // Tab indente au lieu de quitter le champ. Dans une zone où l'on écrit du C,

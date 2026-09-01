@@ -65,7 +65,29 @@ global.document = {
 };
 global.location = { search: "?k=cle-de-test" };
 global.URLSearchParams = URLSearchParams;
-global.setTimeout = () => {};
+
+// Les minuteurs sont CAPTURÉS, pas exécutés. La page en pose deux sortes : le
+// sondage du verdict, qu'on ne veut surtout pas voir boucler dans un test, et
+// le délai d'enregistrement du brouillon, qu'on veut déclencher à la main
+// plutôt que d'attendre 1,5 seconde réelle.
+const timers = [];
+global.setTimeout = (fn) => timers.push(fn);
+global.clearTimeout = () => {};
+const declencherDernierMinuteur = () => timers[timers.length - 1]();
+
+// Stockage en carton, avec un interrupteur de panne : navigation privée, quota
+// plein, stockage désactivé par une politique d'école. C'est le cas qui ne doit
+// JAMAIS afficher « enregistré ».
+let stockageEnPanne = false;
+const stockage = {};
+global.localStorage = {
+  getItem: (k) => (k in stockage ? stockage[k] : null),
+  setItem: (k, v) => {
+    if (stockageEnPanne) throw new Error("QuotaExceededError");
+    stockage[k] = v;
+  },
+  removeItem: (k) => { delete stockage[k]; },
+};
 
 const UN_FICHIER = [{ name: "submission.c", template: "" }];
 const CATALOGUE = [
@@ -101,6 +123,15 @@ global.fetch = async (url, opts) => {
   return { ok: true, status: 200, json: async () => POLL_RESPONSE };
 };
 
+// UNE VISITE PRÉCÉDENTE, déposée avant que la page ne démarre : un brouillon
+// bien formé, et deux entrées empoisonnées. Ce qui sort du stockage n'est pas
+// de la donnée de confiance, et seule la première doit atteindre l'éditeur.
+stockage["ctester.brouillons"] = JSON.stringify({
+  "tp2-ex3": { "submission.c": "// travail d'hier" },
+  "tp2-ex0": { "submission.c": { pas: "une chaîne" } },
+  "tp6-ex1": "pas un objet de fichiers",
+});
+
 new Function(js)();
 
 const sleep = () => new Promise((r) => setImmediate(r));
@@ -133,6 +164,16 @@ function choisir(groupe, id) {
   check(nodes.exwrap.hidden === false, "le second menu est visible quand il sert");
   check(/ex\.0/.test(contexte()), "la barre de contexte nomme l'exercice courant");
   check(/main\(\)/.test(contexte()), "et rappelle ce qu'on attend comme soumission");
+
+  // --- Ce qu'une visite précédente a laissé dans le stockage ---
+  choisir("TP 2", "tp2-ex3");
+  check(nodes.code.value === "// travail d'hier",
+        "le brouillon d'hier est retrouvé à l'ouverture de la page");
+  check(nodes.purger.hidden === false,
+        "et « effacer mes brouillons » apparaît puisqu'il y a quelque chose à effacer");
+  choisir("TP 6", "tp6-ex1");
+  check(nodes.code.value === "#define VRAI 1\n",
+        "une entrée mal formée du stockage est ignorée : c'est le gabarit qui sert");
 
   choisir("TP 1");
   check(nodes.exwrap.hidden === true,
@@ -257,6 +298,38 @@ function choisir(groupe, id) {
   // travail de l'étudiant, et le bouton « suivant » l'aurait rendu banal.
   check(nodes.code.value === "// mon travail sur l'ex 0",
         "le travail en cours survit à un aller-retour entre exercices");
+
+  // --- L'enregistrement automatique, et ce qu'il promet ---
+  nodes.purger.listeners.click();          // on repart d'un stockage vide
+  check(!("ctester.brouillons" in stockage), "« effacer mes brouillons » vide le stockage");
+  check(nodes.purger.hidden === true, "et le bouton se retire une fois qu'il n'y a plus rien");
+
+  nodes.code.value = "int main(void){ return 0; }";
+  nodes.code.listeners.input();
+  check(!("ctester.brouillons" in stockage),
+        "une frappe n'écrit pas tout de suite : l'enregistrement est différé");
+
+  declencherDernierMinuteur();
+  const garde = JSON.parse(stockage["ctester.brouillons"] || "{}");
+  check(garde["tp2-ex0"] && garde["tp2-ex0"]["submission.c"] === "int main(void){ return 0; }",
+        "passé le délai de silence, le brouillon est écrit");
+  check(/^brouillon enregistré à \d\d:\d\d$/.test(nodes.brouillon.textContent),
+        "et l'indicateur donne l'heure : " + nodes.brouillon.textContent);
+  check(nodes.brouillon.className === "", "discret tant que tout va bien");
+
+  // LE CAS QUI COMPTE VRAIMENT. Afficher « enregistré » ici ferait perdre son
+  // travail à quelqu'un qui nous a crus.
+  stockageEnPanne = true;
+  nodes.code.value = "int main(void){ return 1; }";
+  nodes.code.listeners.input();
+  declencherDernierMinuteur();
+  check(/NON enregistré/.test(nodes.brouillon.textContent),
+        "un stockage qui refuse d'écrire se dit : " + nodes.brouillon.textContent);
+  check(nodes.brouillon.className === "rate", "et se voit, en rouge");
+  check(JSON.parse(stockage["ctester.brouillons"])["tp2-ex0"]["submission.c"]
+        === "int main(void){ return 0; }",
+        "le stockage garde alors la dernière version réellement écrite");
+  stockageEnPanne = false;
 
   // --- Mode quiz : pagination puis soumission complète ---
   choisir("TP 1");
