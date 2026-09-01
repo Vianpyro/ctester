@@ -359,6 +359,36 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_HEAD(self):  # noqa: N802 -- imposé par BaseHTTPRequestHandler
+        path = self.path.split("?", 1)[0]
+
+        if path == "/healthz":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", "12")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+        elif path in ("/", "/index.html"):
+            try:
+                size = os.path.getsize(os.path.join(STATIC, "index.html"))
+            except OSError:
+                self.send_response(500)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+
+        else:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
     def do_GET(self):  # noqa: N802 -- imposé par BaseHTTPRequestHandler
         path = self.path.split("?", 1)[0]
         # Liste blanche explicite, PAS SimpleHTTPRequestHandler : ce processus
