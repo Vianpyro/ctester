@@ -110,7 +110,8 @@ def main():
     runner.TESTS = racine
     unity_dir = os.path.join(racine, "unity")
 
-    entrees = runner.catalogue()
+    # tout=True : on valide AUSSI ce qui n'est pas encore ouvert aux étudiants.
+    entrees = runner.catalogue(tout=True)
     if not entrees:
         print("aucun exercice trouvé dans " + racine)
         return 1

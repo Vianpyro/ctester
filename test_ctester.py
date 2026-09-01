@@ -454,6 +454,38 @@ def test_declared_files():
         == "submission.c"
 
 
+def test_catalogue_available_from():
+    """Une date future retire l'entrée du catalogue -- menu ET exécution.
+
+    Le filtre est dans `catalogue()` justement pour que ces deux-là tombent
+    ensemble : un TP retiré du menu mais que `tp_path()` résout encore serait
+    ouvert à quiconque a gardé le lien de l'an dernier.
+    """
+    tmp = tempfile.mkdtemp(prefix="ctester-")
+    ancien = runner.TESTS
+    try:
+        runner.TESTS = tmp
+        for tp, date in (("tp1", "2000-01-01"), ("tp2", None),
+                         ("tp3", "2999-01-01")):
+            d = os.path.join(tmp, tp, "ex1")
+            os.makedirs(d)
+            conf = {"label": tp, "cases": []}
+            if date is not None:
+                conf["available_from"] = date
+            with open(os.path.join(d, "io.json"), "w", encoding="utf-8") as fh:
+                json.dump(conf, fh)
+        ouverts = [e["id"] for e in runner.catalogue()]
+        ferme = runner.tp_path("tp3-ex1")
+    finally:
+        runner.TESTS = ancien
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    # tp2 n'a PAS de date : l'absence de clé vaut « ouvert », sinon ajouter un
+    # exercice en cours de session le rendrait invisible sans rien dire.
+    assert ouverts == ["tp1-ex1", "tp2-ex1"], ouverts
+    assert ferme is None
+
+
 def test_catalogue_order_and_grouping():
     """L'ordre du menu est NUMÉRIQUE, et le regroupement sort du nom du dossier.
 

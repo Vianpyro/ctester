@@ -155,6 +155,24 @@ l'éditeur et la liste blanche que l'API oppose à la soumission ; l'étudiant n
 les choisit pas, parce qu'un fichier mal nommé ne compile pas et que sanctionner
 ça n'apprend rien. Sans déclaration, un seul fichier `submission.c`.
 
+**Un exercice peut s'ouvrir à une date** : la clé `available_from`
+(`"2025-09-11"`, à la racine du fichier de configuration) écarte l'entrée du
+catalogue tant que le jour n'est pas venu. Le filtre est dans `catalogue()` et
+pas à l'affichage, donc une entrée fermée n'a ni ligne de menu, ni chemin
+(`tp_path()` rend `None`), ni corrigé de quiz publié — un lien profond
+`?tp=tp5-ex1` partagé par un étudiant en avance ne résout pas au lieu de
+contourner. Clé absente = ouvert, ce qui est le bon défaut : un exercice ajouté
+en cours de session est visible sans qu'on y pense.
+
+`valider_contenu.py` appelle `catalogue(tout=True)` : un exercice qui ouvre en
+novembre est prouvé en septembre comme les autres, sinon la date aurait pour
+effet de suspendre la validation précisément sur ce qui n'a jamais tourné.
+
+Le catalogue est publié **une fois au démarrage** du worker ; celui-ci le
+republie au changement de jour, pour qu'une ouverture de minuit prenne effet
+sans redémarrage. Il n'y a pas d'autre échéance : un décalage poussé en cours de
+journée demande la republication habituelle.
+
 Le format de chacun est documenté dans le README du dépôt de tests, avec les
 pièges qui comptent (la règle « toute valeur attendue dépasse 1 », le champ
 `absent`, la normalisation des réponses de quiz).

@@ -20,6 +20,7 @@ configuration qu'il faudrait tenir synchronisé avec la réalité :
   test_*.c    des fonctions liées à Unity, sans main().
 """
 
+import datetime
 import json
 import os
 import re
@@ -254,11 +255,16 @@ def entrees_brutes():
     return entrees
 
 
-def catalogue():
+def catalogue(tout=False):
     """[{id, mode, label, group, short, files, path}] dans l'ordre du cours.
 
     `path` est un chemin du SERVEUR : il sert au worker et il est retiré avant
     publication vers le conteneur web (voir publish_catalogue).
+
+    `tout=True` ignore `available_from` et rend AUSSI les entrées pas encore
+    ouvertes. C'est pour valider_contenu.py : un exercice qui ouvre en novembre
+    doit être prouvé en septembre, sinon la date aurait pour effet de suspendre
+    la validation exactement sur ce qui n'a jamais tourné.
     """
     entries = []
     for name, tp_dir in entrees_brutes():
@@ -270,6 +276,17 @@ def catalogue():
             files = declared_files(conf)
         except (OSError, ValueError):
             pass  # fichier cassé : le nom du répertoire et un fichier par défaut
+        if not tout and                 conf.get("available_from", "") > datetime.date.today().isoformat():
+            # PAS ENCORE OUVERT. Le filtre est ici et pas au moment d'afficher :
+            # une entrée absente du catalogue n'a ni ligne de menu, ni chemin
+            # (tp_path), ni corrigé de quiz publié. Un lien profond partagé par
+            # un étudiant en avance ne résout pas, au lieu de contourner.
+            #
+            # Comparaison de chaînes ISO : « 2025-09-18 » > « 2025-09-11 » sans
+            # parser. Une date malformée trie n'importe où mais ne lève pas, et
+            # une clé absente vaut « ouvert », ce qui est le bon défaut -- un
+            # exercice ajouté en cours de session est visible sans y penser.
+            continue
         entries.append({
             "id": name,
             "path": tp_dir,
@@ -995,7 +1012,18 @@ def main():
         # Un catalogue illisible ne doit pas empêcher les jobs déjà en file
         # d'être traités : le service dégrade en « menu vide », pas en panne.
         print("ctester: catalogue: %s" % exc, file=sys.stderr, flush=True)
+    jour = datetime.date.today()
     while True:
+        if datetime.date.today() != jour:
+            # Le catalogue est publié UNE FOIS au démarrage : sans ça, un TP dont
+            # available_from arrive cette nuit n'apparaîtrait qu'au prochain
+            # redémarrage du worker. Republier au changement de jour est la seule
+            # échéance qui existe -- pas de planificateur, pas de minuterie.
+            jour = datetime.date.today()
+            try:
+                publish_catalogue()
+            except (OSError, ValueError) as exc:
+                print("ctester: catalogue: %s" % exc, file=sys.stderr, flush=True)
         worked = False
         for job_dir in pending_jobs():
             if not claim(job_dir):
