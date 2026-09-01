@@ -777,6 +777,142 @@ def test_http_end_to_end():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_http_comptes():
+    """Les routes de compte : sans jeton rien, avec un jeton rien d'autre que soi.
+
+    LA BASE EST SIMULÉE, et c'est voulu : ce qui est éprouvé ici est la
+    frontière, pas Postgres. Qu'un anonyme ne puisse ni lire ni écrire, que
+    l'identité écrite vienne TOUJOURS du jeton et jamais du corps de la requête,
+    que la liste blanche des noms de fichiers s'applique aussi au brouillon, et
+    qu'un déploiement sans base n'offre simplement pas la connexion.
+    """
+    import http.client
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    tmp = tempfile.mkdtemp(prefix="ctester-comptes-")
+    static = os.path.join(tmp, "app")
+    os.makedirs(static)
+    with open(os.path.join(static, "tps.json"), "w", encoding="utf-8") as fh:
+        json.dump([{"id": "tp2-ex3", "mode": "io", "label": "TP2 ex.3",
+                    "files": [{"name": "submission.c", "template": ""}]}], fh)
+
+    ecrit = {}          # (utilisateur, exercice) -> ce qui a été rangé
+
+    class BaseSimulee:
+        STATUSES = ("essaye", "valide")
+        enabled = staticmethod(lambda: True)
+        read_resume = staticmethod(lambda user, ex: ecrit.get((user, ex)))
+        read_states = staticmethod(
+            lambda user: [{"exercice_id": "tp2-ex3", "statut": "valide"}])
+        forget = staticmethod(lambda user: (ecrit.clear(), True)[1])
+
+        @staticmethod
+        def write_draft(user, ex, sources):
+            ecrit[(user, ex)] = sources
+            return True
+
+        @staticmethod
+        def write_state(user, ex, statut, sources):
+            ecrit[(user, ex, statut)] = sources
+            return True
+
+    garde = (app.etat, app.current_user, app.STATIC,
+             app.OIDC_ISSUER, app.OIDC_CLIENT_ID)
+    app.etat = BaseSimulee
+    app.STATIC = static
+    app.OIDC_ISSUER = "https://auth.exemple"
+    app.OIDC_CLIENT_ID = "ctester"
+    # Le jeton n'est pas validé ici -- il l'est par Rauthy, et ce test n'a pas de
+    # Rauthy. Ce qui compte est que TOUT part de cette valeur et de rien d'autre.
+    app.current_user = lambda headers: (
+        "sub-alice" if headers.get("Authorization") == "Bearer bon" else None)
+    app.Handler.state_quota = app.Quota(cooldown=0, hourly=1000)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+
+    def call(method, path, payload=None, jeton=None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        entetes = {"Content-Type": "application/json"}
+        if jeton:
+            entetes["Authorization"] = "Bearer " + jeton
+        conn.request(method, path, None if payload is None else json.dumps(payload),
+                     entetes)
+        resp = conn.getresponse()
+        raw = resp.read()
+        conn.close()
+        try:
+            return resp.status, json.loads(raw)
+        except ValueError:
+            return resp.status, raw
+
+    try:
+        assert call("GET", "/oidc.json")[1]["client_id"] == "ctester"
+
+        # SANS JETON, AUCUNE PORTE. Ni lecture, ni écriture, ni suppression.
+        assert call("GET", "/etats")[0] == 401
+        assert call("GET", "/brouillon?ex=tp2-ex3")[0] == 401
+        assert call("PUT", "/brouillon", {"tp": "tp2-ex3", "files": {}})[0] == 401
+        assert call("DELETE", "/moi")[0] == 401
+        assert call("PUT", "/brouillon", {"tp": "tp2-ex3", "files": {}},
+                    jeton="inventé")[0] == 401
+
+        # Avec un jeton : on écrit, et on relit ce qu'on a écrit.
+        code = {"submission.c": "int main(void){return 0;}"}
+        assert call("PUT", "/brouillon", {"tp": "tp2-ex3", "files": code},
+                    jeton="bon")[0] == 200
+        assert ecrit[("sub-alice", "tp2-ex3")] == code, ecrit
+        assert call("GET", "/brouillon?ex=tp2-ex3", jeton="bon")[1]["sources"] == code
+
+        # L'IDENTITÉ NE VIENT PAS DU CORPS. Un champ `utilisateur` envoyé par le
+        # client est ignoré : sans ça, écrire chez le voisin serait une ligne de
+        # JSON. C'est LA vérification de sécurité de cette route.
+        ecrit.clear()
+        assert call("PUT", "/brouillon",
+                    {"tp": "tp2-ex3", "utilisateur": "sub-bob", "files": code},
+                    jeton="bon")[0] == 200
+        assert list(ecrit) == [("sub-alice", "tp2-ex3")], ecrit
+
+        # La liste blanche des noms vaut aussi pour un brouillon.
+        refus = call("PUT", "/brouillon",
+                     {"tp": "tp2-ex3", "files": {"evil.c": "x"}}, jeton="bon")
+        assert refus[0] == 400 and "evil.c" in refus[1]["error"], refus
+        assert call("PUT", "/brouillon", {"tp": "tp9", "files": {}},
+                    jeton="bon")[0] == 400
+        assert call("GET", "/brouillon?ex=../tps", jeton="bon")[0] == 400
+        assert call("PUT", "/brouillon",
+                    {"tp": "tp2-ex3",
+                     "files": {"submission.c": "x" * (app.MAX_CODE + 1)}},
+                    jeton="bon")[0] == 413
+
+        # Un statut inventé est refusé ici ET par la contrainte du schéma.
+        assert call("PUT", "/etat",
+                    {"tp": "tp2-ex3", "statut": "parfait", "files": code},
+                    jeton="bon")[0] == 400
+        assert call("PUT", "/etat",
+                    {"tp": "tp2-ex3", "statut": "valide", "files": code},
+                    jeton="bon")[0] == 200
+        assert ("sub-alice", "tp2-ex3", "valide") in ecrit, ecrit
+
+        assert call("GET", "/etats", jeton="bon")[1]["etats"][0]["statut"] == "valide"
+        assert call("DELETE", "/moi", jeton="bon")[0] == 200 and not ecrit
+
+        # SANS BASE, LA CONNEXION N'EST MÊME PAS PROPOSÉE, et toutes les routes
+        # de compte se ferment : c'est l'état d'un déploiement qui n'a pas changé.
+        BaseSimulee.enabled = staticmethod(lambda: False)
+        assert call("GET", "/oidc.json")[1] == {}
+        assert call("GET", "/etats", jeton="bon")[0] == 503
+        assert call("PUT", "/brouillon", {"tp": "tp2-ex3", "files": code},
+                    jeton="bon")[0] == 503
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        (app.etat, app.current_user, app.STATIC,
+         app.OIDC_ISSUER, app.OIDC_CLIENT_ID) = garde
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

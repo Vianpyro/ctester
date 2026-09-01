@@ -73,21 +73,31 @@ global.URLSearchParams = URLSearchParams;
 const timers = [];
 global.setTimeout = (fn) => timers.push(fn);
 global.clearTimeout = () => {};
-const declencherDernierMinuteur = () => timers[timers.length - 1]();
+const fireLastTimer = () => timers[timers.length - 1]();
 
 // Stockage en carton, avec un interrupteur de panne : navigation privée, quota
 // plein, stockage désactivé par une politique d'école. C'est le cas qui ne doit
 // JAMAIS afficher « enregistré ».
-let stockageEnPanne = false;
-const stockage = {};
+let storageBroken = false;
+const storage = {};
 global.localStorage = {
-  getItem: (k) => (k in stockage ? stockage[k] : null),
+  getItem: (k) => (k in storage ? storage[k] : null),
   setItem: (k, v) => {
-    if (stockageEnPanne) throw new Error("QuotaExceededError");
-    stockage[k] = v;
+    if (storageBroken) throw new Error("QuotaExceededError");
+    storage[k] = v;
   },
-  removeItem: (k) => { delete stockage[k]; },
+  removeItem: (k) => { delete storage[k]; },
 };
+
+// Le jeton de session vit ici, et il n'y en a pas : ce fichier éprouve le
+// parcours ANONYME sur un déploiement où la connexion est pourtant offerte.
+// C'est la combinaison qui doit rester identique à l'avant-connexion.
+global.sessionStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
+global.history = { replaceState: () => {} };
 
 const UN_FICHIER = [{ name: "submission.c", template: "" }];
 const CATALOGUE = [
@@ -104,6 +114,9 @@ const CATALOGUE = [
 ];
 
 const calls = [];
+// Un déploiement où la connexion EST configurée. Tout ce qui suit doit malgré
+// tout se comporter comme avant tant que personne ne s'est connecté.
+const OIDC_RESPONSE = { issuer: "https://auth.example", client_id: "ctester" };
 let SUBMIT_RESPONSE;
 let POLL_RESPONSE = { state: "queued", position: 1 };
 global.fetch = async (url, opts) => {
@@ -119,6 +132,9 @@ global.fetch = async (url, opts) => {
         { id: "q3", group: "Exercice 2 : hexadécimal", label: "23", type: "hex8" },
       ] }) };
   }
+  if (url === "oidc.json") {
+    return { ok: true, status: 200, json: async () => OIDC_RESPONSE };
+  }
   if (url === "submit") return SUBMIT_RESPONSE;
   return { ok: true, status: 200, json: async () => POLL_RESPONSE };
 };
@@ -126,7 +142,7 @@ global.fetch = async (url, opts) => {
 // UNE VISITE PRÉCÉDENTE, déposée avant que la page ne démarre : un brouillon
 // bien formé, et deux entrées empoisonnées. Ce qui sort du stockage n'est pas
 // de la donnée de confiance, et seule la première doit atteindre l'éditeur.
-stockage["ctester.brouillons"] = JSON.stringify({
+storage["ctester.drafts"] = JSON.stringify({
   "tp2-ex3": { "submission.c": "// travail d'hier" },
   "tp2-ex0": { "submission.c": { pas: "une chaîne" } },
   "tp6-ex1": "pas un objet de fichiers",
@@ -300,18 +316,18 @@ function choisir(groupe, id) {
         "le travail en cours survit à un aller-retour entre exercices");
 
   // --- L'enregistrement automatique, et ce qu'il promet ---
-  nodes.purger.listeners.click();          // on repart d'un stockage vide
-  check(!("ctester.brouillons" in stockage), "« effacer mes brouillons » vide le stockage");
+  nodes.purger.listeners.click();          // on repart d’un stockage vide
+  check(!("ctester.drafts" in storage), "« effacer mes brouillons » vide le stockage");
   check(nodes.purger.hidden === true, "et le bouton se retire une fois qu'il n'y a plus rien");
 
   nodes.code.value = "int main(void){ return 0; }";
   nodes.code.listeners.input();
-  check(!("ctester.brouillons" in stockage),
+  check(!("ctester.drafts" in storage),
         "une frappe n'écrit pas tout de suite : l'enregistrement est différé");
 
-  declencherDernierMinuteur();
-  const garde = JSON.parse(stockage["ctester.brouillons"] || "{}");
-  check(garde["tp2-ex0"] && garde["tp2-ex0"]["submission.c"] === "int main(void){ return 0; }",
+  fireLastTimer();
+  const kept = JSON.parse(storage["ctester.drafts"] || "{}");
+  check(kept["tp2-ex0"] && kept["tp2-ex0"]["submission.c"] === "int main(void){ return 0; }",
         "passé le délai de silence, le brouillon est écrit");
   check(/^brouillon enregistré à \d\d:\d\d$/.test(nodes.brouillon.textContent),
         "et l'indicateur donne l'heure : " + nodes.brouillon.textContent);
@@ -319,17 +335,17 @@ function choisir(groupe, id) {
 
   // LE CAS QUI COMPTE VRAIMENT. Afficher « enregistré » ici ferait perdre son
   // travail à quelqu'un qui nous a crus.
-  stockageEnPanne = true;
+  storageBroken = true;
   nodes.code.value = "int main(void){ return 1; }";
   nodes.code.listeners.input();
-  declencherDernierMinuteur();
+  fireLastTimer();
   check(/NON enregistré/.test(nodes.brouillon.textContent),
         "un stockage qui refuse d'écrire se dit : " + nodes.brouillon.textContent);
   check(nodes.brouillon.className === "rate", "et se voit, en rouge");
-  check(JSON.parse(stockage["ctester.brouillons"])["tp2-ex0"]["submission.c"]
+  check(JSON.parse(storage["ctester.drafts"])["tp2-ex0"]["submission.c"]
         === "int main(void){ return 0; }",
         "le stockage garde alors la dernière version réellement écrite");
-  stockageEnPanne = false;
+  storageBroken = false;
 
   // --- Mode quiz : pagination puis soumission complète ---
   choisir("TP 1");
@@ -421,6 +437,35 @@ function choisir(groupe, id) {
   nodes.code.listeners.keydown({ key: "Escape", preventDefault: () => {} });
   nodes.code.listeners.keydown({ key: "Tab", preventDefault: () => { bloque = true; } });
   check(!bloque, "Echap puis Tab laisse sortir : on n'enferme pas le clavier");
+
+  // --- La connexion est offerte, mais personne ne s'est connecté ---
+  // TOUT CE FICHIER tourne dans cet état : les 70 vérifications ci-dessus sont
+  // donc, littéralement, la preuve de non-régression du parcours anonyme sur un
+  // déploiement où la connexion existe.
+  check(nodes.connexion.hidden === false, "« Se connecter » est proposé");
+  check(nodes.mesexos.hidden === true && nodes.deconnexion.hidden === true &&
+        nodes.oublier.hidden === true,
+        "mais rien de ce qui suppose un compte n'apparaît");
+  // Le harnais ne lit pas les attributs du HTML : ce qui prouve que la vue
+  // liste est restée fermée, c'est qu'elle n'a jamais été construite.
+  check(!nodes.liste || !nodes.liste.children.length,
+        "et la vue liste n'est même pas construite");
+
+  // LE POINT QUI COMPTE : pas un seul en-tête d'autorisation n'est parti, et
+  // aucune écriture d'état non plus. Un anonyme ne parle jamais à la base.
+  const entetes = calls.filter(c => c.opts && c.opts.headers &&
+                                    c.opts.headers.Authorization);
+  check(entetes.length === 0, "aucune requête ne porte de jeton");
+  check(!calls.some(c => c.url === "etats" || c.url === "etat" ||
+                         String(c.url).startsWith("brouillon")),
+        "et rien n'est écrit ni lu côté compte");
+
+  // Le consentement s'affiche AVANT la redirection, et se referme.
+  nodes.connexion.listeners.click();
+  check(nodes.consentement.hidden === false,
+        "le premier clic montre ce qui sera conservé, il ne redirige pas");
+  nodes.consentnon.listeners.click();
+  check(nodes.consentement.hidden === true, "et « Annuler » referme sans rien faire");
 
   console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nla page fonctionne");
   process.exit(failures ? 1 : 0);
