@@ -1,0 +1,12 @@
+# The exposed container's ONLY external dependency. Everything else under app/
+# is standard library on purpose -- nothing to install at boot, nothing to patch
+# on a CVE Friday, and the official python:3.13-slim image works as shipped.
+#
+# It buys one thing: talking to Postgres for the optional sign-in (see
+# app/schema.sql, which also says plainly why Postgres and not sqlite3).
+# Without it installed, app/etat.py reports the feature as off and the anonymous
+# path is untouched -- so an image built without this file still serves the judge.
+#
+# Pinned, not floated. This image is rebuilt by hand and rarely; "whatever was on
+# PyPI that morning" is not something to discover in production.
+psycopg[binary]==3.3.5
