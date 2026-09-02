@@ -277,6 +277,8 @@ function choisir(groupe, id) {
           "le code est bien dans la charge utile, sous son nom de fichier");
     check(sent.tp === "tp2-ex3" && sent.key === "cle-de-test",
           "l'exercice envoyé est celui du SECOND menu, pas le TP");
+    check(!("Authorization" in post.opts.headers),
+          "une soumission anonyme ne porte pas de jeton");
     check(!("answers" in sent), "pas de réponses de quiz sur un TP de code");
   }
   check(nodes.tabs.hidden === true,

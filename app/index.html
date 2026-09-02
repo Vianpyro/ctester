@@ -1080,7 +1080,11 @@ $("go").addEventListener("click", async () => {
   try {
     const r = await fetch("submit", {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      // La connexion est facultative : sans jeton, la soumission reste
+      // anonyme. Avec lui, l'API peut rattacher le job au compte et enregistrer
+      // la pratique/le statut à partir de son propre verdict.
+      headers: Object.assign({"Content-Type": "application/json"},
+                             token ? {Authorization: "Bearer " + token} : {}),
       body: JSON.stringify(body)
     });
     let out = null;
