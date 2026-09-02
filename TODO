@@ -1,4 +1,5 @@
 - [ ] Allow students to pick a nickname and compete with each other
 - [ ] Add additionnal exercices
+- [ ] Add LeetCode-type tags to exercices so students can search by tag for studying before exams
 - [ ] Add a ranked mode(?) -> Gamification of learning
 - [ ] Translate code to English since the repo is public
