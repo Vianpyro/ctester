@@ -54,13 +54,31 @@ function el(id) {
     // Un élément créé dynamiquement puis nommé doit devenir trouvable par
     // getElementById, comme dans un vrai document : la pagination du quiz crée
     // ses boutons puis les récupère par identifiant.
-    set(v) { ident = v; nodes[v] = node; },
+    set(v) { ident = v; nodes[v] = node; declares.add(v); },
   });
   return node;
 }
 const nodes = {};
+
+// LES IDENTIFIANTS QUE LA PAGE DECLARE VRAIMENT. Sans cette liste, le faux DOM
+// fabriquait a la demande n'importe quel noeud demande -- et un $("truc") qui
+// n'existe pas dans le HTML passait ici en silence pour rendre null, donc lever,
+// dans un vrai navigateur. C'est exactement la panne que ce fichier existe pour
+// attraper : une erreur d'execution que `node --check` ne voit pas.
+//
+// Un element cree dynamiquement PUIS nomme reste legitime (la pagination du
+// quiz le fait) : le setter d'id ci-dessus l'ajoute a l'ensemble.
+const declares = new Set(
+  [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
+
 global.document = {
-  getElementById: (id) => (nodes[id] ||= el(id)),
+  getElementById: (id) => {
+    if (!declares.has(id)) {
+      throw new Error("getElementById(\"" + id + "\") : aucun element de ce nom "
+                    + "dans index.html -- un vrai navigateur rendrait null ici");
+    }
+    return (nodes[id] ||= el(id));
+  },
   createElement: (tag) => el("<" + tag + ">"),
   // La page pose le thème sur la racine du document. Un objet suffit : le
   // harnais n'a pas à savoir ce qu'est un thème, seulement que l'écrire ne
@@ -174,6 +192,38 @@ function choisir(groupe, id) {
   await sleep(); await sleep();
   check(calls.some(c => c.url === "tps.json"), "le catalogue est demandé au chargement");
 
+  // ON SOUMET DANS LES DEUX MODES. L'éditeur et le quiz se relaient dans la
+  // même rangée, et chacun se masque à son tour : un bouton « Tester » placé
+  // DANS l'un des deux disparaît avec lui. Il doit donc venir après les deux.
+  // Vérification sur le HTML et pas sur le DOM en carton, qui ne connaît pas
+  // l'imbrication du document.
+  // UNE REGLE `display:` L'EMPORTE SUR LE [hidden] NATIF, et ce piege a deja
+  // mordu trois fois dans ce fichier (#travail, #tabs, #quiznav) : le script
+  // pose bien l'attribut, le harnais le voit, et le navigateur affiche quand
+  // meme. Rien dans un DOM en carton ne peut l'attraper -- il n'a pas de CSS --
+  // donc on le lit dans la feuille de style.
+  {
+    const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
+    const masques = [...new Set([...html.matchAll(/\$\("(\w+)"\)\.hidden/g)]
+                                .map((m) => m[1]))];
+    // Pas de regex ici : la feuille ecrit invariablement `#id {`, et chercher
+    // "display:" dans le bloc qui suit se lit mieux qu'une expression truffee
+    // d'antislashs.
+    const fautifs = masques.filter((id) => {
+      const i = css.indexOf("#" + id + " {");
+      if (i < 0) return false;
+      const bloc = css.slice(i, css.indexOf("}", i));
+      return bloc.includes("display:") && !css.includes("#" + id + "[hidden]");
+    });
+    check(fautifs.length === 0,
+          "tout ce que le script masque et qui porte un display: a sa regle "
+          + "[hidden]" + (fautifs.length ? " -- MANQUE : " + fautifs.join(", ") : ""));
+  }
+
+  check(html.indexOf('id="go"') > html.indexOf('id="quizwrap"') &&
+        html.indexOf('id="go"') > html.indexOf('id="editor"'),
+        "« Tester » vient après les deux volets, donc en masquer un ne l'emporte pas");
+
   // --- Le sélecteur à deux niveaux ---
   check(nodes.tp.children.map(o => o.value).join(",") === "TP 1,TP 2,TP 6",
         "le premier menu liste les TP, sans doublon");
@@ -200,6 +250,11 @@ function choisir(groupe, id) {
   check(nodes.exwrap.hidden === true,
         "un TP sans exercices masque le second menu au lieu d'en offrir un seul");
   check(/réponses à saisir/.test(contexte()), "la pastille suit le mode du TP");
+  // LES TROIS MODES, et surtout unity : promettre « avec son main() » sur un
+  // module envoie l'étudiant dans une erreur d'édition de liens.
+  choisir("TP 6", "tp6-ex1");
+  check(/sans main\(\)/.test(contexte()),
+        "un module unity annonce qu'il n'attend PAS de main() : " + contexte());
 
   // --- Le cas qui était cassé : une soumission de code ---
   choisir("TP 2", "tp2-ex3");

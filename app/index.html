@@ -114,7 +114,7 @@
 
   #droite {
     min-height: 0; display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
   }
   #now { flex-wrap: wrap; }
   #now b { color: var(--fg); font-size: 12.5px; font-weight: 700;
@@ -129,6 +129,10 @@
   #quizwrap { min-height: 0; overflow-y: auto; padding: .9rem; }
 
   #tabs { display: flex; gap: .2rem; flex-wrap: wrap; }
+  /* Une regle `display:` l'emporte sur le [hidden] natif du navigateur :
+     sans cette ligne, la barre d'onglets masquee pour un fichier unique
+     restait affichee, en double avec #edtitle. Meme piege que #travail. */
+  #tabs[hidden] { display: none; }
   .tab {
     font: inherit; font-size: 12.5px; cursor: pointer;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -300,6 +304,7 @@
     display: flex; align-items: center; gap: .75rem; margin-top: 1.2rem;
     padding-top: .8rem; border-top: 1px solid var(--line);
   }
+  #quiznav[hidden] { display: none; }
   #quiznav .pos { color: var(--muted); font-size: 12.5px; }
 
   #consentement {
@@ -421,19 +426,25 @@
                     placeholder="// Colle ici le contenu de ton fichier"></textarea>
         </div>
       </div>
-      <div id="actions">
-        <input type="file" id="file" accept=".c,.txt">
-        <label for="file" class="btn">Importer un fichier</label>
-        <span id="brouillon" aria-live="polite"></span>
-        <button type="button" id="purger" class="nav" hidden>Effacer mes brouillons</button>
-        <span class="grow"></span>
-        <button id="go">Tester</button>
-      </div>
     </div>
 
     <div id="quizwrap" hidden>
       <div id="quiz"></div>
       <div id="quiznav"></div>
+    </div>
+
+    <!-- APRÈS les deux volets, et jamais dedans : l'éditeur et le quiz se
+         relaient, mais on soumet dans les deux cas. Rangée à part de la grille,
+         pour que masquer un volet ne puisse pas emporter le bouton. -->
+    <div id="actions">
+      <span id="filewrap">
+        <input type="file" id="file" accept=".c,.txt">
+        <label for="file" class="btn">Importer un fichier</label>
+      </span>
+      <span id="brouillon" aria-live="polite"></span>
+      <button type="button" id="purger" class="nav" hidden>Effacer mes brouillons</button>
+      <span class="grow"></span>
+      <button id="go">Tester</button>
     </div>
 
     <div id="out"></div>
@@ -670,8 +681,7 @@ function switchMode() {
     titre.textContent = tp.label;
     const pastille = document.createElement("span");
     pastille.className = "badge";
-    pastille.textContent = quiz ? "réponses à saisir"
-                                : "programme complet, avec son main()";
+    pastille.textContent = ATTENDU[tp.mode] || "";
     $("now").append(titre, pastille);
   }
 
@@ -951,6 +961,17 @@ function avertissements(texte) {
 }
 
 const UNITS = {quiz: "réponses justes", io: "cas réussis", unity: "tests réussis"};
+
+// CE QU'ON ATTEND COMME SOUMISSION, par mode. Les TROIS modes, et pas
+// « quiz ou le reste » : un exercice unity attend un module SANS main(), et
+// promettre l'inverse envoie 42 des 72 exercices droit dans une erreur
+// d'édition de liens que l'étudiant n'a aucun moyen de rattacher à la
+// pastille qui la lui a demandée.
+const ATTENDU = {
+  quiz: "réponses à saisir",
+  io: "programme complet, avec son main()",
+  unity: "module seul, sans main()",
+};
 
 function render(r) {
   if (r.status !== "ok") {
