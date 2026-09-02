@@ -49,6 +49,22 @@ CREATE TABLE IF NOT EXISTS etat_exercice (
     PRIMARY KEY (utilisateur, exercice_id)
 );
 
--- No extra index: the only two reads are "this user, this exercise" and "every
--- exercise of this user". The primary key starts with `utilisateur`, so it
--- covers both. One more index would be an index to maintain with no reader.
+-- A practice attempt is an immutable fact written by the API only after it has
+-- read the worker's result.  It is deliberately not a mastery score: the
+-- current self-service judge can be fooled, and practice is still valuable
+-- when it fails.  `job_id` makes polling/retries idempotent.
+CREATE TABLE IF NOT EXISTS tentative_pratique (
+    job_id       TEXT        PRIMARY KEY,
+    utilisateur  TEXT        NOT NULL,
+    exercice_id  TEXT        NOT NULL,
+    statut       TEXT        NOT NULL,
+    total        INTEGER     NOT NULL CHECK (total >= 0),
+    reussis      INTEGER     NOT NULL CHECK (reussis >= 0 AND reussis <= total),
+    terminee_le  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS tentative_pratique_utilisateur_finie_idx
+    ON tentative_pratique (utilisateur, terminee_le DESC);
+
+-- The two state tables are covered by their primary key.  Practice history is
+-- read newest-first per user, hence its one explicit index above.

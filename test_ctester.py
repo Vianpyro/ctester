@@ -847,6 +847,10 @@ def test_http_comptes():
         read_resume = staticmethod(lambda user, ex: ecrit.get((user, ex)))
         read_states = staticmethod(
             lambda user: [{"exercice_id": "tp2-ex3", "statut": "valide"}])
+        read_practice_summary = staticmethod(lambda user: [
+            {"exercice_id": ex, "tentatives": n, "reussites": solved}
+            for (saved_user, ex), (n, solved) in pratique.items()
+            if saved_user == user])
         forget = staticmethod(lambda user: (ecrit.clear(), True)[1])
 
         @staticmethod
@@ -859,10 +863,24 @@ def test_http_comptes():
             ecrit[(user, ex, statut)] = sources
             return True
 
-    garde = (app.etat, app.current_user, app.STATIC,
+        @staticmethod
+        def write_practice_attempt(user, job_id, ex, result):
+            key = (user, ex)
+            if job_id not in jobs_pratique:
+                jobs_pratique.add(job_id)
+                count, solved = pratique.get(key, (0, 0))
+                ok = result.get("total", 0) > 0 and result.get("passed") == result.get("total")
+                pratique[key] = (count + 1, solved + int(ok))
+            return True
+
+    pratique, jobs_pratique = {}, set()
+    spool = os.path.join(tmp, "spool")
+    os.makedirs(spool)
+    garde = (app.etat, app.current_user, app.STATIC, app.SPOOL, app.KEY,
              app.OIDC_ISSUER, app.OIDC_CLIENT_ID)
     app.etat = BaseSimulee
     app.STATIC = static
+    app.SPOOL, app.KEY = spool, "cle-de-test"
     app.OIDC_ISSUER = "https://auth.exemple"
     app.OIDC_CLIENT_ID = "ctester"
     # Le jeton n'est pas validé ici -- il l'est par Rauthy, et ce test n'a pas de
@@ -938,6 +956,23 @@ def test_http_comptes():
         assert ("sub-alice", "tp2-ex3", "valide") in ecrit, ecrit
 
         assert call("GET", "/etats", jeton="bon")[1]["etats"][0]["statut"] == "valide"
+
+        # Une tentative vient d'un job attribue au compte par le serveur, pas
+        # du statut que le navigateur voudrait declarer. La lecture du verdict
+        # cree le fait une fois; les polls suivants restent idempotents.
+        status, submitted = call("POST", "/submit", {
+            "key": "cle-de-test", "tp": "tp2-ex3", "files": code}, jeton="bon")
+        assert status == 200, submitted
+        job = os.path.join(spool, submitted["id"])
+        with open(os.path.join(job, "job.json"), encoding="utf-8") as fh:
+            assert json.load(fh) == {"tp": "tp2-ex3", "owner": "sub-alice"}
+        with open(os.path.join(job, "result.json"), "w", encoding="utf-8") as fh:
+            json.dump({"state": "done", "status": "ok", "total": 2, "passed": 2}, fh)
+        assert call("GET", "/r/" + submitted["id"], jeton="bon")[0] == 200
+        assert call("GET", "/r/" + submitted["id"], jeton="bon")[0] == 200
+        assert call("GET", "/r/" + submitted["id"])[0] == 404
+        assert call("GET", "/pratique", jeton="bon")[1]["pratique"] == [
+            {"exercice_id": "tp2-ex3", "tentatives": 1, "reussites": 1}]
         assert call("DELETE", "/moi", jeton="bon")[0] == 200 and not ecrit
 
         # SANS BASE, LA CONNEXION N'EST MÊME PAS PROPOSÉE, et toutes les routes
@@ -950,7 +985,7 @@ def test_http_comptes():
     finally:
         srv.shutdown()
         srv.server_close()
-        (app.etat, app.current_user, app.STATIC,
+        (app.etat, app.current_user, app.STATIC, app.SPOOL, app.KEY,
          app.OIDC_ISSUER, app.OIDC_CLIENT_ID) = garde
         shutil.rmtree(tmp, ignore_errors=True)
 

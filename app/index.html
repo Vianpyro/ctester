@@ -393,7 +393,8 @@
   <div id="consentement" hidden>
     <p>Te connecter fait conserver, sur le serveur de ce site&nbsp;: un
        identifiant de compte opaque (ni ton nom, ni ton courriel), le code que
-       tu écris pour chaque exercice, et le fait que tu l'aies réussi ou non.</p>
+       tu écris pour chaque exercice, et l'historique de tes tentatives et de
+       leurs résultats.</p>
     <p>Ce n'est pas une note, et rien n'est transmis à ton enseignant. Tu peux
        tout effacer quand tu veux avec «&nbsp;Supprimer mes données&nbsp;». Sans
        connexion, la page continue de fonctionner exactement pareil.</p>
@@ -1040,7 +1041,6 @@ async function poll(id, tries) {
   const body = await r.json().catch(() => ({state: "error"}));
   if (body.state === "done") {
     render(body);
-    recordState(body);
     $("go").disabled = false;
     return;
   }
@@ -1097,6 +1097,7 @@ $("go").addEventListener("click", async () => {
 let oidc = null;
 let token = null;
 let states = {};
+let practice = {};
 
 const TOKEN_KEY = "ctester.token";
 
@@ -1146,17 +1147,6 @@ async function syncDraft(exerciseId, files) {
   if (!ok && exerciseId === currentId) {
     showDraftStatus("brouillon gardé sur cet ordinateur, pas sur ton compte");
   }
-}
-
-function recordState(verdict) {
-  if (!token || currentId === null) return;
-  const tp = current();
-  const solved = verdict.status === "ok" && verdict.total > 0
-                 && verdict.passed === verdict.total;
-  const statut = solved ? "valide" : "essaye";
-  if (states[currentId] !== "valide") states[currentId] = statut;
-  putJson("etat", { tp: currentId, statut: statut,
-                    files: (tp && tp.mode === "quiz") ? {} : sources });
 }
 
 const base64url = (bytes) => btoa(String.fromCharCode(...bytes))
@@ -1237,6 +1227,7 @@ function setToken(value) {
 function signOut() {
   token = null;
   states = {};
+  practice = {};
   sessionDrop(TOKEN_KEY);
   refreshAccount();
   showListView(false);
@@ -1263,6 +1254,18 @@ async function loadStates() {
   }
 }
 
+async function loadPractice() {
+  const answer = await getJson("pratique");
+  practice = {};
+  if (!answer || !Array.isArray(answer.pratique)) return;
+  for (const row of answer.pratique) {
+    if (row && typeof row.exercice_id === "string"
+        && Number.isInteger(row.tentatives) && Number.isInteger(row.reussites)) {
+      practice[row.exercice_id] = row;
+    }
+  }
+}
+
 const STATE_LABELS = { valide: "validé", essaye: "essayé" };
 
 function buildList() {
@@ -1280,9 +1283,13 @@ function buildList() {
     title.className = "titre";
     title.textContent = tp.short || tp.label;
     const dot = document.createElement("span");
+    const stats = practice[tp.id];
     const statut = states[tp.id] || "";
-    dot.className = "puce " + statut;
-    dot.textContent = STATE_LABELS[statut] || "à faire";
+    dot.className = "puce " + (stats && stats.reussites ? "valide" : statut);
+    dot.textContent = stats
+      ? stats.tentatives + " tentative" + (stats.tentatives > 1 ? "s" : "")
+        + (stats.reussites ? " — réussie" + (stats.reussites > 1 ? "s" : "") : "")
+      : STATE_LABELS[statut] || "à faire";
     row.append(group, title, dot);
     row.addEventListener("click", () => {
       $("tp").value = tp.group;
@@ -1354,6 +1361,7 @@ fetch("oidc.json").then(r => r.json()).then(async (config) => {
   refreshAccount();
   if (token) {
     await loadStates();
+    await loadPractice();
     switchMode();
   }
 }).catch(() => {});

@@ -158,6 +158,42 @@ def read_states(user):
     return [{"exercice_id": exercise, "statut": status} for exercise, status in rows]
 
 
+def write_practice_attempt(user, job_id, exercise_id, result):
+    """Persist one completed practice attempt, once per worker job.
+
+    The API, not JavaScript, reads `result.json` and calls this function.  A
+    verdict is practice evidence only; it must never be reused as verified
+    mastery while the self-service judge remains intentionally non-secure.
+    """
+    status = str(result.get("status", "error"))[:64]
+    total = result.get("total", 0)
+    passed = result.get("passed", 0)
+    if not isinstance(total, int) or not isinstance(passed, int):
+        total, passed = 0, 0
+    total, passed = max(total, 0), max(min(passed, total), 0)
+    return _query(
+        "INSERT INTO tentative_pratique "
+        "(job_id, utilisateur, exercice_id, statut, total, reussis) "
+        "VALUES (%s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (job_id) DO NOTHING",
+        (job_id, user, exercise_id, status, total, passed),
+    ) is not None
+
+
+def read_practice_summary(user):
+    """Per-exercise practice counts; derived mastery is intentionally absent."""
+    rows = _query(
+        "SELECT exercice_id, count(*), "
+        "count(*) FILTER (WHERE total > 0 AND reussis = total) "
+        "FROM tentative_pratique WHERE utilisateur = %s "
+        "GROUP BY exercice_id",
+        (user,), read=True)
+    if rows is None:
+        return None
+    return [{"exercice_id": ex, "tentatives": attempts, "reussites": solved}
+            for ex, attempts, solved in rows]
+
+
 def forget(user):
     """Erase everything stored for this user.
 
@@ -168,4 +204,6 @@ def forget(user):
         "DELETE FROM brouillon_exercice WHERE utilisateur = %s", (user,))
     states = _query(
         "DELETE FROM etat_exercice WHERE utilisateur = %s", (user,))
-    return drafts is not None and states is not None
+    attempts = _query(
+        "DELETE FROM tentative_pratique WHERE utilisateur = %s", (user,))
+    return drafts is not None and states is not None and attempts is not None

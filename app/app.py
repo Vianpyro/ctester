@@ -307,6 +307,27 @@ def queue_position(jobs, job_id):
     return 0
 
 
+def job_metadata(job_id):
+    """The server-owned exercise and optional OIDC subject for one spool job.
+
+    `owner` is written after validating the bearer token at submission time;
+    it is never accepted from browser JSON.  Malformed/old jobs simply have no
+    owner so the anonymous judge keeps its historical behaviour.
+    """
+    try:
+        with open(os.path.join(SPOOL, job_id, "job.json"), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return "", None
+    if not isinstance(data, dict):
+        return "", None
+    tp = str(data.get("tp", ""))
+    owner = data.get("owner")
+    if not isinstance(owner, str) or not 0 < len(owner) <= 128:
+        owner = None
+    return tp, owner
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ctester"
     quota = Quota(COOLDOWN, HOURLY)
@@ -416,6 +437,8 @@ class Handler(BaseHTTPRequestHandler):
                             if oidc_enabled() else {})
         elif path == "/etats":
             self._states()
+        elif path == "/pratique":
+            self._practice()
         elif path == "/brouillon":
             self._read_draft()
         else:
@@ -489,6 +512,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(503, {"error": "la base ne répond pas"})
             return
         self._json(200, {"etats": states})
+
+    def _practice(self):
+        sub = self._who()
+        if sub is None:
+            return
+        summary = etat.read_practice_summary(sub)
+        if summary is None:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        self._json(200, {"pratique": summary})
 
     def _read_draft(self):
         sub = self._who()
@@ -576,10 +609,22 @@ class Handler(BaseHTTPRequestHandler):
         if not JOB_RE.match(job_id):
             self._json(400, {"error": "identifiant invalide"})
             return
+        tp, owner = job_metadata(job_id)
+        if owner is not None and current_user(self.headers) != owner:
+            # Same answer as an expired/swept job: do not disclose that a
+            # signed-in student's submission exists to a guessed job id.
+            self._json(404, {"state": "gone"})
+            return
         path = os.path.join(SPOOL, job_id, "result.json")
         try:
             with open(path, encoding="utf-8") as fh:
-                self._json(200, json.load(fh))
+                result = json.load(fh)
+                if owner is not None and tp and isinstance(result, dict):
+                    # A database outage must never hide a verdict or stop the
+                    # anonymous core of ctester.  The unique job_id makes every
+                    # later poll retry this write safely.
+                    etat.write_practice_attempt(owner, job_id, tp, result)
+                self._json(200, result)
                 return
         except OSError:
             pass
@@ -683,11 +728,13 @@ class Handler(BaseHTTPRequestHandler):
             # dépasser par le nombre de requêtes concurrentes, ce qui est
             # exactement la situation qu'il existe pour couvrir. Écrire 64 Ko en
             # tenant un verrou global coûte moins que de raisonner sur la course.
-            job_id = self._spool(tp, name, blob)
+            # Connection is optional.  A valid signed-in student gets a server
+            # owned practice record; everyone else keeps the anonymous flow.
+            job_id = self._spool(tp, name, blob, current_user(self.headers))
 
         self._json(200, {"id": job_id})
 
-    def _spool(self, tp, name, blob):
+    def _spool(self, tp, name, blob, owner=None):
         """Écrit le job. job.json EN DERNIER, par rename atomique.
 
         Le worker ne déclenche que sur la présence de job.json. Sans cet ordre
@@ -702,7 +749,10 @@ class Handler(BaseHTTPRequestHandler):
             fh.write(blob)
         tmp = os.path.join(path, "job.json.tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"tp": tp}, fh)
+            job = {"tp": tp}
+            if isinstance(owner, str) and 0 < len(owner) <= 128:
+                job["owner"] = owner
+            json.dump(job, fh)
         os.replace(tmp, os.path.join(path, "job.json"))
         return job_id
 
