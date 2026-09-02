@@ -18,17 +18,23 @@
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #fbfbfa; --fg: #1a1a18; --muted: #6b6b66;
-    --line: #d8d8d2; --card: #fff;
+    --bg: #f2f3f4; --fg: #17181a; --muted: #5f6266;
+    --line: #d5d7da; --card: #fff; --ink: #2d31a6;
     --ok: #1f7a3d; --bad: #b3261e; --wait: #8a6d1f;
     --syn-comment: #7d8a7d; --syn-string: #1f7a3d; --syn-pre: #9b2f8f;
     --syn-key: #1d4ed8; --syn-num: #a55200; --syn-fn: #7a5c00;
     --syn-const: #8a3d9b;
+    /* MONO PORTE LA STRUCTURE, le sans porte les phrases. La matière de cette
+       page est du code : titre, barres, étiquettes et verdict sont en mono, et
+       le sans est réservé aux phrases entières qui rassurent (classe .sans). */
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono",
+            "Roboto Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #16171a; --fg: #e8e8e4; --muted: #9a9a94;
-      --line: #303236; --card: #1d1f23;
+      --bg: #151619; --fg: #e8e8e4; --muted: #9a9a94;
+      --line: #2b2d31; --card: #1c1e21; --ink: #4f52c9;
       --ok: #6cc48a; --bad: #f2837c; --wait: #d8bb6a;
       --syn-comment: #6e7a70; --syn-string: #9ecf8a; --syn-pre: #d68fd0;
       --syn-key: #7fb0f2; --syn-num: #e0a06a; --syn-fn: #e8d08a;
@@ -36,17 +42,27 @@
     }
   }
   * { box-sizing: border-box; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   body {
     margin: 0; padding: 2rem 1rem; background: var(--bg); color: var(--fg);
-    font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+    font: 14px/1.5 var(--mono);
   }
   main { max-width: 52rem; margin: 0 auto; }
-  h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
-  p.sub { margin: 0 0 1.5rem; color: var(--muted); }
+  h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -.01em;
+       margin: 0 0 .5rem; }
+  .sans { font-family: var(--sans); }
+  /* `code` seulement en prose : #hlcode hérite sa métrique de #hl et tout
+     décalage ici désaligne la coloration derrière le textarea. */
+  .sub code { font-family: var(--mono); font-size: .92em; }
+  p.sub { font-family: var(--sans); font-size: .92rem; max-width: 42rem;
+          margin: 0 0 1.6rem; color: var(--muted); }
   .row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap;
          margin-bottom: .75rem; }
-  .field { display: inline-flex; align-items: center; gap: .4rem; }
-  .field label { color: var(--muted); }
+  .field { display: inline-flex; align-items: center; gap: .45rem; }
+  /* Les micro-étiquettes -- TP, EXERCICE, CONSIGNE -- en capitales espacées :
+     c'est le seul endroit où la casse haute sert, elles nomment des champs. */
+  .field label { color: var(--muted); font-size: .68rem; letter-spacing: .09em;
+                 text-transform: uppercase; }
   .grow { flex: 1 1 auto; }
 
   /* RAPPEL PERMANENT DE CE QU'ON TESTE, juste au-dessus de la zone de saisie.
@@ -55,12 +71,12 @@
      dit du même coup ce qu'on attend (du code ou des réponses). */
   #now {
     display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
-    margin: 0 0 .6rem; padding: .55rem .75rem;
+    margin: 0 0 .6rem; padding: .5rem .75rem;
     background: var(--card);
     border: 1px solid var(--line); border-left: 3px solid var(--muted);
     border-radius: 6px;
   }
-  #now b { font-size: .98rem; }
+  #now b { font-weight: 700; font-size: .9rem; }
   /* La consigne. <details> plutôt qu'un panneau maison : l'ouverture et la
      fermeture au clavier, l'annonce aux lecteurs d'écran et l'état plié sont
      natifs. Ouvert par défaut -- une consigne qu'il faut penser à déplier ne
@@ -70,7 +86,8 @@
     background: var(--card); border: 1px solid var(--line); border-radius: 6px;
   }
   #consigne summary {
-    cursor: pointer; color: var(--muted); font-size: 13px;
+    cursor: pointer; color: var(--muted);
+    font-size: .68rem; letter-spacing: .09em; text-transform: uppercase;
     user-select: none;
   }
   #consigne pre {
@@ -79,12 +96,13 @@
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   }
   #now .badge {
-    font-size: 12px; color: var(--muted);
-    border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
+    font-size: .68rem; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: .1rem .5rem;
   }
   select, button, textarea, input {
     font: inherit; color: inherit; background: var(--card);
-    border: 1px solid var(--line); border-radius: 6px; padding: .5rem .7rem;
+    border: 1px solid var(--line); border-radius: 6px; padding: .45rem .6rem;
   }
   /* L'ÉDITEUR COLORÉ, ET POURQUOI IL EST BÂTI COMME ÇA.
      Un <textarea> ne sait afficher que du texte brut : aucune propriété CSS ne
@@ -110,7 +128,7 @@
     border-radius: 6px 6px 0 0; padding: .35rem .7rem;
   }
   .tab.on { background: var(--card); color: var(--fg); border-color: var(--line); }
-  .tab:focus-visible { outline: 2px solid var(--syn-key); outline-offset: -2px; }
+  .tab:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
   #hl, #code {
     margin: 0; box-sizing: border-box;
     padding: .5rem .7rem;
@@ -157,11 +175,45 @@
   .tu { color: var(--syn-const); }
   button { cursor: pointer; font-weight: 600; }
   button:disabled { cursor: not-allowed; opacity: .55; }
-  #out {
-    margin-top: 1rem; padding: 1rem; border: 1px solid var(--line);
-    border-radius: 6px; background: var(--card); display: none;
+  #go {
+    background: var(--ink); color: #fff; border-color: var(--ink);
+    font-weight: 700; letter-spacing: .02em;
   }
-  #out.show { display: block; }
+
+  /* LE VERDICT, signature de la page. Toujours à l'écran -- au repos il dit ce
+     qu'on attend, en résultat il montre le compte. La bordure gauche colorée
+     reprend le langage déjà en place sur #now, .avert et #consentement. */
+  #out {
+    margin-top: 1.2rem; padding: 1rem 1.1rem; border: 1px solid var(--line);
+    border-left: 3px solid var(--muted);
+    border-radius: 6px; background: var(--card);
+  }
+  #out:empty { display: none; }
+  #out.ok { border-left-color: var(--ok); }
+  #out.bad { border-left-color: var(--bad); }
+  #out.wait { border-left-color: var(--wait); }
+  .verdict {
+    font-size: 2.1rem; font-weight: 700; line-height: 1.1;
+    font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+    margin-bottom: .5rem;
+  }
+  .verdict.idle {
+    font-size: .95rem; font-weight: 400; color: var(--muted);
+    letter-spacing: .03em;
+  }
+  /* Une case par cas de test, pas une barre de pourcentage : le nombre de
+     cases EST le nombre de cas, et l'étudiant les compte. */
+  .ticks { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 .7rem; }
+  .ticks i { width: 11px; height: 6px; border-radius: 1px; background: var(--line); }
+  .ticks i.on { background: var(--ok); }
+  @media (prefers-reduced-motion: no-preference) {
+    .ticks i {
+      opacity: 0; transform: translateY(2px);
+      animation: tick .16s ease forwards;
+      animation-delay: calc(var(--i, 0) * 32ms);
+    }
+    @keyframes tick { to { opacity: 1; transform: none; } }
+  }
   #quiz .qgroup {
     margin: 1.4rem 0 .4rem; font-weight: 700; font-size: .95rem;
     border-bottom: 1px solid var(--line); padding-bottom: .3rem;
@@ -189,7 +241,8 @@
     border-radius: 6px; background: var(--bg);
   }
   .avert .titre { color: var(--wait); font-weight: 600; font-size: 13px; }
-  .avert .quoi { color: var(--muted); font-size: 12.5px; margin: .2rem 0 .4rem; }
+  .avert .quoi { font-family: var(--sans); color: var(--muted);
+                 font-size: 12.5px; margin: .2rem 0 .4rem; }
   .verdict { font-size: 1.1rem; font-weight: 700; margin-bottom: .5rem; }
   .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
   ul { margin: .5rem 0 0; padding-left: 1.2rem; }
@@ -199,7 +252,8 @@
     background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
     font-size: 13px; white-space: pre-wrap; word-break: break-word;
   }
-  footer { margin-top: 2rem; color: var(--muted); font-size: 13px; }
+  footer { font-family: var(--sans); margin-top: 2rem; color: var(--muted);
+           font-size: 13px; }
 
   /* DRAFT STATUS, next to the button that matters. Quiet by default, red when
      the draft could NOT be written: that is the one thing this indicator has to
@@ -216,9 +270,9 @@
   #consentement {
     margin: 0 0 1rem; padding: .75rem 1rem;
     background: var(--card); border: 1px solid var(--line);
-    border-left: 3px solid var(--syn-key); border-radius: 6px;
+    border-left: 3px solid var(--ink); border-radius: 6px;
   }
-  #consentement p { margin: 0 0 .5rem; font-size: 13.5px; }
+  #consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: 13.5px; }
   #liste .ligne {
     display: flex; align-items: center; gap: .6rem; width: 100%;
     padding: .45rem .6rem; margin-bottom: .25rem; text-align: left;
@@ -379,14 +433,29 @@ if (authCode) {
 const key = new URLSearchParams(location.search).get("k") || "";
 const out = $("out");
 
-function show(cls, title, extra) {
-  out.className = "show";
+function show(cls, title, extra, bar) {
+  out.className = cls;                  // colore la bordure gauche du panneau
   out.innerHTML = "";
   const h = document.createElement("div");
   h.className = "verdict " + cls;
   h.textContent = title;
   out.append(h);
+  if (bar) out.append(bar);            // la barre de cases, juste sous le compte
   if (extra) out.append(extra);
+}
+
+// Une case par cas de test, remplie de gauche à droite. Le retard d'animation
+// est plafonné pour qu'un exercice à cinquante cas ne défile pas une seconde.
+function ticks(passed, total) {
+  const bar = document.createElement("div");
+  bar.className = "ticks";
+  for (let n = 0; n < total; n++) {
+    const t = document.createElement("i");
+    if (n < passed) t.className = "on";
+    t.setAttribute("style", "--i:" + Math.min(n, 12));
+    bar.append(t);
+  }
+  return bar;
 }
 
 function list(items) {
@@ -588,7 +657,7 @@ function switchMode() {
   $("consignetexte").textContent = consigne;
   $("consigne").hidden = !consigne;
 
-  out.className = "";
+  show("idle", "En attente d'une soumission.");
   const thisLoad = ++loadToken;
   if (quiz) {
     loadQuiz(tp.id);
@@ -909,8 +978,9 @@ function render(r) {
   } else {
     const all = r.passed === r.total;
     const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}`;
+    const bar = r.total > 0 ? ticks(r.passed, r.total) : null;
     if (all) {
-      show("ok", title);
+      show("ok", title, null, bar);
     } else if (r.kind === "quiz") {
       // Le numéro d'exercice ET la réponse saisie : le quiz étant paginé,
       // savoir QUELLE question est fausse ne suffit plus, il faut pouvoir la
@@ -920,11 +990,11 @@ function render(r) {
         const saisi = w.given && w.given.trim() ? ` (tu as répondu « ${w.given} »)` : "";
         return (ex ? ex[0] + " — " : "") + w.label + saisi
              + (w.hint ? " — " + w.hint : "");
-      })));
+      })), bar);
     } else if (r.kind === "io") {
-      show("bad", title, cases(r.cases));
+      show("bad", title, cases(r.cases), bar);
     } else {
-      show("bad", title, r.failed.length ? list(r.failed) : null);
+      show("bad", title, r.failed.length ? list(r.failed) : null, bar);
     }
   }
   // APRÈS le verdict, quel qu'il soit : réussite comprise.
