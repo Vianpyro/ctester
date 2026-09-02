@@ -10,6 +10,7 @@ Bibliothèque standard uniquement : rien à installer au démarrage, rien à
 patcher, et l'image officielle python:3.13-slim suffit telle quelle.
 """
 
+import gzip
 import hashlib
 import hmac
 import json
@@ -387,17 +388,52 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self._json(500, {"error": "fichier manquant"})
             return
+        self._send_file(body, ctype)
+
+    def _send_file(self, body, ctype, envoyer=True):
+        """Un fichier statique, revalidé à chaque visite, transféré si besoin.
+
+        `no-cache` NE VEUT PAS DIRE « ne pas mettre en cache » : il veut dire
+        « garde-le, mais redemande-moi avant de t'en servir ». Le navigateur
+        repasse donc systématiquement, et un correctif déployé se voit toujours
+        tout de suite -- c'est ce que `no-store` protégeait, et c'est intact.
+        Ce qui change, c'est qu'un fichier inchangé revient en 304 vide au lieu
+        de repartir en entier : la page, sa feuille et son script font 65 Ko, et
+        un étudiant recharge beaucoup.
+
+        `no-store` interdisait AUSSI le cache aller-retour du navigateur
+        (bfcache) : avec lui, le bouton Retour refaisait toute la page.
+        """
+        etiquette = '"' + hashlib.sha256(body).hexdigest()[:16]
+        # UNE ÉTIQUETTE PAR REPRÉSENTATION. Deux corps différents pour une même
+        # URL -- l'original et le gzip -- ne peuvent pas partager un ETag : un
+        # cache intermédiaire servirait l'un en croyant valider l'autre.
+        comprime = (len(body) >= 1024
+                    and "gzip" in self.headers.get("Accept-Encoding", ""))
+        if comprime:
+            body = gzip.compress(body, 6)
+            etiquette += "-gz"
+        etiquette += '"'
+
+        if self.headers.get("If-None-Match") == etiquette:
+            self.send_response(304)
+            self.send_header("ETag", etiquette)
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        # no-store sur la page elle-même : sans en-tête, un navigateur la met en
-        # cache heuristiquement, et un correctif déployé ne se voit pas -- on
-        # déboguerait alors une version qui n'est plus sur le serveur. Le fichier
-        # fait quelques kilooctets et est lu depuis un bind mount ; le recharger
-        # à chaque visite ne coûte rien.
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("ETag", etiquette)
+        self.send_header("Vary", "Accept-Encoding")
+        if comprime:
+            self.send_header("Content-Encoding", "gzip")
         self.end_headers()
-        self.wfile.write(body)
+        if envoyer:
+            self.wfile.write(body)
 
     def do_HEAD(self):  # noqa: N802 -- imposé par BaseHTTPRequestHandler
         path = self.path.split("?", 1)[0]
@@ -410,19 +446,18 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
         elif path in ("/", "/index.html"):
+            # LES MÊMES EN-TÊTES QUE do_GET, ETag et encodage compris : un HEAD
+            # qui annonce une autre étiquette que le GET est un piège à
+            # revalidation. D'où le même code, sans le corps.
             try:
-                size = os.path.getsize(os.path.join(STATIC, "index.html"))
+                with open(os.path.join(STATIC, "index.html"), "rb") as fh:
+                    body = fh.read()
             except OSError:
                 self.send_response(500)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(size))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
+            self._send_file(body, "text/html; charset=utf-8", envoyer=False)
 
         else:
             self.send_response(404)
@@ -438,15 +473,24 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"ok": True})
         elif path in ("/", "/index.html"):
             self._file("index.html", "text/html; charset=utf-8")
+        elif path == "/style.css":
+            self._file("style.css", "text/css; charset=utf-8")
+        elif path in ("/app.js", "/quiz.js", "/compte.js"):
+            # Liste close, pas un suffixe : `.js` n'ouvre pas le répertoire.
+            self._file(path[1:], "text/javascript; charset=utf-8")
         elif path == "/tps.json":
             # RELU À CHAQUE FOIS, pas mis en cache au démarrage : publier un
             # nouveau TP est alors `--tags tests` et rien d'autre. Une valeur
             # en cache voudrait dire recréer le conteneur pour ajouter une
             # ligne à un menu déroulant, et c'est le genre d'étape qu'on oublie
             # le soir où on ajoute le TP4.
-            self._json(200, load_tps())
+            self._send_file(
+                json.dumps(load_tps()).encode(),
+                "application/json; charset=utf-8")
         elif path.startswith("/quiz/") and path.endswith(".json"):
             self._quiz(path[6:-5])
+        elif path.startswith("/tp/") and path.endswith(".json"):
+            self._detail(path[4:-5])
         elif path.startswith("/r/"):
             self._result(path[3:])
         elif path == "/oidc.json":
@@ -622,6 +666,20 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "pas un quiz"})
             return
         self._file(os.path.join("quiz", entry["id"] + ".json"),
+                   "application/json; charset=utf-8")
+
+    def _detail(self, tp):
+        """La consigne et les gabarits d'un exercice, publiés par le worker.
+
+        Même porte que `_quiz` : `find_tp` refuse ce qui n'est pas un TP du
+        catalogue, donc `/tp/../tps.json` n'est pas un chemin à traverser mais
+        un identifiant qui n'existe pas.
+        """
+        entry = find_tp(tp)
+        if entry is None:
+            self._json(404, {"error": "inconnu"})
+            return
+        self._file(os.path.join("tp", entry["id"] + ".json"),
                    "application/json; charset=utf-8")
 
     def _result(self, job_id):

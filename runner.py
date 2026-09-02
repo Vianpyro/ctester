@@ -403,8 +403,16 @@ def publish_catalogue():
               file=sys.stderr, flush=True)
     entries = catalogue()
     quiz_dir = os.path.join(APP, "quiz")
+    detail_dir = os.path.join(APP, "tp")
     os.makedirs(quiz_dir, exist_ok=True)
+    os.makedirs(detail_dir, exist_ok=True)
     for entry in entries:
+        # LE DÉTAIL D'UN EXERCICE, chargé quand on l'ouvre et pas avant. La
+        # consigne et les gabarits pèsent les trois quarts du catalogue pour
+        # 72 exercices dont un seul est affiché ; les laisser dans tps.json,
+        # c'est faire payer 50 Ko à chaque visite pour en montrer 700 octets.
+        write_json(os.path.join(detail_dir, entry["id"] + ".json"),
+                   {"statement": entry["statement"], "files": entry["files"]})
         if entry["mode"] != "quiz":
             continue
         quiz = load_config(entry["path"], "quiz.json")
@@ -413,8 +421,15 @@ def publish_catalogue():
     # n'apprend rien d'utile au navigateur et il décrit l'arborescence des
     # secrets. Même discipline que public_quiz -- on reconstruit ce qui sort,
     # on ne retire pas d'une copie.
+    #
+    # LES NOMS DE FICHIERS RESTENT, LES GABARITS PARTENT. `files` est la liste
+    # blanche qu'app.py oppose à une soumission (validate_files) : la vider
+    # ouvrirait un trou. Seul `template`, qui ne sert qu'à préremplir l'éditeur,
+    # s'en va dans le détail.
     write_json(os.path.join(APP, "tps.json"), [
-        {k: v for k, v in e.items() if k != "path"} for e in entries])
+        {k: ([{"name": f["name"]} for f in v] if k == "files" else v)
+         for k, v in e.items() if k not in ("path", "statement")}
+        for e in entries])
     return entries
 
 

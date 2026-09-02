@@ -5,3 +5,4 @@ __pycache__/
 # ferait echouer le `git pull --ff-only` du timer de deploiement.
 app/tps.json
 app/quiz/
+app/tp/

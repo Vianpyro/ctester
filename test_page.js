@@ -3,11 +3,18 @@
 // cette page ait connue en production était une ReferenceError de zone morte
 // temporelle -- une erreur d'exécution, pas de syntaxe.
 //
-//   node test_page.js [app/index.html]
+//   node test_page.js [app/]
+//
+// La page est en TROIS fichiers depuis qu'elle a ete decoupee, et chacun porte
+// un contrat different : `html` les identifiants et l'ordre du document, `css`
+// les regles `display:`, `js` le code qu'on execute vraiment.
 const fs = require("fs");
 
-const html = fs.readFileSync(process.argv[2] || __dirname + "/app/index.html", "utf8");
-const js = html.match(/<script>([\s\S]*)<\/script>/)[1];
+const APP = process.argv[2] || __dirname + "/app";
+const lire = (nom) => fs.readFileSync(APP + "/" + nom, "utf8");
+const html = lire("index.html");
+const css = lire("style.css");
+const js = lire("app.js");
 
 // --- DOM en carton --------------------------------------------------------
 function el(id) {
@@ -48,6 +55,34 @@ function el(id) {
     get: () => html,
     set(v) { html = v; if (v === "") node.children.length = 0; },
   });
+  // Un <script src> injecte : le navigateur va chercher le fichier et
+  // declenche onload/onerror. Ici on l'evalue tout de suite, dans le meme
+  // contexte global, puis on previent -- sans quoi la moitie de la page
+  // (le quiz, le compte) ne serait jamais executee par ce harnais.
+  let source = "";
+  Object.defineProperty(node, "src", {
+    get: () => source,
+    set(v) {
+      source = v;
+      charges.push(v);
+      let echec = chargementCasse;
+      if (!echec) {
+        try {
+          new Function(lire(v))();
+        } catch (e) {
+          // UN MODULE QUI LEVE DOIT SE VOIR. Sans cette ligne il partirait
+          // dans le chemin onerror, indistinguable d'une panne reseau
+          // simulee, et le harnais dirait « la page fonctionne ».
+          console.log("MODULE " + v + " a leve : " + e.message);
+          echec = e;
+        }
+      }
+      setImmediate(() => {
+        if (echec && node.onerror) node.onerror(echec);
+        else if (!echec && node.onload) node.onload();
+      });
+    },
+  });
   let ident = id;
   Object.defineProperty(node, "id", {
     get: () => ident,
@@ -59,6 +94,11 @@ function el(id) {
   return node;
 }
 const nodes = {};
+// L'interrupteur du mode de panne neuf : un module qui n'arrive pas.
+let chargementCasse = false;
+// Ce que la page est allee chercher : sert a prouver ce qu'elle N'A PAS
+// telecharge, ce qui est tout l'interet du chargement a la demande.
+const charges = [];
 
 // LES IDENTIFIANTS QUE LA PAGE DECLARE VRAIMENT. Sans cette liste, le faux DOM
 // fabriquait a la demande n'importe quel noeud demande -- et un $("truc") qui
@@ -80,12 +120,15 @@ global.document = {
     return (nodes[id] ||= el(id));
   },
   createElement: (tag) => el("<" + tag + ">"),
+  // Les modules charges a la demande s'y accrochent.
+  body: el("<body>"),
   // La page pose le thème sur la racine du document. Un objet suffit : le
   // harnais n'a pas à savoir ce qu'est un thème, seulement que l'écrire ne
   // lève pas.
   documentElement: { dataset: {} },
   createTextNode: (t) => ({ textContent: t, children: [] }),
 };
+global.window = global;
 global.location = { search: "?k=cle-de-test" };
 global.URLSearchParams = URLSearchParams;
 
@@ -122,7 +165,14 @@ global.sessionStorage = {
 };
 global.history = { replaceState: () => {} };
 
-const UN_FICHIER = [{ name: "submission.c", template: "" }];
+const UN_FICHIER = [{ name: "submission.c" }];
+// LE DETAIL, SERVI A PART. `tps.json` ne porte plus que le menu et la
+// liste blanche des noms de fichiers ; consigne et gabarits vivent ici.
+const DETAILS = {
+  "tp2-ex0": { statement: "", files: UN_FICHIER },
+  "tp2-ex3": { statement: "Calcule U = R * I.", files: UN_FICHIER },
+  "tp6-ex1": { statement: "", files: [{ name: "calendrier.h", template: "#define VRAI 1\n" }, { name: "calendrier.c", template: "#include \"calendrier.h\"\n" }] },
+};
 const CATALOGUE = [
   { id: "tp1", mode: "quiz", label: "TP1 : encodage binaire",
     group: "TP 1", short: "encodage binaire", files: [] },
@@ -134,8 +184,7 @@ const CATALOGUE = [
                 context: "electrical", difficulty: "foundation" } },
   { id: "tp6-ex1", mode: "unity", label: "TP6 : ex.1 est_bissextile",
     group: "TP 6", short: "ex.1 est_bissextile",
-    files: [{ name: "calendrier.h", template: "#define VRAI 1\n" },
-            { name: "calendrier.c", template: "#include \"calendrier.h\"\n" }] },
+    files: [{ name: "calendrier.h" }, { name: "calendrier.c" }] },
 ];
 
 const calls = [];
@@ -148,6 +197,12 @@ global.fetch = async (url, opts) => {
   calls.push({ url, opts });
   if (url === "tps.json") {
     return { ok: true, status: 200, json: async () => CATALOGUE };
+  }
+  if (url.startsWith("tp/")) {
+    const detail = DETAILS[url.slice(3, -5)];
+    return detail
+      ? { ok: true, status: 200, json: async () => detail }
+      : { ok: false, status: 404, json: async () => ({ error: "inconnu" }) };
   }
   if (url.startsWith("quiz/")) {
     return { ok: true, status: 200, json: async () => ({
@@ -184,15 +239,44 @@ function check(cond, label) {
 const shown = () => nodes.out.children.map(c => c.textContent).join(" ");
 const contexte = () => nodes.now.children.map(c => c.textContent).join(" | ");
 
-function choisir(groupe, id) {
+// CHANGER D'EXERCICE EST ASYNCHRONE depuis que le detail (consigne, gabarits)
+// est charge a la demande : switchMode part chercher tp/<id>.json. Tout ce qui
+// regarde l'editeur ou la consigne doit donc laisser passer les microtaches.
+async function choisir(groupe, id) {
   nodes.tp.value = groupe;
   nodes.tp.listeners.change();
   if (id) { nodes.ex.value = id; nodes.ex.listeners.change(); }
+  await attendre();
 }
+const attendre = async () => { await sleep(); await sleep(); };
 
 (async () => {
   await sleep(); await sleep();
   check(calls.some(c => c.url === "tps.json"), "le catalogue est demandé au chargement");
+
+  // --- LE DETAIL, CHARGE A LA DEMANDE ---
+  // `tps.json` ne porte plus ni consigne ni gabarits : trois quarts de son
+  // poids pour 72 exercices dont un seul est ouvert.
+  check(calls.some(c => c.url === "tp/tp1.json"),
+        "ouvrir un exercice demande son detail, a part");
+
+  // --- CE QUI N'EST PAS TELECHARGE ---
+  // Le deploiement OFFRE la connexion (oidc.json repond), et pourtant rien du
+  // compte n'est descendu : personne ne s'est connecte. C'est la promesse de
+  // tout ce decoupage, et le parcours anonyme est le parcours par defaut.
+  check(!global.ctester.compte, "sans session, compte.js n'est pas charge");
+  check(charges.indexOf("compte.js") < 0,
+        "et il n'est meme pas demande au serveur");
+  check(charges.indexOf("quiz.js") >= 0,
+        "quiz.js, lui, arrive avec le premier exercice de ce mode");
+  // ET UN DETAIL QUI N'ARRIVE PAS NE BLOQUE RIEN : publication en retard,
+  // reseau coupe. Les NOMS de fichiers viennent du catalogue, donc on peut
+  // encore coller son code et soumettre -- c'est tout ce qu'on promet ici.
+  // `tp1` est l'exercice que la page ouvre seule, et DETAILS ne le porte pas
+  // encore : c'est exactement ce cas qui vient de se jouer.
+  check(/pas de consigne en ligne/.test(nodes.consignetexte.textContent),
+        "un detail introuvable retombe sur le message de repli");
+  DETAILS["tp1"] = { statement: "Convertis 23 en binaire.", files: [] };
 
   // ON SOUMET DANS LES DEUX MODES. L'éditeur et le quiz se relaient dans la
   // même rangée, et chacun se masque à son tour : un bouton « Tester » placé
@@ -203,10 +287,12 @@ function choisir(groupe, id) {
   // mordu trois fois dans ce fichier (#travail, #tabs, #quiznav) : le script
   // pose bien l'attribut, le harnais le voit, et le navigateur affiche quand
   // meme. Rien dans un DOM en carton ne peut l'attraper -- il n'a pas de CSS --
-  // donc on le lit dans la feuille de style.
+  // donc on le lit dans style.css.
   {
-    const css = html.slice(html.indexOf("<style>"), html.indexOf("</style>"));
-    const masques = [...new Set([...html.matchAll(/\$\("(\w+)"\)\.hidden/g)]
+    // LE SCAN PORTE SUR `js`, PAS SUR `html` : depuis le decoupage, aucun
+    // `$("x").hidden` ne vit plus dans la page. Laisse sur `html`, ce controle
+    // n'inspecterait plus aucun identifiant et passerait en silence.
+    const masques = [...new Set([...js.matchAll(/\$\("(\w+)"\)\.hidden/g)]
                                 .map((m) => m[1]))];
     // Pas de regex ici : la feuille ecrit invariablement `#id {`, et chercher
     // "display:" dans le bloc qui suit se lit mieux qu'une expression truffee
@@ -229,7 +315,7 @@ function choisir(groupe, id) {
   // --- Le sélecteur à deux niveaux ---
   check(nodes.tp.children.map(o => o.value).join(",") === "TP 1,TP 2,TP 6",
         "le premier menu liste les TP, sans doublon");
-  choisir("TP 2");
+  await choisir("TP 2");
   check(nodes.ex.children.map(o => o.value).join(",") === "tp2-ex0,tp2-ex3",
         "le second menu ne montre que les exercices du TP choisi");
   check(nodes.ex.children[0].textContent === "ex.0 âge",
@@ -238,8 +324,20 @@ function choisir(groupe, id) {
   check(/ex\.0/.test(contexte()), "la barre de contexte nomme l'exercice courant");
   check(/main\(\)/.test(contexte()), "et rappelle ce qu'on attend comme soumission");
 
+  calls.length = 0;
+  await choisir("TP 1");
+  check(nodes.consignetexte.textContent === "Convertis 23 en binaire.",
+        "un repli n'est pas mis en cache : le detail revenu est repris");
+  calls.length = 0;
+  await choisir("TP 2");
+  await choisir("TP 1");
+  check(!calls.some(c => c.url === "tp/tp1.json"),
+        "mais un detail obtenu n'est plus redemande : il est garde en memoire");
+
   // --- Ce qu'une visite précédente a laissé dans le stockage ---
-  choisir("TP 2", "tp2-ex3");
+  await choisir("TP 2", "tp2-ex3");
+  check(nodes.consignetexte.textContent === "Calcule U = R * I.",
+        "la consigne affichee vient du detail, plus du catalogue");
   check(nodes.now.children.some(c => c.textContent.includes(
           "objectif : variables, opérateurs") && c.textContent.includes("électrique")),
         "l'exercice affiche la compétence et son contexte, sans les confondre");
@@ -247,22 +345,22 @@ function choisir(groupe, id) {
         "le brouillon d'hier est retrouvé à l'ouverture de la page");
   check(nodes.purger.hidden === false,
         "et « effacer mes brouillons » apparaît puisqu'il y a quelque chose à effacer");
-  choisir("TP 6", "tp6-ex1");
+  await choisir("TP 6", "tp6-ex1");
   check(nodes.code.value === "#define VRAI 1\n",
         "une entrée mal formée du stockage est ignorée : c'est le gabarit qui sert");
 
-  choisir("TP 1");
+  await choisir("TP 1");
   check(nodes.exwrap.hidden === true,
         "un TP sans exercices masque le second menu au lieu d'en offrir un seul");
   check(/réponses à saisir/.test(contexte()), "la pastille suit le mode du TP");
   // LES TROIS MODES, et surtout unity : promettre « avec son main() » sur un
   // module envoie l'étudiant dans une erreur d'édition de liens.
-  choisir("TP 6", "tp6-ex1");
+  await choisir("TP 6", "tp6-ex1");
   check(/sans main\(\)/.test(contexte()),
         "un module unity annonce qu'il n'attend PAS de main() : " + contexte());
 
   // --- Le cas qui était cassé : une soumission de code ---
-  choisir("TP 2", "tp2-ex3");
+  await choisir("TP 2", "tp2-ex3");
   nodes.code.value = "int main(void){return 0;}";
   SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "a".repeat(32) }) };
   calls.length = 0;
@@ -326,7 +424,7 @@ function choisir(groupe, id) {
   check(rendu === brut + "\n", "le texte coloré est identique à la source");
 
   // --- Multi-fichiers : un module .h + .c ---
-  choisir("TP 6", "tp6-ex1");
+  await choisir("TP 6", "tp6-ex1");
   check(nodes.tabs.hidden === false, "un module affiche sa barre d'onglets");
   check(nodes.tabs.children.map(o => o.textContent).join(",")
         === "calendrier.h,calendrier.c", "un onglet par fichier imposé par l'énoncé");
@@ -366,7 +464,7 @@ function choisir(groupe, id) {
   }
 
   // --- Navigation entre exercices, et les brouillons ---
-  choisir("TP 2", "tp2-ex0");
+  await choisir("TP 2", "tp2-ex0");
   nodes.code.value = "// mon travail sur l'ex 0";
   nodes.next.listeners.click();
   check(nodes.ex.value === "tp2-ex3", "« suivant » avance d'un exercice");
@@ -377,6 +475,8 @@ function choisir(groupe, id) {
   nodes.prev.listeners.click();
   nodes.prev.listeners.click();
   check(nodes.ex.value === "tp2-ex0", "« précédent » revient sur ses pas");
+  // Le menu bouge tout de suite, l'editeur attend son detail.
+  await attendre();
   // LE PIÈGE QUE LES BROUILLONS FERMENT : sans eux, ce clic aurait effacé le
   // travail de l'étudiant, et le bouton « suivant » l'aurait rendu banal.
   check(nodes.code.value === "// mon travail sur l'ex 0",
@@ -415,7 +515,7 @@ function choisir(groupe, id) {
   storageBroken = false;
 
   // --- Mode quiz : pagination puis soumission complète ---
-  choisir("TP 1");
+  await choisir("TP 1");
   await sleep(); await sleep();
   check(nodes.quiznav.hidden === false, "un quiz à plusieurs exercices est paginé");
   check(/page 1 sur 2/.test(nodes.qpos.textContent),
@@ -461,7 +561,7 @@ function choisir(groupe, id) {
     POLL_RESPONSE = Object.assign({ state: "done" }, v);
     SUBMIT_RESPONSE = { ok: true, status: 200,
                         json: async () => ({ id: "d".repeat(32) }) };
-    choisir("TP 2", "tp2-ex0");
+    await choisir("TP 2", "tp2-ex0");
     nodes.code.value = "int main(void){return 0;}";
     await nodes.go.listeners.click();
     await sleep(); await sleep(); await sleep();
@@ -492,7 +592,7 @@ function choisir(groupe, id) {
   check(/tu as répondu « 10111 »/.test(quiz), "le quiz rappelle la reponse saisie");
 
   // --- Tab indente, mais Echap+Tab laisse sortir ---
-  choisir("TP 2", "tp2-ex0");
+  await choisir("TP 2", "tp2-ex0");
   nodes.code.value = "int main";
   nodes.code.selectionStart = nodes.code.selectionEnd = 8;
   let bloque = false;
@@ -533,6 +633,27 @@ function choisir(groupe, id) {
         "le premier clic montre ce qui sera conservé, il ne redirige pas");
   nodes.consentnon.listeners.click();
   check(nodes.consentement.hidden === true, "et « Annuler » referme sans rien faire");
+
+  // --- LE MODE DE PANNE NEUF : un module qui n'arrive jamais ---
+  // Reseau coupe en pleine seance, exactement le public que ce decoupage vise.
+  // Ce qui ne doit PAS arriver : un clic qui ne fait rien et ne dit rien.
+  chargementCasse = new Error("reseau coupe");
+  nodes.connexion.listeners.click();
+  await nodes.consentok.listeners.click();
+  await attendre();
+  check(/Impossible de charger/.test(shown()),
+        "un module qui n'arrive pas le dit au lieu de se taire : " + shown());
+  check(!global.ctester.compte, "et rien ne se declare a moitie");
+
+  // ET ON PEUT RETENTER. Une coupure d'une seconde ne doit pas condamner la
+  // connexion pour toute la visite : c'est pour ca que l'echec n'est pas garde
+  // par le chargeur.
+  nodes.connexion.listeners.click();
+  await nodes.consentok.listeners.click();
+  await attendre();
+  check(charges.filter((n) => n === "compte.js").length === 2,
+        "un second essai redemande vraiment le fichier");
+  chargementCasse = false;
 
   console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nla page fonctionne");
   process.exit(failures ? 1 : 0);

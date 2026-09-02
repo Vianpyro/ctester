@@ -584,6 +584,51 @@ def test_catalogue_order_and_grouping():
     assert runner.PREFIX_RE.sub("", "Aire d'un cercle") == "Aire d'un cercle"
 
 
+def test_publish_splits_catalogue_and_details():
+    """Le catalogue publié porte le MENU ; la consigne et les gabarits, non.
+
+    La consigne et les gabarits font les trois quarts de `tps.json` pour
+    72 exercices dont un seul est ouvert : ils partent dans `tp/<id>.json`,
+    chargé quand l'étudiant ouvre l'exercice.
+
+    LES NOMS DE FICHIERS RESTENT, eux. C'est la liste blanche que
+    `validate_files` oppose à une soumission ; les sortir de `tps.json`
+    ouvrirait un trou, pas une optimisation.
+    """
+    tmp = tempfile.mkdtemp(prefix="ctester-")
+    tests, app_dir = os.path.join(tmp, "tests"), os.path.join(tmp, "app")
+    ancien_tests, ancien_app = runner.TESTS, runner.APP
+    try:
+        runner.TESTS, runner.APP = tests, app_dir
+        os.makedirs(os.path.join(tests, "tp6", "ex1"))
+        os.makedirs(app_dir)
+        with open(os.path.join(tests, "tp6", "ex1", "unity.json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump({"label": "TP6 : ex.1 bissextile",
+                       "statement": "Écris est_bissextile.",
+                       "files": [{"name": "calendrier.h",
+                                  "template": "#define VRAI 1\n"},
+                                 {"name": "calendrier.c", "template": ""}]}, fh)
+        runner.publish_catalogue()
+        with open(os.path.join(app_dir, "tps.json"), encoding="utf-8") as fh:
+            publie = json.load(fh)
+        with open(os.path.join(app_dir, "tp", "tp6-ex1.json"),
+                  encoding="utf-8") as fh:
+            detail = json.load(fh)
+    finally:
+        runner.TESTS, runner.APP = ancien_tests, ancien_app
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    entree = publie[0]
+    assert "statement" not in entree, entree
+    assert [f["name"] for f in entree["files"]] == ["calendrier.h", "calendrier.c"]
+    assert all("template" not in f for f in entree["files"]), entree["files"]
+    # Le menu, lui, doit rester entier : c'est tout ce que la page a au départ.
+    assert entree["label"] and entree["short"] and entree["group"]
+    assert detail["statement"] == "Écris est_bissextile."
+    assert detail["files"][0]["template"] == "#define VRAI 1\n"
+
+
 def test_bonus_catalogue_is_explicit_and_always_open():
     tmp = tempfile.mkdtemp(prefix="ctester-")
     ancien = runner.TESTS
@@ -711,8 +756,19 @@ def test_http_end_to_end():
         ], fh)
     with open(os.path.join(static, "quiz", "tp1.json"), "w", encoding="utf-8") as fh:
         json.dump(runner.public_quiz(QUIZ), fh, ensure_ascii=False)
+    os.makedirs(os.path.join(static, "tp"))
+    for tp_id in ("tp1", "tp2-ex3", "tp6-ex1"):
+        with open(os.path.join(static, "tp", tp_id + ".json"), "w",
+                  encoding="utf-8") as fh:
+            json.dump({"statement": "consigne de " + tp_id, "files": []}, fh)
     with open(os.path.join(static, "index.html"), "w", encoding="utf-8") as fh:
         fh.write("<!doctype html>")
+    # `app.js` dépasse le seuil de compression : c'est lui qui éprouve la
+    # négociation gzip plus bas. Les autres restent minuscules exprès.
+    for nom, contenu in (("style.css", "body{}"), ("app.js", "// " + "x" * 2000),
+                         ("quiz.js", "// quiz"), ("compte.js", "// compte")):
+        with open(os.path.join(static, nom), "w", encoding="utf-8") as fh:
+            fh.write(contenu)
 
     app.SPOOL, app.STATIC, app.KEY, app.QUEUE_MAX = spool, static, "cle-de-test", 4
     app.Handler.quota = app.Quota(cooldown=0, hourly=100)  # testés ailleurs
@@ -732,6 +788,14 @@ def test_http_end_to_end():
         except ValueError:
             return resp.status, raw
 
+    def entetes_de(path, envoyees=None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", path, None, envoyees or {})
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
+        return resp.status, dict(resp.getheaders())
+
     def submit(**over):
         payload = {"key": "cle-de-test", "tp": "tp2-ex3",
                    "files": {"submission.c": "int main(){}"}}
@@ -743,8 +807,14 @@ def test_http_end_to_end():
         assert ([t["id"] for t in call("GET", "/tps.json")[1]]
                 == ["tp1", "tp2-ex3", "tp6-ex1"])
         assert call("GET", "/")[0] == 200
+        assert call("GET", "/style.css")[0] == 200
+        assert call("GET", "/app.js")[0] == 200
+        assert call("GET", "/quiz.js")[0] == 200
+        assert call("GET", "/compte.js")[0] == 200
         # Rien d'autre n'est servi : liste blanche, pas de racine de fichiers.
-        for path in ("/etc/passwd", "/../app/app.py", "/app.py", "/tps.json/../app.py"):
+        # `/app.py` reste un 404 : servir `/app.js` ne relâche pas la voisine.
+        for path in ("/etc/passwd", "/../app/app.py", "/app.py",
+                     "/tps.json/../app.py", "/etat.py", "/../app/etat.py"):
             assert call("GET", path)[0] == 404, path
 
         # Le quiz public est servi, le corrigé ne l'est nulle part.
@@ -752,6 +822,46 @@ def test_http_end_to_end():
         assert status == 200 and "answer" not in json.dumps(quiz), quiz
         assert call("GET", "/quiz/tp2-ex3.json")[0] == 404   # pas un quiz
         assert call("GET", "/quiz/../tps.json")[0] == 404    # pas un TP
+
+        # Le détail d'un exercice : même porte que le quiz, donc même refus.
+        assert call("GET", "/tp/tp2-ex3.json")[1]["statement"] == "consigne de tp2-ex3"
+        assert call("GET", "/tp/../tps.json")[0] == 404      # pas un TP
+        assert call("GET", "/tp/pasuntp.json")[0] == 404
+
+        # REVALIDATION, PAS ABSENCE DE CACHE. `no-cache` fait repasser le
+        # navigateur à chaque visite -- un correctif déployé se voit donc
+        # toujours tout de suite, ce que `no-store` protégeait -- mais un
+        # fichier inchangé revient vide au lieu de repartir en entier.
+        for chemin in ("/", "/style.css", "/app.js", "/tps.json"):
+            code, tetes = entetes_de(chemin)
+            assert code == 200 and tetes["Cache-Control"] == "no-cache", chemin
+            assert tetes.get("ETag"), chemin
+            code, rejoue = entetes_de(chemin, {"If-None-Match": tetes["ETag"]})
+            assert code == 304, (chemin, code)
+            assert rejoue["ETag"] == tetes["ETag"], chemin
+            # Une étiquette périmée doit bien renvoyer le fichier entier.
+            assert entetes_de(chemin, {"If-None-Match": '"vieux"'})[0] == 200
+        # La compression, et l'étiquette qui va avec. Deux corps différents
+        # pour une même URL ne peuvent pas partager un ETag : un cache
+        # intermédiaire servirait l'un en croyant valider l'autre.
+        code, zippe = entetes_de("/app.js", {"Accept-Encoding": "gzip"})
+        assert code == 200 and zippe["Content-Encoding"] == "gzip"
+        assert zippe["Vary"] == "Accept-Encoding"
+        assert zippe["ETag"] != entetes_de("/app.js")[1]["ETag"]
+        assert entetes_de("/app.js", {"Accept-Encoding": "gzip",
+                                      "If-None-Match": zippe["ETag"]})[0] == 304
+        # L'étiquette compressée ne doit PAS valider la version en clair.
+        assert entetes_de("/app.js", {"If-None-Match": zippe["ETag"]})[0] == 200
+
+        # Un HEAD qui annoncerait une autre politique que le GET serait un piège
+        # à revalidation.
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("HEAD", "/")
+        tete = conn.getresponse()
+        tete.read()
+        conn.close()
+        assert tete.getheader("Cache-Control") == "no-cache"
+        assert tete.getheader("ETag") == entetes_de("/")[1]["ETag"]
 
         assert submit(key="mauvaise")[0] == 403
         assert submit(key="")[0] == 403

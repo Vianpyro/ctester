@@ -15,7 +15,11 @@ runbook, pièges de compilation déjà payés — voir [`CLAUDE.md`](CLAUDE.md).
 
 ```
 app/app.py        l'API, dans le conteneur exposé (uid 65534)
-app/index.html    la page, JS inclus
+app/index.html    la page : le markup seul, une centaine de lignes
+app/style.css     sa feuille de style
+app/app.js        son script : editeur, verdict, soumission
+app/quiz.js       le mode quiz, chargé quand un exercice de ce mode s'ouvre
+app/compte.js     OIDC et « Mes exercices », chargés seulement si on se connecte
 app/etat.py       la persistance des comptes -- facultative, voir plus bas
 app/schema.sql    les deux tables Postgres, et pourquoi ce n'est pas SQLite
 requirements.txt  psycopg, la seule dépendance externe, et seulement pour ça
@@ -214,9 +218,13 @@ les pièges qui comptent (la règle « toute valeur attendue dépasse 1 », le c
 `absent`, la normalisation des réponses de quiz).
 
 **Le catalogue.** Le conteneur web ne lit pas les tests : il lit `app/tps.json`
-(id, mode, libellé) et `app/quiz/<tp>.json` (les questions **sans les
-réponses**), tous deux écrits par le worker au démarrage (`publish_catalogue()`
-dans `runner.py`). C'est la frontière du service, et elle est une fonction Python
+(id, mode, libellé, noms de fichiers), `app/tp/<tp>.json` (la consigne et les
+gabarits, chargés quand l'étudiant ouvre l'exercice) et `app/quiz/<tp>.json`
+(les questions **sans les réponses**), tous écrits par le worker au démarrage
+(`publish_catalogue()` dans `runner.py`). La consigne et les gabarits sont à
+part parce qu'ils faisaient les trois quarts du catalogue pour 73 exercices dont
+un seul est ouvert ; les **noms** de fichiers, eux, restent dans `tps.json` :
+c'est la liste blanche qu'`app.py` oppose à une soumission. C'est la frontière du service, et elle est une fonction Python
 précisément pour que `test_ctester.py` puisse la mettre à l'épreuve à chaque
 convergence — un gabarit Jinja n'aurait été relu par personne. Il est republié
 au changement de jour, pour qu'une ouverture de minuit prenne effet sans

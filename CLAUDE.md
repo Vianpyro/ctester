@@ -18,6 +18,11 @@ les contrôles ci-dessous exécutables sans rien installer.
 Rien à compiler, rien à lier : `app/app.py` et `app/etat.py` sont bibliothèque
 standard + `psycopg` (et `psycopg` seulement si `CTESTER_DB_DSN` est là).
 
+La page est en cinq fichiers, tous servis par la liste blanche de `do_GET` :
+`index.html` (le markup seul), `style.css`, `app.js` (le noyau), puis `quiz.js`
+et `compte.js`, que le noyau va chercher **à la demande**. Rien de tout ça n'est
+compilé ni assemblé : ce que le dépôt contient est ce que le navigateur reçoit.
+
 ## Avant de déployer une modif de la page ou du contenu
 
 Sur le contrôleur, jamais sur le Dell (les trois derniers ont besoin de gcc) :
@@ -53,11 +58,16 @@ python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
 Après chaque `ansible-playbook … --tags tests` :
 
 ```sh
-grep -rl answer /opt/ctester/src/app/     # DOIT ne rien trouver
+grep -rl answer /opt/ctester/src/app/*.json /opt/ctester/src/app/quiz/ \
+                /opt/ctester/src/app/tp/      # DOIT ne rien trouver
 ```
 
 `app/` est tout ce que le conteneur exposé peut lire ; aucun corrigé n'a le
-droit d'y être.
+droit d'y être. **Le grep porte sur les fichiers PUBLIÉS, pas sur `app/` entier**
+: le code source y écrit légitimement `answers` (la fonction qui relève les
+réponses saisies, le champ `answers` d'une soumission), donc un `grep -rl answer
+app/` tout court trouve toujours quelque chose et n'apprend rien. Ce qu'on
+vérifie, c'est que la clé `answer` d'un corrigé n'a pas franchi la frontière.
 
 ## Les quatre soumissions hostiles
 
@@ -142,6 +152,44 @@ autant les écrire pour lui : `test_pop_pile_vide` plutôt que `test_3b`.
   dépendre la confidentialité d'un `if` bien placé. Même logique pour ASan : en
   mode io le rapport complet remonte, en mode unity seul le fait (code 86).
 
+## Le cache des fichiers servis
+
+`no-cache`, **pas** `no-store`, et la nuance est tout le sujet : `no-cache` veut
+dire « garde-le, mais redemande-moi avant de t'en servir ». Le navigateur
+revalide donc à chaque visite — un correctif déployé se voit toujours tout de
+suite, ce que `no-store` protégeait, et c'est intact — mais un fichier inchangé
+revient en 304 vide au lieu de repartir en entier. La page, sa feuille et son
+script font 65 Ko, et un étudiant recharge beaucoup.
+
+`no-store` interdisait **aussi** le cache aller-retour du navigateur (bfcache) :
+avec lui, le bouton Retour refaisait toute la page. Lighthouse le signalait.
+
+L'ETag est un SHA-256 tronqué du corps, **calculé par représentation** : la
+version gzip porte un suffixe `-gz`. Deux corps différents pour une même URL ne
+peuvent pas partager une étiquette — un cache intermédiaire servirait l'un en
+croyant valider l'autre. `do_HEAD` sur `/` passe par le même code que `do_GET`,
+sans le corps : un HEAD qui annoncerait une autre politique serait un piège à
+revalidation.
+
+Les réponses d'API (`/r/<id>`, `/etats`, `/pratique`, `/brouillon`,
+`/oidc.json`) restent en `no-store`. Ce sont des données de compte, pas des
+fichiers.
+
+**La compression est faite ici, à partir de 1 Ko.** Reste à mesurer si
+Cloudflare ne la refaisait pas déjà en amont — `curl -sI -H 'Accept-Encoding:
+gzip, br' https://<hôte>/app.js` : s'il répond `content-encoding: br` sur une
+origine non compressée, les quelques lignes de `_send_file` sont à supprimer.
+Même curl à faire pour l'autre constat Lighthouse resté ouvert : 268 Ko de JS à
+minifier et 328 Ko inutilisé, alors que tout notre JS fait 30 Ko non minifié.
+Le suspect est **Rocket Loader** (Speed → Optimization dans le tableau de bord
+Cloudflare), qui réécrit les `<script>` de la page et pourrait aussi expliquer
+les erreurs console et l'API dépréciée du rapport.
+
+Le `noindex` du `<head>` est **délibéré** : site temporaire, les étudiants ont
+le lien, et rester hors des moteurs limite le trafic sur une infra personnelle.
+Le score SEO de Lighthouse (54, « Page is blocked from indexing ») est donc le
+résultat attendu — ne pas le « corriger ».
+
 ## Exploitation (runbook)
 
 **Rotation de la clé** (entre deux sessions, ou si un lien fuite trop loin) :
@@ -172,24 +220,32 @@ docker logs ctester-web-1                      # l'API (silencieuse si tout va b
 ls /opt/ctester/spool                          # la file, vide au repos
 docker exec nginx-manager-npm-1 getent hosts ctester-web-1   # NPM résout-il ?
 python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?
-grep -rl answer /opt/ctester/src/app/          # DOIT ne rien trouver
+grep -rl answer /opt/ctester/src/app/*.json /opt/ctester/src/app/quiz/ \
+                /opt/ctester/src/app/tp/     # DOIT ne rien trouver
 ```
 
-## app/index.html — ce qui est fragile
+## La page — ce qui est fragile
 
-La page n'a **aucun commentaire** : elle est servie telle quelle, `no-store`, à
-chaque visite. La garder mince est un objectif. Ce que les commentaires
-disaient, et qu'il faut encore savoir avant d'y toucher :
+Cinq fichiers, `no-cache` (voir plus bas). `index.html` n'a **aucun
+commentaire** : le garder mince est un objectif. Ce qu'il faut savoir avant d'y
+toucher :
 
-- **`<script id="theme-init">` — l'attribut `id` est load-bearing.**
-  `test_page.js` isole le script de la page par une expression rationnelle qui
-  exige une balise `script` **sans** attribut ; une seconde balise nue ferait
-  capturer les deux d'un bloc et le harnais compilerait du HTML en croyant
-  compiler du JS. Toute balise `script` ajoutée dans `<head>` doit porter un
-  attribut.
-- **Le thème est posé avant le premier rendu** par ce petit script de `<head>`.
-  Plus bas, le flash sombre→clair est déjà arrivé. Trois lignes, elles restent
-  là.
+### index.html
+
+- **`<script id="theme-init">` doit rester INLINE dans le `<head>`.** C'est lui
+  qui pose le thème avant le premier rendu ; sorti dans un fichier, il
+  arriverait après, et le flash sombre→clair serait déjà passé. Trois lignes,
+  elles restent là. (L'attribut `id` n'est plus load-bearing : `test_page.js`
+  lisait la page par une expression rationnelle qui exigeait une balise `script`
+  sans attribut, et il lit maintenant `app.js` directement.)
+- **`<link rel="stylesheet">` reste en tout début de `<head>`.** La feuille est
+  externe désormais : plus elle est demandée tôt, moins il y a de risque de voir
+  la page non stylée avant qu'elle n'arrive.
+- **`<script src="app.js">` reste en FIN de `<body>`**, sans `defer` : le script
+  travaille sur le DOM dès son exécution.
+
+### style.css
+
 - **L'éditeur coloré = un `<pre>` (`#hl`) derrière un `<textarea>` (`#code`) au
   texte transparent.** `#hl` et `#code` doivent garder des métriques
   **identiques** : police, taille, interligne, `padding`, bordure, `tab-size`,
@@ -198,6 +254,8 @@ disaient, et qu'il faut encore savoir avant d'y toucher :
   superposition, jamais dedans — son contrat est plus court (même `font-size`,
   `line-height`, padding vertical, bordure haute) et tient parce que `#code` est
   en `white-space: pre`.
+### app.js
+
 - **Dans le handler de `#go`, la réponse `fetch` est parsée dans un `let out`
   local.** Ne pas réutiliser un nom déjà pris dans la portée (la payload
   `body`) : c'est exactement la `ReferenceError` de zone morte temporelle qui a
@@ -218,8 +276,39 @@ disaient, et qu'il faut encore savoir avant d'y toucher :
   étudiant). La coloration syntaxique échappe **après** le découpage, jamais
   avant.
 - **Le catalogue vient de `tps.json`** : `[{id, mode, label, group, short,
-  statement, files}]`. Le `mode` décide de tout ce que la page affiche et
-  envoie. Le chemin serveur (`path`) est retiré avant publication.
+  learning, files}]`, où `files` ne porte que des **noms**. Le `mode` décide de
+  tout ce que la page affiche et envoie. Le chemin serveur (`path`) est retiré
+  avant publication.
+- **La consigne et les gabarits viennent de `tp/<id>.json`, à la demande.** Ils
+  faisaient les trois quarts du catalogue pour 73 exercices dont un seul est
+  ouvert. `chargerDetail()` les garde en mémoire, et **ne met PAS en cache le
+  repli** : un réseau qui revient doit pouvoir réessayer. Un détail qui n'arrive
+  pas ne bloque rien — les noms de fichiers viennent du catalogue, donc
+  l'étudiant peut coller son code et soumettre.
+- **`currentId` est ce que l'ÉDITEUR tient, pas ce que le menu montre**, et
+  c'est `setupFiles()` qui le pose. Le remplissage passe par le réseau : le
+  poser dans `switchMode()` ferait attribuer le code de l'exercice précédent,
+  toujours affiché, à l'identifiant du nouveau dès le prochain `saveDraft()`.
+
+### quiz.js et compte.js — chargés à la demande
+
+- **Sens unique, jamais de cycle.** `app.js` détient l'état partagé (jeton,
+  catalogue, brouillons) et l'expose une fois dans `window.ctester` ; les deux
+  modules lisent ce contexte et y déposent leurs entrées. Ils ne sont jamais
+  importés par le noyau. Des modules ES feraient la même chose en liant en
+  **zone morte temporelle** sur un import circulaire — la panne exacte que cette
+  page a déjà connue en production. D'où l'injection de `<script>`, marquée
+  `ponytail:` dans `charger()`.
+- **`activerModule()` et pas `activer()`** : `app.js` a déjà une fonction
+  `activer`, celle qui change d'onglet dans l'éditeur. Deux déclarations de
+  fonction du même nom ne se signalent pas — la dernière gagne, et l'appelant
+  reçoit silencieusement l'autre. Ça a coûté une session de débogage.
+- **Un échec de chargement n'est pas gardé.** `charger()` oublie la promesse
+  rejetée : sans ça, une coupure d'une seconde condamnerait la fonction pour
+  toute la visite, le second clic retombant sur le rejet sans jamais retenter.
+- **Le parcours anonyme ne télécharge rien de `compte.js`**, même sur un
+  déploiement où la connexion est offerte. `test_page.js` le vérifie ; c'est la
+  raison d'être du découpage.
 
 ## Raccourcis assumés (ponytail)
 
@@ -236,3 +325,7 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
 - **`runner.py`** — le verrou entre workers, c'est `os.mkdir` (atomique, un seul
   hôte). Sondage du spool à 0,5 s ; une unité systemd `.path` le jour où cette
   latence se voit.
+- **`app.js`** — les modules à la demande sont des `<script>` injectés et un
+  objet global `window.ctester`, pas des modules ES : voir la section « La page »
+  ci-dessus pour la raison (TDZ sur import circulaire). À reprendre le jour où
+  l'état partagé est vraiment séparé, pas avant.
