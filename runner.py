@@ -249,6 +249,7 @@ PREFIX_RE = re.compile(r"\A\s*TP\s*\d+\s*[:—\-]\s*", re.I)
 
 CONFORME_RE = re.compile(r"\Atp\d", re.I)
 CHUNKS_RE = re.compile(r"(\d+)")
+BONUS_ROOT = "bonus"
 
 
 def sort_key(name):
@@ -270,6 +271,8 @@ def sort_key(name):
 
 
 def group_of(name):
+    if name.startswith(BONUS_ROOT + "-"):
+        return "Bonus"
     match = ORDER_RE.match(name)
     return "TP " + match.group(1) if match else "Autres"
 
@@ -301,7 +304,7 @@ def entrees_brutes():
     """
     entrees = []
     for tp in sous_dossiers(TESTS):
-        if not TP_RE.match(tp):
+        if not (TP_RE.match(tp) or tp == BONUS_ROOT):
             continue  # écarte .git, unity, et tout nom qu'un TP ne peut porter
         chemin_tp = os.path.join(TESTS, tp)
         if detect_mode(chemin_tp):

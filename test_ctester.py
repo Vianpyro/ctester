@@ -584,6 +584,27 @@ def test_catalogue_order_and_grouping():
     assert runner.PREFIX_RE.sub("", "Aire d'un cercle") == "Aire d'un cercle"
 
 
+def test_bonus_catalogue_is_explicit_and_always_open():
+    tmp = tempfile.mkdtemp(prefix="ctester-")
+    ancien = runner.TESTS
+    try:
+        runner.TESTS = tmp
+        dossier = os.path.join(tmp, "bonus", "bonus-1")
+        os.makedirs(dossier)
+        with open(os.path.join(dossier, "io.json"), "w", encoding="utf-8") as fh:
+            json.dump({"label": "Bonus : Clash 1", "cases": [],
+                       "learning": {"skills": ["variables"],
+                                    "context": "mechanical",
+                                    "difficulty": "foundation"}}, fh)
+        entries = runner.catalogue()
+        assert [entry["id"] for entry in entries] == ["bonus-bonus-1"]
+        assert entries[0]["group"] == "Bonus"
+        assert runner.tp_path("bonus-bonus-1") == dossier
+    finally:
+        runner.TESTS = ancien
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_docker_argv():
     for mode in ("unity", "io"):
         argv = runner.docker_argv("/spool/abc", "/tests/tp1", "ctester-abc", mode,
