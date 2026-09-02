@@ -62,6 +62,11 @@ const nodes = {};
 global.document = {
   getElementById: (id) => (nodes[id] ||= el(id)),
   createElement: (tag) => el("<" + tag + ">"),
+  // La page pose le thème sur la racine du document. Un objet suffit : le
+  // harnais n'a pas à savoir ce qu'est un thème, seulement que l'écrire ne
+  // lève pas.
+  documentElement: { dataset: {} },
+  createTextNode: (t) => ({ textContent: t, children: [] }),
 };
 global.location = { search: "?k=cle-de-test" };
 global.URLSearchParams = URLSearchParams;

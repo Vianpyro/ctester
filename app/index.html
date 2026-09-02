@@ -15,95 +15,175 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>TCH009 — Tester mon code</title>
+<!-- LE THÈME AVANT LE PREMIER RENDU, sinon un étudiant en clair voit la page
+     s'afficher en sombre puis basculer. Trois lignes, et elles doivent rester
+     ici : plus bas, le flash est déjà arrivé.
+
+     L'ATTRIBUT id EST LOAD-BEARING. test_page.js isole le script de la page
+     par une expression rationnelle qui exige une balise script SANS attribut ;
+     une seconde balise nue ferait capturer les deux d'un bloc, et le harnais
+     compilerait du HTML en croyant compiler du JS. D'où l'id, ici -- et d'où
+     l'absence de la balise, écrite en toutes lettres, dans ce commentaire. -->
+<script id="theme-init">
+  try {
+    var t = localStorage.getItem("ctester.theme");
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  } catch (e) { /* stockage refusé : on garde le sombre par défaut */ }
+</script>
 <style>
+  /* SOMBRE PAR DÉFAUT, et pas d'après le système : c'est un atelier, il a le
+     contraste d'un atelier. Le thème clair reste à un clic pour la salle de TP
+     baignée de néon, et le choix se retient d'une visite à l'autre. */
   :root {
-    color-scheme: light dark;
-    --bg: #f2f3f4; --fg: #17181a; --muted: #5f6266;
-    --line: #d5d7da; --card: #fff; --ink: #2d31a6;
-    --ok: #1f7a3d; --bad: #b3261e; --wait: #8a6d1f;
-    --syn-comment: #7d8a7d; --syn-string: #1f7a3d; --syn-pre: #9b2f8f;
-    --syn-key: #1d4ed8; --syn-num: #a55200; --syn-fn: #7a5c00;
-    --syn-const: #8a3d9b;
+    color-scheme: dark;
+    --bg: #14171d; --panel: #1a1e26; --card: #21262f;
+    --line: #2c323d; --line-2: #3a424f;
+    --fg: #dfe3ea; --muted: #8b94a3;
+    --ink: #22c3d6; --ink-fg: #06232a;
+    --ok: #6cc48a; --bad: #f2837c; --wait: #d8bb6a;
+    --syn-comment: #6e7a70; --syn-string: #9ecf8a; --syn-pre: #d68fd0;
+    --syn-key: #7fb0f2; --syn-num: #e0a06a; --syn-fn: #e8d08a;
+    --syn-const: #c9a2e8;
     /* MONO PORTE LA STRUCTURE, le sans porte les phrases. La matière de cette
        page est du code : titre, barres, étiquettes et verdict sont en mono, et
-       le sans est réservé aux phrases entières qui rassurent (classe .sans). */
+       le sans est réservé aux phrases entières qui rassurent. */
     --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono",
             "Roboto Mono", Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #151619; --fg: #e8e8e4; --muted: #9a9a94;
-      --line: #2b2d31; --card: #1c1e21; --ink: #4f52c9;
-      --ok: #6cc48a; --bad: #f2837c; --wait: #d8bb6a;
-      --syn-comment: #6e7a70; --syn-string: #9ecf8a; --syn-pre: #d68fd0;
-      --syn-key: #7fb0f2; --syn-num: #e0a06a; --syn-fn: #e8d08a;
-      --syn-const: #c9a2e8;
-    }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #eef1f5; --panel: #fff; --card: #fff;
+    --line: #d7dde5; --line-2: #c2cbd6;
+    --fg: #1b1f27; --muted: #5b6675;
+    --ink: #0d7f92; --ink-fg: #fff;
+    --ok: #1f7a3d; --bad: #b3261e; --wait: #8a6d1f;
+    --syn-comment: #7d8a7d; --syn-string: #1f7a3d; --syn-pre: #9b2f8f;
+    --syn-key: #1d4ed8; --syn-num: #a55200; --syn-fn: #7a5c00;
+    --syn-const: #8a3d9b;
   }
   * { box-sizing: border-box; }
   :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  /* LA COQUE. La page ne défile pas : chaque panneau défile pour son compte.
+     `min-height: 0` revient partout ci-dessous et il est structurel -- sans lui
+     un enfant de grille refuse de rétrécir sous son contenu, et c'est la barre
+     de défilement de page qui revient par la fenêtre. */
+  html, body { height: 100%; }
   body {
-    margin: 0; padding: 2rem 1rem; background: var(--bg); color: var(--fg);
+    margin: 0; overflow: hidden;
+    display: flex; flex-direction: column; height: 100dvh;
+    background: var(--bg); color: var(--fg);
     font: 14px/1.5 var(--mono);
   }
-  main { max-width: 52rem; margin: 0 auto; }
-  h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: -.01em;
-       margin: 0 0 .5rem; }
-  .sans { font-family: var(--sans); }
-  /* `code` seulement en prose : #hlcode hérite sa métrique de #hl et tout
-     décalage ici désaligne la coloration derrière le textarea. */
-  .sub code { font-family: var(--mono); font-size: .92em; }
-  p.sub { font-family: var(--sans); font-size: .92rem; max-width: 42rem;
-          margin: 0 0 1.6rem; color: var(--muted); }
-  .row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap;
-         margin-bottom: .75rem; }
+
+  /* --- La barre du haut ---------------------------------------------------- */
+  #top {
+    position: relative;   /* ancre du panneau de consentement, juste dessous */
+    flex: 0 0 auto; display: flex; align-items: center; gap: .7rem;
+    flex-wrap: wrap; padding: .5rem .9rem;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  h1 {
+    font-size: .95rem; font-weight: 700; letter-spacing: .02em;
+    margin: 0; white-space: nowrap;
+  }
+  .tagline { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+  .sep { width: 1px; align-self: stretch; background: var(--line); }
   .field { display: inline-flex; align-items: center; gap: .45rem; }
   /* Les micro-étiquettes -- TP, EXERCICE, CONSIGNE -- en capitales espacées :
      c'est le seul endroit où la casse haute sert, elles nomment des champs. */
-  .field label { color: var(--muted); font-size: .68rem; letter-spacing: .09em;
-                 text-transform: uppercase; }
+  .field label, .phead {
+    color: var(--muted); font-size: .68rem; letter-spacing: .09em;
+    text-transform: uppercase;
+  }
   .grow { flex: 1 1 auto; }
+  #moi { color: var(--muted); font-size: 12.5px; }
 
-  /* RAPPEL PERMANENT DE CE QU'ON TESTE, juste au-dessus de la zone de saisie.
-     Deux menus laissent le choix hors du champ de vision une fois qu'on
-     travaille dans l'éditeur ; cette barre garde l'exercice sous les yeux, et
-     dit du même coup ce qu'on attend (du code ou des réponses). */
-  #now {
-    display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap;
-    margin: 0 0 .6rem; padding: .5rem .75rem;
-    background: var(--card);
-    border: 1px solid var(--line); border-left: 3px solid var(--muted);
-    border-radius: 6px;
-  }
-  #now b { font-weight: 700; font-size: .9rem; }
-  /* La consigne. <details> plutôt qu'un panneau maison : l'ouverture et la
-     fermeture au clavier, l'annonce aux lecteurs d'écran et l'état plié sont
-     natifs. Ouvert par défaut -- une consigne qu'il faut penser à déplier ne
-     sert à rien. */
-  #consigne {
-    margin: 0 0 .6rem; padding: .5rem .75rem;
-    background: var(--card); border: 1px solid var(--line); border-radius: 6px;
-  }
-  #consigne summary {
-    cursor: pointer; color: var(--muted);
-    font-size: .68rem; letter-spacing: .09em; text-transform: uppercase;
-    user-select: none;
-  }
-  #consigne pre {
-    margin: .5rem 0 0; padding: 0; border: 0; background: none;
-    white-space: pre-wrap; font-size: 13.5px;
-    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  }
-  #now .badge {
-    font-size: .68rem; letter-spacing: .06em; text-transform: uppercase;
-    color: var(--muted);
-    border: 1px solid var(--line); border-radius: 999px; padding: .1rem .5rem;
-  }
   select, button, textarea, input {
     font: inherit; color: inherit; background: var(--card);
-    border: 1px solid var(--line); border-radius: 6px; padding: .45rem .6rem;
+    border: 1px solid var(--line); border-radius: 6px; padding: .35rem .55rem;
   }
+  select { max-width: 15rem; }
+  button { cursor: pointer; font-weight: 600; }
+  button:hover:not(:disabled) { border-color: var(--line-2); }
+  button:disabled { cursor: not-allowed; opacity: .45; }
+  .nav { padding: .3rem .6rem; line-height: 1.2; font-weight: 400;
+         font-size: 12.5px; color: var(--muted); }
+  .nav:hover:not(:disabled) { color: var(--fg); }
+  #theme { width: 2rem; text-align: center; padding: .3rem 0; }
+
+  /* --- Les panneaux -------------------------------------------------------- */
+  .phead {
+    flex: 0 0 auto; display: flex; align-items: center; gap: .6rem;
+    padding: .45rem .75rem; border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  main {
+    flex: 1 1 auto; min-height: 0;
+    display: flex; flex-direction: column;
+  }
+  #travail {
+    flex: 1 1 auto; min-height: 0;
+    display: grid; grid-template-columns: minmax(19rem, 25rem) minmax(0, 1fr);
+  }
+  #travail[hidden] { display: none; }
+
+  /* LA CONSIGNE EST UN PANNEAU PERMANENT, et c'est le correctif central de
+     cette refonte : la moitié des exercices n'ont pas de `statement` publié
+     (runner.py met une chaîne vide par défaut), et masquer le panneau laissait
+     une demi-page morte à l'écran. Il affiche désormais son état vide.
+     <details> reste le mécanisme -- repli natif au clavier, annoncé aux
+     lecteurs d'écran -- mais il ne se replie qu'en mode empilé. */
+  #consigne {
+    min-height: 0; overflow-y: auto;
+    border-right: 1px solid var(--line); background: var(--bg);
+  }
+  #consigne summary {
+    cursor: default; list-style: none;
+    position: sticky; top: 0; z-index: 1;
+  }
+  #consigne summary::-webkit-details-marker { display: none; }
+  #consignetexte {
+    margin: 0; padding: .85rem .9rem; border: 0; background: none;
+    white-space: pre-wrap; font-size: 13.5px; line-height: 1.6;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  #consignetexte.vide { font-family: var(--sans); color: var(--muted); }
+
+  /* Trois rangées : le rappel d'exercice, la zone de travail qui prend tout ce
+     qui reste, et le verdict au contenu. L'éditeur et le quiz se relaient dans
+     la rangée du milieu -- un seul des deux est visible à la fois. */
+  #droite {
+    min-height: 0; display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  #now { flex-wrap: wrap; }
+  #now b { color: var(--fg); font-size: 12.5px; font-weight: 700;
+           text-transform: none; letter-spacing: 0; }
+  #now .badge {
+    font-size: .66rem; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
+  }
+  #editor { min-height: 0; display: flex; flex-direction: column; }
+  #editor[hidden] { display: none; }
+  #quizwrap { min-height: 0; overflow-y: auto; padding: .9rem; }
+
+  /* --- La barre d'onglets -------------------------------------------------- */
+  #tabs { display: flex; gap: .2rem; flex-wrap: wrap; }
+  .tab {
+    font: inherit; font-size: 12.5px; cursor: pointer;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    background: transparent; color: var(--muted);
+    border: 1px solid transparent; border-radius: 5px; padding: .2rem .6rem;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.on { background: var(--card); color: var(--fg); border-color: var(--line); }
+  .tab:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+  #edtitle { font-size: 12.5px; color: var(--fg); text-transform: none;
+             letter-spacing: 0; }
+
   /* L'ÉDITEUR COLORÉ, ET POURQUOI IL EST BÂTI COMME ÇA.
      Un <textarea> ne sait afficher que du texte brut : aucune propriété CSS ne
      colore son contenu. La seule façon de garder une vraie zone de saisie --
@@ -114,25 +194,31 @@
      CE QUI CASSE CE MONTAGE : la moindre différence de métrique entre les deux.
      Police, taille, interligne, marge intérieure, bordure, tabulation, gestion
      des espaces : tout ce qui décale le texte d'un pixel décale les couleurs.
-     Les deux règles ci-dessous sont donc écrites ENSEMBLE et doivent le rester.
-     Si les couleurs dérivent du texte, c'est ici qu'il faut regarder. */
-  /* Le calque coloré se superpose au PANNEAU, pas à l'éditeur entier : sinon il
-     recouvrirait la barre d'onglets. */
-  #pane { position: relative; }
-  #tabs { display: flex; gap: .25rem; flex-wrap: wrap; margin-bottom: -1px; }
-  .tab {
-    font: inherit; font-size: 13px; cursor: pointer;
+     Les règles #hl et #code sont écrites ENSEMBLE et doivent le rester. Si les
+     couleurs dérivent du texte, c'est ici qu'il faut regarder.
+
+     LA GOUTTIÈRE EST UN TROISIÈME TEXTE À ALIGNER, et elle est délibérément
+     posée À CÔTÉ de la superposition, jamais dedans : #pane, #hl et #code
+     gardent exactement la relation qu'ils avaient avant qu'elle existe. Son
+     contrat à elle est plus court -- même font-size, même line-height, même
+     padding vertical, même épaisseur de bordure haute -- et il tient parce que
+     #code est en `white-space: pre` : sans retour à la ligne automatique, une
+     ligne de texte vaut une ligne de numéro, par construction. */
+  #edwrap { flex: 1 1 auto; min-height: 0; display: flex; background: var(--card); }
+  #gutter {
+    flex: 0 0 auto; margin: 0; height: 100%; overflow: hidden;
+    padding: .5rem .55rem .5rem .7rem;
+    border: 1px solid transparent; border-right-color: var(--line);
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    background: transparent; color: var(--muted);
-    border: 1px solid transparent; border-bottom: none;
-    border-radius: 6px 6px 0 0; padding: .35rem .7rem;
+    font-size: 13.5px; line-height: 1.5; white-space: pre;
+    text-align: right; color: var(--muted); background: var(--panel);
+    user-select: none;
   }
-  .tab.on { background: var(--card); color: var(--fg); border-color: var(--line); }
-  .tab:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+  #pane { position: relative; flex: 1 1 auto; min-width: 0; }
   #hl, #code {
     margin: 0; box-sizing: border-box;
     padding: .5rem .7rem;
-    border: 1px solid var(--line); border-radius: 6px;
+    border: 1px solid transparent;
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 13.5px; line-height: 1.5; tab-size: 4;
     white-space: pre;
@@ -143,16 +229,17 @@
     overflow: hidden;          /* le défilement est piloté par le textarea */
     pointer-events: none;      /* les clics traversent jusqu'à la saisie */
   }
+  /* LES DEUX CALQUES SONT POSITIONNÉS PAREIL, et c'est délibéré : `inset: 0`
+     des deux côtés leur donne la même boîte par le même mécanisme, au lieu de
+     faire dépendre celle du textarea d'un `height: 100%` qui, lui, dépend de la
+     hauteur résolue du parent. Le textarea vient APRÈS dans le document, donc
+     il se peint au-dessus -- c'est ce qu'on veut. */
   #code {
-    /* Height follows the VIEWPORT, not an absolute value: a fixed 22rem
-       overflowed a 13-inch laptop with the tab bar open, and wasted a tall
-       screen. The bounds keep the editor usable at both extremes. */
-    position: relative; width: 100%; min-height: clamp(12rem, 45vh, 26rem);
-    resize: vertical;
-    overflow: auto;
+    position: absolute; inset: 0;
+    resize: none; overflow: auto; border-radius: 0;
     background: transparent;
     color: transparent;        /* on lit le calque, pas le textarea */
-    caret-color: var(--fg);    /* mais le curseur, lui, doit rester visible */
+    caret-color: var(--ink);   /* mais le curseur, lui, doit rester visible */
   }
   /* Le texte du textarea est transparent -- son PLACEHOLDER l'était donc aussi,
      et l'invite « colle ici ton fichier » disparaissait. Il faut le recolorer
@@ -162,9 +249,9 @@
      du calque coloré, donc une sélection opaque masquerait le texte qu'on est en
      train de sélectionner. En rgba() plutôt qu'en color-mix() pour que ça marche
      aussi sur un navigateur d'école qui a trois ans. */
-  #code::selection { background: rgba(125, 160, 255, .35); }
+  #code::selection { background: rgba(34, 195, 214, .3); }
 
-  /* Palette de coloration. Volontairement sobre : six catégories, pas trente,
+  /* Palette de coloration. Volontairement sobre : sept catégories, pas trente,
      parce qu'un TP de première session n'en contient pas plus. */
   .tc { color: var(--syn-comment); font-style: italic; }
   .ts { color: var(--syn-string); }
@@ -173,39 +260,81 @@
   .tn { color: var(--syn-num); }
   .tf { color: var(--syn-fn); }
   .tu { color: var(--syn-const); }
-  button { cursor: pointer; font-weight: 600; }
-  button:disabled { cursor: not-allowed; opacity: .55; }
-  #go {
-    background: var(--ink); color: #fff; border-color: var(--ink);
-    font-weight: 700; letter-spacing: .02em;
-  }
 
-  /* LE VERDICT, signature de la page. Toujours à l'écran -- au repos il dit ce
-     qu'on attend, en résultat il montre le compte. La bordure gauche colorée
-     reprend le langage déjà en place sur #now, .avert et #consentement. */
-  #out {
-    margin-top: 1.2rem; padding: 1rem 1.1rem; border: 1px solid var(--line);
-    border-left: 3px solid var(--muted);
-    border-radius: 6px; background: var(--card);
+  /* --- La barre d'action, sous l'éditeur ----------------------------------- */
+  #actions {
+    flex: 0 0 auto; display: flex; align-items: center; gap: .7rem;
+    flex-wrap: wrap; padding: .5rem .75rem;
+    border-top: 1px solid var(--line); background: var(--panel);
   }
-  #out:empty { display: none; }
+  /* L'input fichier natif est illisible et non stylable : on le sort de l'écran
+     et on lui met un <label> devant. Le clic ET le clavier continuent de
+     marcher, ce qui ne serait pas vrai avec display:none. */
+  #file { position: absolute; width: 1px; height: 1px; opacity: 0;
+          pointer-events: none; }
+  .btn {
+    display: inline-block; cursor: pointer; font-size: 12.5px;
+    padding: .35rem .6rem; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--card); color: var(--muted);
+  }
+  .btn:hover { color: var(--fg); border-color: var(--line-2); }
+  #file:focus-visible + .btn { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #go {
+    background: var(--ink); color: var(--ink-fg); border-color: var(--ink);
+    font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    padding: .4rem 1.1rem;
+  }
+  #go:hover:not(:disabled) { filter: brightness(1.12); border-color: var(--ink); }
+  /* L'ÉTAT DU BROUILLON, à côté du bouton qui compte. Discret quand tout va
+     bien, rouge quand l'écriture a ÉCHOUÉ : c'est la seule chose que cet
+     indicateur doit garantir -- croire son travail enregistré alors qu'il ne
+     l'est pas est pire que de ne rien afficher du tout. */
+  #brouillon { color: var(--muted); font-size: 12.5px; }
+  #brouillon.rate { color: var(--bad); font-weight: 600; }
+  #purger { font-size: 12px; }
+
+  /* --- LE VERDICT, signature de la page ------------------------------------
+     Toujours à l'écran : au repos il dit ce qu'on attend, en résultat il montre
+     le compte. La bordure gauche colorée reprend le langage déjà en place sur
+     .avert et #consentement. */
+  #out {
+    min-height: 0; max-height: 45vh; overflow-y: auto;
+    padding: .85rem .95rem;
+    border-top: 1px solid var(--line);
+    border-left: 3px solid var(--muted);
+    background: var(--panel);
+  }
   #out.ok { border-left-color: var(--ok); }
   #out.bad { border-left-color: var(--bad); }
   #out.wait { border-left-color: var(--wait); }
   .verdict {
     font-size: 2.1rem; font-weight: 700; line-height: 1.1;
-    font-variant-numeric: tabular-nums; letter-spacing: -.01em;
-    margin-bottom: .5rem;
+    font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+    margin-bottom: .45rem;
   }
-  .verdict.idle {
-    font-size: .95rem; font-weight: 400; color: var(--muted);
-    letter-spacing: .03em;
+  .verdict.idle, .verdict.wait {
+    font-size: .95rem; font-weight: 400; letter-spacing: .02em;
   }
+  .verdict.idle { color: var(--muted); }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
+  /* L'EXPLICATION VIT DANS L'ÉTAT DE REPOS DU VERDICT, pas dans un en-tête
+     qu'on lit une fois : c'est là que l'étudiant regarde quand rien n'a encore
+     eu lieu, et c'est là aussi que l'avertissement sur la portée des tests a le
+     plus de chances d'être lu -- juste sous une note qui n'en est pas une. */
+  .aide { font-family: var(--sans); color: var(--muted); font-size: 12.5px;
+          max-width: 46rem; margin: .5rem 0 0; }
+  .aide + .aide { margin-top: .35rem; }
+
   /* Une case par cas de test, pas une barre de pourcentage : le nombre de
      cases EST le nombre de cas, et l'étudiant les compte. */
-  .ticks { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 .7rem; }
+  .ticks { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 .6rem; }
   .ticks i { width: 11px; height: 6px; border-radius: 1px; background: var(--line); }
   .ticks i.on { background: var(--ok); }
+  /* L'attente est un état, pas un vide : une barre indéterminée pendant que gcc
+     tourne, et rien du tout si le système demande moins de mouvement. */
+  .barre { height: 2px; margin: 0 0 .6rem; border-radius: 2px;
+           background: var(--line); overflow: hidden; }
+  .barre i { display: block; height: 100%; width: 30%; background: var(--ink); }
   @media (prefers-reduced-motion: no-preference) {
     .ticks i {
       opacity: 0; transform: translateY(2px);
@@ -213,11 +342,58 @@
       animation-delay: calc(var(--i, 0) * 32ms);
     }
     @keyframes tick { to { opacity: 1; transform: none; } }
+    .barre i { animation: glisse 1.1s ease-in-out infinite; }
+    @keyframes glisse {
+      from { transform: translateX(-110%); }
+      to   { transform: translateX(370%); }
+    }
   }
+
+  /* Les cas ratés se déplient. <details> plutôt qu'un panneau maison, pour la
+     même raison que la consigne : le clavier et le lecteur d'écran sont natifs.
+     Le premier est ouvert -- un résultat qu'il faut penser à déplier ne sert à
+     rien de plus qu'un résultat absent. */
+  .case {
+    margin-top: .5rem; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); overflow: hidden;
+  }
+  .case > summary {
+    display: flex; align-items: center; gap: .5rem;
+    cursor: pointer; user-select: none; list-style: none;
+    padding: .4rem .6rem; font-size: 12.5px; color: var(--bad);
+  }
+  .case > summary::-webkit-details-marker { display: none; }
+  .case > summary::before { content: "\25B8"; color: var(--muted); }
+  .case[open] > summary::before { content: "\25BE"; }
+  .case > summary:hover { background: var(--card); }
+  .case .corps { padding: 0 .6rem .5rem; }
+  .case .vu { color: var(--muted); font-size: 12px; margin-top: .35rem; }
+
+  /* Les avertissements ne sont PAS une erreur : bordure ambre, jamais rouge.
+     Un étudiant qui réussit 9/9 et voit un cadre rouge croit avoir échoué. */
+  .avert {
+    margin-top: .8rem; padding: .55rem .7rem;
+    border: 1px solid var(--line); border-left: 3px solid var(--wait);
+    border-radius: 6px; background: var(--bg);
+  }
+  .avert .titre { color: var(--wait); font-weight: 600; font-size: 12.5px; }
+  .avert .quoi { font-family: var(--sans); color: var(--muted);
+                 font-size: 12px; margin: .2rem 0 .4rem; }
+
+  #out ul { margin: .5rem 0 0; padding-left: 1.2rem; }
+  #out li { font-size: 13px; margin-bottom: .2rem; }
+  pre {
+    margin: .4rem 0 0; padding: .6rem; overflow-x: auto;
+    background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+    font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+  }
+
+  /* --- Le quiz ------------------------------------------------------------- */
   #quiz .qgroup {
-    margin: 1.4rem 0 .4rem; font-weight: 700; font-size: .95rem;
+    margin: 1.2rem 0 .4rem; font-weight: 700; font-size: .95rem;
     border-bottom: 1px solid var(--line); padding-bottom: .3rem;
   }
+  #quiz .qgroup:first-child { margin-top: 0; }
   #quiz .qrow { display: flex; gap: .75rem; align-items: center; margin: .35rem 0; }
   #quiz .qrow span { flex: 1 1 20rem; }
   #quiz .qrow input {
@@ -228,63 +404,41 @@
     display: flex; align-items: center; gap: .75rem; margin-top: 1.2rem;
     padding-top: .8rem; border-top: 1px solid var(--line);
   }
-  #quiznav .pos { color: var(--muted); font-size: 13px; }
-  .nav { padding: .35rem .75rem; line-height: 1; }
-  .case { margin-top: .9rem; }
-  .case .why { color: var(--bad); }
-  .case .vu { color: var(--muted); font-size: 12.5px; margin-top: .35rem; }
-  /* Les avertissements ne sont PAS une erreur : bordure ambre, jamais rouge.
-     Un étudiant qui réussit 9/9 et voit un cadre rouge croit avoir échoué. */
-  .avert {
-    margin-top: 1rem; padding: .6rem .75rem;
-    border: 1px solid var(--line); border-left: 3px solid var(--wait);
-    border-radius: 6px; background: var(--bg);
-  }
-  .avert .titre { color: var(--wait); font-weight: 600; font-size: 13px; }
-  .avert .quoi { font-family: var(--sans); color: var(--muted);
-                 font-size: 12.5px; margin: .2rem 0 .4rem; }
-  .verdict { font-size: 1.1rem; font-weight: 700; margin-bottom: .5rem; }
-  .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
-  ul { margin: .5rem 0 0; padding-left: 1.2rem; }
-  li { font-family: ui-monospace, Consolas, monospace; font-size: 13.5px; }
-  pre {
-    margin: .5rem 0 0; padding: .75rem; overflow-x: auto;
-    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
-    font-size: 13px; white-space: pre-wrap; word-break: break-word;
-  }
-  footer { font-family: var(--sans); margin-top: 2rem; color: var(--muted);
-           font-size: 13px; }
+  #quiznav .pos { color: var(--muted); font-size: 12.5px; }
 
-  /* DRAFT STATUS, next to the button that matters. Quiet by default, red when
-     the draft could NOT be written: that is the one thing this indicator has to
-     guarantee -- believing your work is saved when it is not is worse than
-     showing nothing at all. */
-  #brouillon { color: var(--muted); font-size: 13px; }
-  #brouillon.rate { color: var(--bad); font-weight: 600; }
-  #purger { font-size: 12px; font-weight: 400; color: var(--muted); }
-
-  /* The account strip and the list view. Both are invisible until a script
-     reveals them, so an anonymous deployment renders as it always did. */
-  #compte { margin-bottom: .25rem; }
-  #moi { color: var(--muted); font-size: 13px; }
+  /* --- Le consentement, et la vue liste ------------------------------------ */
   #consentement {
-    margin: 0 0 1rem; padding: .75rem 1rem;
-    background: var(--card); border: 1px solid var(--line);
-    border-left: 3px solid var(--ink); border-radius: 6px;
+    position: absolute; z-index: 5; top: 100%; right: .9rem; margin-top: .4rem;
+    width: min(30rem, calc(100vw - 2rem));
+    padding: .85rem 1rem; background: var(--panel);
+    border: 1px solid var(--line); border-left: 3px solid var(--ink);
+    border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
   }
-  #consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: 13.5px; }
+  #consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: 13px; }
+  #consentement .row { display: flex; gap: .6rem; margin-top: .7rem; }
+
+  #liste { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .9rem; }
+  #liste[hidden] { display: none; }
+  /* La progression est calculée sur des états RÉELS -- ce que l'étudiant a
+     validé -- et sur rien d'autre : pas de points inventés. */
+  #progres { margin: 0 0 .9rem; max-width: 34rem; }
+  #progres .compte { font-size: 12.5px; color: var(--muted); margin-bottom: .35rem; }
+  #progres .compte b { color: var(--fg); font-variant-numeric: tabular-nums; }
+  #progres .jauge { height: 6px; border-radius: 999px; background: var(--line);
+                    overflow: hidden; }
+  #progres .jauge i { display: block; height: 100%; background: var(--ok); }
   #liste .ligne {
     display: flex; align-items: center; gap: .6rem; width: 100%;
     padding: .45rem .6rem; margin-bottom: .25rem; text-align: left;
-    font-weight: 400; background: var(--card);
+    font-weight: 400; background: var(--panel);
     border: 1px solid var(--line); border-radius: 6px;
   }
-  #liste .ligne:hover { border-color: var(--muted); }
-  #liste .tpname { color: var(--muted); font-size: 13px; flex: 0 0 5rem; }
+  #liste .ligne:hover { border-color: var(--ink); }
+  #liste .tpname { color: var(--muted); font-size: 12.5px; flex: 0 0 5rem; }
   #liste .titre { flex: 1 1 auto; }
-  /* The dot carries a colour AND a word: colour alone would leave the two
-     states indistinguishable for a red-green colour-blind student, and this
-     page has exactly one green and one amber. */
+  /* La pastille porte une COULEUR ET UN MOT : la couleur seule laisserait deux
+     états indiscernables pour un étudiant daltonien, et cette page a exactement
+     un vert et un ambre. */
   #liste .puce {
     flex: 0 0 auto; font-size: 12px; color: var(--muted);
     border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
@@ -293,48 +447,65 @@
   #liste .valide { color: var(--ok); }
   #liste .essaye { color: var(--wait); }
 
-  /* TWO COLUMNS ON WIDE SCREENS, and nothing else.
-     `display: contents` removes the wrapper from layout below the threshold:
-     the statement and the editor stay exactly the stacked blocks they were,
-     with no rule to undo. Above it, the same wrapper becomes a grid. No JS, no
-     drag handle -- the student reads on the left and types on the right. */
-  #travail { display: contents; }
-  /* `display: contents` outranks the browser's own [hidden] rule, so hiding the
-     wrapper for the list view needs to be said explicitly. */
-  #travail[hidden] { display: none; }
-  @media (min-width: 1100px) {
-    /* Without this widening, two columns would fit inside the 52rem of `main`
-       and get 25rem each: too narrow for a line of C. */
-    main { max-width: 76rem; }
-    #travail {
-      display: grid; gap: .6rem; align-items: start;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    }
-    #consigne { margin-bottom: 0; }
+  /* --- REPLI MOBILE --------------------------------------------------------
+     Sous 900px on DÉFAIT la coque : la page redéfile, les panneaux s'empilent,
+     l'éditeur retrouve une hauteur bornée par la fenêtre. C'est le repli le
+     plus court, et le seul qui ne demande rien de neuf à un vieux navigateur. */
+  @media (max-width: 900px) {
+    html, body { height: auto; }
+    main { display: block; }
+    body { display: block; height: auto; overflow: auto; }
+    #travail { display: block; }
+    #consigne { overflow: visible; border-right: 0;
+                border-bottom: 1px solid var(--line); }
+    #consigne summary { cursor: pointer; position: static; }
+    #consigne summary::before { content: "\25B8\00a0"; }
+    #consigne[open] summary::before { content: "\25BE\00a0"; }
+    #droite { display: block; }
+    #edwrap { height: clamp(12rem, 45vh, 26rem); }
+    #out { max-height: none; overflow: visible; }
+    #consentement { position: static; width: auto; margin: .9rem; box-shadow: none; }
+    select { max-width: 10rem; }
   }
 </style>
 </head>
 <body>
-<main>
-  <h1>TCH009 — Tester mon code</h1>
-  <p class="sub">Choisis ton TP, puis colle ton fichier <code>.c</code> ou
-     saisis tes réponses selon l'exercice. Les résultats ne sont pas une note.</p>
+<!-- LA BARRE DU HAUT. Elle absorbe ce qui était le titre, la ligne de compte et
+     la ligne des menus : dans une coque qui ne défile pas, tout ce qui pilote
+     l'exercice doit rester visible pendant qu'on tape. -->
+<div id="top">
+  <h1>TCH009</h1>
+  <span class="tagline">Tester mon code</span>
+  <span class="sep"></span>
+  <span class="field">
+    <label for="tp">TP</label>
+    <select id="tp"></select>
+  </span>
+  <span class="field" id="exwrap">
+    <label for="ex">Exercice</label>
+    <select id="ex"></select>
+  </span>
+  <span class="field">
+    <button type="button" id="prev" class="nav" aria-label="Exercice précédent"
+            title="Exercice précédent">‹</button>
+    <button type="button" id="next" class="nav" aria-label="Exercice suivant"
+            title="Exercice suivant">›</button>
+  </span>
+  <span class="grow"></span>
+  <button type="button" id="theme" class="nav" title="Changer de thème"
+          aria-label="Changer de thème">☀</button>
+  <!-- LE RESTE DE CETTE BARRE EST VIDE PAR DÉFAUT et le reste sur un
+       déploiement sans émetteur OIDC : chaque contrôle ci-dessous n'est révélé
+       par le script qu'une fois que /oidc.json a répondu quelque chose. Un
+       étudiant qui ne se connecte jamais voit la page qu'il a toujours vue. -->
+  <span id="moi" hidden></span>
+  <button type="button" id="mesexos" class="nav" hidden>Mes exercices</button>
+  <button type="button" id="oublier" class="nav" hidden>Supprimer mes données</button>
+  <button type="button" id="deconnexion" class="nav" hidden>Se déconnecter</button>
+  <button type="button" id="connexion" class="nav" hidden>Se connecter</button>
 
-  <!-- THE ACCOUNT STRIP IS EMPTY BY DEFAULT and stays that way on a deployment
-       with no OIDC issuer: every control below is revealed by script, only once
-       /oidc.json has answered with something. A student who never signs in sees
-       the page they have always seen. -->
-  <div class="row" id="compte">
-    <span class="grow"></span>
-    <span id="moi" hidden></span>
-    <button type="button" id="mesexos" class="nav" hidden>Mes exercices</button>
-    <button type="button" id="oublier" class="nav" hidden>Supprimer mes données</button>
-    <button type="button" id="deconnexion" class="nav" hidden>Se déconnecter</button>
-    <button type="button" id="connexion" class="nav" hidden>Se connecter</button>
-  </div>
-
-  <!-- Shown once, before the first redirect. Saying afterwards what was kept
-       would not be consent, it would be a notice. -->
+  <!-- Montré une fois, avant la première redirection. Dire après coup ce qui a
+       été conservé ne serait pas un consentement, ce serait un avis. -->
   <div id="consentement" hidden>
     <p>Te connecter fait conserver, sur le serveur de ce site&nbsp;: un
        identifiant de compte opaque (ni ton nom, ni ton courriel), le code que
@@ -347,67 +518,63 @@
       <button type="button" id="consentnon" class="nav">Annuler</button>
     </div>
   </div>
+</div>
 
-  <div class="row">
-    <span class="field">
-      <label for="tp">TP</label>
-      <select id="tp"></select>
-    </span>
-    <span class="field" id="exwrap">
-      <label for="ex">Exercice</label>
-      <select id="ex"></select>
-    </span>
-    <span class="field">
-      <button type="button" id="prev" class="nav" aria-label="Exercice précédent"
-              title="Exercice précédent">‹</button>
-      <button type="button" id="next" class="nav" aria-label="Exercice suivant"
-              title="Exercice suivant">›</button>
-    </span>
-    <span class="grow"></span>
-    <input type="file" id="file" accept=".c,.txt">
-    <button id="go">Tester</button>
-    <span id="brouillon" aria-live="polite"></span>
-    <button type="button" id="purger" class="nav" hidden>Effacer mes brouillons</button>
-  </div>
 
-  <div id="now" aria-live="polite"></div>
+<main>
+<div id="travail">
+  <!-- Panneau permanent, y compris quand l'exercice n'a pas de consigne
+       publiée : c'est le script qui y écrit alors son état vide. -->
+  <details id="consigne" open>
+    <summary class="phead">Consigne</summary>
+    <pre id="consignetexte"></pre>
+  </details>
 
-  <!-- These two together, in this order: past 1100px they sit side by side (see
-       #travail in the stylesheet). Below that, the wrapper does not exist as far
-       as layout is concerned. -->
-  <div id="travail">
-    <details id="consigne" open hidden>
-      <summary>Consigne</summary>
-      <pre id="consignetexte"></pre>
-    </details>
+  <div id="droite">
+    <!-- RAPPEL PERMANENT DE CE QU'ON TESTE, juste au-dessus de la zone de
+         saisie. Les deux menus laissent le choix hors du champ de vision une
+         fois qu'on travaille ; cette barre garde l'exercice sous les yeux, et
+         dit du même coup ce qu'on attend : du code ou des réponses. -->
+    <div id="now" class="phead" aria-live="polite"></div>
 
     <div id="editor">
-      <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
-      <div id="pane">
-        <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
-        <textarea id="code" spellcheck="false"
-                  placeholder="// Colle ici le contenu de ton fichier"></textarea>
+      <div class="phead">
+        <span id="edtitle"></span>
+        <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
+      </div>
+      <!-- La gouttière est SŒUR du panneau superposé, pas dedans : voir le long
+           commentaire de #hl / #code dans la feuille de style. -->
+      <div id="edwrap">
+        <pre id="gutter" aria-hidden="true"></pre>
+        <div id="pane">
+          <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
+          <textarea id="code" spellcheck="false"
+                    placeholder="// Colle ici le contenu de ton fichier"></textarea>
+        </div>
+      </div>
+      <div id="actions">
+        <input type="file" id="file" accept=".c,.txt">
+        <label for="file" class="btn">Importer un fichier</label>
+        <span id="brouillon" aria-live="polite"></span>
+        <button type="button" id="purger" class="nav" hidden>Effacer mes brouillons</button>
+        <span class="grow"></span>
+        <button id="go">Tester</button>
       </div>
     </div>
+
+    <div id="quizwrap" hidden>
+      <div id="quiz"></div>
+      <div id="quiznav"></div>
+    </div>
+
+    <div id="out"></div>
   </div>
+</div>
 
-  <div id="quizwrap" hidden>
-    <div id="quiz"></div>
-    <div id="quiznav"></div>
-  </div>
-
-  <!-- The list view. A second way in, never the only one: the two <select>
-       remain the default road, and they are the only road for someone who is
-       not signed in. -->
-  <div id="liste" hidden></div>
-
-  <div id="out"></div>
-
-  <footer>
-    Un exercice à la fois. Les tests utilisés ici sont un
-    sous-ensemble&nbsp;: ils t'aident à trouver tes erreurs, ils ne remplacent
-    pas la correction.
-  </footer>
+<!-- La vue liste. Une seconde porte d'entrée, jamais la seule : les deux menus
+     restent la route par défaut, et ils sont la seule route pour qui ne se
+     connecte pas. -->
+<div id="liste" hidden></div>
 </main>
 
 <script>
@@ -433,6 +600,31 @@ if (authCode) {
 const key = new URLSearchParams(location.search).get("k") || "";
 const out = $("out");
 
+// --- LE THÈME ---------------------------------------------------------------
+// Le sombre est le défaut et il est posé par le petit script de <head>, avant
+// le premier rendu. Ce bouton ne fait que basculer et retenir. Le glyphe montre
+// CE QU'ON OBTIENDRA et pas l'état courant : un bouton dit ce qu'il fait.
+const THEME_KEY = "ctester.theme";
+
+function appliquerTheme(nom) {
+  document.documentElement.dataset.theme = nom;
+  const clair = nom === "light";
+  $("theme").textContent = clair ? "☾" : "☀";
+  $("theme").title = clair ? "Passer au thème sombre" : "Passer au thème clair";
+  $("theme").setAttribute("aria-label", $("theme").title);
+}
+
+appliquerTheme(document.documentElement.dataset.theme === "light"
+               ? "light" : "dark");
+
+$("theme").addEventListener("click", () => {
+  const suivant =
+    document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  appliquerTheme(suivant);
+  // Un stockage qui refuse ne casse rien : le thème tient pour cette visite.
+  try { localStorage.setItem(THEME_KEY, suivant); } catch (e) { /* tant pis */ }
+});
+
 function show(cls, title, extra, bar) {
   out.className = cls;                  // colore la bordure gauche du panneau
   out.innerHTML = "";
@@ -440,8 +632,39 @@ function show(cls, title, extra, bar) {
   h.className = "verdict " + cls;
   h.textContent = title;
   out.append(h);
+  // L'ATTENTE EST UN ÉTAT, PAS UN VIDE. gcc met une seconde ou deux, et une
+  // page figée pendant ce temps-là se fait recliquer.
+  if (cls === "wait") out.append(indeterminee());
   if (bar) out.append(bar);            // la barre de cases, juste sous le compte
   if (extra) out.append(extra);
+  // Au repos, le panneau porte l'explication : c'est le seul moment où
+  // l'étudiant a le temps de la lire, et le seul endroit où il regarde.
+  if (cls === "idle") {
+    out.append(aide("Choisis ton TP, puis colle ton fichier .c ou saisis tes "
+                  + "réponses selon l'exercice. Les résultats ne sont pas une "
+                  + "note."));
+  }
+  // APRÈS TOUT VERDICT, réussite comprise : la portée des tests se rappelle là
+  // où on vient de lire un score, pas dans un pied de page qu'on ne lit jamais.
+  if (cls !== "wait") {
+    out.append(aide("Un exercice à la fois. Les tests utilisés ici sont un "
+                  + "sous-ensemble : ils t'aident à trouver tes erreurs, ils ne "
+                  + "remplacent pas la correction."));
+  }
+}
+
+function aide(texte) {
+  const p = document.createElement("p");
+  p.className = "aide";
+  p.textContent = texte;
+  return p;
+}
+
+function indeterminee() {
+  const b = document.createElement("div");
+  b.className = "barre";
+  b.append(document.createElement("i"));
+  return b;
 }
 
 // Une case par cas de test, remplie de gauche à droite. Le retard d'animation
@@ -632,7 +855,7 @@ function switchMode() {
   // #editor et pas #code : le calque coloré est un frère du textarea, cacher
   // l'un sans l'autre laisserait le pre seul à l'écran.
   $("editor").hidden = quiz;
-  $("file").hidden = quiz;
+  $("filewrap").hidden = quiz;
   $("quizwrap").hidden = !quiz;
 
   // La barre de contexte. Ce n'est PAS décoratif : la première vraie confusion
@@ -653,9 +876,15 @@ function switchMode() {
   // textContent et pas innerHTML : la consigne vient du dépôt de tests, mais
   // elle contient des prototypes pleins de `*` et de chevrons, et rien de ce
   // qui s'affiche sur cette page ne doit jamais être interprété comme du HTML.
+  // LE PANNEAU RESTE, MÊME SANS CONSIGNE. La moitié des exercices n'en
+  // publient pas -- runner.py met une chaîne vide par défaut -- et le masquer
+  // laissait une demi-page morte à côté de l'éditeur. Un état vide rédigé dit
+  // au moins où aller chercher l'énoncé.
   const consigne = (tp && tp.statement) || "";
-  $("consignetexte").textContent = consigne;
-  $("consigne").hidden = !consigne;
+  $("consignetexte").textContent = consigne
+    || "Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP "
+     + "sur Moodle : les noms de fichiers et de fonctions attendus y sont.";
+  $("consignetexte").className = consigne ? "" : "vide";
 
   show("idle", "En attente d'une soumission.");
   const thisLoad = ++loadToken;
@@ -807,9 +1036,25 @@ function highlight(src) {
   return out + esc(src.slice(last)) + "\n";
 }
 
+// LA GOUTTIÈRE N'EST RÉÉCRITE QUE SI LE NOMBRE DE LIGNES CHANGE. Elle est
+// repeinte à chaque frappe et à chaque défilement ; régénérer trois cents
+// numéros pour une lettre tapée au milieu d'une ligne serait le seul travail
+// inutile de cette fonction.
+let lignesAffichees = -1;
+
+function gouttiere(n) {
+  if (n === lignesAffichees) return;
+  lignesAffichees = n;
+  let s = "";
+  for (let i = 1; i <= n; i++) s += i + "\n";
+  $("gutter").textContent = s;
+}
+
 function paint() {
   $("hlcode").innerHTML = highlight($("code").value);
+  gouttiere($("code").value.split("\n").length);
   $("hl").scrollTop = $("code").scrollTop;
+  $("gutter").scrollTop = $("code").scrollTop;
   $("hl").scrollLeft = $("code").scrollLeft;
 }
 
@@ -877,8 +1122,11 @@ function setupFiles(tp) {
     onglet.addEventListener("click", () => activer(f.name));
     $("tabs").append(onglet);
   }
-  // Un seul fichier : une barre d'onglets à un onglet n'apprend rien.
+  // Un seul fichier : une barre d'onglets à un onglet n'apprend rien. Le nom
+  // s'affiche quand même, en clair -- l'en-tête de panneau doit dire dans quoi
+  // on tape, onglets ou pas.
   $("tabs").hidden = files.length <= 1;
+  $("edtitle").hidden = files.length > 1;
   activer(files[0].name);
 }
 
@@ -888,6 +1136,7 @@ function activer(nom) {
   // le genre de bug qu'on ne se fait pas pardonner.
   if (actif !== null) sources[actif] = $("code").value;
   actif = nom;
+  $("edtitle").textContent = nom;
   $("code").value = sources[nom] || "";
   for (const onglet of $("tabs").children) {
     const courant = onglet.dataset.name === nom;
@@ -924,18 +1173,25 @@ $("file").addEventListener("change", async (e) => {
 function cases(items) {
   const box = document.createElement("div");
   for (const c of items) {
-    const wrap = document.createElement("div");
+    // <details> et pas un panneau maison, pour la raison qui vaut déjà pour la
+    // consigne : le repli au clavier et l'annonce aux lecteurs d'écran sont
+    // natifs. Le premier cas est ouvert -- un résultat qu'il faut penser à
+    // déplier ne vaut pas mieux qu'un résultat absent.
+    const wrap = document.createElement("details");
     wrap.className = "case";
-    const why = document.createElement("div");
-    why.className = "why";
+    wrap.open = !box.children.length;
+    const why = document.createElement("summary");
     why.textContent = `Cas ${c.case} : ${c.reason}`;
+    const corps = document.createElement("div");
+    corps.className = "corps";
     let texte = "entrées :\n" + c.stdin + "\nta sortie :\n" + (c.stdout || "(rien)");
     // La sortie d'erreur du programme, quand il y en a une : c'est là
     // qu'atterrissent ses fprintf(stderr, ...) de mise au point.
     if (c.stderr) texte += "\nta sortie d'erreur :\n" + c.stderr;
     const io = document.createElement("pre");
     io.textContent = texte;
-    wrap.append(why, io);
+    corps.append(io);
+    wrap.append(why, corps);
     // CE QUE LE JUGE A LU dans sa sortie. Sans ça, l'appariement des nombres
     // est une boîte noire : celui qui écrit « 1 234 » ne peut pas deviner que
     // sa ligne a été coupée en deux.
@@ -945,7 +1201,7 @@ function cases(items) {
       vu.textContent = c.nombres.length
         ? "nombres lus dans ta sortie : " + c.nombres.join(", ")
         : "aucun nombre lu dans ta sortie";
-      wrap.append(vu);
+      corps.append(vu);
     }
     box.append(wrap);
   }
@@ -1283,6 +1539,7 @@ const STATE_LABELS = { valide: "validé", essaye: "essayé" };
 function buildList() {
   const box = $("liste");
   box.innerHTML = "";
+  box.append(progression());
   for (const tp of catalogue) {
     const row = document.createElement("button");
     row.type = "button";
@@ -1307,6 +1564,30 @@ function buildList() {
     });
     box.append(row);
   }
+}
+
+// COMPTÉE SUR DES ÉTATS RÉELS et sur rien d'autre : ce que l'étudiant a
+// validé. Pas de points, pas de série, pas de niveau -- la seule chose que
+// cette page sait de lui est le nombre d'exercices qui passent.
+function progression() {
+  const total = catalogue.length;
+  const faits = catalogue.filter(t => states[t.id] === "valide").length;
+  const bloc = document.createElement("div");
+  bloc.id = "progres";
+  const compte = document.createElement("div");
+  compte.className = "compte";
+  compte.innerHTML = "";
+  const fort = document.createElement("b");
+  fort.textContent = faits + " / " + total;
+  compte.append(fort, document.createTextNode(" exercices validés"));
+  const jauge = document.createElement("div");
+  jauge.className = "jauge";
+  const rempli = document.createElement("i");
+  rempli.setAttribute("style",
+    "width:" + (total ? Math.round(faits / total * 100) : 0) + "%");
+  jauge.append(rempli);
+  bloc.append(compte, jauge);
+  return bloc;
 }
 
 function showListView(on) {
