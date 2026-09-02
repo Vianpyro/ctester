@@ -44,6 +44,23 @@ PIDS = os.environ.get("CTESTER_PIDS", "64")
 CPUS = os.environ.get("CTESTER_CPUS", "1")
 SWEEP_AFTER = int(os.environ.get("CTESTER_SWEEP_AFTER", "600"))
 
+# APERÇU AVANT OUVERTURE, pour la machine de l'enseignant. Mettre CTESTER_APERCU
+# à autre chose que "" ou "0" fait tomber le filtre `available_from` : le
+# catalogue publié ET tp_path voient alors tout, y compris ce qui ouvre en
+# novembre. C'est la seule façon d'éprouver un TP de bout en bout -- coller son
+# corrigé dans la vraie page et lire le vrai verdict -- avant que les étudiants
+# n'y aient accès.
+#
+# LES DEUX TOMBENT ENSEMBLE, ET C'EST LE POINT : le drapeau agit sur catalogue()
+# et pas sur l'affichage, donc un exercice visible est un exercice exécutable.
+# Ouvrir le menu sans ouvrir tp_path donnerait un TP qu'on peut choisir et pas
+# soumettre, ce qui ressemble à une panne.
+#
+# CE N'EST PAS UN RÉGLAGE DE PRODUCTION. Le déploiement ne le définit pas, et
+# publish_catalogue() le dit dans le journal quand il est actif : un worker qui
+# l'aurait hérité par accident ouvrirait le semestre entier d'un coup.
+APERCU = os.environ.get("CTESTER_APERCU", "") not in ("", "0")
+
 # Les réglages de compilation, RELAYÉS et non interprétés : leur sens est dans
 # build-unity.sh / build-io.sh, qui portent aussi leurs valeurs par défaut. Ce
 # qui est passé ici prime, et `docker run` ne propage rien tout seul.
@@ -276,7 +293,9 @@ def catalogue(tout=False):
             files = declared_files(conf)
         except (OSError, ValueError):
             pass  # fichier cassé : le nom du répertoire et un fichier par défaut
-        if not tout and                 conf.get("available_from", "") > datetime.date.today().isoformat():
+        if (not (tout or APERCU)
+                and conf.get("available_from", "")
+                > datetime.date.today().isoformat()):
             # PAS ENCORE OUVERT. Le filtre est ici et pas au moment d'afficher :
             # une entrée absente du catalogue n'a ni ligne de menu, ni chemin
             # (tp_path), ni corrigé de quiz publié. Un lien profond partagé par
@@ -330,6 +349,9 @@ def publish_catalogue():
     Les N workers écrivent le même contenu au démarrage. La course est sans
     conséquence : les écritures sont atomiques et le contenu est identique.
     """
+    if APERCU:
+        print("ctester: APERÇU ACTIF -- les TP pas encore ouverts sont publiés",
+              file=sys.stderr, flush=True)
     entries = catalogue()
     quiz_dir = os.path.join(APP, "quiz")
     os.makedirs(quiz_dir, exist_ok=True)

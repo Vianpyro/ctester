@@ -463,8 +463,13 @@ def test_catalogue_available_from():
     """
     tmp = tempfile.mkdtemp(prefix="ctester-")
     ancien = runner.TESTS
+    ancien_apercu = runner.APERCU
     try:
         runner.TESTS = tmp
+        # Ce test mesure le FILTRE, pas l'environnement de qui le lance : un
+        # CTESTER_APERCU exporté dans un shell ne doit pas faire passer la
+        # suite pour la mauvaise raison.
+        runner.APERCU = False
         for tp, date in (("tp1", "2000-01-01"), ("tp2", None),
                          ("tp3", "2999-01-01")):
             d = os.path.join(tmp, tp, "ex1")
@@ -478,6 +483,7 @@ def test_catalogue_available_from():
         ferme = runner.tp_path("tp3-ex1")
     finally:
         runner.TESTS = ancien
+        runner.APERCU = ancien_apercu
         shutil.rmtree(tmp, ignore_errors=True)
 
     # tp2 n'a PAS de date : l'absence de clé vaut « ouvert », sinon ajouter un

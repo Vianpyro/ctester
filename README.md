@@ -10,6 +10,9 @@ qui l'installe sur le serveur (gVisor, systemd, Compose, les deux dépôts priv�
 et leurs deploy keys) vit dans `VHome`, sous `roles/ctester`. Le serveur clone ce
 dépôt-ci dans `/opt/ctester/src` et suit `main` tout seul, à cinq minutes près.
 
+**Pour travailler sur le dépôt** — contrôles à repasser avant un déploiement,
+runbook, pièges de compilation déjà payés — voir [`CLAUDE.md`](CLAUDE.md).
+
 ```
 app/app.py        l'API, dans le conteneur exposé (uid 65534)
 app/index.html    la page, JS inclus
@@ -21,12 +24,10 @@ build-unity.sh    ce qui tourne DANS le bac à sable, mode tests unitaires
 build-io.sh       idem, mode programme complet (entrée/sortie)
 ```
 
-Sans `CTESTER_DB_DSN`, rien de tout ça ne démarre : `app.py` reste ce qu'il
+Sans `CTESTER_DB_DSN`, la persistance ne démarre pas : `app.py` reste ce qu'il
 était, l'image n'a besoin d'aucune dépendance, et la page ne propose même pas de
-se connecter.
-
-Tout se règle par variables d'environnement — l'unité systemd du rôle les
-fournit, et chaque script porte ses propres défauts pour tourner hors
+se connecter. Tout se règle par variables d'environnement — l'unité systemd du
+rôle les fournit, et chaque script porte ses propres défauts pour tourner hors
 déploiement.
 
 ## La connexion facultative (OIDC + Postgres)
@@ -163,6 +164,12 @@ configuration est à sa racine — le quiz, qui n'a pas d'exercices — reste un
 entrée à lui seul. **Le mode se déduit du fichier présent**, il n'est configuré
 nulle part : un champ `"mode"` serait une deuxième source de vérité.
 
+| Fichier | Mode | Ce que fait le juge |
+|---|---|---|
+| `quiz.json` | **quiz** | corrige des réponses. Aucune compilation, aucun conteneur, verdict en millisecondes |
+| `io.json` | **io** | compile un programme complet **avec** son `main()`, l'exécute une fois par cas sur une entrée standard, compare la sortie |
+| `unity.json` | **unity** | compile le module de l'étudiant, **sans** `main()`, et le lie aux tests |
+
 **L'IDENTIFIANT PUBLIC RESTE PLAT** : `tp6-ex1`, jamais `tp6/ex1`. Il part vers
 le navigateur, revient dans une soumission, et est ensuite joint à un chemin
 racine — y autoriser une barre oblique rouvrirait exactement la traversée de
@@ -173,16 +180,9 @@ décrit l'arborescence des secrets et n'apprend rien au navigateur.
 
 L'ordre du menu est **numérique à tous les niveaux** : trié comme du texte,
 `tp10` passerait avant `tp2` et `ex10` avant `ex2`. Un nom hors convention finit
-dans un groupe « Autres », à la fin, plutôt que de s'insérer n'importe où.
-
-Le `label` gagne à commencer par `TP<N> :` — le second menu retire ce préfixe,
-que le premier affiche déjà, et garde le libellé entier s'il n'y est pas.
-
-| Fichier | Mode | Ce que fait le juge |
-|---|---|---|
-| `quiz.json` | **quiz** | corrige des réponses. Aucune compilation, aucun conteneur, verdict en millisecondes |
-| `io.json` | **io** | compile un programme complet **avec** son `main()`, l'exécute une fois par cas sur une entrée standard, compare la sortie |
-| `unity.json` | **unity** | compile le module de l'étudiant, **sans** `main()`, et le lie aux tests |
+dans un groupe « Autres », à la fin. Le `label` gagne à commencer par `TP<N> :` —
+le second menu retire ce préfixe, que le premier affiche déjà, et garde le
+libellé entier s'il n'y est pas.
 
 **Une soumission est un ensemble de fichiers, pas un fichier.** À partir du
 laboratoire 5, l'étudiant écrit un module — `calendrier.h` + `calendrier.c` — et
@@ -199,36 +199,8 @@ pas à l'affichage, donc une entrée fermée n'a ni ligne de menu, ni chemin
 (`tp_path()` rend `None`), ni corrigé de quiz publié — un lien profond
 `?tp=tp5-ex1` partagé par un étudiant en avance ne résout pas au lieu de
 contourner. Clé absente = ouvert, ce qui est le bon défaut : un exercice ajouté
-en cours de session est visible sans qu'on y pense.
-
-`valider_contenu.py` appelle `catalogue(tout=True)` : un exercice qui ouvre en
-novembre est prouvé en septembre comme les autres, sinon la date aurait pour
-effet de suspendre la validation précisément sur ce qui n'a jamais tourné.
-
-Le catalogue est publié **une fois au démarrage** du worker ; celui-ci le
-republie au changement de jour, pour qu'une ouverture de minuit prenne effet
-sans redémarrage. Il n'y a pas d'autre échéance : un décalage poussé en cours de
-journée demande la republication habituelle.
-
-Le format de chacun est documenté dans le README du dépôt de tests, avec les
-pièges qui comptent (la règle « toute valeur attendue dépasse 1 », le champ
-`absent`, la normalisation des réponses de quiz).
-
-**Ajouter ou modifier un TP** : pousser sur le dépôt privé, puis
-
-```sh
-ansible-playbook playbooks/ctester.yml --tags tests --ask-vault-pass
-```
-
-Ça met à jour le clone et redémarre les workers, ce qui republie le catalogue.
-
-**Le catalogue, justement.** Le conteneur web ne lit pas les tests : il lit
-`app/tps.json` (id, mode, libellé) et `app/quiz/<tp>.json` (les questions **sans
-les réponses**), tous deux écrits par le worker au démarrage
-(`publish_catalogue()` dans `runner.py`). C'est la frontière du service, et elle
-est une fonction Python précisément pour que `test_ctester.py` puisse la mettre
-à l'épreuve à chaque convergence — un gabarit Jinja n'aurait été relu par
-personne.
+en cours de session est visible sans qu'on y pense. (`CTESTER_APERCU=1` lève le
+filtre pour éprouver un TP avant les étudiants — voir [`CLAUDE.md`](CLAUDE.md).)
 
 **`allowed_includes.txt`** : un en-tête par ligne (`stdio.h`, `pile.h`…). Sa
 présence active la liste blanche ; son absence la désactive. La vérification est
@@ -237,127 +209,19 @@ commentaire et ne voit pas un `#include` produit par macro. Les deux sont hors
 de portée d'un étudiant de première session, et le coût d'un faux positif est un
 message d'erreur clair.
 
-**Écrire un test Unity** : le fichier de test fournit `main()`, `setUp()` et
-`tearDown()` ; le fichier de l'étudiant ne doit pas définir `main()` (sinon :
-erreur d'édition de liens, et le message générique le mentionne). Les noms de
-test doivent tenir dans `[A-Za-z0-9_]{1,64}` pour remonter à l'étudiant — ce
-sont eux qu'il verra, donc autant les écrire pour lui : `test_pop_pile_vide`
-plutôt que `test_3b`.
+Le format de chaque fichier est documenté dans le README du dépôt de tests, avec
+les pièges qui comptent (la règle « toute valeur attendue dépasse 1 », le champ
+`absent`, la normalisation des réponses de quiz).
 
-**C23 en dialecte GNU** (`-std=gnu23`, gcc 14) est appliqué au fichier de
-l'étudiant. En mode unity, les tests et Unity sont compilés à part et gardent le
-`-std` par défaut : deux unités de traduction, deux normes, une seule édition de
-liens. Si Unity finit par ne pas aimer C23, ça ne touche pas le cours.
-
-**`gnu23` et pas `c23`**, et ça a coûté un exercice avant d'être compris : un
-mode ISO strict définit `__STRICT_ANSI__`, la glibc désactive alors
-`_DEFAULT_SOURCE`, et `M_PI` disparaît de `<math.h>` — `M_PI` n'est pas dans le C
-standard, c'est une extension POSIX. Du code correct, qui compile dans CLion,
-était refusé par le juge avec `'M_PI' undeclared`.
-
-CLion compile en dialecte gnu (`CMAKE_C_EXTENSIONS` vaut `ON` par défaut). Le
-juge doit accepter ce que l'outil de l'étudiant accepte, sinon on rejoue la même
-scène à chaque extension GNU rencontrée. `-D_DEFAULT_SOURCE` aurait soigné le
-symptôme sans traiter ça.
-
-Et non, ce n'était **pas** `-lm`, que le juge passe déjà : la glibc moderne a
-fusionné libm dans libc, et l'erreur était de compilation, pas d'édition de liens.
-
-**Deux scripts de bac à sable, et ils ne sont pas interchangeables.**
-`build-unity.sh` tait la stderr de l'édition de liens, parce qu'elle citerait le
-code des tests ; `build-io.sh` la laisse passer entière, parce qu'il ne voit
-aucun secret — les valeurs attendues restent dans `io.json`, sur l'hôte, et le
-conteneur ne reçoit que les entrées. Les fusionner ferait dépendre la
-confidentialité d'un `if` bien placé.
-
-## Exploitation
-
-**Rotation de la clé** (entre deux sessions, ou si un lien fuite trop loin) :
-
-```sh
-openssl rand -hex 24
-ansible-vault edit inventory/group_vars/ctester_hosts/vault.yml   # dans VHome
-ansible-playbook playbooks/ctester.yml --ask-vault-pass
-```
-
-Les anciens liens cessent immédiatement de fonctionner.
-
-**Charge.** `ctester_workers` (2) = compilations simultanées = cœurs que le juge
-peut prendre au Dell, puisque chaque conteneur est plafonné à 1 CPU. Ce sont les
-mêmes cœurs que Kea et AdGuard : ne pas monter cette valeur sans regarder ce
-qu'ils laissent libre. Réduire `ctester_workers` **ne désactive pas** les
-instances déjà activées — `systemctl disable --now ctester-runner@3` à la main.
-
-Le reste se règle par variables : `ctester_cooldown_seconds` (15),
-`ctester_hourly_quota` (40), `ctester_queue_max` (60, au-delà duquel `/submit`
-répond 503). Les bons chiffres se découvrent au premier TP.
-
-**Diagnostic**, dans l'ordre où ça casse :
-
-```sh
-docker info --format '{{json .Runtimes}}'      # runsc enregistré ?
-systemctl status 'ctester-runner@*'            # les workers tournent ?
-journalctl -u 'ctester-runner@*' -n 50         # ce que dit un job en erreur
-docker logs ctester-web-1                      # l'API (silencieuse si tout va bien)
-ls /opt/ctester/spool                          # la file, vide au repos
-docker exec nginx-manager-npm-1 getent hosts ctester-web-1   # NPM résout-il ?
-python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?
-grep -rl answer /opt/ctester/src/app/          # DOIT ne rien trouver
-```
-
-Et sur le contrôleur, avant de déployer une modification de la page ou du
-contenu :
-
-```sh
-python3 test_ctester.py          # les défenses, sans rien installer
-node test_page.js                # le JS de la page, sur un DOM en carton
-python3 valider_contenu.py ../unittests
-python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
-```
-
-Le dernier prend les deux scripts `build-*.sh` tels quels et les exécute avec
-un vrai gcc, chemins déplacés, sans Docker : c'est le seul contrôle qui éprouve
-l'**invariant de confidentialité** plutôt que d'en parler. Il soumet un module
-qui déborde d'un tableau et vérifie qu'en mode unity le verdict ne contient
-aucun identifiant du fichier de test — ni le rapport d'ASan, dont la pile
-d'appels nommerait la fonction de test appelante. Il lui faut gcc, donc il ne
-tourne pas sur le Dell.
-
-Le second compile la **solution de référence** de chaque exercice et la passe
-dans le vrai juge — il importe `runner.py` plutôt que de refaire ses
-vérifications, sinon la validation et le juge diriraient deux choses
-différentes. Un exercice sans corrigé apparaît comme « non prouvé », ce qui est
-la formulation honnête : rien ne garantit alors que son test soit juste. Il lui
-faut gcc, donc il tourne sur le contrôleur, jamais sur le Dell.
-
-Il exécute le JavaScript de la page contre un DOM en carton et vérifie que la
-soumission part vraiment. **`node --check` ne suffit pas** : il valide la
-syntaxe, et la seule panne que cette page ait connue en production était une
-`ReferenceError` de zone morte temporelle — une variable redéclarée dans le bloc
-`try` qui masquait la charge utile utilisée deux lignes plus haut. Le `fetch` ne
-partait jamais, le `catch` affichait « le serveur ne répond pas », et les logs
-du conteneur étaient vides parce qu'aucune requête n'était jamais émise.
-
-La dernière est la vérification de la frontière : le répertoire `app/` est tout
-ce que le conteneur exposé peut lire, et aucun corrigé n'a le droit d'y être. À
-refaire après chaque `--tags tests`.
-
-**Les quatre soumissions hostiles** à repasser après toute modification du bac à
-sable — elles sont la seule preuve que les défenses tiennent encore :
-
-| Soumission | Attendu |
-|---|---|
-| `while (1) fork();` | `timeout`, l'hôte ne bouge pas |
-| `system("curl http://exemple");` | échoue, `--network=none` |
-| `while (1);` | `timeout` à 5 s |
-| `#include <unistd.h>` hors liste blanche | rejeté avant même de lancer un conteneur |
-
-Sur la fork bomb, **vérifier le résultat et pas le mécanisme** : sous `runsc`,
-les processus créés dans le bac à sable sont internes à gVisor et ne sont pas
-des processus de l'hôte, donc `--pids-limit` (un contrôle cgroup) ne les compte
-pas forcément. Ce qui l'arrête alors est le plafond mémoire du sandbox et le
-chronomètre. Les deux options restent en place — l'une couvre `runc`, l'autre
-couvre `runsc` — et ce qui compte est que `uptime` sur le Dell ne bronche pas.
+**Le catalogue.** Le conteneur web ne lit pas les tests : il lit `app/tps.json`
+(id, mode, libellé) et `app/quiz/<tp>.json` (les questions **sans les
+réponses**), tous deux écrits par le worker au démarrage (`publish_catalogue()`
+dans `runner.py`). C'est la frontière du service, et elle est une fonction Python
+précisément pour que `test_ctester.py` puisse la mettre à l'épreuve à chaque
+convergence — un gabarit Jinja n'aurait été relu par personne. Il est republié
+au changement de jour, pour qu'une ouverture de minuit prenne effet sans
+redémarrage ; sinon, une modification pousse par `ansible-playbook … --tags
+tests` (voir [`CLAUDE.md`](CLAUDE.md)).
 
 ## Une permission qui surprend
 

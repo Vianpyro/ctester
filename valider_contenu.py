@@ -110,6 +110,15 @@ def main():
     runner.TESTS = racine
     unity_dir = os.path.join(racine, "unity")
 
+    # ABSENT ET VIDE NE SONT PAS LA MÊME PANNE. sous_dossiers() avale l'OSError
+    # -- c'est le bon choix pour le worker, dont la boucle ne doit pas mourir sur
+    # un clone en cours -- mais ici c'est un humain qui lit, et « aucun exercice
+    # trouvé » sur un chemin qui n'existe pas l'envoie chercher un bug dans son
+    # dépôt de tests au lieu de le cloner.
+    if not os.path.isdir(racine):
+        print("ce répertoire n'existe pas : " + racine)
+        return 1
+
     # tout=True : on valide AUSSI ce qui n'est pas encore ouvert aux étudiants.
     entrees = runner.catalogue(tout=True)
     if not entrees:

@@ -1,39 +1,17 @@
 <!doctype html>
-<!-- ctester -- la page étudiante. Fichier géré par Ansible : éditer le rôle.
-
-     Aucun framework et aucune ressource externe : la page est servie par le
-     même processus Python que l'API, dans un conteneur en lecture seule. Ce
-     qu'elle sait faire tient en 80 lignes de JS, et une dépendance CDN serait
-     une requête vers l'extérieur sur une page qui n'en fait aucune.
-
-     LA CLÉ DE SESSION VIENT DE L'URL (?k=...), telle que distribuée sur Moodle.
-     Elle n'authentifie personne : elle empêche seulement que le premier scanner
-     venu trouve un endpoint qui compile du C. -->
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>TCH009 — Tester mon code</title>
-<!-- LE THÈME AVANT LE PREMIER RENDU, sinon un étudiant en clair voit la page
-     s'afficher en sombre puis basculer. Trois lignes, et elles doivent rester
-     ici : plus bas, le flash est déjà arrivé.
-
-     L'ATTRIBUT id EST LOAD-BEARING. test_page.js isole le script de la page
-     par une expression rationnelle qui exige une balise script SANS attribut ;
-     une seconde balise nue ferait capturer les deux d'un bloc, et le harnais
-     compilerait du HTML en croyant compiler du JS. D'où l'id, ici -- et d'où
-     l'absence de la balise, écrite en toutes lettres, dans ce commentaire. -->
 <script id="theme-init">
   try {
     var t = localStorage.getItem("ctester.theme");
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
-  } catch (e) { /* stockage refusé : on garde le sombre par défaut */ }
+  } catch (e) {}
 </script>
 <style>
-  /* SOMBRE PAR DÉFAUT, et pas d'après le système : c'est un atelier, il a le
-     contraste d'un atelier. Le thème clair reste à un clic pour la salle de TP
-     baignée de néon, et le choix se retient d'une visite à l'autre. */
   :root {
     color-scheme: dark;
     --bg: #14171d; --panel: #1a1e26; --card: #21262f;
@@ -44,9 +22,6 @@
     --syn-comment: #6e7a70; --syn-string: #9ecf8a; --syn-pre: #d68fd0;
     --syn-key: #7fb0f2; --syn-num: #e0a06a; --syn-fn: #e8d08a;
     --syn-const: #c9a2e8;
-    /* MONO PORTE LA STRUCTURE, le sans porte les phrases. La matière de cette
-       page est du code : titre, barres, étiquettes et verdict sont en mono, et
-       le sans est réservé aux phrases entières qui rassurent. */
     --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono",
             "Roboto Mono", Consolas, monospace;
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -65,10 +40,6 @@
   * { box-sizing: border-box; }
   :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
-  /* LA COQUE. La page ne défile pas : chaque panneau défile pour son compte.
-     `min-height: 0` revient partout ci-dessous et il est structurel -- sans lui
-     un enfant de grille refuse de rétrécir sous son contenu, et c'est la barre
-     de défilement de page qui revient par la fenêtre. */
   html, body { height: 100%; }
   body {
     margin: 0; overflow: hidden;
@@ -77,9 +48,8 @@
     font: 14px/1.5 var(--mono);
   }
 
-  /* --- La barre du haut ---------------------------------------------------- */
   #top {
-    position: relative;   /* ancre du panneau de consentement, juste dessous */
+    position: relative;
     flex: 0 0 auto; display: flex; align-items: center; gap: .7rem;
     flex-wrap: wrap; padding: .5rem .9rem;
     background: var(--panel); border-bottom: 1px solid var(--line);
@@ -91,8 +61,6 @@
   .tagline { color: var(--muted); font-size: .72rem; white-space: nowrap; }
   .sep { width: 1px; align-self: stretch; background: var(--line); }
   .field { display: inline-flex; align-items: center; gap: .45rem; }
-  /* Les micro-étiquettes -- TP, EXERCICE, CONSIGNE -- en capitales espacées :
-     c'est le seul endroit où la casse haute sert, elles nomment des champs. */
   .field label, .phead {
     color: var(--muted); font-size: .68rem; letter-spacing: .09em;
     text-transform: uppercase;
@@ -113,7 +81,6 @@
   .nav:hover:not(:disabled) { color: var(--fg); }
   #theme { width: 2rem; text-align: center; padding: .3rem 0; }
 
-  /* --- Les panneaux -------------------------------------------------------- */
   .phead {
     flex: 0 0 auto; display: flex; align-items: center; gap: .6rem;
     padding: .45rem .75rem; border-bottom: 1px solid var(--line);
@@ -129,12 +96,6 @@
   }
   #travail[hidden] { display: none; }
 
-  /* LA CONSIGNE EST UN PANNEAU PERMANENT, et c'est le correctif central de
-     cette refonte : la moitié des exercices n'ont pas de `statement` publié
-     (runner.py met une chaîne vide par défaut), et masquer le panneau laissait
-     une demi-page morte à l'écran. Il affiche désormais son état vide.
-     <details> reste le mécanisme -- repli natif au clavier, annoncé aux
-     lecteurs d'écran -- mais il ne se replie qu'en mode empilé. */
   #consigne {
     min-height: 0; overflow-y: auto;
     border-right: 1px solid var(--line); background: var(--bg);
@@ -151,9 +112,6 @@
   }
   #consignetexte.vide { font-family: var(--sans); color: var(--muted); }
 
-  /* Trois rangées : le rappel d'exercice, la zone de travail qui prend tout ce
-     qui reste, et le verdict au contenu. L'éditeur et le quiz se relaient dans
-     la rangée du milieu -- un seul des deux est visible à la fois. */
   #droite {
     min-height: 0; display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
@@ -170,7 +128,6 @@
   #editor[hidden] { display: none; }
   #quizwrap { min-height: 0; overflow-y: auto; padding: .9rem; }
 
-  /* --- La barre d'onglets -------------------------------------------------- */
   #tabs { display: flex; gap: .2rem; flex-wrap: wrap; }
   .tab {
     font: inherit; font-size: 12.5px; cursor: pointer;
@@ -184,26 +141,6 @@
   #edtitle { font-size: 12.5px; color: var(--fg); text-transform: none;
              letter-spacing: 0; }
 
-  /* L'ÉDITEUR COLORÉ, ET POURQUOI IL EST BÂTI COMME ÇA.
-     Un <textarea> ne sait afficher que du texte brut : aucune propriété CSS ne
-     colore son contenu. La seule façon de garder une vraie zone de saisie --
-     avec Ctrl+Z, le collage, le correcteur du navigateur, la sélection -- est
-     de superposer un <pre> coloré DERRIÈRE un textarea dont le texte est
-     transparent. On voit le pre, on tape dans le textarea.
-
-     CE QUI CASSE CE MONTAGE : la moindre différence de métrique entre les deux.
-     Police, taille, interligne, marge intérieure, bordure, tabulation, gestion
-     des espaces : tout ce qui décale le texte d'un pixel décale les couleurs.
-     Les règles #hl et #code sont écrites ENSEMBLE et doivent le rester. Si les
-     couleurs dérivent du texte, c'est ici qu'il faut regarder.
-
-     LA GOUTTIÈRE EST UN TROISIÈME TEXTE À ALIGNER, et elle est délibérément
-     posée À CÔTÉ de la superposition, jamais dedans : #pane, #hl et #code
-     gardent exactement la relation qu'ils avaient avant qu'elle existe. Son
-     contrat à elle est plus court -- même font-size, même line-height, même
-     padding vertical, même épaisseur de bordure haute -- et il tient parce que
-     #code est en `white-space: pre` : sans retour à la ligne automatique, une
-     ligne de texte vaut une ligne de numéro, par construction. */
   #edwrap { flex: 1 1 auto; min-height: 0; display: flex; background: var(--card); }
   #gutter {
     flex: 0 0 auto; margin: 0; height: 100%; overflow: hidden;
@@ -226,33 +163,19 @@
   #hl {
     position: absolute; inset: 0;
     background: var(--card); color: var(--fg);
-    overflow: hidden;          /* le défilement est piloté par le textarea */
-    pointer-events: none;      /* les clics traversent jusqu'à la saisie */
+    overflow: hidden;
+    pointer-events: none;
   }
-  /* LES DEUX CALQUES SONT POSITIONNÉS PAREIL, et c'est délibéré : `inset: 0`
-     des deux côtés leur donne la même boîte par le même mécanisme, au lieu de
-     faire dépendre celle du textarea d'un `height: 100%` qui, lui, dépend de la
-     hauteur résolue du parent. Le textarea vient APRÈS dans le document, donc
-     il se peint au-dessus -- c'est ce qu'on veut. */
   #code {
     position: absolute; inset: 0;
     resize: none; overflow: auto; border-radius: 0;
     background: transparent;
-    color: transparent;        /* on lit le calque, pas le textarea */
-    caret-color: var(--ink);   /* mais le curseur, lui, doit rester visible */
+    color: transparent;
+    caret-color: var(--ink);
   }
-  /* Le texte du textarea est transparent -- son PLACEHOLDER l'était donc aussi,
-     et l'invite « colle ici ton fichier » disparaissait. Il faut le recolorer
-     explicitement. */
   #code::placeholder { color: var(--muted); opacity: 1; }
-  /* Sélection semi-transparente, et c'est structurel : le textarea est AU-DESSUS
-     du calque coloré, donc une sélection opaque masquerait le texte qu'on est en
-     train de sélectionner. En rgba() plutôt qu'en color-mix() pour que ça marche
-     aussi sur un navigateur d'école qui a trois ans. */
   #code::selection { background: rgba(34, 195, 214, .3); }
 
-  /* Palette de coloration. Volontairement sobre : sept catégories, pas trente,
-     parce qu'un TP de première session n'en contient pas plus. */
   .tc { color: var(--syn-comment); font-style: italic; }
   .ts { color: var(--syn-string); }
   .tp { color: var(--syn-pre); }
@@ -261,15 +184,11 @@
   .tf { color: var(--syn-fn); }
   .tu { color: var(--syn-const); }
 
-  /* --- La barre d'action, sous l'éditeur ----------------------------------- */
   #actions {
     flex: 0 0 auto; display: flex; align-items: center; gap: .7rem;
     flex-wrap: wrap; padding: .5rem .75rem;
     border-top: 1px solid var(--line); background: var(--panel);
   }
-  /* L'input fichier natif est illisible et non stylable : on le sort de l'écran
-     et on lui met un <label> devant. Le clic ET le clavier continuent de
-     marcher, ce qui ne serait pas vrai avec display:none. */
   #file { position: absolute; width: 1px; height: 1px; opacity: 0;
           pointer-events: none; }
   .btn {
@@ -285,18 +204,10 @@
     padding: .4rem 1.1rem;
   }
   #go:hover:not(:disabled) { filter: brightness(1.12); border-color: var(--ink); }
-  /* L'ÉTAT DU BROUILLON, à côté du bouton qui compte. Discret quand tout va
-     bien, rouge quand l'écriture a ÉCHOUÉ : c'est la seule chose que cet
-     indicateur doit garantir -- croire son travail enregistré alors qu'il ne
-     l'est pas est pire que de ne rien afficher du tout. */
   #brouillon { color: var(--muted); font-size: 12.5px; }
   #brouillon.rate { color: var(--bad); font-weight: 600; }
   #purger { font-size: 12px; }
 
-  /* --- LE VERDICT, signature de la page ------------------------------------
-     Toujours à l'écran : au repos il dit ce qu'on attend, en résultat il montre
-     le compte. La bordure gauche colorée reprend le langage déjà en place sur
-     .avert et #consentement. */
   #out {
     min-height: 0; max-height: 45vh; overflow-y: auto;
     padding: .85rem .95rem;
@@ -317,21 +228,13 @@
   }
   .verdict.idle { color: var(--muted); }
   .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
-  /* L'EXPLICATION VIT DANS L'ÉTAT DE REPOS DU VERDICT, pas dans un en-tête
-     qu'on lit une fois : c'est là que l'étudiant regarde quand rien n'a encore
-     eu lieu, et c'est là aussi que l'avertissement sur la portée des tests a le
-     plus de chances d'être lu -- juste sous une note qui n'en est pas une. */
   .aide { font-family: var(--sans); color: var(--muted); font-size: 12.5px;
           max-width: 46rem; margin: .5rem 0 0; }
   .aide + .aide { margin-top: .35rem; }
 
-  /* Une case par cas de test, pas une barre de pourcentage : le nombre de
-     cases EST le nombre de cas, et l'étudiant les compte. */
   .ticks { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 .6rem; }
   .ticks i { width: 11px; height: 6px; border-radius: 1px; background: var(--line); }
   .ticks i.on { background: var(--ok); }
-  /* L'attente est un état, pas un vide : une barre indéterminée pendant que gcc
-     tourne, et rien du tout si le système demande moins de mouvement. */
   .barre { height: 2px; margin: 0 0 .6rem; border-radius: 2px;
            background: var(--line); overflow: hidden; }
   .barre i { display: block; height: 100%; width: 30%; background: var(--ink); }
@@ -349,10 +252,6 @@
     }
   }
 
-  /* Les cas ratés se déplient. <details> plutôt qu'un panneau maison, pour la
-     même raison que la consigne : le clavier et le lecteur d'écran sont natifs.
-     Le premier est ouvert -- un résultat qu'il faut penser à déplier ne sert à
-     rien de plus qu'un résultat absent. */
   .case {
     margin-top: .5rem; border: 1px solid var(--line); border-radius: 6px;
     background: var(--bg); overflow: hidden;
@@ -369,8 +268,6 @@
   .case .corps { padding: 0 .6rem .5rem; }
   .case .vu { color: var(--muted); font-size: 12px; margin-top: .35rem; }
 
-  /* Les avertissements ne sont PAS une erreur : bordure ambre, jamais rouge.
-     Un étudiant qui réussit 9/9 et voit un cadre rouge croit avoir échoué. */
   .avert {
     margin-top: .8rem; padding: .55rem .7rem;
     border: 1px solid var(--line); border-left: 3px solid var(--wait);
@@ -388,7 +285,6 @@
     font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
   }
 
-  /* --- Le quiz ------------------------------------------------------------- */
   #quiz .qgroup {
     margin: 1.2rem 0 .4rem; font-weight: 700; font-size: .95rem;
     border-bottom: 1px solid var(--line); padding-bottom: .3rem;
@@ -406,7 +302,6 @@
   }
   #quiznav .pos { color: var(--muted); font-size: 12.5px; }
 
-  /* --- Le consentement, et la vue liste ------------------------------------ */
   #consentement {
     position: absolute; z-index: 5; top: 100%; right: .9rem; margin-top: .4rem;
     width: min(30rem, calc(100vw - 2rem));
@@ -419,8 +314,6 @@
 
   #liste { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .9rem; }
   #liste[hidden] { display: none; }
-  /* La progression est calculée sur des états RÉELS -- ce que l'étudiant a
-     validé -- et sur rien d'autre : pas de points inventés. */
   #progres { margin: 0 0 .9rem; max-width: 34rem; }
   #progres .compte { font-size: 12.5px; color: var(--muted); margin-bottom: .35rem; }
   #progres .compte b { color: var(--fg); font-variant-numeric: tabular-nums; }
@@ -436,9 +329,6 @@
   #liste .ligne:hover { border-color: var(--ink); }
   #liste .tpname { color: var(--muted); font-size: 12.5px; flex: 0 0 5rem; }
   #liste .titre { flex: 1 1 auto; }
-  /* La pastille porte une COULEUR ET UN MOT : la couleur seule laisserait deux
-     états indiscernables pour un étudiant daltonien, et cette page a exactement
-     un vert et un ambre. */
   #liste .puce {
     flex: 0 0 auto; font-size: 12px; color: var(--muted);
     border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
@@ -447,10 +337,6 @@
   #liste .valide { color: var(--ok); }
   #liste .essaye { color: var(--wait); }
 
-  /* --- REPLI MOBILE --------------------------------------------------------
-     Sous 900px on DÉFAIT la coque : la page redéfile, les panneaux s'empilent,
-     l'éditeur retrouve une hauteur bornée par la fenêtre. C'est le repli le
-     plus court, et le seul qui ne demande rien de neuf à un vieux navigateur. */
   @media (max-width: 900px) {
     html, body { height: auto; }
     main { display: block; }
@@ -470,9 +356,6 @@
 </style>
 </head>
 <body>
-<!-- LA BARRE DU HAUT. Elle absorbe ce qui était le titre, la ligne de compte et
-     la ligne des menus : dans une coque qui ne défile pas, tout ce qui pilote
-     l'exercice doit rester visible pendant qu'on tape. -->
 <div id="top">
   <h1>TCH009</h1>
   <span class="tagline">Tester mon code</span>
@@ -494,18 +377,12 @@
   <span class="grow"></span>
   <button type="button" id="theme" class="nav" title="Changer de thème"
           aria-label="Changer de thème">☀</button>
-  <!-- LE RESTE DE CETTE BARRE EST VIDE PAR DÉFAUT et le reste sur un
-       déploiement sans émetteur OIDC : chaque contrôle ci-dessous n'est révélé
-       par le script qu'une fois que /oidc.json a répondu quelque chose. Un
-       étudiant qui ne se connecte jamais voit la page qu'il a toujours vue. -->
   <span id="moi" hidden></span>
   <button type="button" id="mesexos" class="nav" hidden>Mes exercices</button>
   <button type="button" id="oublier" class="nav" hidden>Supprimer mes données</button>
   <button type="button" id="deconnexion" class="nav" hidden>Se déconnecter</button>
   <button type="button" id="connexion" class="nav" hidden>Se connecter</button>
 
-  <!-- Montré une fois, avant la première redirection. Dire après coup ce qui a
-       été conservé ne serait pas un consentement, ce serait un avis. -->
   <div id="consentement" hidden>
     <p>Te connecter fait conserver, sur le serveur de ce site&nbsp;: un
        identifiant de compte opaque (ni ton nom, ni ton courriel), le code que
@@ -523,18 +400,12 @@
 
 <main>
 <div id="travail">
-  <!-- Panneau permanent, y compris quand l'exercice n'a pas de consigne
-       publiée : c'est le script qui y écrit alors son état vide. -->
   <details id="consigne" open>
     <summary class="phead">Consigne</summary>
     <pre id="consignetexte"></pre>
   </details>
 
   <div id="droite">
-    <!-- RAPPEL PERMANENT DE CE QU'ON TESTE, juste au-dessus de la zone de
-         saisie. Les deux menus laissent le choix hors du champ de vision une
-         fois qu'on travaille ; cette barre garde l'exercice sous les yeux, et
-         dit du même coup ce qu'on attend : du code ou des réponses. -->
     <div id="now" class="phead" aria-live="polite"></div>
 
     <div id="editor">
@@ -542,8 +413,6 @@
         <span id="edtitle"></span>
         <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
       </div>
-      <!-- La gouttière est SŒUR du panneau superposé, pas dedans : voir le long
-           commentaire de #hl / #code dans la feuille de style. -->
       <div id="edwrap">
         <pre id="gutter" aria-hidden="true"></pre>
         <div id="pane">
@@ -571,19 +440,12 @@
   </div>
 </div>
 
-<!-- La vue liste. Une seconde porte d'entrée, jamais la seule : les deux menus
-     restent la route par défaut, et ils sont la seule route pour qui ne se
-     connecte pas. -->
 <div id="liste" hidden></div>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
 
-// COMING BACK FROM RAUTHY, THE URL IS NOT OURS ANY MORE: the provider returns
-// to ?code=...&state=..., which would have dropped the session key from Moodle
-// and any ?tp= deep link. Both are put back HERE, synchronously, before the two
-// lines below read them -- everything after this point sees the URL it expects.
 const callbackParams = new URLSearchParams(location.search);
 const authCode = callbackParams.get("code");
 const authState = callbackParams.get("state");
@@ -600,10 +462,6 @@ if (authCode) {
 const key = new URLSearchParams(location.search).get("k") || "";
 const out = $("out");
 
-// --- LE THÈME ---------------------------------------------------------------
-// Le sombre est le défaut et il est posé par le petit script de <head>, avant
-// le premier rendu. Ce bouton ne fait que basculer et retenir. Le glyphe montre
-// CE QU'ON OBTIENDRA et pas l'état courant : un bouton dit ce qu'il fait.
 const THEME_KEY = "ctester.theme";
 
 function appliquerTheme(nom) {
@@ -621,31 +479,24 @@ $("theme").addEventListener("click", () => {
   const suivant =
     document.documentElement.dataset.theme === "light" ? "dark" : "light";
   appliquerTheme(suivant);
-  // Un stockage qui refuse ne casse rien : le thème tient pour cette visite.
-  try { localStorage.setItem(THEME_KEY, suivant); } catch (e) { /* tant pis */ }
+  try { localStorage.setItem(THEME_KEY, suivant); } catch (e) {}
 });
 
 function show(cls, title, extra, bar) {
-  out.className = cls;                  // colore la bordure gauche du panneau
+  out.className = cls;
   out.innerHTML = "";
   const h = document.createElement("div");
   h.className = "verdict " + cls;
   h.textContent = title;
   out.append(h);
-  // L'ATTENTE EST UN ÉTAT, PAS UN VIDE. gcc met une seconde ou deux, et une
-  // page figée pendant ce temps-là se fait recliquer.
   if (cls === "wait") out.append(indeterminee());
-  if (bar) out.append(bar);            // la barre de cases, juste sous le compte
+  if (bar) out.append(bar);
   if (extra) out.append(extra);
-  // Au repos, le panneau porte l'explication : c'est le seul moment où
-  // l'étudiant a le temps de la lire, et le seul endroit où il regarde.
   if (cls === "idle") {
     out.append(aide("Choisis ton TP, puis colle ton fichier .c ou saisis tes "
                   + "réponses selon l'exercice. Les résultats ne sont pas une "
                   + "note."));
   }
-  // APRÈS TOUT VERDICT, réussite comprise : la portée des tests se rappelle là
-  // où on vient de lire un score, pas dans un pied de page qu'on ne lit jamais.
   if (cls !== "wait") {
     out.append(aide("Un exercice à la fois. Les tests utilisés ici sont un "
                   + "sous-ensemble : ils t'aident à trouver tes erreurs, ils ne "
@@ -667,8 +518,6 @@ function indeterminee() {
   return b;
 }
 
-// Une case par cas de test, remplie de gauche à droite. Le retard d'animation
-// est plafonné pour qu'un exercice à cinquante cas ne défile pas une seconde.
 function ticks(passed, total) {
   const bar = document.createElement("div");
   bar.className = "ticks";
@@ -685,8 +534,8 @@ function list(items) {
   const ul = document.createElement("ul");
   for (const it of items) {
     const li = document.createElement("li");
-    li.textContent = it;               // textContent : la sortie du juge n'est
-    ul.append(li);                     // jamais interprétée comme du HTML
+    li.textContent = it;
+    ul.append(li);
   }
   return ul;
 }
@@ -697,8 +546,6 @@ function block(text) {
   return pre;
 }
 
-// Le catalogue est [{id, mode, label}], publié par le worker. Le MODE décide de
-// tout ce qui suit : ce que la page affiche, et ce qu'elle envoie.
 let catalogue = [];
 
 const current = () => catalogue.find(t => t.id === $("ex").value) || null;
@@ -713,13 +560,7 @@ function addOption(sel, value, text) {
 fetch("tps.json").then(r => r.json()).then(tps => {
   catalogue = tps;
   if (!tps.length) { show("bad", "Aucun TP n'est publié pour l'instant."); return; }
-  // DEUX MENUS DÉPENDANTS, ET PAS UNE LISTE PLATE. À 13 TP de 8 exercices, une
-  // liste unique fait plus de cent lignes qu'il faut parcourir pour retrouver
-  // une entrée dont on connaît déjà les deux coordonnées. Deux menus courts
-  // suivent la structure du cours et suppriment le défilement.
   for (const g of [...new Set(tps.map(t => t.group))]) addOption($("tp"), g, g);
-  // Lien profond : ?tp=tp2-ex3 ouvre directement sur cet exercice, ce qui rend
-  // publiable un lien par semaine sur Moodle.
   const wanted = catalogue.find(
     t => t.id === new URLSearchParams(location.search).get("tp"));
   if (wanted) $("tp").value = wanted.group;
@@ -729,9 +570,6 @@ fetch("tps.json").then(r => r.json()).then(tps => {
 $("tp").addEventListener("change", () => fillExercises());
 $("ex").addEventListener("change", switchMode);
 
-// PASSER À L'EXERCICE SUIVANT SANS TOUCHER AUX DEUX MENUS, y compris en
-// franchissant la fin d'un TP : c'est le geste qu'on fait vingt fois par
-// séance, et il ne doit pas coûter deux clics dans deux listes.
 function aller(pas) {
   const i = catalogue.findIndex(t => t.id === $("ex").value);
   const cible = catalogue[i + pas];
@@ -747,26 +585,12 @@ function fillExercises(preselect) {
   $("ex").innerHTML = "";
   for (const t of items) addOption($("ex"), t.id, t.short);
   if (preselect) $("ex").value = preselect;
-  // Un TP qui n'a qu'une entrée -- un quiz, typiquement -- n'a pas d'exercice à
-  // choisir : un menu à une seule option ne serait qu'un clic de plus.
   $("exwrap").hidden = items.length <= 1;
   switchMode();
 }
 
-// --- LE BROUILLON, ENREGISTRÉ TOUT SEUL ------------------------------------
-// One draft per exercise. Without it the "next" button would be a trap: one
-// click and the code just written is gone on the way back.
-//
-// localStorage, AND NOT AN ENDPOINT: a draft needs nobody to survive a reload,
-// and the server has no business knowing what has not been submitted yet. The
-// trade-off is accepted: on a shared lab machine the code stays on the machine
-// after the student leaves -- hence the "effacer mes brouillons" button.
 const DRAFTS_KEY = "ctester.drafts";
 
-// WHAT COMES OUT OF STORAGE IS INPUT, not trusted data: anything running on
-// this origin could have written it, the student's own console included. Only
-// the expected shape -- {exercise: {filename: text}} -- gets through, so that
-// nothing else can reach the editor or the submission.
 function sanitizeDrafts(raw) {
   const clean = {};
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return clean;
@@ -785,16 +609,13 @@ function loadDrafts() {
   try {
     return sanitizeDrafts(JSON.parse(localStorage.getItem(DRAFTS_KEY)));
   } catch (e) {
-    return {};   // private mode, storage refused, damaged JSON: start empty
+    return {};
   }
 }
 
 const drafts = loadDrafts();
 let currentId = null;
 let saveTimer = null;
-// Guards against a slow answer landing after the student has moved on. Without
-// it, clicking "next" twice quickly could drop exercise 4's draft into
-// exercise 5's editor.
 let loadToken = 0;
 
 function showDraftStatus(text, failed) {
@@ -804,11 +625,6 @@ function showDraftStatus(text, failed) {
 
 const twoDigits = (n) => String(n).padStart(2, "0");
 
-// THE WRITE, AND ABOVE ALL ITS FAILURE. A try/catch that swallowed the error
-// would be the worst of both worlds: "brouillon enregistré" on screen while
-// nothing is. Private browsing, a full quota, storage disabled by a school
-// policy -- all three happen, and all three must show. The erase button sits
-// right next to it, which is also the way out of a full quota.
 function saveDraft() {
   if (currentId === null || actif === null) return;
   sources[actif] = $("code").value;
@@ -823,27 +639,19 @@ function saveDraft() {
   showDraftStatus("brouillon enregistré à "
                 + twoDigits(t.getHours()) + ":" + twoDigits(t.getMinutes()));
   $("purger").hidden = false;
-  // The local copy is written first and always. The account copy is a bonus on
-  // top, and it corrects the message itself if it does not make it.
   if (token) syncDraft(currentId, sources);
 }
 $("purger").hidden = !Object.keys(drafts).length;
 
-// Erasing empties STORAGE, not the editor: cutting the text from under the
-// fingers of someone who is working would be worse than the problem being
-// solved. The open exercise is therefore written again on the next keystroke,
-// which is the intent -- what gets erased is what would be left behind, not
-// what is being written. To leave a shared machine: erase, then close the tab.
 $("purger").addEventListener("click", () => {
   clearTimeout(saveTimer);
   for (const exercise of Object.keys(drafts)) delete drafts[exercise];
-  try { localStorage.removeItem(DRAFTS_KEY); } catch (e) { /* nothing to erase */ }
+  try { localStorage.removeItem(DRAFTS_KEY); } catch (e) {}
   showDraftStatus("brouillons effacés");
   $("purger").hidden = true;
 });
 
 function switchMode() {
-  // Switching exercises IS the end of an edit: no need to wait out the delay.
   clearTimeout(saveTimer);
   saveDraft();
   const tp = current();
@@ -852,16 +660,10 @@ function switchMode() {
   const i = catalogue.findIndex(t => t.id === $("ex").value);
   $("prev").disabled = i <= 0;
   $("next").disabled = i < 0 || i >= catalogue.length - 1;
-  // #editor et pas #code : le calque coloré est un frère du textarea, cacher
-  // l'un sans l'autre laisserait le pre seul à l'écran.
   $("editor").hidden = quiz;
   $("filewrap").hidden = quiz;
   $("quizwrap").hidden = !quiz;
 
-  // La barre de contexte. Ce n'est PAS décoratif : la première vraie confusion
-  // sur cette page a été de soumettre l'exercice 3 avec l'exercice 2 sélectionné,
-  // et le verdict était alors incompréhensible. Le titre reste sous les yeux, et
-  // la pastille dit ce qu'on attend -- du code ou des réponses.
   $("now").innerHTML = "";
   if (tp) {
     const titre = document.createElement("b");
@@ -873,13 +675,6 @@ function switchMode() {
     $("now").append(titre, pastille);
   }
 
-  // textContent et pas innerHTML : la consigne vient du dépôt de tests, mais
-  // elle contient des prototypes pleins de `*` et de chevrons, et rien de ce
-  // qui s'affiche sur cette page ne doit jamais être interprété comme du HTML.
-  // LE PANNEAU RESTE, MÊME SANS CONSIGNE. La moitié des exercices n'en
-  // publient pas -- runner.py met une chaîne vide par défaut -- et le masquer
-  // laissait une demi-page morte à côté de l'éditeur. Un état vide rédigé dit
-  // au moins où aller chercher l'énoncé.
   const consigne = (tp && tp.statement) || "";
   $("consignetexte").textContent = consigne
     || "Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP "
@@ -891,10 +686,8 @@ function switchMode() {
   if (quiz) {
     loadQuiz(tp.id);
   } else if (!token) {
-    setupFiles(tp);          // anonymous: synchronous, exactly as before
+    setupFiles(tp);
   } else {
-    // Signed in: ask the server BEFORE filling the editor, so the student never
-    // sees a blank template flash over work they already did.
     loadThenFill(tp, thisLoad);
   }
 }
@@ -902,21 +695,11 @@ function switchMode() {
 async function loadThenFill(tp, thisLoad) {
   const answer = await getJson("brouillon?ex=" + encodeURIComponent(tp.id));
   if (thisLoad !== loadToken) return;
-  // Through the same sieve as localStorage: it comes back from our own API, but
-  // a student put it there in the first place.
   const clean = sanitizeDrafts({ [tp.id]: answer && answer.sources });
   if (Object.keys(clean[tp.id] || {}).length) drafts[tp.id] = clean[tp.id];
   setupFiles(tp);
 }
 
-// UNE PAGE PAR EXERCICE. Le TP1 fait 40 questions : d'un seul tenant, l'étudiant
-// défile sans savoir où il en est, et une faute de frappe en haut se corrige
-// après un aller-retour de deux écrans. Les groupes existaient déjà dans le
-// corrigé -- il suffisait de les afficher un à la fois.
-//
-// LES CHAMPS DES AUTRES PAGES RESTENT DANS LE DOCUMENT, seulement masqués : la
-// soumission ramasse tout, donc on peut remplir l'exercice 1, sauter au 4, et
-// tester l'ensemble. Les vider en changeant de page perdrait des réponses.
 let pagesQuiz = [];
 let pageQuiz = 0;
 let groupeDeQuestion = {};
@@ -993,7 +776,6 @@ const answers = () => Object.fromEntries(
   [...$("quiz").querySelectorAll("input[data-qid]")].map(i => [i.dataset.qid, i.value])
 );
 
-// --- Coloration syntaxique -------------------------------------------------
 const ESC = {"&": "&amp;", "<": "&lt;", ">": "&gt;"};
 const esc = (s) => s.replace(/[&<>]/g, (c) => ESC[c]);
 
@@ -1002,19 +784,14 @@ const KEYWORDS = "auto|break|case|char|const|continue|default|do|double|else|" +
   "short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|" +
   "volatile|while|bool|true|false|NULL";
 
-// UNE SEULE passe et UNE SEULE alternation : l'ordre des branches EST la
-// priorité. Le commentaire d'abord, la chaîne ensuite -- sinon le `//` d'une
-// URL dans une chaîne ouvrirait un commentaire, et une apostrophe dans un
-// commentaire ouvrirait une chaîne. Colorer par remplacements successifs
-// produit exactement ces deux bugs, et ils sont pénibles à voir venir.
 const C_RE = new RegExp([
-  "(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)",                  // 1 commentaire
-  "(\"(?:\\\\.|[^\"\\\\\\n])*\"|'(?:\\\\.|[^'\\\\\\n])*')",  // 2 chaîne / caractère
-  "(^[ \\t]*#[ \\t]*\\w+)",                                  // 3 préprocesseur
-  "\\b(" + KEYWORDS + ")\\b",                                // 4 mot-clé
-  "\\b(\\d[\\w.]*)",                                         // 5 nombre
-  "([A-Za-z_]\\w*)(?=\\s*\\()",                              // 6 appel de fonction
-  "\\b([A-Z][A-Z0-9_]{2,})\\b"                               // 7 constante
+  "(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)",
+  "(\"(?:\\\\.|[^\"\\\\\\n])*\"|'(?:\\\\.|[^'\\\\\\n])*')",
+  "(^[ \\t]*#[ \\t]*\\w+)",
+  "\\b(" + KEYWORDS + ")\\b",
+  "\\b(\\d[\\w.]*)",
+  "([A-Za-z_]\\w*)(?=\\s*\\()",
+  "\\b([A-Z][A-Z0-9_]{2,})\\b"
 ].join("|"), "gm");
 
 const CLASS = ["tc", "ts", "tp", "tk", "tn", "tf", "tu"];
@@ -1024,22 +801,12 @@ function highlight(src) {
   for (const m of src.matchAll(C_RE)) {
     out += esc(src.slice(last, m.index));
     const which = m.slice(1, CLASS.length + 1).findIndex(g => g !== undefined);
-    // ÉCHAPPEMENT APRÈS LE DÉCOUPAGE, JAMAIS AVANT. Tokeniser du HTML déjà
-    // échappé ferait matcher `&lt;` et `&amp;` comme du code -- et surtout,
-    // oublier d'échapper laisserait un printf("<script>") d'étudiant s'exécuter
-    // dans sa propre page. Tout ce qui sort d'ici passe par esc().
     out += '<span class="' + CLASS[which] + '">' + esc(m[0]) + "</span>";
     last = m.index + m[0].length;
   }
-  // Le \n final : sans lui, la dernière ligne vide du textarea manque au calque
-  // et le défilement dérive d'une ligne en bas de fichier.
   return out + esc(src.slice(last)) + "\n";
 }
 
-// LA GOUTTIÈRE N'EST RÉÉCRITE QUE SI LE NOMBRE DE LIGNES CHANGE. Elle est
-// repeinte à chaque frappe et à chaque défilement ; régénérer trois cents
-// numéros pour une lettre tapée au milieu d'une ligne serait le seul travail
-// inutile de cette fonction.
 let lignesAffichees = -1;
 
 function gouttiere(n) {
@@ -1058,9 +825,6 @@ function paint() {
   $("hl").scrollLeft = $("code").scrollLeft;
 }
 
-// ONE `input` listener doing both. Highlighting is immediate, saving waits for
-// 1.5 s of silence: writing to storage on every keystroke would serialise the
-// whole draft forty times a line, for nothing.
 $("code").addEventListener("input", () => {
   paint();
   clearTimeout(saveTimer);
@@ -1068,13 +832,6 @@ $("code").addEventListener("input", () => {
 });
 $("code").addEventListener("scroll", paint);
 
-// Tab indente au lieu de quitter le champ. Dans une zone où l'on écrit du C,
-// perdre le curseur à chaque indentation est une friction quotidienne.
-//
-// ÉCHAP PUIS TAB RESTE LA SORTIE AU CLAVIER, et ce n'est pas un détail : sans
-// ce chemin, quelqu'un qui navigue sans souris se retrouve enfermé dans le
-// textarea, incapable d'atteindre le bouton « Tester ». Régler un confort en
-// cassant l'accessibilité serait un mauvais échange.
 let sortieClavier = false;
 $("code").addEventListener("keydown", (e) => {
   if (e.key === "Escape") { sortieClavier = true; return; }
@@ -1082,7 +839,7 @@ $("code").addEventListener("keydown", (e) => {
     sortieClavier = false;
     return;
   }
-  if (sortieClavier) { sortieClavier = false; return; }   // on laisse sortir
+  if (sortieClavier) { sortieClavier = false; return; }
   e.preventDefault();
   const zone = $("code");
   const debut = zone.selectionStart, fin = zone.selectionEnd;
@@ -1091,20 +848,12 @@ $("code").addEventListener("keydown", (e) => {
   paint();
 });
 
-// --- Les fichiers de la soumission ----------------------------------------
-// UN ONGLET PAR FICHIER DÉCLARÉ PAR L'ÉNONCÉ, et les noms ne sont pas au choix
-// de l'étudiant : à partir du laboratoire 5 il écrit un module, et le
-// `#include "calendrier.h"` de son propre code ne tombe juste que si le fichier
-// porte exactement ce nom. Des onglets pré-nommés suppriment cette erreur au
-// lieu de la sanctionner.
 let sources = {};
 let actif = null;
 
 function setupFiles(tp) {
   const files = (tp && tp.files && tp.files.length)
     ? tp.files : [{ name: "submission.c", template: "" }];
-  // Le brouillon d'abord : revenir sur un exercice doit retrouver son travail,
-  // pas le gabarit vierge.
   sources = (tp && drafts[tp.id]) || null;
   if (!sources) {
     sources = {};
@@ -1122,18 +871,12 @@ function setupFiles(tp) {
     onglet.addEventListener("click", () => activer(f.name));
     $("tabs").append(onglet);
   }
-  // Un seul fichier : une barre d'onglets à un onglet n'apprend rien. Le nom
-  // s'affiche quand même, en clair -- l'en-tête de panneau doit dire dans quoi
-  // on tape, onglets ou pas.
   $("tabs").hidden = files.length <= 1;
   $("edtitle").hidden = files.length > 1;
   activer(files[0].name);
 }
 
 function activer(nom) {
-  // Sauver AVANT de changer : le textarea est la seule copie vivante du fichier
-  // courant, et perdre le travail d'un étudiant en cliquant sur un onglet est
-  // le genre de bug qu'on ne se fait pas pardonner.
   if (actif !== null) sources[actif] = $("code").value;
   actif = nom;
   $("edtitle").textContent = nom;
@@ -1147,8 +890,6 @@ function activer(nom) {
   paint();
 }
 
-// Flèches gauche/droite dans la barre d'onglets : c'est le comportement que la
-// convention ARIA attend d'un tablist, et il est gratuit ici.
 $("tabs").addEventListener("keydown", (e) => {
   const pas = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
   if (!pas) return;
@@ -1160,23 +901,13 @@ $("tabs").addEventListener("keydown", (e) => {
 $("file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   if (!f) return;
-  // Le fichier déposé remplit l'ONGLET COURANT. Deviner l'onglet d'après le nom
-  // du fichier serait plus malin et plus surprenant : l'étudiant qui dépose
-  // « calendrier.c » en ayant l'onglet .h ouvert saurait pourquoi il s'est
-  // trompé, alors qu'un remplissage silencieux ailleurs le laisserait perplexe.
   $("code").value = await f.text();
   paint();
 });
 
-// Les cas ratés : le numéro, LES ENTRÉES et TA sortie. Jamais la valeur
-// attendue -- elle transformerait le débogage en recopie.
 function cases(items) {
   const box = document.createElement("div");
   for (const c of items) {
-    // <details> et pas un panneau maison, pour la raison qui vaut déjà pour la
-    // consigne : le repli au clavier et l'annonce aux lecteurs d'écran sont
-    // natifs. Le premier cas est ouvert -- un résultat qu'il faut penser à
-    // déplier ne vaut pas mieux qu'un résultat absent.
     const wrap = document.createElement("details");
     wrap.className = "case";
     wrap.open = !box.children.length;
@@ -1185,16 +916,11 @@ function cases(items) {
     const corps = document.createElement("div");
     corps.className = "corps";
     let texte = "entrées :\n" + c.stdin + "\nta sortie :\n" + (c.stdout || "(rien)");
-    // La sortie d'erreur du programme, quand il y en a une : c'est là
-    // qu'atterrissent ses fprintf(stderr, ...) de mise au point.
     if (c.stderr) texte += "\nta sortie d'erreur :\n" + c.stderr;
     const io = document.createElement("pre");
     io.textContent = texte;
     corps.append(io);
     wrap.append(why, corps);
-    // CE QUE LE JUGE A LU dans sa sortie. Sans ça, l'appariement des nombres
-    // est une boîte noire : celui qui écrit « 1 234 » ne peut pas deviner que
-    // sa ligne a été coupée en deux.
     if (c.nombres) {
       const vu = document.createElement("div");
       vu.className = "vu";
@@ -1208,8 +934,6 @@ function cases(items) {
   return box;
 }
 
-// Les avertissements du compilateur, sur SES fichiers. Affichés aussi quand
-// tout passe : c'est le seul moment où l'étudiant a le temps de les lire.
 function avertissements(texte) {
   const bloc = document.createElement("div");
   bloc.className = "avert";
@@ -1238,9 +962,6 @@ function render(r) {
     if (all) {
       show("ok", title, null, bar);
     } else if (r.kind === "quiz") {
-      // Le numéro d'exercice ET la réponse saisie : le quiz étant paginé,
-      // savoir QUELLE question est fausse ne suffit plus, il faut pouvoir la
-      // retrouver et se rappeler ce qu'on avait tapé.
       show("bad", title, list(r.wrong.map(w => {
         const ex = (groupeDeQuestion[w.id] || "").match(/Exercice\s*\d+/i);
         const saisi = w.given && w.given.trim() ? ` (tu as répondu « ${w.given} »)` : "";
@@ -1253,7 +974,6 @@ function render(r) {
       show("bad", title, r.failed.length ? list(r.failed) : null, bar);
     }
   }
-  // APRÈS le verdict, quel qu'il soit : réussite comprise.
   if (r.warnings) out.append(avertissements(r.warnings));
 }
 
@@ -1287,8 +1007,6 @@ $("go").addEventListener("click", async () => {
       show("bad", "Aucune réponse saisie."); return;
     }
   } else {
-    // L'onglet courant n'est dans `sources` qu'après ce transfert : le textarea
-    // en est la copie vivante tant qu'on n'a pas changé d'onglet.
     sources[actif] = $("code").value;
     body.files = sources;
     if (!Object.values(sources).some(v => v.trim())) {
@@ -1303,15 +1021,6 @@ $("go").addEventListener("click", async () => {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(body)
     });
-    // `out` et pas `body` : ce nom est déjà celui de la charge utile juste
-    // au-dessus, et le redéclarer ici le masquait dans TOUT ce bloc -- y
-    // compris sur la ligne qui l'utilise, plus haut. Zone morte temporelle,
-    // ReferenceError, fetch jamais parti, et le catch en dessous qui maquillait
-    // le tout en panne serveur. Ne pas réutiliser ce nom.
-    //
-    // La réponse n'est pas toujours du JSON : une page de blocage Cloudflare ou
-    // une erreur nginx arrive en HTML, et `r.json()` lève. Sans ce garde, une
-    // règle WAF ressemble exactement à un serveur éteint.
     let out = null;
     try { out = await r.json(); } catch (parseError) { out = null; }
     if (!r.ok || !out) {
@@ -1320,27 +1029,13 @@ $("go").addEventListener("click", async () => {
       $("go").disabled = false;
       return;
     }
-    // 150 tentatives x 2 s = 5 minutes, largement au-dessus du pire cas d'une
-    // classe entière qui soumet en même temps.
     poll(out.id, 150);
   } catch (e) {
-    // Le message de l'exception, pas un texte générique : c'est la différence
-    // entre « diagnostic en cinq secondes » et « aller-retour avec le serveur ».
     show("bad", "Le serveur est injoignable : " + e.message);
     $("go").disabled = false;
   }
 });
 
-// --- OPTIONAL SIGN-IN ------------------------------------------------------
-// EVERYTHING BELOW IS INERT until /oidc.json answers with an issuer. With no
-// token, no request carries an Authorization header, switchMode() stays on the
-// synchronous path it always used, and the page is byte-for-byte the experience
-// an anonymous student had before this feature existed.
-//
-// PKCE with no client secret, because this page is a public client and has no
-// secret it could keep. The access token lives in sessionStorage and dies with
-// the tab -- on a shared lab machine that is the difference between "signed out
-// when I left" and "signed in for whoever sits down next".
 let oidc = null;
 let token = null;
 let states = {};
@@ -1351,10 +1046,10 @@ function sessionGet(name) {
   try { return sessionStorage.getItem(name) || ""; } catch (e) { return ""; }
 }
 function sessionSet(name, value) {
-  try { sessionStorage.setItem(name, value); } catch (e) { /* private mode */ }
+  try { sessionStorage.setItem(name, value); } catch (e) {}
 }
 function sessionDrop(name) {
-  try { sessionStorage.removeItem(name); } catch (e) { /* nothing to drop */ }
+  try { sessionStorage.removeItem(name); } catch (e) {}
 }
 
 const authFetch = (url, options) => fetch(url, Object.assign({}, options, {
@@ -1381,8 +1076,6 @@ async function putJson(path, payload) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    // An expired token is not an error to report, it is a state to leave: sign
-    // out quietly and the page falls back to what it does for everyone else.
     if (answer.status === 401) { signOut(); return false; }
     return answer.ok;
   } catch (e) {
@@ -1390,9 +1083,6 @@ async function putJson(path, payload) {
   }
 }
 
-// The local save already said "enregistré", and that was true. This only
-// corrects the message when the account copy did NOT make it -- silence would
-// let a student believe their work follows them to another machine.
 async function syncDraft(exerciseId, files) {
   const ok = await putJson("brouillon", { tp: exerciseId, files });
   if (!ok && exerciseId === currentId) {
@@ -1400,10 +1090,6 @@ async function syncDraft(exerciseId, files) {
   }
 }
 
-// ponytail: the page declares its own verdict. A student could mark an exercise
-// solved from the console -- and this is a self-service judge with no grade
-// attached, so the only thing they would fool is their own dashboard. Derive the
-// status from result.json server-side the day it means anything.
 function recordState(verdict) {
   if (!token || currentId === null) return;
   const tp = current();
@@ -1411,13 +1097,10 @@ function recordState(verdict) {
                  && verdict.passed === verdict.total;
   const statut = solved ? "valide" : "essaye";
   if (states[currentId] !== "valide") states[currentId] = statut;
-  // A quiz has no files of its own. Sending the editor's would file another
-  // exercise's code under this one's name, and the server would refuse it.
   putJson("etat", { tp: currentId, statut: statut,
                     files: (tp && tp.mode === "quiz") ? {} : sources });
 }
 
-// --- The OIDC round trip ---------------------------------------------------
 const base64url = (bytes) => btoa(String.fromCharCode(...bytes))
   .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
@@ -1429,9 +1112,6 @@ async function challengeFor(verifier) {
   return base64url(new Uint8Array(digest));
 }
 
-// Endpoints are READ from the provider's discovery document rather than
-// hardcoded: paths differ between providers and move between releases, and a
-// guessed URL fails on the day of an upgrade, in production, for everyone.
 let discovered = null;
 async function discovery() {
   if (!discovered) {
@@ -1448,9 +1128,6 @@ async function startSignIn() {
   const verifier = randomToken();
   const state = randomToken();
   sessionSet("ctester.pkce", JSON.stringify({ verifier: verifier, state: state }));
-  // The session key from Moodle and any ?tp= deep link, kept for the return
-  // trip: the provider comes back to a bare URL. Restored at the top of this
-  // script, before anything reads them.
   sessionSet("ctester.retour", location.search);
   const params = new URLSearchParams({
     response_type: "code",
@@ -1464,9 +1141,6 @@ async function startSignIn() {
   location.assign(doc.authorization_endpoint + "?" + params.toString());
 }
 
-// THE `state` CHECK IS NOT DECORATION: without it, anyone could hand a student
-// a link carrying THEIR authorization code and have the student's browser
-// finish the sign-in as them, then read what that account writes next.
 async function finishSignIn() {
   const saved = sessionGet("ctester.pkce");
   sessionDrop("ctester.pkce");
@@ -1531,9 +1205,6 @@ async function loadStates() {
   }
 }
 
-// --- The list view ---------------------------------------------------------
-// A SECOND WAY IN, NEVER THE ONLY ONE. The two <select> keep working, and they
-// are the only road for a student who never signs in.
 const STATE_LABELS = { valide: "validé", essaye: "essayé" };
 
 function buildList() {
@@ -1553,8 +1224,6 @@ function buildList() {
     const dot = document.createElement("span");
     const statut = states[tp.id] || "";
     dot.className = "puce " + statut;
-    // A word next to the colour: two dots that differ only in hue say nothing
-    // to a red-green colour-blind reader, and this page has exactly two.
     dot.textContent = STATE_LABELS[statut] || "à faire";
     row.append(group, title, dot);
     row.addEventListener("click", () => {
@@ -1566,9 +1235,6 @@ function buildList() {
   }
 }
 
-// COMPTÉE SUR DES ÉTATS RÉELS et sur rien d'autre : ce que l'étudiant a
-// validé. Pas de points, pas de série, pas de niveau -- la seule chose que
-// cette page sait de lui est le nombre d'exercices qui passent.
 function progression() {
   const total = catalogue.length;
   const faits = catalogue.filter(t => states[t.id] === "valide").length;
@@ -1596,8 +1262,6 @@ function showListView(on) {
   $("travail").hidden = on;
   if (on) $("quizwrap").hidden = true;
   $("mesexos").textContent = on ? "Retour à l'exercice" : "Mes exercices";
-  // Coming back re-runs switchMode(), which is also what puts the quiz pane and
-  // the editor back in the state the current exercise calls for.
   if (!on && catalogue.length) switchMode();
 }
 
@@ -1621,14 +1285,9 @@ $("oublier").addEventListener("click", async () => {
   show(ok ? "ok" : "bad",
        ok ? "Tes données ont été supprimées du serveur."
           : "Suppression impossible pour l'instant : réessaie plus tard.");
-  // Signing out on success, so the next keystroke does not immediately write a
-  // new draft under the account that was just emptied.
   if (ok) signOut();
 });
 
-// THE ONE REQUEST THAT DECIDES WHETHER ANY OF THIS EXISTS. An empty answer --
-// no OIDC configured, or no database behind it -- leaves the page exactly as it
-// was before this feature, down to the hidden buttons.
 fetch("oidc.json").then(r => r.json()).then(async (config) => {
   if (!config || !config.issuer || !config.client_id) return;
   oidc = config;
@@ -1637,9 +1296,9 @@ fetch("oidc.json").then(r => r.json()).then(async (config) => {
   refreshAccount();
   if (token) {
     await loadStates();
-    switchMode();       // refill the open exercise from the account
+    switchMode();
   }
-}).catch(() => { /* no sign-in offered here */ });
+}).catch(() => {});
 </script>
 </body>
 </html>
