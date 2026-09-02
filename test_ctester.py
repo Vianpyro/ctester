@@ -216,6 +216,21 @@ def test_public_quiz_hides_answers():
         del QUIZ["questions"][0]["commentaire_prof"]
 
 
+def test_learning_metadata_is_an_explicit_public_projection():
+    conf = {"learning": {
+        "skills": ["variables", "variables", "for", "bad skill", "pointers", "strings"],
+        "context": "electrical", "difficulty": "foundation",
+        "teacher_note": "never publish this",
+    }}
+    assert runner.learning_metadata(conf) == {
+        "skills": ["variables", "for", "pointers", "strings"],
+        "context": "electrical", "difficulty": "foundation",
+    }
+    assert runner.learning_metadata({"learning": {
+        "skills": "variables", "context": "secret", "difficulty": "hard"
+    }}) == {}
+
+
 # --------------------------------------------------------------------------
 # Mode io
 # --------------------------------------------------------------------------

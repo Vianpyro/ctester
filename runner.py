@@ -135,6 +135,51 @@ def config_name(mode):
 # frappe qui produirait « ../../etc/passwd » ne doit pas devenir un chemin.
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 
+# Metadonnees pedagogiques publiques: le contenu prive peut contenir des notes
+# d'auteur ou des secrets de generation. Cette projection est donc une liste
+# blanche, jamais une copie de la configuration.
+SKILL_RE = re.compile(r"\A[a-z][a-z0-9-]{0,47}\Z")
+LEARNING_CONTEXTS = {
+    "mechanical", "electrical", "automated-production", "aerospace",
+    "logistics", "computing", "general-engineering",
+}
+LEARNING_DIFFICULTIES = {"intro", "foundation", "intermediate", "advanced"}
+
+
+def learning_metadata(conf):
+    """Projection sure de ``conf[\"learning\"]`` pour le catalogue public.
+
+    Contrat auteur::
+
+        "learning": {"skills": ["variables"], "context": "electrical",
+                     "difficulty": "foundation"}
+
+    Les tags inconnus sont ignores: ils ne doivent ni exposer une cle privee ni
+    empecher l'etudiant de pratiquer. Le validateur de contenu les signalera
+    avant usage pour la maitrise.
+    """
+    source = conf.get("learning", {})
+    if not isinstance(source, dict):
+        return {}
+    skills = source.get("skills", [])
+    if not isinstance(skills, list):
+        skills = []
+    clean_skills = []
+    for skill in skills:
+        skill = str(skill)
+        if SKILL_RE.match(skill) and skill not in clean_skills:
+            clean_skills.append(skill)
+        if len(clean_skills) == 4:
+            break
+    out = {}
+    if clean_skills:
+        out["skills"] = clean_skills
+    if source.get("context") in LEARNING_CONTEXTS:
+        out["context"] = source["context"]
+    if source.get("difficulty") in LEARNING_DIFFICULTIES:
+        out["difficulty"] = source["difficulty"]
+    return out
+
 
 def declared_files(conf):
     """Les fichiers que l'étudiant doit fournir, [{name, template}].
@@ -327,6 +372,7 @@ def catalogue(tout=False):
             # affiche déjà. Purement cosmétique : si le préfixe n'est pas là, on
             # garde le libellé entier et rien n'est perdu.
             "short": PREFIX_RE.sub("", label) or label,
+            "learning": learning_metadata(conf),
         })
     return entries
 

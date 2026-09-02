@@ -129,7 +129,9 @@ const CATALOGUE = [
   { id: "tp2-ex0", mode: "io", label: "TP2 : ex.0 âge",
     group: "TP 2", short: "ex.0 âge", files: UN_FICHIER },
   { id: "tp2-ex3", mode: "io", label: "TP2 : ex.3 loi d'Ohm",
-    group: "TP 2", short: "ex.3 loi d'Ohm", files: UN_FICHIER },
+    group: "TP 2", short: "ex.3 loi d'Ohm", files: UN_FICHIER,
+    learning: { skills: ["variables", "arithmetic-operators"],
+                context: "electrical", difficulty: "foundation" } },
   { id: "tp6-ex1", mode: "unity", label: "TP6 : ex.1 est_bissextile",
     group: "TP 6", short: "ex.1 est_bissextile",
     files: [{ name: "calendrier.h", template: "#define VRAI 1\n" },
@@ -238,6 +240,9 @@ function choisir(groupe, id) {
 
   // --- Ce qu'une visite précédente a laissé dans le stockage ---
   choisir("TP 2", "tp2-ex3");
+  check(nodes.now.children.some(c => c.textContent.includes(
+          "objectif : variables, opérateurs") && c.textContent.includes("électrique")),
+        "l'exercice affiche la compétence et son contexte, sans les confondre");
   check(nodes.code.value === "// travail d'hier",
         "le brouillon d'hier est retrouvé à l'ouverture de la page");
   check(nodes.purger.hidden === false,

@@ -124,6 +124,8 @@
     color: var(--muted);
     border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
   }
+  #now .learning { color: var(--muted); font-size: .68rem; letter-spacing: .02em;
+                   text-transform: none; }
   #editor { min-height: 0; display: flex; flex-direction: column; }
   #editor[hidden] { display: none; }
   #quizwrap { min-height: 0; overflow-y: auto; padding: .9rem; }
@@ -561,6 +563,27 @@ let catalogue = [];
 
 const current = () => catalogue.find(t => t.id === $("ex").value) || null;
 
+const SKILL_LABELS = {
+  "number-systems": "systèmes de nombres", "binary-hexadecimal": "binaire et hexadécimal",
+  "compilation": "compilation", "main": "main()", "libraries": "bibliothèques",
+  "printf": "printf", "scanf": "scanf", "variables": "variables", "types": "types",
+  "arithmetic-operators": "opérateurs", "boolean-logic": "logique booléenne",
+  "bitwise-operations": "opérations binaires", "conditions": "conditions",
+  "switch": "switch", "while": "boucles while", "do-while": "boucles do/while", "for": "boucles for",
+  "functions": "fonctions", "parameters": "paramètres", "return-values": "retours",
+  "pointers": "pointeurs", "arrays-1d": "tableaux", "arrays-2d": "tableaux 2D",
+  "strings": "chaînes", "algorithm-design": "algorithmes", "complexity": "complexité",
+};
+const CONTEXT_LABELS = {
+  mechanical: "mécanique", electrical: "électrique",
+  "automated-production": "production automatisée", aerospace: "aérospatial",
+  logistics: "logistique", computing: "informatique", "general-engineering": "ingénierie",
+};
+const DIFFICULTY_LABELS = {
+  intro: "découverte", foundation: "fondations", intermediate: "intermédiaire",
+  advanced: "avancé",
+};
+
 function addOption(sel, value, text) {
   const o = document.createElement("option");
   o.value = value;
@@ -683,6 +706,20 @@ function switchMode() {
     pastille.className = "badge";
     pastille.textContent = ATTENDU[tp.mode] || "";
     $("now").append(titre, pastille);
+    const learning = tp.learning || {};
+    const details = [];
+    if (Array.isArray(learning.skills) && learning.skills.length) {
+      details.push("objectif : " + learning.skills.map(
+        s => SKILL_LABELS[s] || s).join(", "));
+    }
+    if (CONTEXT_LABELS[learning.context]) details.push(CONTEXT_LABELS[learning.context]);
+    if (DIFFICULTY_LABELS[learning.difficulty]) details.push(DIFFICULTY_LABELS[learning.difficulty]);
+    if (details.length) {
+      const objective = document.createElement("span");
+      objective.className = "learning";
+      objective.textContent = details.join(" — ");
+      $("now").append(objective);
+    }
   }
 
   const consigne = (tp && tp.statement) || "";
