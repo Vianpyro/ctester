@@ -331,8 +331,8 @@ def job_metadata(job_id):
 def job_sources(job_id, entry):
     """The submitted source snapshot needed by the legacy exercise state.
 
-    It is read only after the authenticated owner has been checked.  Quiz
-    answers are not source files and intentionally keep the existing empty
+    It is read only for a job whose owner was fixed by the API at submission.
+    Quiz answers are not source files and intentionally keep the existing empty
     snapshot; compiled submissions use the same catalogue whitelist as every
     other path.
     """
@@ -629,11 +629,6 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "identifiant invalide"})
             return
         tp, owner = job_metadata(job_id)
-        if owner is not None and current_user(self.headers) != owner:
-            # Same answer as an expired/swept job: do not disclose that a
-            # signed-in student's submission exists to a guessed job id.
-            self._json(404, {"state": "gone"})
-            return
         path = os.path.join(SPOOL, job_id, "result.json")
         try:
             with open(path, encoding="utf-8") as fh:

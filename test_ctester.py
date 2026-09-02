@@ -970,7 +970,11 @@ def test_http_comptes():
             json.dump({"state": "done", "status": "ok", "total": 2, "passed": 2}, fh)
         assert call("GET", "/r/" + submitted["id"], jeton="bon")[0] == 200
         assert call("GET", "/r/" + submitted["id"], jeton="bon")[0] == 200
-        assert call("GET", "/r/" + submitted["id"])[0] == 404
+        # Le resultat garde le contrat historique du juge : l'identifiant de
+        # job aleatoire suffit pour le sondage, meme si l'OIDC devient
+        # momentanement indisponible apres la soumission. L'attribution reste
+        # cote serveur, d'apres `owner` ecrit lors du POST authentifie.
+        assert call("GET", "/r/" + submitted["id"])[0] == 200
         assert call("GET", "/pratique", jeton="bon")[1]["pratique"] == [
             {"exercice_id": "tp2-ex3", "tentatives": 1, "reussites": 1}]
         assert ("sub-alice", "tp2-ex3", "valide") in ecrit, ecrit
