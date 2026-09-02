@@ -973,6 +973,7 @@ def test_http_comptes():
         assert call("GET", "/r/" + submitted["id"])[0] == 404
         assert call("GET", "/pratique", jeton="bon")[1]["pratique"] == [
             {"exercice_id": "tp2-ex3", "tentatives": 1, "reussites": 1}]
+        assert ("sub-alice", "tp2-ex3", "valide") in ecrit, ecrit
         assert call("DELETE", "/moi", jeton="bon")[0] == 200 and not ecrit
 
         # SANS BASE, LA CONNEXION N'EST MÊME PAS PROPOSÉE, et toutes les routes

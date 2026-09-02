@@ -328,6 +328,25 @@ def job_metadata(job_id):
     return tp, owner
 
 
+def job_sources(job_id, entry):
+    """The submitted source snapshot needed by the legacy exercise state.
+
+    It is read only after the authenticated owner has been checked.  Quiz
+    answers are not source files and intentionally keep the existing empty
+    snapshot; compiled submissions use the same catalogue whitelist as every
+    other path.
+    """
+    if entry.get("mode") == "quiz":
+        return {}
+    try:
+        with open(os.path.join(SPOOL, job_id, "files.json"), encoding="utf-8") as fh:
+            submitted = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    files, message, _ = validate_files(entry, submitted)
+    return files if message is None else {}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ctester"
     quota = Quota(COOLDOWN, HOURLY)
@@ -624,6 +643,16 @@ class Handler(BaseHTTPRequestHandler):
                     # anonymous core of ctester.  The unique job_id makes every
                     # later poll retry this write safely.
                     etat.write_practice_attempt(owner, job_id, tp, result)
+                    entry = find_tp(tp)
+                    if entry is not None:
+                        solved = (result.get("status") == "ok"
+                                  and result.get("total", 0) > 0
+                                  and result.get("passed") == result.get("total"))
+                        # `write_state` never moves `valide` backwards.  This
+                        # replaces the old browser-declared state transition.
+                        etat.write_state(owner, tp,
+                                         "valide" if solved else "essaye",
+                                         job_sources(job_id, entry))
                 self._json(200, result)
                 return
         except OSError:

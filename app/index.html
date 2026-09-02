@@ -1041,6 +1041,10 @@ async function poll(id, tries) {
   const body = await r.json().catch(() => ({state: "error"}));
   if (body.state === "done") {
     render(body);
+    // The API has just derived the exercise state from this verdict. Refresh
+    // the private projections so « Mes exercices » reflects it immediately;
+    // this is display state, not a client-side declaration of success.
+    if (token) await Promise.all([loadStates(), loadPractice()]);
     $("go").disabled = false;
     return;
   }
