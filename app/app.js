@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260903-identite";
+const ASSET_REVISION = "20260903-identite2";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -201,6 +201,9 @@ function refreshAccount() {
   // demandé -- l'anonyme n'en télécharge rien, et un déploiement sans équipe
   // de modération n'ouvre pas un canal que personne ne relit.
   $("discussions").hidden = !on || !(oidc && oidc.forum);
+  // MÊME CONDITION QUE « Discussions » : le nom et le numéro d'équipe ne
+  // servent que là, et le formulaire vit dans cette vue.
+  $("identite").hidden = !on || !(oidc && oidc.forum);
   $("moi").hidden = !on;
   $("moi").textContent = on ? "connecté" : "";
   // Le menu ne s'ouvre que sur un compte : « Se connecter » reste dehors,
@@ -559,6 +562,12 @@ $("mesprogres").addEventListener("click", async () => {
 });
 // MÊME CONTRAT QUE « Mes progrès » : le bouton n'existe que connecté ET que si
 // le déploiement a des modérateurs, et le fichier ne descend qu'au clic.
+// Un raccourci vers le formulaire de la vue Discussions, pas un second
+// formulaire : c'est là qu'on cherche son nom quand on ne pense pas au forum.
+$("identite").addEventListener("click", async () => {
+  if (!await activerModule("forum", "les discussions")) return;
+  await ctester.forum.ouvrirIdentite();
+});
 $("discussions").addEventListener("click", async () => {
   if (!await activerModule("forum", "les discussions")) return;
   await ctester.forum.basculer();

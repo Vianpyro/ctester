@@ -163,6 +163,10 @@ let saisie = "";
 let titre = null;
 let zone = null;
 let apercu = null;
+// Le champ « Nom affiché » de la vue courante, pour que « Mon identité » du
+// menu Compte y amène le focus. Une RÉFÉRENCE et pas un getElementById : le
+// bloc n'existe pas toujours (panne de lecture du profil).
+let champPseudo = null;
 
 // --- Réseau ---------------------------------------------------------------
 
@@ -324,6 +328,7 @@ const numeroEquipe = (n) => "équipe " + String(n).padStart(2, "0");
 // -- ce formulaire borne pour éviter un aller-retour, il n'autorise rien.
 function monIdentite() {
   const bloc = noeud("div", "bloc");
+  bloc.id = "forumidentite";
   bloc.append(noeud("h3", "soustitre", "Mon identité"));
   if (profil === null) {
     bloc.append(noeud("p", "aide", "Ton identité n'a pas pu être lue."));
@@ -344,6 +349,7 @@ function monIdentite() {
   // de session de quelqu'un ne se publie pas tout seul.
   champNom.value = profil.pseudo || profil.suggestion || "";
   champNom.placeholder = "Participant";
+  champPseudo = champNom;
 
   const groupeId = "forumgroupe";
   const etiqGroupe = noeud("label", "", "Numéro d'équipe (1 à 99, facultatif)");
@@ -606,6 +612,7 @@ function dessiner() {
   box.innerHTML = "";
   zone = null;
   apercu = null;
+  champPseudo = null;
   titre = noeud("h2", "", "Discussions");
   titre.id = "forumtitre";
   titre.tabIndex = -1;
@@ -678,8 +685,17 @@ function oublier() {
   if (ctester.vue() === "forum") ctester.afficherVue("");
 }
 
+// « MON IDENTITÉ » DU MENU COMPTE : la même vue et le même formulaire, avec le
+// focus dessus. Un second formulaire ailleurs serait un second endroit où la
+// visibilité peut diverger de ce que la base dit.
+async function ouvrirIdentite() {
+  if (ctester.vue() !== "forum") await basculer();
+  if (champPseudo) champPseudo.focus();
+}
+
 ctester.forum = {
   basculer: basculer,
+  ouvrirIdentite: ouvrirIdentite,
   oublier: oublier,
   fil: () => fil,
   // Exposé pour le harnais de test : c'est LA fonction dont dépend toute la

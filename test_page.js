@@ -1195,6 +1195,8 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(!/sub-/.test(vuForum), "et aucun identifiant de compte n'apparaît");
 
   // --- MON IDENTITÉ : facultative, et invisible tant qu'on ne l'a pas voulu --
+  check(nodes.identite.hidden === false,
+        "« Mon identité » est offert dans le menu Compte, comme Discussions");
   check(nodes.forumpseudo.value === "vveremme",
         "le nom de connexion PRÉ-REMPLIT le champ : " + nodes.forumpseudo.value);
   check(nodes.forumvoirnom.checked === false
@@ -1225,6 +1227,15 @@ const attendre = async () => { await sleep(); await sleep(); };
         + "séparément : " + JSON.stringify(profilEnvoye && profilEnvoye.corps));
   check(nodes.forumpseudo.value === "Léa",
         "et la vue redessinée repart du profil enregistré, pas de la suggestion");
+
+  // LE RACCOURCI DU MENU RAMÈNE AU MÊME FORMULAIRE, vue fermée ou pas.
+  await nodes.discussions.listeners.click();          // retour à l'exercice
+  check(nodes.vueforum.hidden === true, "la vue est bien refermée");
+  await nodes.identite.listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(nodes.vueforum.hidden === false && focusé === "forumpseudo",
+        "« Mon identité » rouvre les discussions et pose le focus sur le champ "
+        + "(focus : " + focusé + ")");
 
   await signalerNom.listeners.click();
   await sleep(); await sleep();
