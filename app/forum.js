@@ -363,6 +363,16 @@ function formulaire() {
   return bloc;
 }
 
+// L'HEURE DU LECTEUR, PAS CELLE DU SERVEUR. Celui-ci envoie l'instant en UTC
+// (« ...T18:45Z ») ; seul le navigateur sait dans quel fuseau on le lit. Une
+// chaîne qu'on n'arrive pas à relire s'affiche telle quelle -- un vieux message
+// vaut mieux qu'un « Invalid Date ».
+function quandLocal(instant) {
+  const d = new Date(instant);
+  if (isNaN(d.getTime())) return String(instant);
+  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
+
 function corpsDuMessage(texte) {
   const corps = noeud("div", "texte md");
   rendreMarkdown(corps, texte);
@@ -377,7 +387,7 @@ function unMessage(m) {
   // recoller deux messages au même étudiant.
   const tete = noeud("p", "qui");
   tete.append(noeud("span", "auteur", m.auteur));
-  const quand = noeud("time", "quand", m.cree_le);
+  const quand = noeud("time", "quand", quandLocal(m.cree_le));
   quand.setAttribute("datetime", String(m.cree_le).replace(" ", "T"));
   tete.append(quand);
   // « Masqué » EN TOUTES LETTRES, pas seulement en gris : un état qui ne se
@@ -432,7 +442,7 @@ function fileModeration() {
     item.className = "message";
     const tete = noeud("p", "qui");
     tete.append(noeud("span", "auteur", s.exercice_id));
-    tete.append(noeud("time", "quand", s.cree_le));
+    tete.append(noeud("time", "quand", quandLocal(s.cree_le)));
     tete.append(noeud("span", "etat", s.signalements + " signalement"
       + (s.signalements > 1 ? "s" : "") + (s.masque ? " — masqué" : "")));
     // MÊME PIPELINE QU'AILLEURS. Un modérateur lit exactement ce qu'un étudiant
@@ -535,5 +545,8 @@ ctester.forum = {
   // sûreté du rendu, et elle doit pouvoir être éprouvée sur de vraies charges
   // hostiles plutôt que par inspection du code.
   rendreMarkdown: rendreMarkdown,
+  // Exposé pour la même raison : le fuseau est la sorte de bogue qui ne se
+  // voit qu'au moment où quelqu'un lit « dans quatre heures ».
+  quandLocal: quandLocal,
 };
 })(window.ctester);

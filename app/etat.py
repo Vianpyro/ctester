@@ -18,6 +18,7 @@ Python around them does not.
 import json
 import os
 import threading
+from datetime import timezone
 
 try:
     import psycopg          # the exposed container's only external dependency
@@ -419,15 +420,21 @@ def forum_moderer(action_id, message_id, moderator, action):
 
 
 def _minute(valeur):
-    """Un horodatage à la MINUTE, en texte. La chaîne telle quelle sinon.
+    """Un horodatage à la MINUTE, en UTC explicite. La chaîne telle quelle sinon.
 
     À la minute et pas au jour, contrairement à la progression : un fil se lit
     dans l'ordre, et « aujourd'hui » sur dix messages n'aide personne. À la
     minute et pas à la seconde : personne n'a besoin de chronométrer qui a
     répondu le premier.
+
+    AVEC LE FUSEAU, ET C'EST TOUT LE POINT. La colonne est TIMESTAMPTZ, donc
+    l'instant stocké a toujours été juste ; c'est la chaîne envoyée qui n'en
+    disait rien, et la page l'affichait comme si elle était locale -- un
+    message écrit à Montréal partait quatre heures dans le futur. Le « Z » suffit
+    à la page pour le retraduire dans le fuseau de qui lit. Rien à migrer.
     """
     try:
-        return valeur.strftime("%Y-%m-%d %H:%M")
+        return valeur.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     except AttributeError:
         return str(valeur)[:16]
 

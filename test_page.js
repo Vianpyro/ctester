@@ -8,6 +8,9 @@
 // La page est en TROIS fichiers depuis qu'elle a ete decoupee, et chacun porte
 // un contrat different : `html` les identifiants et l'ordre du document, `css`
 // les regles `display:`, `js` le code qu'on execute vraiment.
+// UN FUSEAU QUI N'EST PAS UTC, expres : l'affichage des dates du forum se
+// traduit dans celui du lecteur, et sous UTC ce controle ne prouverait rien.
+process.env.TZ = "America/Toronto";
 const fs = require("fs");
 
 const APP = process.argv[2] || __dirname + "/app";
@@ -268,7 +271,7 @@ const FORUM_MAX = 400;
 // s'execute chez celui qui lit le fil.
 const FORUM = {
   "tp2-ex3": [{ id: "m-autre", ex: "tp2-ex3", auteur: "Participant",
-                mien: false, masque: false, cree_le: "2026-09-03 09:00",
+                mien: false, masque: false, cree_le: "2026-09-03T22:30Z",
                 texte: "<img src=x onerror=alert(1)> j'ai la meme erreur" }],
   "tp2-ex0": [],
 };
@@ -1164,6 +1167,18 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(/&lt;img src=x onerror=alert\(1\)&gt;/.test(vuForum),
         "dont le HTML est ÉCHAPPÉ à l'affichage, pas interprété");
   check(!/sub-/.test(vuForum), "et aucun identifiant de compte n'apparaît");
+
+  // L'HEURE DU LECTEUR. Le serveur date en UTC ; affichée telle quelle, une
+  // question posée le soir à Montréal apparaissait le lendemain.
+  const quand = global.ctester.forum.quandLocal;
+  check(/(18|6):30/.test(quand("2026-09-03T22:30Z"))
+        && !/22:30/.test(quand("2026-09-03T22:30Z")),
+        "22:30 UTC s'affiche à 18:30 pour un lecteur de Montréal : "
+        + quand("2026-09-03T22:30Z"));
+  check(quand("2026-09-03T22:30Z") === quand("2026-09-03T18:30-04:00"),
+        "et deux écritures du même instant s'affichent pareil");
+  check(quand("pas une date") === "pas une date",
+        "une date illisible s'affiche telle quelle, pas « Invalid Date »");
 
   // LE POINT LE PLUS IMPORTANT DE TOUT CE FICHIER. Le texte d'un message est
   // écrit par un autre étudiant : c'est la donnée la moins digne de confiance

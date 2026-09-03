@@ -220,8 +220,10 @@ def forum():
     fil = etat.forum_fil("tp2-ex3", 200)
     assert [m["id"] for m in fil] == [m1, m2], fil
     assert fil[0]["utilisateur"] == ALICE and fil[0]["masque"] is False
-    # À LA MINUTE, pas au jour : un fil se lit dans l'ordre.
-    assert len(fil[0]["cree_le"]) == 16, fil[0]["cree_le"]
+    # À LA MINUTE, pas au jour : un fil se lit dans l'ordre. ET EN UTC EXPLICITE
+    # : sans le « Z », la page affiche l'heure du serveur comme si elle était
+    # celle du lecteur.
+    assert len(fil[0]["cree_le"]) == 17 and fil[0]["cree_le"].endswith("Z"),         fil[0]["cree_le"]
     # UN FIL PAR EXERCICE : rien ne fuit d'un exercice à l'autre.
     assert len(etat.forum_fil("tp2-ex0", 200)) == 1
     assert etat.forum_fil("tp2-ex3", 1) == fil[:1]        # la borne s'applique
