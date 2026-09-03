@@ -419,7 +419,7 @@ def forum_moderer(action_id, message_id, moderator, action):
          "quoi": action, "masque": action == "masquer"}, read=True)
 
 
-# --- Le nom choisi et le numéro d'équipe ------------------------------------
+# --- Le nom choisi et le numéro de groupe ----------------------------------
 # EN AJOUT SEUL, LA DERNIÈRE LIGNE FAIT FOI. Pas d'UPDATE, donc pas de GRANT
 # d'UPDATE : la propriété est tenue par Postgres et pas par la discipline de
 # celui qui écrit la requête suivante. `DISTINCT ON` fait la lecture en une
@@ -487,7 +487,7 @@ def forum_nom_signaler(message_id, user):
 
 
 def forum_noms_signales(limite):
-    """Les NOMS signalés, pour un modérateur. Le nom, l'équipe, le compte à
+    """Les NOMS signalés, pour un modérateur. Le nom, le groupe, le compte à
     poignée -- jamais le `sub` : `app.py` ne recopie que ce qui s'affiche.
 
     Un même compte peut être signalé depuis plusieurs de ses messages ; on rend

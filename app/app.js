@@ -201,7 +201,7 @@ function refreshAccount() {
   // demandé -- l'anonyme n'en télécharge rien, et un déploiement sans équipe
   // de modération n'ouvre pas un canal que personne ne relit.
   $("discussions").hidden = !on || !(oidc && oidc.forum);
-  // MÊME CONDITION QUE « Discussions » : le nom et le numéro d'équipe ne
+  // MÊME CONDITION QUE « Discussions » : le nom et le numéro de groupe ne
   // servent que là, et le formulaire vit dans cette vue.
   $("identite").hidden = !on || !(oidc && oidc.forum);
   $("moi").hidden = !on;

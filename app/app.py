@@ -672,33 +672,42 @@ def forum_pseudo(brut):
     return nom, None
 
 
-def forum_groupe(brut):
-    """(1..99|None, erreur) -- le numéro d'équipe, ou rien.
+# ponytail: la liste des groupes d'une session vit ici, éditée comme la
+# politique. Vide => champ libre 1..99 (l'ancien comportement).
+FORUM_GROUPES = tuple(
+    int(x) for x in
+    os.environ.get("CTESTER_FORUM_GROUPES", "4,6").replace(",", " ").split())
 
-    Deux chiffres, parce que c'est ce qu'un plan de cours distribue ; au-delà de
-    la dizaine c'est déjà rare, mais borner à 11 ferait mentir la première
-    session à douze équipes.
+
+def forum_groupe(brut):
+    """(numéro|None, erreur) -- le numéro de groupe, ou rien.
+
+    Si `CTESTER_FORUM_GROUPES` liste des groupes, seuls ceux-là passent ; sinon
+    un numéro à deux chiffres (1..99), ce qu'un plan de cours distribue.
     """
     if brut is None or brut == "":
         return None, None
     if isinstance(brut, bool):
-        return None, "numéro d'équipe invalide"
+        return None, "numéro de groupe invalide"
     try:
         numero = int(brut)
     except (TypeError, ValueError):
-        return None, "numéro d'équipe invalide"
-    if not 1 <= numero <= 99:
-        return None, "le numéro d'équipe va de 1 à 99"
+        return None, "numéro de groupe invalide"
+    if FORUM_GROUPES:
+        if numero not in FORUM_GROUPES:
+            return None, "groupe inconnu pour cette session"
+    elif not 1 <= numero <= 99:
+        return None, "le numéro de groupe va de 1 à 99"
     return numero, None
 
 
 def forum_identite(profil, sub, auteur, moderateur_lecteur):
-    """(auteur affiché, numéro d'équipe affiché, le nom est-il choisi).
+    """(auteur affiché, numéro de groupe affiché, le nom est-il choisi).
 
     LA SEULE PLACE OÙ UN PROFIL DEVIENT PUBLIC. Un nom ne sort que si son
-    porteur l'a rendu visible ; le numéro d'équipe sort en plus pour l'équipe du
-    cours, en tout temps, parce que c'est ce qui permet de rattacher un
-    problème à une équipe sans demander de nom à personne.
+    porteur l'a rendu visible ; le numéro de groupe sort en plus pour l'équipe
+    du cours, en tout temps, parce que c'est ce qui permet de rattacher un
+    problème à un groupe sans demander de nom à personne.
     """
     profil = profil or {}
     pseudo = profil.get("pseudo")
@@ -721,7 +730,7 @@ def forum_vue(messages, sub, moderateur, profils=None):
 
     « Vous » pour son auteur, « Équipe du cours » pour un modérateur, et pour
     les autres le nom qu'ils ont CHOISI D'AFFICHER, sinon « Participant ».
-    Le nom et le numéro d'équipe sont saisis par l'étudiant et n'apparaissent
+    Le nom et le numéro de groupe sont saisis par l'étudiant et n'apparaissent
     que s'il les a rendus visibles -- l'anonymat reste l'état par défaut, et
     deux messages ne se recollent que si leur auteur l'a voulu. Le `sub`, lui,
     ne traverse toujours pas.
@@ -1396,7 +1405,7 @@ class Handler(BaseHTTPRequestHandler):
     def _forum_effacer_nom(self, message_id, moderateur):
         """Efface le NOM de l'auteur d'un message signalé. Rien d'autre.
 
-        Le numéro d'équipe et sa visibilité restent : ce qui est signalé, c'est
+        Le numéro de groupe et sa visibilité restent : ce qui est signalé, c'est
         le nom. Et on ÉCRIT UNE LIGNE de plus, on n'en corrige aucune -- le
         journal garde ce que le nom était, ce qu'une modération veut relire.
         L'étudiant peut en choisir un autre après ; la récidive est une affaire
@@ -1440,11 +1449,12 @@ class Handler(BaseHTTPRequestHandler):
         # tant qu'il n'a pas de nom : une fois choisi, le nom de l'étudiant a
         # préséance sur celui du fournisseur d'identité, toujours.
         self._json(200, dict(profil, max_pseudo=FORUM_PSEUDO_MAX,
+                             groupes=list(FORUM_GROUPES),
                              suggestion=("" if profil.get("pseudo")
                                          else current_name(self.headers))))
 
     def _forum_profil_ecrire(self):
-        """POST /forum/profil -- choisir son nom, son équipe, et ce qui s'affiche."""
+        """POST /forum/profil -- choisir son nom, son groupe, et ce qui s'affiche."""
         sub = self._forum_qui()
         if sub is None:
             return

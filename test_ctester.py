@@ -1610,10 +1610,10 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
 
 
 def test_forum_identite_bornes_et_visibilite():
-    """Le nom choisi et le numero d'equipe : ce qui est accepte, ce qui sort.
+    """Le nom choisi et le numero de groupe : ce qui est accepte, ce qui sort.
 
     LA REGLE TIENT EN UNE LIGNE : rien ne s'affiche que son porteur n'ait
-    rendu visible -- sauf le numero d'equipe pour l'equipe du cours, en tout
+    rendu visible -- sauf le numero de groupe pour l'equipe du cours, en tout
     temps, et c'est ecrit dans le formulaire.
     """
     assert app.forum_pseudo(None) == (None, None)
@@ -1623,9 +1623,20 @@ def test_forum_identite_bornes_et_visibilite():
     for reserve in ("Vous", "participant", "Équipe du cours", "Anonyme"):
         assert app.forum_pseudo(reserve)[0] is None, reserve
     assert app.forum_pseudo("x" * (app.FORUM_PSEUDO_MAX + 1))[0] is None
-    assert app.forum_groupe("07") == (7, None)
-    for mauvais in (0, 100, -1, "sept", True):
-        assert app.forum_groupe(mauvais)[0] is None, mauvais
+    # La session n'ouvre que certains groupes (CTESTER_FORUM_GROUPES) ; hors
+    # liste, rien ne passe -- pas même un numero valide 1..99.
+    garde_g = app.FORUM_GROUPES
+    try:
+        app.FORUM_GROUPES = (4, 6)
+        assert app.forum_groupe("04") == (4, None)
+        for mauvais in (0, 100, -1, "sept", True, 7):
+            assert app.forum_groupe(mauvais)[0] is None, mauvais
+        app.FORUM_GROUPES = ()
+        assert app.forum_groupe("07") == (7, None)
+        for mauvais in (0, 100, -1, "sept", True):
+            assert app.forum_groupe(mauvais)[0] is None, mauvais
+    finally:
+        app.FORUM_GROUPES = garde_g
 
     garde = app.FORUM_MODERATORS
     try:
@@ -1637,7 +1648,7 @@ def test_forum_identite_bornes_et_visibilite():
         vu = app.forum_vue(fil, "sub-alice", False, cache)[0]
         assert vu["auteur"] == "Participant" and vu["groupe"] is None
         assert vu["nom_signalable"] is False
-        # Le modérateur voit l'equipe SANS que le nom devienne public pour
+        # Le modérateur voit le groupe SANS que le nom devienne public pour
         # autant : deux cases, deux effets.
         vu_mod = app.forum_vue(fil, "sub-mod", True, cache)[0]
         assert vu_mod["auteur"] == "Participant" and vu_mod["groupe"] == 7
@@ -1973,46 +1984,48 @@ def test_http_forum():
         assert [m["auteur"] for m in fil("alice")[1]["messages"]] == [
             "Vous", "Participant", "Équipe du cours"]
 
-        # --- NOM CHOISI, NUMERO D'EQUIPE, ET LE DROIT DE NE RIEN DIRE ------
+        # --- NOM CHOISI, NUMERO DE GROUPE, ET LE DROIT DE NE RIEN DIRE -----
         # L'ANONYMAT EST L'ETAT DE DEPART. Un profil jamais posé ne rend ni nom
-        # ni equipe, et surtout aucun drapeau de visibilite a vrai.
+        # ni groupe, et surtout aucun drapeau de visibilite a vrai.
         vide = call("GET", "/forum/profil", jeton="bob")[1]
         assert vide["pseudo"] is None and vide["groupe"] is None, vide
         assert vide["pseudo_public"] is False and vide["groupe_public"] is False
 
         # LES BORNES : une etiquette de l'interface ne se choisit pas, un nom
-        # tient sur une ligne courte, et une equipe va de 1 a 99.
+        # tient sur une ligne courte, et le groupe doit etre dans la liste de
+        # la session (ici les defauts, 4 et 6).
         for mauvais in ({"pseudo": "Équipe du cours"}, {"pseudo": "participant"},
                         {"pseudo": "x" * (app.FORUM_PSEUDO_MAX + 1)},
-                        {"groupe": 0}, {"groupe": 100}, {"groupe": "sept"}):
+                        {"groupe": 0}, {"groupe": 100}, {"groupe": "sept"},
+                        {"groupe": 7}):
             assert call("POST", "/forum/profil", mauvais,
                         jeton="bob")[0] == 400, mauvais
 
         assert call("POST", "/forum/profil",
-                    {"pseudo": "  Bob  B  ", "groupe": 7,
+                    {"pseudo": "  Bob  B  ", "groupe": 4,
                      "pseudo_public": True, "groupe_public": False},
                     jeton="bob")[0] == 200
         de_bob = [m for m in fil("alice")[1]["messages"] if m["auteur"] == "Bob B"]
         assert de_bob, fil("alice")[1]["messages"]
         # SIGNALABLE, parce que c'est un nom que quelqu'un a choisi d'afficher.
         assert de_bob[0]["nom_signalable"] is True
-        # SON EQUIPE, ELLE, N'EST PAS AFFICHEE : il ne l'a pas cochee.
+        # SON GROUPE, LUI, N'EST PAS AFFICHE : il ne l'a pas coche.
         assert all(m["groupe"] is None for m in fil("alice")[1]["messages"])
-        # MAIS L'EQUIPE DU COURS LA VOIT EN TOUT TEMPS -- c'est la seule
+        # MAIS L'EQUIPE DU COURS LE VOIT EN TOUT TEMPS -- c'est la seule
         # exception, et elle est ecrite dans le formulaire.
         cote_mod = [m for m in fil("mod")[1]["messages"] if m["auteur"] == "Bob B"]
-        assert cote_mod and cote_mod[0]["groupe"] == 7, cote_mod
+        assert cote_mod and cote_mod[0]["groupe"] == 4, cote_mod
         # ET TOUJOURS AUCUN `sub`, meme dans la vue la plus renseignee.
         assert "sub-bob" not in json.dumps(fil("mod")[1], ensure_ascii=False)
 
         # DECOCHER SUFFIT A REDEVENIR ANONYME, et le nom reste a soi.
         assert call("POST", "/forum/profil",
-                    {"pseudo": "Bob B", "groupe": 7,
+                    {"pseudo": "Bob B", "groupe": 4,
                      "pseudo_public": False, "groupe_public": True},
                     jeton="bob")[0] == 200
         autres = [m for m in fil("alice")[1]["messages"] if not m["mien"]]
         assert not [m for m in autres if m["auteur"] == "Bob B"], autres
-        assert [m for m in autres if m["groupe"] == 7], autres
+        assert [m for m in autres if m["groupe"] == 4], autres
         assert call("GET", "/forum/profil", jeton="bob")[1]["pseudo"] == "Bob B"
 
         # UNE CASE COCHEE SANS NOM N'AFFICHE RIEN : sans ca, on croirait s'etre
@@ -2023,7 +2036,7 @@ def test_http_forum():
         assert call("GET", "/forum/profil",
                     jeton="bob")[1]["pseudo_public"] is False
         assert call("POST", "/forum/profil",
-                    {"pseudo": "Bob B", "groupe": 7, "pseudo_public": True,
+                    {"pseudo": "Bob B", "groupe": 4, "pseudo_public": True,
                      "groupe_public": True}, jeton="bob")[0] == 200
 
         # --- SIGNALER UN NOM, PUIS L'EFFACER --------------------------------
@@ -2039,7 +2052,7 @@ def test_http_forum():
 
         file_noms = call("GET", "/forum/moderation", jeton="mod")[1]["noms"]
         assert len(file_noms) == 1 and file_noms[0]["pseudo"] == "Bob B"
-        assert file_noms[0]["groupe"] == 7
+        assert file_noms[0]["groupe"] == 4
         assert "sub-bob" not in json.dumps(file_noms, ensure_ascii=False)
 
         assert call("POST", "/forum/moderation",
@@ -2051,11 +2064,11 @@ def test_http_forum():
         assert call("POST", "/forum/moderation",
                     {"id": celui_de_bob["id"], "action": "effacer-nom"},
                     jeton="mod")[0] == 200
-        # LE NOM PART, LE MESSAGE RESTE, ET L'EQUIPE AUSSI : ce qui a ete
+        # LE NOM PART, LE MESSAGE RESTE, ET LE GROUPE AUSSI : ce qui a ete
         # signale est le nom, pas le reste.
         efface = call("GET", "/forum/profil", jeton="bob")[1]
         assert efface["pseudo"] is None and efface["pseudo_public"] is False
-        assert efface["groupe"] == 7 and efface["groupe_public"] is True
+        assert efface["groupe"] == 4 and efface["groupe_public"] is True
         assert [m for m in fil("alice")[1]["messages"]
                 if m["id"] == celui_de_bob["id"]], "le message n'a pas bouge"
 
@@ -2088,7 +2101,7 @@ def test_http_forum():
         # qu'un autre a ecrit n'est touche.
         avant = len(messages)
         assert call("POST", "/forum/profil",
-                    {"pseudo": "Alice", "groupe": 3, "pseudo_public": True},
+                    {"pseudo": "Alice", "groupe": 6, "pseudo_public": True},
                     jeton="alice")[0] == 200
         assert "sub-alice" in profils
         assert call("DELETE", "/moi", jeton="alice")[0] == 200

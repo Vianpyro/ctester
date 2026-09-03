@@ -467,8 +467,8 @@ pre {
   color: var(--fg); font-size: 13px; cursor: pointer;
 }
 .coche input { width: auto; margin: 0; }
-/* Le numéro d'équipe : une pastille, à côté du nom et jamais à sa place. */
-#vueforum .equipe {
+/* Le numéro de groupe : une pastille, à côté du nom et jamais à sa place. */
+#vueforum .groupe {
   font-size: 12px; color: var(--muted); padding: 0 .4rem;
   border: 1px solid var(--line-2); border-radius: 999px;
 }

@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS forum_moderation (
 );
 
 -- L'IDENTITÉ CHOISIE, ET ELLE EST FACULTATIVE DES DEUX CÔTÉS. Un nom qu'on
--- s'est donné, un numéro d'équipe, et pour chacun le droit de ne pas
+-- s'est donné, un numéro de groupe, et pour chacun le droit de ne pas
 -- l'afficher. Rien ici ne vient d'un claim OIDC : ni nom légal, ni courriel --
 -- ce que l'étudiant écrit est ce que l'étudiant a décidé d'écrire.
 --

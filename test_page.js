@@ -275,7 +275,7 @@ const FORUM = {
                 nom_signalable: false,
                 texte: "<img src=x onerror=alert(1)> j'ai la meme erreur" },
               { id: "m-nomme", ex: "tp2-ex3", auteur: "Bob B", mien: false,
-                masque: false, cree_le: "2026-09-03T22:35Z", groupe: 7,
+                masque: false, cree_le: "2026-09-03T22:35Z", groupe: 4,
                 nom_signalable: true, texte: "moi aussi" }],
   "tp2-ex0": [],
 };
@@ -283,7 +283,8 @@ const FORUM_SIGNALES = new Map();   // identifiant de message -> combien de fois
 // LE PROFIL DE CE COMPTE. `suggestion` est le `preferred_username` de Rauthy :
 // une PROPOSITION, qui ne doit rien afficher tant qu'on n'a pas enregistre.
 const PROFIL = { pseudo: null, groupe: null, pseudo_public: false,
-                 groupe_public: false, max_pseudo: 24, suggestion: "vveremme" };
+                 groupe_public: false, max_pseudo: 24, groupes: [4, 6],
+                 suggestion: "vveremme" };
 const forumEnvois = [];
 let forumCompteur = 0;
 // UNE COMPETENCE HOSTILE : les identifiants viennent du depot de tests, et un
@@ -386,7 +387,7 @@ function forumRepond(url, opts) {
     cible.masque = corps.action === "masquer";
     return rendJson({ ok: true });
   }
-  // LE PROFIL : le nom qu'on s'est donne, l'equipe, et ce qui est affiche.
+  // LE PROFIL : le nom qu'on s'est donne, le groupe, et ce qui est affiche.
   if (url === "forum/profil") {
     if (methode === "GET") return rendJson(Object.assign({}, PROFIL));
     forumEnvois.push({ url, corps });
@@ -1219,22 +1220,22 @@ const attendre = async () => { await sleep(); await sleep(); };
         && nodes.forumvoirgroupe.checked === false,
         "rien n'est coché -- l'anonymat est l'état de départ, et le nom de "
         + "connexion de quelqu'un ne se publie pas tout seul");
-  check(/Bob B/.test(vuForum) && /équipe 07/.test(vuForum),
-        "un nom choisi par un autre s'affiche, avec son équipe sur deux chiffres");
+  check(/Bob B/.test(vuForum) && /groupe 04/.test(vuForum),
+        "un nom choisi par un autre s'affiche, avec son groupe sur deux chiffres");
 
   const dansPanneau = (texte) => tousLesNoeuds(panneau)
     .find((n) => n.textContent === texte);
   nodes.forumpseudo.value = "Léa";
-  nodes.forumgroupe.value = "7";
+  nodes.forumgroupe.value = "4";
   nodes.forumvoirnom.checked = true;
   await dansPanneau("Enregistrer").listeners.click();
   await sleep(); await sleep(); await sleep();
   const profilEnvoye = forumEnvois.find((e) => e.url === "forum/profil");
   check(profilEnvoye && profilEnvoye.corps.pseudo === "Léa"
-        && profilEnvoye.corps.groupe === "7"
+        && profilEnvoye.corps.groupe === "4"
         && profilEnvoye.corps.pseudo_public === true
         && profilEnvoye.corps.groupe_public === false,
-        "« Enregistrer » envoie le nom, l'équipe et les DEUX visibilités "
+        "« Enregistrer » envoie le nom, le groupe et les DEUX visibilités "
         + "séparément : " + JSON.stringify(profilEnvoye && profilEnvoye.corps));
   check(nodes.forumpseudo.value === "Léa",
         "le panneau repart du profil enregistré, pas de la suggestion");

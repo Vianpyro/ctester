@@ -149,7 +149,7 @@ function rendreMarkdown(cible, source) {
 let fil = null;
 let signalements = null;
 let nomsSignales = null;
-// Le profil de CE compte : le nom qu'il s'est donné, son équipe, et ce qu'il a
+// Le profil de CE compte : le nom qu'il s'est donné, son groupe, et ce qu'il a
 // choisi d'afficher. `null` tant qu'on ne l'a pas lu -- on n'invente pas un
 // profil vide, ça reviendrait à annoncer « tu n'as pas de nom » pendant une
 // panne.
@@ -342,9 +342,9 @@ function montrerCharte(ensuite) {
 }
 
 // Deux chiffres, comme sur un plan de cours : « 7 » s'affiche « 07 ».
-const numeroEquipe = (n) => "équipe " + String(n).padStart(2, "0");
+const numeroGroupe = (n) => "groupe " + String(n).padStart(2, "0");
 
-// MON IDENTITÉ. Le nom et l'équipe sont FACULTATIFS et INVISIBLES par défaut :
+// MON IDENTITÉ. Le nom et le groupe sont FACULTATIFS et INVISIBLES par défaut :
 // cocher est un geste, ne rien faire reste l'anonymat. Le serveur revalide tout
 // -- ce formulaire borne pour éviter un aller-retour, il n'autorise rien.
 function monIdentite() {
@@ -374,33 +374,50 @@ function monIdentite() {
   champPseudo = champNom;
 
   const groupeId = "forumgroupe";
-  const etiqGroupe = noeud("label", "", "Numéro d'équipe (1 à 99, facultatif)");
-  etiqGroupe.setAttribute("for", groupeId);
-  const champGroupe = noeud("input");
-  champGroupe.id = groupeId;
-  champGroupe.type = "number";
-  champGroupe.min = "1";
-  champGroupe.max = "99";
-  champGroupe.value = profil.groupe === null || profil.groupe === undefined
+  const groupes = Array.isArray(profil.groupes) ? profil.groupes : [];
+  const valGroupe = profil.groupe === null || profil.groupe === undefined
     ? "" : String(profil.groupe);
+  let champGroupe;
+  if (groupes.length) {
+    // Liste fixe de la session : seuls ces groupes existent, autant ne rien
+    // laisser taper d'autre.
+    champGroupe = noeud("select");
+    const vide = noeud("option", "", "— aucun —");
+    vide.value = "";
+    champGroupe.append(vide);
+    for (const g of groupes) {
+      const o = noeud("option", "", numeroGroupe(g));
+      o.value = String(g);
+      champGroupe.append(o);
+    }
+  } else {
+    champGroupe = noeud("input");
+    champGroupe.type = "number";
+    champGroupe.min = "1";
+    champGroupe.max = "99";
+  }
+  champGroupe.id = groupeId;
+  champGroupe.value = valGroupe;
+  const etiqGroupe = noeud("label", "", "Groupe (facultatif)");
+  etiqGroupe.setAttribute("for", groupeId);
 
   const [voirNom, ligneNom] = caseACocher(
     "forumvoirnom", "Afficher mon nom dans les discussions",
     profil.pseudo_public);
   const [voirGroupe, ligneGroupe] = caseACocher(
-    "forumvoirgroupe", "Afficher mon numéro d'équipe",
+    "forumvoirgroupe", "Afficher mon numéro de groupe",
     profil.groupe_public);
 
   bloc.append(etiqNom, champNom, etiqGroupe, champGroupe, ligneNom, ligneGroupe);
   // CE QUE LA CASE NE COUVRE PAS, ET IL FAUT LE DIRE : l'équipe du cours voit
-  // le numéro d'équipe en tout temps. Le laisser croire l'inverse serait un
+  // le numéro de groupe en tout temps. Le laisser croire l'inverse serait un
   // consentement obtenu de travers.
   if (!profil.pseudo && profil.suggestion) {
     bloc.append(noeud("p", "aide", "Nom proposé par ta connexion — modifie-le "
       + "si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
   }
   bloc.append(noeud("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
-    + "autres. L'équipe du cours, elle, voit toujours ton numéro d'équipe — "
+    + "autres. L'équipe du cours, elle, voit toujours ton numéro de groupe — "
     + "jamais ton nom si tu ne l'affiches pas."));
   const rangee = noeud("div", "row");
   rangee.append(bouton("Enregistrer", "", () => enregistrerProfil({
@@ -537,7 +554,7 @@ function unMessage(m) {
   // recoller deux messages au même étudiant.
   const tete = noeud("p", "qui");
   tete.append(noeud("span", "auteur", m.auteur));
-  if (m.groupe) tete.append(noeud("span", "equipe", numeroEquipe(m.groupe)));
+  if (m.groupe) tete.append(noeud("span", "groupe", numeroGroupe(m.groupe)));
   const quand = noeud("time", "quand", quandLocal(m.cree_le));
   quand.setAttribute("datetime", String(m.cree_le).replace(" ", "T"));
   tete.append(quand);
@@ -637,7 +654,7 @@ function fileNoms() {
     item.className = "message";
     const tete = noeud("p", "qui");
     tete.append(noeud("span", "auteur", n.pseudo || "(nom déjà effacé)"));
-    if (n.groupe) tete.append(noeud("span", "equipe", numeroEquipe(n.groupe)));
+    if (n.groupe) tete.append(noeud("span", "groupe", numeroGroupe(n.groupe)));
     tete.append(noeud("time", "quand", quandLocal(n.cree_le)));
     tete.append(noeud("span", "etat", n.signalements + " signalement"
       + (n.signalements > 1 ? "s" : "")));

@@ -275,7 +275,7 @@ def forum():
 
 
 def identite():
-    """Le nom choisi et le numéro d'équipe : un JOURNAL dont la dernière ligne
+    """Le nom choisi et le numéro de groupe : un JOURNAL dont la dernière ligne
     fait foi.
 
     LES DEUX FORMES QUI NE SE VÉRIFIENT QUE SUR UNE VRAIE BASE : le
@@ -300,7 +300,7 @@ def identite():
                               "pseudo_public": True, "groupe_public": True}
     assert profils[BOB]["pseudo"] == "Bob" and profils[BOB]["groupe"] == 7
     assert "sub-personne" not in profils
-    # LE CHECK DU SCHÉMA, ÉPROUVÉ SANS PASSER PAR LA GARDE PYTHON : une équipe
+    # LE CHECK DU SCHÉMA, ÉPROUVÉ SANS PASSER PAR LA GARDE PYTHON : un groupe
     # va de 1 à 99, et c'est Postgres qui refuse le reste.
     assert etat.forum_profil_ecrire("s" * 32, ALICE, "Alice", 0, False, False)         is False
     assert etat.forum_profil_ecrire("t" * 32, ALICE, "Alice", 100, False, False)         is False

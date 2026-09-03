@@ -58,7 +58,7 @@ docker stop pg
   ajouter une table sans l'effacer le fait échouer tout seul. Il couvre aussi le
   forum : forum éteint par défaut, rôle de modération, bornes, quota, absence de
   double signalement, isolement de deux comptes, l'identité choisie (bornes du
-  nom et de l'équipe, visibilité, nom signalé puis effacé), et qu'aucun `sub` ne
+  nom et du groupe, visibilité, nom signalé puis effacé), et qu'aucun `sub` ne
   franchisse la frontière.
 - **`test_bac_a_sable.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
   les exécute avec un vrai gcc, chemins déplacés, sans Docker. C'est le seul
@@ -311,10 +311,16 @@ Discussions se contente de dire où le trouver.
 
 **L'identité est choisie, facultative, et invisible par défaut.** `forum_profil`
 est un journal en ajout seul (la dernière ligne d'un compte fait foi) : un nom
-d'affichage, un numéro d'équipe de 1 à 99, et **deux** cases de visibilité
+d'affichage, un numéro de groupe, et **deux** cases de visibilité
 indépendantes. Rien n'apparaît sans que son porteur l'ait coché — une seule
 exception, écrite dans le formulaire : **l'équipe du cours voit le numéro
-d'équipe en tout temps**, jamais le nom s'il n'est pas affiché. Cocher sans
+de groupe en tout temps**, jamais le nom s'il n'est pas affiché.
+
+**`CTESTER_FORUM_GROUPES` fixe la liste des groupes de la session** (défaut
+`4,6`). Non vide → le formulaire est une liste déroulante fermée et `app.py`
+refuse tout autre numéro ; vide → champ libre 1 à 99 (l'ancien comportement).
+La colonne reste `SMALLINT CHECK (1..99)` — la liste d'une session ne vit pas
+dans le schéma. Cocher sans
 avoir écrit n'affiche rien (`app.py` refuse la visibilité d'un champ vide), et
 les étiquettes de l'interface (« Vous », « Participant », « Équipe du cours »)
 sont des noms réservés : un message qui se ferait passer pour une réponse du
@@ -331,7 +337,7 @@ travers. Il passe par la même validation que ce qu'un étudiant taperait.
 **Un nom affiché est signalable**, par la même route que les messages
 (`{quoi: "nom"}`) et avec la poignée d'un message, faute d'identifiant de compte
 côté page. Le modérateur a une file séparée et une seule action : **effacer le
-nom** — une ligne de profil de plus, `par_moderateur` à vrai, l'équipe et le
+nom** — une ligne de profil de plus, `par_moderateur` à vrai, le groupe et le
 message intacts. Pas de ligne dans `forum_moderation` : ce journal-là porte
 l'état `masque` d'un message, et y écrire « masquer-nom » rétablirait un message
 caché au passage.
