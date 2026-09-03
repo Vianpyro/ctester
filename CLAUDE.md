@@ -36,6 +36,14 @@ python3 valider_contenu.py ../unittests
 python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
 ```
 
+Et avant une cohorte, une fois, avec Docker — pas à chaque modif :
+
+```sh
+docker run -d --rm --name pg -e POSTGRES_PASSWORD=x -e POSTGRES_DB=ctester            -p 55432:5432 postgres:16-alpine
+CTESTER_DB_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester   python3 test_postgres.py
+docker stop pg
+```
+
 - **`test_ctester.py`** — le parsing des verdicts et la frontière du catalogue
   (`publish_catalogue`, `public_quiz` : aucune clé `answer` ne survit). Pur
   Python, tourne partout, y compris sur le Dell. Il couvre aussi la
@@ -55,6 +63,17 @@ python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
   vérifications). Un exercice sans corrigé apparaît « non prouvé » : rien ne
   garantit alors que son test soit juste. Appelle `catalogue(tout=True)` pour
   qu'un exercice qui ouvre en novembre soit prouvé en septembre.
+- **`test_postgres.py`** — le SEUL contrôle qui éprouve le SQL. Les autres
+  simulent la base : ils vérifient la frontière HTTP, pas les instructions. Or
+  les écritures de progression ne sont pas du SQL ordinaire — une CTE modifiante
+  qui alimente un INSERT, un `unnest` d'un tableau paramétré, six DELETE dans une
+  seule instruction — et ces formes compilent dans la tête puis échouent en
+  production. Il demande un vrai PostgreSQL ; **sans `CTESTER_DB_DSN` il ne fait
+  rien et sort en 0**, et il n'est PAS dans la vérification Ansible parce qu'il
+  écrit. Avec `CTESTER_DB_ADMIN_DSN` en plus, il rejoue exactement la
+  production : schéma posé par `postgres`, tout le reste par `ctester_app` et ses
+  seuls GRANT — ce qui prouve du même coup que le GRANT suffit et que Postgres
+  refuse bien l'UPDATE sur les trois tables en ajout seul.
 - **`test_page.js`** — exécute le JS contre un DOM en carton et vérifie que la
   soumission part vraiment. **`node --check` ne suffit pas** : la seule panne que
   cette page ait connue en production était une `ReferenceError` de zone morte
@@ -240,6 +259,44 @@ ont leur propre `GRANT` **sans UPDATE** : l'API n'en a pas besoin, et c'est
 Postgres qui tient alors la propriété d'ajout seul. Ajouter une table sans
 l'ajouter au `GRANT` la rend muette ; sans l'ajouter à `forget()`, `python3
 test_ctester.py` échoue.
+
+## Mesurer avant de tourner un bouton
+
+`charge.py` existe pour qu'on arrête de régler `ctester_workers` à l'instinct.
+**Jamais pendant une séance** : il écrit dans la base, remplit la file et fait
+compiler pour de vrai.
+
+```sh
+CTESTER_KEY=<la clé de session> CTESTER_CHARGE_TP=tp2-ex3 \
+CTESTER_CHARGE_TOKEN=<un vrai jeton, pris dans sessionStorage> \
+  python3 charge.py http://ctester-web-1:8000
+```
+
+**Contre l'origine, sur le LAN**, pas contre le nom public : mesurer à travers
+Cloudflare mesurerait Cloudflare. C'est aussi ce qui permet au script de poser
+lui-même `CF-Connecting-IP` pour simuler 200 étudiants distincts — sans ça, une
+seule IP se ferait limiter dès la deuxième soumission et on mesurerait le
+régulateur, pas le service.
+
+**Un seul jeton rejoué par tous les fils**, parce qu'on ne fabrique pas 200
+comptes OIDC. La mesure reste juste : le coût serveur d'une lecture de
+progression ne dépend pas de qui la demande — même travail SQL, même verrou
+global dans `etat.py`, et c'est ce verrou qu'on vient regarder.
+
+**Ce que le script ne voit pas, il faut le lire sur le Dell pendant qu'il
+tourne** : `docker stats --no-stream ctester-web-1 ctester-postgres`, `uptime`,
+`ls /opt/ctester/spool | wc -l`.
+
+Ce qu'on décide APRÈS, et pas avant :
+
+- **`GET /progres` fait cinq allers-retours SQL sérialisés** derrière le verrou
+  unique. Les regrouper en une lecture est faisable et pas fait : à 27 étudiants
+  la file derrière ce verrou est vide, et une requête groupée est plus dure à
+  relire. Le seuil, c'est un p95 de `/progres` au-dessus d'une seconde — le
+  script le signale tout seul.
+- **`ctester_workers` et `ctester_queue_max`** ne montent pas parce que la file
+  s'allonge : chaque worker prend un cœur, et ce sont les mêmes cœurs que Kea et
+  AdGuard. Regarder ce qu'ils laissent libre AVANT, pas le rang maximum seul.
 
 ## Exploitation (runbook)
 
