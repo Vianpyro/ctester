@@ -190,12 +190,22 @@ main {
 }
 .btn:hover { color: var(--fg); border-color: var(--line-2); }
 #file:focus-visible + .btn { outline: 2px solid var(--ink); outline-offset: 2px; }
-#go {
+#go, #goex {
   background: var(--ink); color: var(--ink-fg); border-color: var(--ink);
   font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   padding: .4rem 1.1rem;
 }
-#go:hover:not(:disabled) { filter: brightness(1.12); border-color: var(--ink); }
+#go:hover:not(:disabled), #goex:hover:not(:disabled) {
+  filter: brightness(1.12); border-color: var(--ink);
+}
+/* En mode quiz, l'action courante est « tester l'exercice » : le bouton qui
+   relance les 40 questions passe au second plan plutôt que de disparaître. */
+#go.secondaire {
+  background: var(--card); color: var(--muted); border-color: var(--line);
+  font-weight: 400; letter-spacing: 0; text-transform: none;
+  padding: .35rem .6rem; font-size: 12.5px;
+}
+#go.secondaire:hover:not(:disabled) { color: var(--fg); border-color: var(--line-2); filter: none; }
 #brouillon { color: var(--muted); font-size: 12.5px; }
 #brouillon.rate { color: var(--bad); font-weight: 600; }
 #purger { font-size: 12px; }
@@ -271,6 +281,8 @@ main {
 
 #out ul { margin: .5rem 0 0; padding-left: 1.2rem; }
 #out li { font-size: 13px; margin-bottom: .2rem; }
+/* Non répondu n'est pas faux : neutre, pour que le rouge garde son sens. */
+#out li.rien { color: var(--muted); }
 pre {
   margin: .4rem 0 0; padding: .6rem; overflow-x: auto;
   background: var(--card); border: 1px solid var(--line); border-radius: 6px;

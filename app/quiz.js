@@ -83,9 +83,21 @@ const answers = () => Object.fromEntries(
   [...$("quiz").querySelectorAll("input[data-qid]")].map(i => [i.dataset.qid, i.value])
 );
 
+// La PAGE COURANTE, c'est l'exercice courant : `construireNavQuiz` découpe
+// déjà les pages sur le groupe. « Tester l'exercice » n'a donc rien à
+// redécouper, il demande les identifiants de la page affichée.
+const pageCourante = () => {
+  const titre = pagesQuiz.length ? pagesQuiz[pageQuiz].titre : "";
+  return {
+    titre: titre,
+    ids: Object.keys(groupeDeQuestion).filter(id => groupeDeQuestion[id] === titre),
+  };
+};
+
 ctester.quiz = {
   load: loadQuiz,
   answers: answers,
+  page: pageCourante,
   // `render` s'en sert pour nommer l'exercice d'une réponse fausse.
   groupeDe: (qid) => groupeDeQuestion[qid] || "",
 };

@@ -262,6 +262,11 @@ toucher :
   fait la seule panne prod. La réponse n'est pas toujours du JSON (page de
   blocage Cloudflare, erreur nginx en HTML) — d'où le `try/catch` autour de
   `r.json()`.
+- **« Tester l'exercice » restreint la LECTURE, jamais la correction.** Le
+  juge reçoit toujours les 40 réponses et note le quiz entier — c'est de ce
+  verdict complet que l'API dérive `valide`. `restreindre()` ne fait que
+  refiltrer `wrong` sur les identifiants de la page affichée. Envoyer un
+  sous-ensemble au serveur ferait valider un TP sur un exercice juste.
 - **`recordState()` — la page déclare son propre verdict** (`valide` / `essaye`).
   Un étudiant peut se marquer « validé » depuis la console ; sans note en jeu, il
   ne trompe que son propre tableau de bord. Dériver le statut de `result.json`

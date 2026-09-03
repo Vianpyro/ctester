@@ -595,6 +595,37 @@ const attendre = async () => { await sleep(); await sleep(); };
     check(!("code" in sent), "pas de code sur un TP de quiz");
   }
 
+  // --- « Tester l'exercice » : meme soumission, verdict restreint a la page ---
+  // Le juge corrige toujours les trois questions -- c'est lui qui a le corrige,
+  // et « valide » se derive de ce verdict complet. Seule la LECTURE se
+  // restreint a l'exercice affiche, sans quoi un exercice juste s'annoncerait
+  // « 1 / 40 » sous une page de rouge portant sur ce qu'on n'a pas encore vu.
+  const tousLesNoeuds = (n) => n.children.flatMap(k => [k, ...tousLesNoeuds(k)]);
+  const texteQuiz = (n) => (n.textContent || "") + " "
+                         + n.children.map(texteQuiz).join(" ");
+  check(nodes.goex.hidden === false, "le bouton par exercice n'existe qu'en quiz");
+  POLL_RESPONSE = { state: "done", status: "ok", kind: "quiz", passed: 1, total: 3,
+    wrong: [{ id: "q1", label: "23", given: "10111", hint: "l'énoncé demande 8 bits" },
+            { id: "q2", label: "167", given: "", hint: "non répondu" }] };
+  SUBMIT_RESPONSE = { ok: true, status: 200,
+                      json: async () => ({ id: "e".repeat(32) }) };
+  await nodes.goex.listeners.click();      // page 2 : Exercice 2, la seule juste
+  await sleep(); await sleep(); await sleep();
+  check(/1 \/ 1/.test(texteQuiz(nodes.out)) && nodes.out.className === "ok",
+        "l'exercice affiche est note seul : " + texteQuiz(nodes.out).slice(0, 48));
+
+  nodes.qprev.listeners.click();
+  await nodes.goex.listeners.click();
+  await sleep(); await sleep(); await sleep();
+  const vuExercice = texteQuiz(nodes.out);
+  check(/0 \/ 2/.test(vuExercice) && /Exercice 1/.test(vuExercice),
+        "l'exercice precedent aussi : " + vuExercice.slice(0, 48));
+  check(!/hexadécimal/.test(vuExercice),
+        "et aucune question d'un autre exercice n'est listee");
+  const neutres = tousLesNoeuds(nodes.out).filter(n => n.className === "rien");
+  check(neutres.length === 1 && /167/.test(neutres[0].textContent),
+        "seule la question non repondue passe en neutre, pas la reponse fausse");
+
   // --- Le verdict rend a l'etudiant ce qui lui appartient ---
   // On passe par le VRAI chemin -- soumission puis sondage -- parce que render()
   // vit dans la portee du script de la page et n'est pas joignable autrement.

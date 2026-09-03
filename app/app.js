@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260903-oidc-fix";
+const ASSET_REVISION = "20260903-quiz-exercice";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -147,7 +147,8 @@ function list(items) {
   const ul = document.createElement("ul");
   for (const it of items) {
     const li = document.createElement("li");
-    li.textContent = it;
+    li.textContent = it.text === undefined ? it : it.text;
+    if (it.cls) li.className = it.cls;
     ul.append(li);
   }
   return ul;
@@ -338,6 +339,12 @@ function switchMode() {
   $("editor").hidden = quiz;
   $("filewrap").hidden = quiz;
   $("quizwrap").hidden = !quiz;
+  // Hors quiz il n'y a qu'un bouton et il est primaire. En quiz, l'action
+  // courante est l'exercice affiche : tester les 40 questions reste possible,
+  // mais cesse d'etre ce sur quoi on tombe par defaut.
+  $("goex").hidden = !quiz;
+  $("go").className = quiz ? "secondaire" : "";
+  $("go").textContent = quiz ? "Tester tout le quiz" : "Tester";
 
   $("now").innerHTML = "";
   if (tp) {
@@ -686,12 +693,28 @@ const ATTENDU = {
   unity: "module seul, sans main()",
 };
 
-function render(r) {
+// « Tester l'exercice » ne change RIEN a la correction : le juge garde le
+// corrige et note le quiz entier, et c'est de ce verdict complet que l'API
+// derive « valide ». Seule la LECTURE est restreinte -- les questions des
+// autres exercices sortent du decompte et de la liste. Un exercice juste ne
+// peut donc pas valider un TP a moitie rempli.
+function restreindre(r, portee) {
+  const wrong = (r.wrong || []).filter(w => portee.ids.indexOf(w.id) >= 0);
+  return Object.assign({}, r, {
+    total: portee.ids.length,
+    passed: portee.ids.length - wrong.length,
+    wrong: wrong,
+  });
+}
+
+function render(r, portee) {
   if (r.status !== "ok") {
     show("bad", r.message, r.status === "compile_error" ? block(r.gcc || "") : null);
   } else {
+    const cadre = portee && r.kind === "quiz" ? " — " + portee.titre : "";
+    if (portee && r.kind === "quiz") r = restreindre(r, portee);
     const all = r.passed === r.total;
-    const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}`;
+    const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}${cadre}`;
     const bar = r.total > 0 ? ticks(r.passed, r.total) : null;
     if (all) {
       show("ok", title, null, bar);
@@ -699,9 +722,14 @@ function render(r) {
       show("bad", title, list(r.wrong.map(w => {
         const groupe = ctester.quiz ? ctester.quiz.groupeDe(w.id) : "";
         const ex = groupe.match(/Exercice\s*\d+/i);
-        const saisi = w.given && w.given.trim() ? ` (tu as répondu « ${w.given} »)` : "";
-        return (ex ? ex[0] + " — " : "") + w.label + saisi
-             + (w.hint ? " — " + w.hint : "");
+        const vide = !(w.given && w.given.trim());
+        const saisi = vide ? "" : ` (tu as répondu « ${w.given} »)`;
+        // Pas repondu n'est pas faux : le rouge est reserve aux erreurs.
+        return {
+          text: (ex ? ex[0] + " — " : "") + w.label + saisi
+              + (w.hint ? " — " + w.hint : ""),
+          cls: vide ? "rien" : "",
+        };
       })), bar);
     } else if (r.kind === "io") {
       show("bad", title, cases(r.cases), bar);
@@ -712,11 +740,17 @@ function render(r) {
   if (r.warnings) out.append(avertissements(r.warnings));
 }
 
-async function poll(id, tries) {
+// Les DEUX boutons se bloquent ensemble : ils envoient la meme soumission.
+function occupe(oui) {
+  $("go").disabled = oui;
+  $("goex").disabled = oui;
+}
+
+async function poll(id, tries, portee) {
   const r = await fetch("r/" + id);
   const body = await r.json().catch(() => ({state: "error"}));
   if (body.state === "done") {
-    render(body);
+    render(body, portee);
     // The API has just derived the exercise state from this verdict. Refresh
     // the private projections so « Mes exercices » reflects it immediately;
     // this is display state, not a client-side declaration of success.
@@ -724,21 +758,22 @@ async function poll(id, tries) {
       await Promise.all([ctester.compte.loadStates(),
                          ctester.compte.loadPractice()]);
     }
-    $("go").disabled = false;
+    occupe(false);
     return;
   }
   if (r.status === 404 || tries <= 0) {
     show("bad", "Résultat perdu. Relance les tests.");
-    $("go").disabled = false;
+    occupe(false);
     return;
   }
   show("wait", body.state === "running"
        ? "Compilation en cours…"
        : `En file d'attente — ${body.position}${body.position === 1 ? "er" : "e"}`);
-  setTimeout(() => poll(id, tries - 1), 2000);
+  setTimeout(() => poll(id, tries - 1, portee), 2000);
 }
 
-$("go").addEventListener("click", async () => {
+// `portee` : les identifiants de l'exercice affiche, ou null pour tout le TP.
+async function soumettre(portee) {
   const tp = current();
   if (!tp) { show("bad", "Choisis un TP."); return; }
   const body = {key, tp: tp.id};
@@ -755,7 +790,7 @@ $("go").addEventListener("click", async () => {
       show("bad", "Il n'y a rien à tester."); return;
     }
   }
-  $("go").disabled = true;
+  occupe(true);
   show("wait", "Envoi…");
   try {
     const r = await fetch("submit", {
@@ -772,12 +807,16 @@ $("go").addEventListener("click", async () => {
     if (!r.ok || !out) {
       show("bad", (out && out.error) ||
                   `Le serveur a répondu ${r.status} sans JSON exploitable.`);
-      $("go").disabled = false;
+      occupe(false);
       return;
     }
-    poll(out.id, 150);
+    poll(out.id, 150, portee);
   } catch (e) {
     show("bad", "Le serveur est injoignable : " + e.message);
-    $("go").disabled = false;
+    occupe(false);
   }
-});
+}
+
+$("go").addEventListener("click", () => soumettre(null));
+$("goex").addEventListener("click", () => soumettre(
+  ctester.quiz ? ctester.quiz.page() : null));

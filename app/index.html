@@ -12,7 +12,7 @@
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="style.css?v=20260903-oidc-fix">
+<link rel="stylesheet" href="style.css?v=20260903-quiz-exercice">
 </head>
 <body>
 <div id="top">
@@ -100,6 +100,7 @@
       <button type="button" id="purger" class="nav" hidden>Effacer mes brouillons</button>
       <span class="grow"></span>
       <button id="go">Tester</button>
+      <button type="button" id="goex" hidden>Tester l'exercice</button>
     </div>
 
     <div id="out"></div>
@@ -109,6 +110,6 @@
 <div id="liste" hidden></div>
 </main>
 
-<script src="app.js?v=20260903-oidc-fix"></script>
+<script src="app.js?v=20260903-quiz-exercice"></script>
 </body>
 </html>
