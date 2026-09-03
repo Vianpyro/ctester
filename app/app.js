@@ -517,10 +517,15 @@ Object.assign(ctester, {
   sessionDrop: sessionDrop,
   authCode: authCode,
   authState: authState,
-  // Des accesseurs, pas des copies : `catalogue` et `token` sont réaffectés.
+  // DES FONCTIONS, PAS DES `get`. `catalogue`, `token` et `oidc` sont
+  // réaffectés après le chargement, donc une copie mentirait -- et
+  // `Object.assign` copie justement la VALEUR d'un getter, pas le getter :
+  // `ctester.token` serait resté figé à null pour toute la visite, et tout ce
+  // qui suit un compte (états, pratique, synchronisation des brouillons)
+  // serait tombé en silence. C'est arrivé.
   catalogue: () => catalogue,
-  get token() { return token; },
-  get oidc() { return oidc; },
+  token: () => token,
+  oidc: () => oidc,
   setToken: setToken,
   refreshAccount: refreshAccount,
   switchMode: switchMode,

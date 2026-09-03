@@ -17,9 +17,18 @@ const css = lire("style.css");
 const js = lire("app.js");
 
 // --- DOM en carton --------------------------------------------------------
+// CE QUE LE MARKUP MASQUE DEJA. `<div id="liste" hidden>` part masque dans un
+// vrai navigateur ; un faux DOM qui le rend visible fait basculer a l'envers
+// tout ce qui lit `.hidden` pour decider, et la vue liste ne s'ouvrait jamais.
+const masquesAuDepart = new Set(
+  [...html.matchAll(/<[^>]+>/g)]
+    .filter((m) => /\shidden(\s|>|=)/.test(m[0]))
+    .map((m) => (m[0].match(/\bid="([^"]+)"/) || [])[1])
+    .filter(Boolean));
+
 function el(id) {
   const node = {
-    id, value: "", hidden: false, className: "", textContent: "",
+    id, value: "", hidden: masquesAuDepart.has(id), className: "", textContent: "",
     disabled: false, tabIndex: 0, dataset: {}, files: [], children: [],
     listeners: {}, attrs: {}, selectionStart: 0, selectionEnd: 0,
     setAttribute(k, v) { this.attrs[k] = v; },
@@ -158,12 +167,18 @@ global.localStorage = {
 // Le jeton de session vit ici, et il n'y en a pas : ce fichier éprouve le
 // parcours ANONYME sur un déploiement où la connexion est pourtant offerte.
 // C'est la combinaison qui doit rester identique à l'avant-connexion.
+const session = {};
 global.sessionStorage = {
-  getItem: () => null,
-  setItem: () => {},
-  removeItem: () => {},
+  getItem: (k) => (k in session ? session[k] : null),
+  setItem: (k, v) => { session[k] = v; },
+  removeItem: (k) => { delete session[k]; },
 };
+// Ou la page envoie l'etudiant quand il accepte de se connecter.
+const redirections = [];
 global.history = { replaceState: () => {} };
+global.location.assign = (url) => { redirections.push(url); };
+global.location.origin = "https://ctester.example";
+global.location.pathname = "/";
 
 const UN_FICHIER = [{ name: "submission.c" }];
 // LE DETAIL, SERVI A PART. `tps.json` ne porte plus que le menu et la
@@ -192,6 +207,10 @@ const calls = [];
 // tout se comporter comme avant tant que personne ne s'est connecté.
 const OIDC_RESPONSE = { issuer: "https://auth.example", client_id: "ctester" };
 let SUBMIT_RESPONSE;
+const JETON = "jeton-de-test";
+const ETATS = { etats: [{ exercice_id: "tp2-ex0", statut: "valide" }] };
+const PRATIQUE = { pratique: [
+  { exercice_id: "tp2-ex3", tentatives: 3, reussites: 1 }] };
 let POLL_RESPONSE = { state: "queued", position: 1 };
 global.fetch = async (url, opts) => {
   calls.push({ url, opts });
@@ -214,6 +233,19 @@ global.fetch = async (url, opts) => {
   }
   if (url === "oidc.json") {
     return { ok: true, status: 200, json: async () => OIDC_RESPONSE };
+  }
+  if (url === "etats" || url === "pratique") {
+    // LE JETON FAIT FOI. Une requete de compte sans en-tete doit repartir
+    // vide : c'est ce qui distingue « pas connecte » de « rien a montrer ».
+    const porteur = opts && opts.headers && opts.headers.Authorization;
+    if (porteur !== "Bearer " + JETON) {
+      return { ok: false, status: 401, json: async () => ({}) };
+    }
+    return { ok: true, status: 200, json: async () => (
+      url === "etats" ? ETATS : PRATIQUE) };
+  }
+  if (url.startsWith("brouillon")) {
+    return { ok: true, status: 200, json: async () => ({ sources: {} }) };
   }
   if (url === "submit") return SUBMIT_RESPONSE;
   return { ok: true, status: 200, json: async () => POLL_RESPONSE };
@@ -654,6 +686,65 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(charges.filter((n) => n === "compte.js").length === 2,
         "un second essai redemande vraiment le fichier");
   chargementCasse = false;
+
+  // --- LE PARCOURS CONNECTE ---
+  // Tout ce qui precede eprouve l'anonyme, qui reste le parcours par defaut.
+  // Sans ce bloc, `ctester.token` a pu rester fige a null pendant toute une
+  // visite sans qu'aucun test ne bronche : les etats et la pratique tombaient
+  // en silence, et « Mes exercices » annoncait « a faire » sur un exercice
+  // reussi. C'est arrive.
+  calls.length = 0;
+  nodes.connexion.listeners.click();
+  await nodes.consentok.listeners.click();
+  await attendre(); await attendre();
+  check(!!global.ctester.compte, "accepter le consentement charge compte.js");
+  // Le defi PKCE passe par crypto.subtle : une vraie operation de la plateforme,
+  // pas une microtache. Elle demande une poignee de tours de boucle, d'ou
+  // l'attente bornee -- qui sort des qu'elle a rendu.
+  for (let n = 0; n < 60 && !redirections.length; n++) await attendre();
+  check(redirections.length === 1, "et part vraiment vers le fournisseur");
+  check(!!session["ctester.pkce"], "en ayant garde son verificateur PKCE");
+  const pkce = JSON.parse(session["ctester.pkce"] || "{}");
+  check(redirections[0].includes("state=" + pkce.state),
+        "le `state` envoye est celui qu'on a garde : sans lui, un lien portant "
+        + "le code de quelqu'un d'autre finirait la connexion sous ce compte");
+  check(redirections[0].includes("code_challenge_method=S256"),
+        "et le defi PKCE part avec");
+
+  // LE CONTEXTE DOIT ETRE VIVANT. `Object.assign` copie la VALEUR d'un getter
+  // et pas le getter : c'est exactement comme ca que le jeton s'est fige.
+  global.ctester.setToken(JETON);
+  check(global.ctester.token() === JETON,
+        "le contexte rend le jeton COURANT, pas celui du chargement");
+  check(!!global.ctester.oidc(), "et la configuration OIDC vraiment lue");
+
+  calls.length = 0;
+  await global.ctester.compte.loadStates();
+  await global.ctester.compte.loadPractice();
+  const portees = calls.filter(c => c.url === "etats" || c.url === "pratique");
+  check(portees.length === 2 && portees.every(
+          c => c.opts.headers.Authorization === "Bearer " + JETON),
+        "les projections privees partent avec le jeton");
+
+  global.ctester.compte.basculerListe();
+  // Le texte d'une ligne est reparti sur plusieurs niveaux (la progression met
+  // son compte dans un <b> puis un noeud texte), d'ou la descente.
+  const texteDe = (n) => (n.children.length
+    ? n.children.map(texteDe).join(" ") : n.textContent || "");
+  const lignes = nodes.liste.children.map(texteDe);
+  check(/1 \/ 4/.test(lignes[0] || ""),
+        "la progression compte les exercices valides : " + lignes[0]);
+  check(lignes.some(l => /3 tentatives — réussie/.test(l)),
+        "et un exercice reussi le dit, au lieu de « a faire » : "
+        + lignes.join(" // "));
+  check(lignes.some(l => /à faire/.test(l)),
+        "les autres restent a faire");
+
+  // Se deconnecter remet tout a zero, jusqu'au bandeau.
+  global.ctester.compte.signOut();
+  check(global.ctester.token() === null, "se deconnecter oublie le jeton");
+  check(nodes.mesexos.hidden === true && nodes.connexion.hidden === false,
+        "et le bandeau repropose la connexion");
 
   console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nla page fonctionne");
   process.exit(failures ? 1 : 0);

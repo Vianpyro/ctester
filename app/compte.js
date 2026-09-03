@@ -17,17 +17,17 @@ const authState = ctester.authState;
 // `oidc` et `token` restent au noyau : c'est lui qui lit oidc.json avant de
 // savoir s'il faut ce fichier, et c'est lui qui pose l'en-tête Authorization
 // d'une soumission. Ici on ne fait que les lire et les poser par le contexte.
-const oidc = ctester.oidc;
+const oidc = ctester.oidc();
 let states = {};
 let practice = {};
 
 const authFetch = (url, options) => fetch(url, Object.assign({}, options, {
   headers: Object.assign({}, (options && options.headers) || {},
-                         { Authorization: "Bearer " + ctester.token }),
+                         { Authorization: "Bearer " + ctester.token() }),
 }));
 
 async function getJson(path) {
-  if (!ctester.token) return null;
+  if (!ctester.token()) return null;
   try {
     const answer = await authFetch(path);
     if (answer.status === 401) { signOut(); return null; }
@@ -38,7 +38,7 @@ async function getJson(path) {
 }
 
 async function putJson(path, payload) {
-  if (!ctester.token) return false;
+  if (!ctester.token()) return false;
   try {
     const answer = await authFetch(path, {
       method: "PUT",
@@ -228,7 +228,7 @@ function showListView(on) {
 }
 
 async function oublier() {
-  if (!ctester.token) return;
+  if (!ctester.token()) return;
   let ok = false;
   try {
     ok = (await authFetch("moi", { method: "DELETE" })).ok;
@@ -246,7 +246,7 @@ async function oublier() {
 async function demarrer() {
   if (authCode) await finishSignIn();
   ctester.refreshAccount();
-  if (!ctester.token) return;
+  if (!ctester.token()) return;
   await loadStates();
   await loadPractice();
   ctester.switchMode();

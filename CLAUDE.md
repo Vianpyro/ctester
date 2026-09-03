@@ -309,6 +309,14 @@ toucher :
 - **Le parcours anonyme ne télécharge rien de `compte.js`**, même sur un
   déploiement où la connexion est offerte. `test_page.js` le vérifie ; c'est la
   raison d'être du découpage.
+- **Le contexte expose des FONCTIONS (`ctester.token()`, `ctester.oidc()`,
+  `ctester.catalogue()`), jamais des `get`.** `Object.assign` copie la *valeur*
+  d'un getter, pas le getter : `ctester.token` est resté figé à `null` pour
+  toute la visite, et tout ce qui suit un compte — états, pratique,
+  synchronisation des brouillons — tombait en silence. « Mes exercices »
+  annonçait « à faire » sur un exercice réussi. Rien ne le signalait parce que
+  le harnais n'éprouvait que le parcours anonyme ; il couvre maintenant les
+  deux.
 
 ## Raccourcis assumés (ponytail)
 
