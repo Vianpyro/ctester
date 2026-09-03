@@ -462,11 +462,11 @@ pre {
 #vueforum input[type="number"] { max-width: 6rem; }
 /* Une case à cocher est une case, pas un bloc : la règle `label` ci-dessus
    couperait la ligne entre la case et son texte. */
-#vueforum .coche {
+.coche {
   display: flex; align-items: center; gap: .45rem; margin: .5rem 0 0;
   color: var(--fg); font-size: 13px; cursor: pointer;
 }
-#vueforum .coche input { width: auto; margin: 0; }
+.coche input { width: auto; margin: 0; }
 /* Le numéro d'équipe : une pastille, à côté du nom et jamais à sa place. */
 #vueforum .equipe {
   font-size: 12px; color: var(--muted); padding: 0 .4rem;
@@ -533,6 +533,32 @@ pre {
 #charte .regles { margin: 0; padding-left: 1.1rem; }
 #charte .regles li { font-size: 13px; margin-bottom: .25rem; }
 #charte .row { display: flex; gap: .6rem; margin-top: .7rem; }
+
+/* « Mon identité » : le MÊME encart que la charte, au même endroit, ouvert
+   depuis le menu Compte. C'est un réglage, pas une étape de lecture -- il n'a
+   rien à faire dans la colonne où on vient lire un fil. */
+#identitepanneau {
+  position: absolute; z-index: 5; top: 100%; right: .9rem; margin-top: .4rem;
+  width: min(26rem, calc(100vw - 2rem));
+  padding: .85rem 1rem; background: var(--panel);
+  border: 1px solid var(--line); border-left: 3px solid var(--ink);
+  border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+  font-family: var(--sans);
+}
+#identitepanneau[hidden] { display: none; }
+#identitepanneau h2 { font-size: .95rem; margin: 0 0 .5rem; }
+#identitepanneau p { margin: .5rem 0 0; font-size: 13px; color: var(--muted); }
+#identitepanneau .annonce { color: var(--ink); }
+#identitepanneau .rate { color: var(--bad); font-weight: 600; }
+#identitepanneau label { display: block; font-size: 12.5px; color: var(--muted);
+                         margin: .6rem 0 .3rem; }
+#identitepanneau input[type="text"], #identitepanneau input[type="number"] {
+  width: 100%; font-family: var(--sans); font-size: 13.5px;
+  padding: .4rem .5rem; color: var(--fg); background: var(--card);
+  border: 1px solid var(--line-2); border-radius: 6px;
+}
+#identitepanneau input[type="number"] { max-width: 6rem; }
+#identitepanneau .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
 @media (max-width: 900px) {
   html, body { height: auto; }

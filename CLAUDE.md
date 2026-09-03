@@ -301,6 +301,14 @@ vérifié se réclame depuis n'importe quel compte. La page reçoit bien un drap
 sinon « Participant ». Un test l'éprouve en cherchant les `sub` dans la charge
 JSON — y compris dans la vue la plus renseignée, celle d'un modérateur.
 
+**Le formulaire d'identité vit dans le menu Compte, pas dans la vue.**
+`#identitepanneau` est le même encart flottant que la charte et le consentement,
+dessiné par `forum.js` (`ouvrirIdentite()`), chargé au clic comme le reste du
+module. C'est un réglage : dans la colonne du fil, il repoussait la charte et le
+formulaire de publication à chaque visite. Un seul endroit, donc un seul endroit
+où la visibilité peut diverger de ce que la base dit — l'intro de la vue
+Discussions se contente de dire où le trouver.
+
 **L'identité est choisie, facultative, et invisible par défaut.** `forum_profil`
 est un journal en ajout seul (la dernière ligne d'un compte fait foi) : un nom
 d'affichage, un numéro d'équipe de 1 à 99, et **deux** cases de visibilité

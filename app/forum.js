@@ -213,8 +213,16 @@ async function charger(id) {
       ? file.signalements : null;
     nomsSignales = file && Array.isArray(file.noms) ? file.noms : null;
   }
+  await chargerProfil();
+}
+
+// LE PROFIL SE LIT SEUL. « Mon identité » s'ouvre depuis le menu Compte, sans
+// fil ni exercice : le charger avec le fil aurait rendu le réglage dépendant
+// d'une vue qu'on n'a pas forcément ouverte.
+async function chargerProfil() {
+  if (!ctester.compte) return;
   const mien = await ctester.compte.getJson("forum/profil");
-  if (mien && typeof mien === "object") profil = mien;
+  profil = mien && typeof mien === "object" ? mien : null;
 }
 
 // Le message d'erreur de l'API est REPRIS TEL QUEL quand il y en a un :
@@ -265,9 +273,22 @@ const effacerNom = (id) => ecrire(
   "forum/moderation", "POST", { id: id, action: "effacer-nom" },
   "Nom effacé.", "Action impossible");
 
-const enregistrerProfil = (charge) => ecrire(
-  "forum/profil", "POST", charge,
-  "Identité enregistrée.", "Identité non enregistrée");
+// DEUX SURFACES POSSIBLES, UNE SEULE ÉCRITURE : le panneau du menu Compte, et
+// le fil si on l'a ouvert (les noms affichés peuvent changer). `ecrire` ne
+// suffisait plus -- il redessine la vue forum, qui n'est pas forcément là.
+async function enregistrerProfil(charge) {
+  const reponse = await ctester.compte.sendJson("forum/profil", "POST", charge);
+  const ok = !!(reponse && reponse.ok);
+  annonce = ok ? "Identité enregistrée."
+               : "Identité non enregistrée : " + pourquoi(reponse, "refusé");
+  await chargerProfil();
+  if (ctester.vue() === "forum") {
+    await charger(exercice);
+    dessiner();
+  }
+  if (!$("identitepanneau").hidden) dessinerPanneau();
+  return ok;
+}
 
 const moderer = (id, action) => ecrire(
   "forum/moderation", "POST", { id: id, action: action },
@@ -327,11 +348,12 @@ const numeroEquipe = (n) => "équipe " + String(n).padStart(2, "0");
 // cocher est un geste, ne rien faire reste l'anonymat. Le serveur revalide tout
 // -- ce formulaire borne pour éviter un aller-retour, il n'autorise rien.
 function monIdentite() {
-  const bloc = noeud("div", "bloc");
-  bloc.id = "forumidentite";
-  bloc.append(noeud("h3", "soustitre", "Mon identité"));
+  const bloc = noeud("div", "");
+  bloc.append(noeud("h2", "", "Mon identité"));
+  if (annonce) bloc.append(noeud("p", "annonce", annonce));
   if (profil === null) {
-    bloc.append(noeud("p", "aide", "Ton identité n'a pas pu être lue."));
+    bloc.append(noeud("p", "rate", "Ton identité n'a pas pu être lue."));
+    bloc.append(fermeture());
     return bloc;
   }
 
@@ -380,13 +402,35 @@ function monIdentite() {
   bloc.append(noeud("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
     + "autres. L'équipe du cours, elle, voit toujours ton numéro d'équipe — "
     + "jamais ton nom si tu ne l'affiches pas."));
-  bloc.append(bouton("Enregistrer", "", () => enregistrerProfil({
+  const rangee = noeud("div", "row");
+  rangee.append(bouton("Enregistrer", "", () => enregistrerProfil({
     pseudo: champNom.value,
     groupe: champGroupe.value,
     pseudo_public: voirNom.checked,
     groupe_public: voirGroupe.checked,
   })));
+  rangee.append(bouton("Fermer", "nav", fermerIdentite));
+  bloc.append(rangee);
   return bloc;
+}
+
+function fermeture() {
+  const rangee = noeud("div", "row");
+  rangee.append(bouton("Fermer", "nav", fermerIdentite));
+  return rangee;
+}
+
+function fermerIdentite() {
+  annonce = "";
+  champPseudo = null;
+  $("identitepanneau").hidden = true;
+}
+
+function dessinerPanneau() {
+  const boite = $("identitepanneau");
+  boite.innerHTML = "";
+  boite.append(monIdentite());
+  boite.hidden = false;
 }
 
 function caseACocher(id, texte, coche) {
@@ -618,7 +662,9 @@ function dessiner() {
   titre.tabIndex = -1;
   box.append(titre);
   box.append(noeud("p", "aide", "Visible par les autres comptes connectés du "
-    + "cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès."));
+    + "cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès. "
+    + "Tu y apparais comme « Participant » tant que tu n'as pas choisi de nom "
+    + "dans Compte → Mon identité."));
 
   const etat = noeud("p", "annonce", annonce);
   etat.setAttribute("aria-live", "polite");
@@ -633,7 +679,6 @@ function dessiner() {
   box.append(gauche, droite);
 
   if (ctester.catalogue().length) gauche.append(choixExercice());
-  gauche.append(monIdentite());
 
   const regles = noeud("div", "bloc second");
   regles.append(noeud("h3", "soustitre", "Ce qui se publie ici"));
@@ -681,15 +726,24 @@ function oublier() {
   erreur = "";
   annonce = "";
   saisie = "";
+  profil = null;
+  nomsSignales = null;
   $("charte").hidden = true;
+  // LE PANNEAU D'IDENTITÉ PART AVEC LA SESSION : il porte le nom de quelqu'un,
+  // et se déconnecter ne doit pas le laisser ouvert à l'écran.
+  fermerIdentite();
   if (ctester.vue() === "forum") ctester.afficherVue("");
 }
 
-// « MON IDENTITÉ » DU MENU COMPTE : la même vue et le même formulaire, avec le
-// focus dessus. Un second formulaire ailleurs serait un second endroit où la
-// visibilité peut diverger de ce que la base dit.
+// « MON IDENTITÉ » DU MENU COMPTE, et NULLE PART AILLEURS. C'est un réglage,
+// pas une étape de lecture : dans la colonne du fil, il poussait la charte et
+// le formulaire vers le bas à chaque visite. Un seul endroit, donc un seul
+// endroit où la visibilité peut diverger de ce que la base dit.
 async function ouvrirIdentite() {
-  if (ctester.vue() !== "forum") await basculer();
+  if (!$("identitepanneau").hidden) { fermerIdentite(); return; }
+  annonce = "";
+  await chargerProfil();
+  dessinerPanneau();
   if (champPseudo) champPseudo.focus();
 }
 

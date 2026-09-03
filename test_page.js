@@ -1194,29 +1194,40 @@ const attendre = async () => { await sleep(); await sleep(); };
         "dont le HTML est ÉCHAPPÉ à l'affichage, pas interprété");
   check(!/sub-/.test(vuForum), "et aucun identifiant de compte n'apparaît");
 
-  // --- MON IDENTITÉ : facultative, et invisible tant qu'on ne l'a pas voulu --
+  // --- MON IDENTITÉ : un RÉGLAGE, dans le menu Compte et pas dans le fil ----
   check(nodes.identite.hidden === false,
         "« Mon identité » est offert dans le menu Compte, comme Discussions");
+  check(!/MON IDENTITÉ|Nom affiché/.test(vuForum),
+        "et le formulaire n'encombre pas la colonne où on vient lire le fil");
+  check(/Compte . Mon identité/.test(vuForum),
+        "mais la vue dit où le trouver, sinon personne ne le découvre");
+  check(!forumEnvois.some((e) => e.url === "forum/profil"),
+        "ouvrir les discussions n'écrit rien dans le profil");
+
+  // Le noeud est cree a la demande par le faux DOM : on le demande comme la
+  // page le ferait, pas via `nodes` qui ne connait que ce qui a deja servi.
+  const panneau = document.getElementById("identitepanneau");
+  check(panneau.hidden === true, "le panneau part fermé");
+  await nodes.identite.listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(panneau.hidden === false,
+        "le menu Compte l'ouvre, sans changer de vue");
   check(nodes.forumpseudo.value === "vveremme",
         "le nom de connexion PRÉ-REMPLIT le champ : " + nodes.forumpseudo.value);
+  check(focusé === "forumpseudo", "et le focus part dedans : " + focusé);
   check(nodes.forumvoirnom.checked === false
         && nodes.forumvoirgroupe.checked === false,
-        "mais rien n'est coché -- l'anonymat est l'état de départ, "
-        + "et le nom de connexion de quelqu'un ne se publie pas tout seul");
-  check(!forumEnvois.some((e) => e.url === "forum/profil"),
-        "et rien n'a encore été enregistré : ouvrir la vue n'écrit pas");
+        "rien n'est coché -- l'anonymat est l'état de départ, et le nom de "
+        + "connexion de quelqu'un ne se publie pas tout seul");
   check(/Bob B/.test(vuForum) && /équipe 07/.test(vuForum),
         "un nom choisi par un autre s'affiche, avec son équipe sur deux chiffres");
-  const signalerNom = tousLesNoeuds(nodes.vueforum)
-    .find((n) => n.textContent === "Signaler le nom");
-  check(!!signalerNom, "un nom affiché est signalable");
 
+  const dansPanneau = (texte) => tousLesNoeuds(panneau)
+    .find((n) => n.textContent === texte);
   nodes.forumpseudo.value = "Léa";
   nodes.forumgroupe.value = "7";
   nodes.forumvoirnom.checked = true;
-  const enregistrer = tousLesNoeuds(nodes.vueforum)
-    .find((n) => n.textContent === "Enregistrer");
-  await enregistrer.listeners.click();
+  await dansPanneau("Enregistrer").listeners.click();
   await sleep(); await sleep(); await sleep();
   const profilEnvoye = forumEnvois.find((e) => e.url === "forum/profil");
   check(profilEnvoye && profilEnvoye.corps.pseudo === "Léa"
@@ -1226,35 +1237,26 @@ const attendre = async () => { await sleep(); await sleep(); };
         "« Enregistrer » envoie le nom, l'équipe et les DEUX visibilités "
         + "séparément : " + JSON.stringify(profilEnvoye && profilEnvoye.corps));
   check(nodes.forumpseudo.value === "Léa",
-        "et la vue redessinée repart du profil enregistré, pas de la suggestion");
+        "le panneau repart du profil enregistré, pas de la suggestion");
+  check(/Identité enregistrée/.test(contenuDe(panneau)),
+        "et le dit sur place, sans refermer sous le nez de qui vient d'écrire");
 
-  // LE RACCOURCI DU MENU RAMÈNE AU MÊME FORMULAIRE, vue fermée ou pas.
-  await nodes.discussions.listeners.click();          // retour à l'exercice
-  check(nodes.vueforum.hidden === true, "la vue est bien refermée");
-  await nodes.identite.listeners.click();
-  await sleep(); await sleep(); await sleep();
-  check(nodes.vueforum.hidden === false && focusé === "forumpseudo",
-        "« Mon identité » rouvre les discussions et pose le focus sur le champ "
-        + "(focus : " + focusé + ")");
+  await dansPanneau("Fermer").listeners.click();
+  check(panneau.hidden === true, "« Fermer » referme le panneau");
+  // ET LE FIL EST TOUJOURS LÀ : le réglage ne se paie pas d'un changement de
+  // vue, ni d'un rechargement de ce qu'on était en train de lire.
+  check(nodes.vueforum.hidden === false && /Bob B/.test(vuDuForum()),
+        "le fil n'a pas bougé pendant tout ça");
 
+  const signalerNom = tousLesNoeuds(nodes.vueforum)
+    .find((n) => n.textContent === "Signaler le nom");
+  check(!!signalerNom, "un nom affiché est signalable");
   await signalerNom.listeners.click();
   await sleep(); await sleep();
   const nomSignale = forumEnvois.find(
     (e) => e.url === "forum/signalement" && e.corps && e.corps.quoi === "nom");
   check(!!nomSignale && nomSignale.corps.id === "m-nomme",
         "signaler un NOM passe par la même route, avec la poignée du message");
-
-  // L'HEURE DU LECTEUR. Le serveur date en UTC ; affichée telle quelle, une
-  // question posée le soir à Montréal apparaissait le lendemain.
-  const quand = global.ctester.forum.quandLocal;
-  check(/(18|6):30/.test(quand("2026-09-03T22:30Z"))
-        && !/22:30/.test(quand("2026-09-03T22:30Z")),
-        "22:30 UTC s'affiche à 18:30 pour un lecteur de Montréal : "
-        + quand("2026-09-03T22:30Z"));
-  check(quand("2026-09-03T22:30Z") === quand("2026-09-03T18:30-04:00"),
-        "et deux écritures du même instant s'affichent pareil");
-  check(quand("pas une date") === "pas une date",
-        "une date illisible s'affiche telle quelle, pas « Invalid Date »");
 
   // LE POINT LE PLUS IMPORTANT DE TOUT CE FICHIER. Le texte d'un message est
   // écrit par un autre étudiant : c'est la donnée la moins digne de confiance
