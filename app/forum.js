@@ -467,23 +467,32 @@ function dessiner() {
   etat.setAttribute("aria-live", "polite");
   box.append(etat);
 
-  if (ctester.catalogue().length) box.append(choixExercice());
+  // DEUX COLONNES SUR UN GRAND ÉCRAN, une seule sur un petit, et c'est la
+  // grille CSS qui décide : ce qu'on écrit à gauche, ce qu'on lit à droite.
+  // Empilé, le fil commençait sous trois cadres et laissait les deux tiers de
+  // l'écran vides.
+  const gauche = noeud("div", "colonne");
+  const droite = noeud("div", "colonne large");
+  box.append(gauche, droite);
+
+  if (ctester.catalogue().length) gauche.append(choixExercice());
 
   const regles = noeud("div", "bloc second");
   regles.append(noeud("h3", "soustitre", "Ce qui se publie ici"));
   regles.append(listeCharte());
   regles.append(noeud("p", "aide", "Modération humaine : rien n'est vérifié "
     + "automatiquement. Signale plutôt que de répondre à une fuite."));
-  box.append(regles);
+  gauche.append(regles);
 
   if (fil === null) {
     // ON N'INVENTE PAS UN FIL VIDE. « Aucun message » pendant une panne dit à
     // quelqu'un que personne ne lui a répondu, et c'est faux.
-    box.append(noeud("p", "rate", erreur));
+    droite.append(noeud("p", "rate", erreur));
     return;
   }
-  box.append(formulaire(), leFil());
-  if (moderateur) box.append(fileModeration());
+  gauche.append(formulaire());
+  droite.append(leFil());
+  if (moderateur) droite.append(fileModeration());
 }
 
 // --- Entrées ---------------------------------------------------------------

@@ -415,6 +415,18 @@ pre {
 #vueforum {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .9rem;
   font-family: var(--sans);
+  display: grid; align-content: start;
+  grid-template-columns: minmax(0, 1fr); column-gap: 1.1rem;
+}
+/* L'en-tête et le message de panne traversent les deux colonnes ; le reste
+   vit dans l'une ou l'autre. */
+#vueforum > h2, #vueforum > p { grid-column: 1 / -1; }
+#vueforum .colonne { min-width: 0; }
+@media (min-width: 68rem) {
+  #vueforum { grid-template-columns: minmax(19rem, 26rem) minmax(0, 1fr); }
+  /* Le fil prend la place qui restait vide, mais les lignes de texte gardent
+     leur mesure lisible (`#vueforum p`), sinon on lit en travers de l'écran. */
+  #vueforum .colonne.large .bloc { max-width: 62rem; }
 }
 #vueforum[hidden] { display: none; }
 #vueforum h2 { font-size: 1rem; margin: 0 0 .35rem; }
