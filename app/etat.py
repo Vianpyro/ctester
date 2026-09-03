@@ -299,17 +299,157 @@ def _jour(valeur):
         return str(valeur)[:10]
 
 
+# --- Forum d'entraide (MVP) ------------------------------------------------
+# UN fil par exercice publié, pour les comptes connectés seulement. Rien ici ne
+# touche à la progression : ni XP, ni succès, ni statut d'exercice.
+#
+# `utilisateur` EST TOUJOURS le `sub` validé par app.current_user(), comme
+# partout ailleurs dans ce fichier -- jamais une valeur prise dans un corps de
+# requête. C'est ce qui empêche de publier, de supprimer ou de signaler au nom
+# d'un autre.
+#
+# CE MODULE REND LE `sub` DE L'AUTEUR à l'appelant, et c'est `app.py` qui le
+# traduit en « Vous » / « Participant » / « Équipe du cours » sans jamais le
+# laisser sortir. Le traduire ici aurait demandé de connaître la liste des
+# modérateurs dans la couche SQL, où elle n'a rien à faire.
+
+
+def forum_fil(exercise_id, limite):
+    """Le fil d'un exercice, du plus ancien au plus récent. None si base muette.
+
+    Les messages masqués SONT rendus, avec leur drapeau : c'est `app.py` qui les
+    retire pour un étudiant ordinaire et les garde pour un modérateur, parce que
+    c'est lui qui sait qui appelle.
+    """
+    rows = _query(
+        "SELECT message_id, utilisateur, texte, masque, cree_le"
+        " FROM forum_message WHERE exercice_id = %s"
+        " ORDER BY cree_le, message_id LIMIT %s",
+        (exercise_id, max(int(limite), 0)), read=True)
+    if rows is None:
+        return None
+    return [{"id": row[0], "utilisateur": row[1], "texte": row[2],
+             "masque": bool(row[3]), "cree_le": _minute(row[4])} for row in rows]
+
+
+def forum_publier(message_id, exercise_id, user, texte):
+    """Ajoute un message. L'identifiant est généré par l'appelant (uuid4)."""
+    return _query(
+        "INSERT INTO forum_message (message_id, exercice_id, utilisateur, texte)"
+        " VALUES (%s, %s, %s, %s)",
+        (message_id, exercise_id, user, texte),
+    ) is not None
+
+
+def forum_supprimer(message_id, user):
+    """Supprime SON message. [] si ce n'est pas le sien (ou s'il n'existe plus).
+
+    Le `utilisateur = %s` de la clause EST le contrôle d'accès : il n'y a pas de
+    lecture préalable à faire mentir, et supprimer chez le voisin demanderait
+    d'être le voisin.
+    """
+    return _query(
+        "DELETE FROM forum_message WHERE message_id = %s AND utilisateur = %s"
+        " RETURNING message_id", (message_id, user), read=True)
+
+
+def forum_signaler(message_id, user):
+    """Signale un message. [] s'il n'existe pas OU s'il est déjà signalé par lui.
+
+    DEUX PROTECTIONS DANS UNE SEULE INSTRUCTION : le `SELECT ... FROM
+    forum_message` interdit de signaler un identifiant inventé -- donc pas de
+    ligne orpheline portant un `sub` pour rien -- et la clé primaire interdit le
+    doublon. Une lecture suivie d'une écriture aurait laissé les deux courses
+    ouvertes.
+    """
+    return _query(
+        "INSERT INTO forum_signalement (message_id, utilisateur)"
+        " SELECT m.message_id, %s FROM forum_message m WHERE m.message_id = %s"
+        " ON CONFLICT (message_id, utilisateur) DO NOTHING"
+        " RETURNING message_id", (user, message_id), read=True)
+
+
+def forum_signalements(limite):
+    """Les messages signalés, les plus signalés d'abord. La vue d'un modérateur.
+
+    LE MINIMUM UTILE À LA MODÉRATION, et rien de plus : le texte, l'exercice, la
+    date, l'état et le NOMBRE de signalements. Jamais qui a signalé, jamais qui
+    a écrit, jamais du code soumis, un verdict détaillé ou une donnée de
+    progression.
+    """
+    rows = _query(
+        "SELECT m.message_id, m.exercice_id, m.texte, m.masque, m.cree_le,"
+        "       count(*) AS combien"
+        "  FROM forum_message m"
+        "  JOIN forum_signalement s ON s.message_id = m.message_id"
+        " GROUP BY m.message_id, m.exercice_id, m.texte, m.masque, m.cree_le"
+        " ORDER BY combien DESC, m.cree_le LIMIT %s",
+        (max(int(limite), 0),), read=True)
+    if rows is None:
+        return None
+    return [{"id": row[0], "exercice_id": row[1], "texte": row[2],
+             "masque": bool(row[3]), "cree_le": _minute(row[4]),
+             "signalements": int(row[5])} for row in rows]
+
+
+def forum_moderer(action_id, message_id, moderator, action):
+    """Masque ou rétablit un message ET journalise l'action, en UNE instruction.
+
+    [] quand le message n'existe pas ; None quand la base n'a pas répondu.
+
+    LE JOURNAL EST EN AJOUT SEUL et l'état courant est une colonne : les deux
+    écritures doivent donc tomber ensemble. Séparées en deux `_query` en
+    autocommit, une connexion coupée au milieu laisserait un message masqué que
+    rien n'explique -- ou l'inverse, un journal qui ment.
+    """
+    if action not in ("masquer", "retablir"):
+        return []
+    return _query(
+        "WITH agi AS ("
+        "  INSERT INTO forum_moderation"
+        "    (action_id, message_id, utilisateur, action)"
+        "  SELECT %(aid)s, m.message_id, %(who)s, %(quoi)s"
+        "    FROM forum_message m WHERE m.message_id = %(id)s"
+        "  RETURNING message_id"
+        ") UPDATE forum_message SET masque = %(masque)s"
+        "  WHERE message_id = (SELECT message_id FROM agi)"
+        "  RETURNING message_id",
+        {"aid": action_id, "id": message_id, "who": moderator,
+         "quoi": action, "masque": action == "masquer"}, read=True)
+
+
+def _minute(valeur):
+    """Un horodatage à la MINUTE, en texte. La chaîne telle quelle sinon.
+
+    À la minute et pas au jour, contrairement à la progression : un fil se lit
+    dans l'ordre, et « aujourd'hui » sur dix messages n'aide personne. À la
+    minute et pas à la seconde : personne n'a besoin de chronométrer qui a
+    répondu le premier.
+    """
+    try:
+        return valeur.strftime("%Y-%m-%d %H:%M")
+    except AttributeError:
+        return str(valeur)[:16]
+
+
 def forget(user):
     """Erase everything stored for this user, in ONE statement.
 
     The consent sentence shown before redirecting to Rauthy promises this exists,
     so it exists -- not "later".
 
-    SIX DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
+    NINE DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
     statement per table, a connection dropped in the middle would leave half a
     student erased and half not -- and the half that stays is the half nobody
     can see any more to ask for again. Data-modifying CTEs run exactly once each
     and commit together.
+
+    CHAQUE TABLE PORTE `utilisateur`, ET C'EST LA MÊME CLAUSE PARTOUT : ce qui
+    part est ce que CETTE personne a écrit -- ses messages, ses signalements, et
+    les actions de modération qu'elle a elle-même prises si elle est
+    modératrice. Rien de ce qu'un autre a écrit n'est touché. Un signalement
+    laissé sur un message supprimé n'apparaît plus nulle part -- toute lecture
+    part de `forum_message` -- et reste effaçable par celui qui l'a posé.
     """
     return _query(
         "WITH b AS (DELETE FROM brouillon_exercice WHERE utilisateur = %(u)s),"
@@ -317,7 +457,10 @@ def forget(user):
         "     t AS (DELETE FROM tentative_pratique WHERE utilisateur = %(u)s),"
         "     j AS (DELETE FROM evenement_progression WHERE utilisateur = %(u)s),"
         "     x AS (DELETE FROM transaction_xp     WHERE utilisateur = %(u)s),"
-        "     s AS (DELETE FROM succes_obtenu      WHERE utilisateur = %(u)s)"
+        "     s AS (DELETE FROM succes_obtenu      WHERE utilisateur = %(u)s),"
+        "     f AS (DELETE FROM forum_message      WHERE utilisateur = %(u)s),"
+        "     g AS (DELETE FROM forum_signalement  WHERE utilisateur = %(u)s),"
+        "     h AS (DELETE FROM forum_moderation   WHERE utilisateur = %(u)s)"
         " SELECT 1",
         {"u": user},
     ) is not None

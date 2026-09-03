@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260903-progres";
+const ASSET_REVISION = "20260903-forum";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -195,6 +195,12 @@ function refreshAccount() {
   $("oublier").hidden = !on;
   $("mesexos").hidden = !on;
   $("mesprogres").hidden = !on;
+  // DEUX CONDITIONS, ET LES DEUX VIENNENT DU SERVEUR : être connecté, et un
+  // déploiement qui a au moins un modérateur configuré (`oidc.forum`). Sans
+  // l'une des deux le bouton n'existe pas, donc `forum.js` n'est jamais
+  // demandé -- l'anonyme n'en télécharge rien, et un déploiement sans équipe
+  // de modération n'ouvre pas un canal que personne ne relit.
+  $("discussions").hidden = !on || !(oidc && oidc.forum);
   $("moi").hidden = !on;
   $("moi").textContent = on ? "connecté" : "";
 }
@@ -205,15 +211,18 @@ function refreshAccount() {
 // laisserait les deux moitiés à l'écran, ou aucune.
 let vueCourante = "";
 
-function afficherVue(nom) {          // "" (l'exercice) | "liste" | "progres"
+function afficherVue(nom) {   // "" (l'exercice) | "liste" | "progres" | "forum"
   vueCourante = nom;
   $("liste").hidden = nom !== "liste";
   $("vueprogres").hidden = nom !== "progres";
+  $("vueforum").hidden = nom !== "forum";
   $("travail").hidden = nom !== "";
   $("mesexos").textContent =
     nom === "liste" ? "Retour à l'exercice" : "Mes exercices";
   $("mesprogres").textContent =
     nom === "progres" ? "Retour à l'exercice" : "Mes progrès";
+  $("discussions").textContent =
+    nom === "forum" ? "Retour à l'exercice" : "Discussions";
 }
 
 const current = () => catalogue.find(t => t.id === $("ex").value) || null;
@@ -534,6 +543,12 @@ $("mesprogres").addEventListener("click", async () => {
   if (!await activerModule("progres", "« Mes progrès »")) return;
   await ctester.progres.basculer();
 });
+// MÊME CONTRAT QUE « Mes progrès » : le bouton n'existe que connecté ET que si
+// le déploiement a des modérateurs, et le fichier ne descend qu'au clic.
+$("discussions").addEventListener("click", async () => {
+  if (!await activerModule("forum", "les discussions")) return;
+  await ctester.forum.basculer();
+});
 $("deconnexion").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.signOut();
 });
@@ -569,6 +584,11 @@ Object.assign(ctester, {
   // `ctester.token` serait resté figé à null pour toute la visite, et tout ce
   // qui suit un compte (états, pratique, synchronisation des brouillons)
   // serait tombé en silence. C'est arrivé.
+  // Le chargeur de scripts, exposé pour les DEUX bibliothèques du rendu du
+  // forum (`app/vendor/`). Même mécanique que les modules, mêmes garanties :
+  // une promesse par fichier, un échec jamais gardé, et l'appelant décide quoi
+  // faire quand ça n'arrive pas -- pour le forum, retomber sur du texte brut.
+  charger: charger,
   catalogue: () => catalogue,
   token: () => token,
   oidc: () => oidc,

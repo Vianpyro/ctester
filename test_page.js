@@ -16,6 +16,23 @@ const html = lire("index.html");
 const css = lire("style.css");
 const js = lire("app.js");
 
+// UN VRAI DOM POUR L'ASSAINISSEUR, ET C'EST NON NEGOCIABLE. DOMPurify refuse
+// de travailler sans DOM : `isSupported` passe a faux et `sanitize()` rend
+// alors son entree TELLE QUELLE. Un harnais qui l'utiliserait dans cet etat
+// ecrirait « aucune injection ne passe » sans avoir rien assaini -- le pire des
+// controles de securite, celui qui rassure. D'ou jsdom (dependance de TEST
+// seulement, voir package.json ; l'application, elle, n'a aucune dependance
+// npm), et d'ou l'echec bruyant s'il manque.
+let JSDOM = null;
+try {
+  ({ JSDOM } = require("jsdom"));
+} catch (e) {
+  console.error("jsdom manque : lance `npm ci` une fois, puis recommence.\n"
+    + "Il donne un vrai DOM a DOMPurify ; sans lui les controles XSS de ce "
+    + "fichier ne prouveraient rien du tout.");
+  process.exit(1);
+}
+
 const appRevision = (html.match(/<script src="app\.js\?v=([^"]+)"/) || [])[1];
 if (!appRevision || !js.includes('const ASSET_REVISION = "' + appRevision + '"')) {
   throw new Error("index.html et app.js doivent partager la révision des assets");
@@ -87,6 +104,13 @@ function el(id) {
       if (!echec) {
         try {
           new Function(lire(fichier))();
+          // DOMPurify vient de s'attacher SANS DOM : dans un navigateur il en
+          // trouve un, ici il faut lui en tendre un. `DOMPurify(window)` rend
+          // une instance neuve -- c'est l'API documentee du paquet, pas un
+          // contournement du harnais.
+          if (/purify/.test(fichier) && typeof global.DOMPurify === "function") {
+            global.DOMPurify = global.DOMPurify(new JSDOM("").window);
+          }
         } catch (e) {
           // UN MODULE QUI LEVE DOIT SE VOIR. Sans cette ligne il partirait
           // dans le chemin onerror, indistinguable d'une panne reseau
@@ -215,9 +239,13 @@ const CATALOGUE = [
 ];
 
 const calls = [];
-// Un déploiement où la connexion EST configurée. Tout ce qui suit doit malgré
-// tout se comporter comme avant tant que personne ne s'est connecté.
-const OIDC_RESPONSE = { issuer: "https://auth.example", client_id: "ctester" };
+// Un déploiement où la connexion EST configurée, ET où le forum est activé
+// (donc où des modérateurs sont configurés côté serveur). Tout ce qui suit doit
+// malgré tout se comporter comme avant tant que personne ne s'est connecté :
+// c'est la combinaison la plus exigeante pour la promesse « l'anonyme ne
+// télécharge rien ».
+const OIDC_RESPONSE = { issuer: "https://auth.example", client_id: "ctester",
+                        forum: true };
 let SUBMIT_RESPONSE;
 let DECOUVERTE_CASSEE = false;
 const JETON = "jeton-de-test";
@@ -226,6 +254,27 @@ const PRATIQUE = { pratique: [
   { exercice_id: "tp2-ex3", tentatives: 3, reussites: 1 }] };
 let POLL_RESPONSE = { state: "queued", position: 1 };
 let PROGRES_CASSE = false;
+
+// --- Le forum, cote serveur, en carton -------------------------------------
+// Un modele minuscule mais VIVANT : ce qu'on publie se relit, ce qu'on masque
+// disparait pour un etudiant, ce qu'on signale remonte au moderateur. Un stub
+// qui repondrait toujours la meme chose ne prouverait pas que la page relit le
+// serveur au lieu de tenir son propre etat.
+let FORUM_CASSE = false;
+let FORUM_MODERATEUR = false;
+const FORUM_MAX = 400;
+// UN TEXTE HOSTILE, ecrit par un autre etudiant. C'est la donnee la moins
+// digne de confiance de toute la page : si elle passe par innerHTML, elle
+// s'execute chez celui qui lit le fil.
+const FORUM = {
+  "tp2-ex3": [{ id: "m-autre", ex: "tp2-ex3", auteur: "Participant",
+                mien: false, masque: false, cree_le: "2026-09-03 09:00",
+                texte: "<img src=x onerror=alert(1)> j'ai la meme erreur" }],
+  "tp2-ex0": [],
+};
+const FORUM_SIGNALES = new Map();   // identifiant de message -> combien de fois
+const forumEnvois = [];
+let forumCompteur = 0;
 // UNE COMPETENCE HOSTILE : les identifiants viennent du depot de tests, et un
 // libelle inconnu s'affiche tel quel. S'il finit dans du HTML, il s'execute.
 const PROGRES = {
@@ -289,9 +338,77 @@ global.fetch = async (url, opts) => {
   if (url.startsWith("brouillon")) {
     return { ok: true, status: 200, json: async () => ({ sources: {} }) };
   }
+  if (String(url).startsWith("forum")) return forumRepond(url, opts);
   if (url === "submit") return SUBMIT_RESPONSE;
   return { ok: true, status: 200, json: async () => POLL_RESPONSE };
 };
+
+// Le serveur du forum, en carton mais VIVANT : ce qu'on publie se relit, ce
+// qu'on masque disparait pour un etudiant, ce qu'on signale remonte au
+// moderateur. Un bouchon qui repondrait toujours la meme chose ne prouverait
+// pas que la page relit le serveur au lieu de tenir son propre etat.
+const rendJson = (v) => ({ ok: true, status: 200, json: async () => v });
+const rendErreur = (code, quoi) =>
+  ({ ok: false, status: code, json: async () => ({ error: quoi }) });
+
+function forumRepond(url, opts) {
+  const porteur = opts && opts.headers && opts.headers.Authorization;
+  // LE JETON FAIT FOI, comme sur les autres routes de compte.
+  if (porteur !== "Bearer " + JETON) return rendErreur(401, "connexion requise");
+  if (FORUM_CASSE) return rendErreur(503, "la base ne répond pas");
+  const methode = (opts && opts.method) || "GET";
+  const corps = opts && opts.body ? JSON.parse(opts.body) : null;
+  const tous = () => Object.keys(FORUM).flatMap((ex) => FORUM[ex]);
+
+  if (String(url).startsWith("forum/moderation")) {
+    if (!FORUM_MODERATEUR) return rendErreur(403, "réservé à l'équipe du cours");
+    if (methode === "GET") {
+      return rendJson({ signalements: tous()
+        .filter((m) => FORUM_SIGNALES.has(m.id))
+        .map((m) => ({ id: m.id, exercice_id: m.ex, texte: m.texte,
+                       masque: m.masque, cree_le: m.cree_le,
+                       signalements: FORUM_SIGNALES.get(m.id) })) });
+    }
+    forumEnvois.push({ url, corps });
+    const cible = tous().find((m) => m.id === corps.id);
+    if (!cible) return rendErreur(404, "message introuvable");
+    cible.masque = corps.action === "masquer";
+    return rendJson({ ok: true });
+  }
+  if (url === "forum/signalement") {
+    forumEnvois.push({ url, corps });
+    FORUM_SIGNALES.set(corps.id, (FORUM_SIGNALES.get(corps.id) || 0) + 1);
+    return rendJson({ ok: true });
+  }
+  if (methode === "POST") {
+    forumEnvois.push({ url, corps });
+    if (corps.texte.length > FORUM_MAX) {
+      return rendErreur(400, "message trop long (maximum " + FORUM_MAX
+                             + " caractères)");
+    }
+    forumCompteur++;
+    (FORUM[corps.tp] || (FORUM[corps.tp] = [])).push({
+      id: "m" + forumCompteur, ex: corps.tp, auteur: "Vous", mien: true,
+      masque: false, cree_le: "2026-09-03 10:0" + forumCompteur,
+      texte: corps.texte });
+    return rendJson({ ok: true });
+  }
+  if (methode === "DELETE") {
+    forumEnvois.push({ url, corps: null });
+    const id = decodeURIComponent(String(url).split("id=")[1] || "");
+    for (const ex of Object.keys(FORUM)) {
+      FORUM[ex] = FORUM[ex].filter((m) => m.id !== id || !m.mien);
+    }
+    return rendJson({ ok: true });
+  }
+  const ex = decodeURIComponent(String(url).split("ex=")[1] || "");
+  return rendJson({
+    exercice_id: ex,
+    moderateur: FORUM_MODERATEUR,
+    max: FORUM_MAX,
+    messages: (FORUM[ex] || []).filter((m) => FORUM_MODERATEUR || !m.masque),
+  });
+}
 
 // UNE VISITE PRÉCÉDENTE, déposée avant que la page ne démarre : un brouillon
 // bien formé, et deux entrées empoisonnées. Ce qui sort du stockage n'est pas
@@ -343,6 +460,13 @@ const attendre = async () => { await sleep(); await sleep(); };
         "et il n'est meme pas demande au serveur");
   check(!global.ctester.progres && !charges.some(n => n.startsWith("progres.js?")),
         "progres.js non plus : la progression n'existe qu'avec un compte");
+  // LE DEPLOIEMENT OFFRE POURTANT LE FORUM (`oidc.forum` vaut true) : ni le
+  // module, ni ses DEUX bibliotheques de rendu ne descendent. C'est 74 Ko que
+  // l'etudiant anonyme -- le parcours par defaut -- ne paie jamais.
+  check(!global.ctester.forum && !charges.some(n => n.startsWith("forum.js?")),
+        "forum.js non plus, alors meme que le deploiement l'offre");
+  check(!charges.some(n => /vendor\//.test(n)),
+        "et aucune bibliotheque de rendu n'est telechargee sans compte");
   check(charges.some(n => n.startsWith("quiz.js?")),
         "quiz.js, lui, arrive avec le premier exercice de ce mode");
   // ET UN DETAIL QUI N'ARRIVE PAS NE BLOQUE RIEN : publication en retard,
@@ -718,7 +842,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   // déploiement où la connexion existe.
   check(nodes.connexion.hidden === false, "« Se connecter » est proposé");
   check(nodes.mesexos.hidden === true && nodes.deconnexion.hidden === true &&
-        nodes.oublier.hidden === true,
+        nodes.oublier.hidden === true && nodes.discussions.hidden === true,
         "mais rien de ce qui suppose un compte n'apparaît");
   // Le harnais ne lit pas les attributs du HTML : ce qui prouve que la vue
   // liste est restée fermée, c'est qu'elle n'a jamais été construite.
@@ -732,8 +856,9 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(entetes.length === 0, "aucune requête ne porte de jeton");
   check(!calls.some(c => c.url === "etats" || c.url === "etat" ||
                          c.url === "pratique" || c.url === "progres" ||
-                         String(c.url).startsWith("brouillon")),
-        "et rien n'est écrit ni lu côté compte");
+                         String(c.url).startsWith("brouillon") ||
+                         String(c.url).startsWith("forum")),
+        "et rien n'est écrit ni lu côté compte, forum compris");
 
   // Le consentement s'affiche AVANT la redirection, et se referme.
   nodes.connexion.listeners.click();
@@ -970,6 +1095,351 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(calls.some(c => c.url === "submit"),
         "et l'exercice reste soumettable pendant ce temps-là");
   PROGRES_CASSE = false;
+
+  // --- « DISCUSSIONS » : LE FORUM ------------------------------------------
+  // Tout ce qui suit n'existe QUE connecté, et QUE sur un déploiement qui a des
+  // modérateurs configurés. Le bloc anonyme plus haut prouve l'inverse : ni
+  // fichier, ni requête, ni en-tête.
+  await choisir("TP 2", "tp2-ex3");
+  nodes.code.value = "// mon code en cours";
+  check(nodes.discussions.hidden === false,
+        "« Discussions » apparaît une fois connecté");
+  check(!charges.some(n => n.startsWith("forum.js?")),
+        "mais son fichier n'est toujours pas descendu");
+
+  calls.length = 0;
+  await nodes.discussions.listeners.click();
+  await attendre(); await attendre();
+  check(charges.some(n => n.startsWith("forum.js?")),
+        "le clic va le chercher, comme compte.js et progres.js");
+  check(charges.some(n => /marked-\d/.test(n)) &&
+        charges.some(n => /purify-\d/.test(n)),
+        "et les deux bibliothèques de rendu arrivent AVEC la vue, épinglées : "
+        + charges.filter(n => /vendor/.test(n)).join(" "));
+  const appelFil = calls.find(c => String(c.url).startsWith("forum?ex="));
+  check(appelFil && appelFil.opts.headers.Authorization === "Bearer " + JETON,
+        "le fil part avec le jeton, jamais sans");
+  check(nodes.travail.hidden === true && nodes.vueforum.hidden === false &&
+        nodes.vueprogres.hidden === true && nodes.liste.hidden === true,
+        "la vue remplace l'exercice, et elle est seule à l'écran");
+  check(nodes.discussions.textContent === "Retour à l'exercice",
+        "le bouton dit comment revenir");
+  check(focusé === "forumtitre",
+        "le focus suit l'écran : sinon la tabulation repart du haut");
+
+  // LE CORPS D'UN MESSAGE N'EST PAS DU `textContent` : c'est le seul endroit du
+  // client qui passe par `innerHTML`, et il reçoit la sortie de l'assainisseur.
+  // Un lecteur du DOM en carton qui ne regarderait que `textContent` ne verrait
+  // donc AUCUN message -- et déclarerait le fil vide sans broncher.
+  const contenuDe = (n) => (n.textContent || "") + " " + (n.innerHTML || "")
+                         + " " + n.children.map(contenuDe).join(" ");
+  const vuDuForum = () => contenuDe(nodes.vueforum);
+
+  const vuForum = vuDuForum();
+  check(/Pas de solution complète/.test(vuForum) &&
+        /Pas de capture d'écran/.test(vuForum) &&
+        /Signale-la plutôt que d'y répondre/.test(vuForum),
+        "la charte est dans la vue, en toutes lettres");
+  check(/Modération humaine/.test(vuForum) && /rien n'est vérifié/.test(vuForum),
+        "et la modération n'est jamais présentée comme automatique");
+  check(/j'ai la meme erreur/.test(vuForum) && /Participant/.test(vuForum),
+        "le fil montre le message d'un autre, signé « Participant »");
+  check(/&lt;img src=x onerror=alert\(1\)&gt;/.test(vuForum),
+        "dont le HTML est ÉCHAPPÉ à l'affichage, pas interprété");
+  check(!/sub-/.test(vuForum), "et aucun identifiant de compte n'apparaît");
+
+  // LE POINT LE PLUS IMPORTANT DE TOUT CE FICHIER. Le texte d'un message est
+  // écrit par un autre étudiant : c'est la donnée la moins digne de confiance
+  // de la page, et la seule qu'on rende en HTML.
+  const rendreForum = global.ctester.forum.rendreMarkdown;
+  function passerAuRendu(source) {
+    const cible = document.createElement("div");
+    const fait = rendreForum(cible, source);
+    return { fait: fait, html: cible.innerHTML, texte: cible.textContent };
+  }
+  {
+    // D'ABORD : le rendu a-t-il VRAIMENT eu lieu ? Sans cette vérification,
+    // toutes celles qui suivent passeraient sur le repli en texte brut, qui
+    // n'assainit rien parce qu'il n'écrit pas de HTML. C'est exactement le
+    // faux positif qui rassure.
+    const bon = passerAuRendu("**gras** et *italique*");
+    check(bon.fait === true && /<strong>gras<\/strong>/.test(bon.html),
+          "le rendu Markdown a réellement lieu : " + bon.html);
+
+    // L'AUDIT EST STRUCTUREL, PAS TEXTUEL, et c'est tout le sujet. Chercher la
+    // chaîne « onerror » dans la sortie donne un faux positif dès qu'un message
+    // PARLE de `onerror` -- ce qui, sur un forum de programmation, arrive tous
+    // les jours. Ce qu'il faut vérifier est ce que le navigateur va CONSTRUIRE :
+    // on reparse la sortie et on regarde les éléments et les attributs qui
+    // existent réellement. D'où jsdom, encore.
+    const BALISES_OK = ["p", "br", "strong", "em", "ul", "ol", "li",
+                        "blockquote", "code", "a"];
+    function auditer(html) {
+      const corps = new JSDOM("<body>" + html + "</body>").window.document.body;
+      const fautes = [];
+      for (const el of corps.querySelectorAll("*")) {
+        const nom = el.tagName.toLowerCase();
+        if (BALISES_OK.indexOf(nom) < 0) fautes.push("<" + nom + ">");
+        for (const attr of Array.from(el.attributes)) {
+          if (attr.name !== "href" && attr.name !== "rel") {
+            fautes.push(nom + "@" + attr.name);
+          }
+          if (attr.name === "href" && !/^https?:\/\//i.test(attr.value)) {
+            fautes.push("href=" + attr.value.slice(0, 24));
+          }
+        }
+      }
+      return { fautes: fautes, texte: corps.textContent };
+    }
+
+    const charges = [
+      // Les classiques, tels qu'ils arriveraient dans un message.
+      "<script>alert(1)</script>",
+      "<img src=x onerror=alert(1)>",
+      "<svg onload=alert(1)><circle/></svg>",
+      "<svg><animate onbegin=alert(1) attributeName=x dur=1s>",
+      "<math><mtext><script>alert(1)</script></mtext></math>",
+      "<iframe src=https://x.test></iframe>",
+      "<a href=\"https://x.test\" target=\"_blank\" onclick=\"a()\">x</a>",
+      "<form action=/x><input name=p></form>",
+      "<div style=\"position:fixed\" class=\"c\" id=\"i\">x</div>",
+      "<x-perso onclick=alert(1)>hop</x-perso>",
+      "<base href=https://x.test>",
+      "<style>body{display:none}</style>",
+      // Les URI, y compris casse mélangée et espaces intercalés.
+      "[lien](javascript:alert(1))",
+      "[lien](JaVaScRiPt:alert(1))",
+      "[lien](  javascript:alert(1))",
+      "[lien](java\tscript:alert(1))",
+      "[lien](data:text/html;base64,PHNjcmlwdD4=)",
+      "[lien](vbscript:msgbox)",
+      "![img](https://x.test/a.png)",
+      "<!-- <script>alert(1)</script> -->",
+      // LE HTML BRUT CACHÉ DANS DU MARKDOWN : dans une liste, une citation, un
+      // titre de lien, du code en ligne. C'est là qu'un échappement posé au
+      // mauvais endroit laisse passer.
+      "- <script>alert(1)</script>",
+      "> <img src=x onerror=alert(1)>",
+      "[**a**](https://ok.test \"<script>x</script>\")",
+      "`<script>alert(1)</script>`",
+      "**<img src=x onerror=alert(1)>**",
+      // Liens malformés et tentatives de sortie d'attribut.
+      "[x](https://ok.test\" onmouseover=\"alert(1))",
+      "[x](<https://ok.test onclick=alert(1)>)",
+      "<a href=&#106;avascript:alert(1)>x</a>",
+    ];
+    const passees = charges.filter((source) => {
+      const r = passerAuRendu(source);
+      if (!r.fait) { console.log("NON RENDU : " + source); return true; }
+      const audit = auditer(r.html);
+      if (audit.fautes.length) {
+        console.log("PASSE : " + source + " -> " + audit.fautes.join(", "));
+        return true;
+      }
+      return false;
+    });
+    check(passees.length === 0,
+          "aucune des " + charges.length + " charges hostiles ne produit un "
+          + "élément ou un attribut hors allow-list"
+          + (passees.length ? " -- " + passees.length + " PASSENT" : ""));
+
+    // ET LA CHARGE RESTE VISIBLE COMME DU TEXTE. Un message dont la moitié
+    // s'évapore ferait croire à un bug plutôt qu'à une règle -- et surtout,
+    // « rien ne s'affiche » et « rien ne s'exécute » ne sont pas la même
+    // preuve : ceci vérifie la seconde en montrant la première.
+    const vuTexte = auditer(passerAuRendu("<img src=x onerror=alert(1)>").html);
+    check(/<img src=x onerror=alert\(1\)>/.test(vuTexte.texte),
+          "une balise hostile reste lisible EN TEXTE : " + vuTexte.texte);
+
+    // ET LE HTML BRUT RESTE LISIBLE PLUTOT QUE DE DISPARAITRE : il est
+    // ECHAPPE, pas supprime. Un message dont la moitie s'evapore ferait croire
+    // a un bug plutot qu'a une regle.
+    const echappe = passerAuRendu("regarde <script>alert(1)</script> ici");
+    check(/&lt;script&gt;/.test(echappe.html),
+          "le HTML brut est échappé, pas escamoté : " + echappe.html);
+
+    // LES LIENS AUTORISES : http(s) seulement, rel pose, aucune cible nommee.
+    const lien = passerAuRendu("voir [la doc](https://exemple.test/a)");
+    check(/<a [^>]*href="https:\/\/exemple\.test\/a"/.test(lien.html),
+          "un lien https est rendu : " + lien.html);
+    check(/rel="noopener noreferrer"/.test(lien.html),
+          "avec rel=\"noopener noreferrer\" : " + lien.html);
+    check(!/target=/.test(lien.html), "et sans cible nommée");
+    const relatif = passerAuRendu("[interne](/app.js)");
+    check(!/href=/.test(relatif.html) && /interne/.test(relatif.html),
+          "une URL non http(s) perd son href et reste du texte : " + relatif.html);
+
+    // LE RENDU AUTORISE RESTE ACCESSIBLE : de vrais elements semantiques, que
+    // lit un lecteur d'ecran -- pas des <span> maquilles.
+    const riche = passerAuRendu("- un\n- deux\n\n> citation\n\n`x` et **gras**");
+    check(/<ul>/.test(riche.html) && /<li>/.test(riche.html) &&
+          /<blockquote>/.test(riche.html) && /<code>/.test(riche.html) &&
+          /<strong>/.test(riche.html),
+          "listes, citation, code et gras traversent l'allow-list : "
+          + riche.html.slice(0, 70));
+    check(!/style=|class=|id=/.test(riche.html),
+          "et rien n'en ressort avec style, class ou id");
+    // PAS DE BLOC DE CODE RENDU : `pre` n'est pas dans l'allow-list.
+    const bloc = passerAuRendu("```\nint main(void){}\n```");
+    check(!/<pre/.test(bloc.html) && /int main/.test(bloc.html),
+          "un bloc clôturé ne devient pas un bloc de code : " + bloc.html);
+  }
+
+  // --- PUBLIER : LA CHARTE D'ABORD -----------------------------------------
+  forumEnvois.length = 0;
+  nodes.forumtexte.value = "Ma **boucle** ne s'arrête pas, une idée ?";
+  nodes.forumtexte.listeners.input();
+  // L'APERÇU passe par le MÊME `rendreMarkdown` que le fil : ce qu'on voit
+  // avant d'envoyer est ce que les autres verront, assaini de la même façon.
+  const apercu = tousLesNoeuds(nodes.vueforum)
+    .find(n => /apercu/.test(n.className || ""));
+  check(apercu && /<strong>boucle<\/strong>/.test(apercu.innerHTML || ""),
+        "l'aperçu rend le Markdown pendant la frappe : "
+        + (apercu ? apercu.innerHTML : "pas d'aperçu"));
+  check(apercu && apercu.getAttribute("role") === "region"
+        && !apercu.getAttribute("aria-live"),
+        "sans être annoncé à chaque frappe : une région, pas une zone vive");
+  const publier = tousLesNoeuds(nodes.vueforum)
+    .find(n => n.textContent === "Publier");
+  await publier.listeners.click();
+  await attendre();
+  check(nodes.charte.hidden === false,
+        "la charte s'affiche AVANT la première publication de la session");
+  check(forumEnvois.length === 0,
+        "et rien n'est parti tant qu'elle n'est pas acceptée");
+  const compris = tousLesNoeuds(nodes.charte)
+    .find(n => /J'ai compris/.test(n.textContent || ""));
+  await compris.listeners.click();
+  await attendre(); await attendre(); await attendre();
+  check(nodes.charte.hidden === true, "l'accepter la referme");
+  const envoi = forumEnvois.find(e => e.url === "forum");
+  check(envoi && envoi.corps.tp === "tp2-ex3" && /boucle/.test(envoi.corps.texte),
+        "le message part, avec l'exercice affiché");
+  check(/Message publié/.test(vuDuForum()),
+        "la page le confirme : " + vuDuForum().slice(0, 40));
+  check(/Ma \*\*boucle\*\* ne s'arrête pas/.test(JSON.stringify(FORUM)),
+        "et c'est la SOURCE Markdown qui est stockée, pas du HTML");
+  check(nodes.forumtexte.value === "", "le champ est vidé après un envoi réussi");
+
+  // UN REFUS DU SERVEUR NE FAIT PAS PERDRE LE TEXTE, et il dit POURQUOI.
+  nodes.forumtexte.value = "x".repeat(FORUM_MAX + 1);
+  nodes.forumtexte.listeners.input();
+  const publier2 = tousLesNoeuds(nodes.vueforum)
+    .find(n => n.textContent === "Publier");
+  await publier2.listeners.click();
+  await attendre(); await attendre();
+  check(/message trop long/.test(vuDuForum()),
+        "un refus reprend le message du serveur : "
+        + vuDuForum().slice(0, 60));
+  check(nodes.forumtexte.value.length === FORUM_MAX + 1,
+        "et le texte reste dans le champ, pour être corrigé");
+  nodes.forumtexte.value = "";
+  nodes.forumtexte.listeners.input();
+
+  // --- SIGNALER CELUI D'UN AUTRE, SUPPRIMER LE SIEN ------------------------
+  forumEnvois.length = 0;
+  const signaler = tousLesNoeuds(nodes.vueforum)
+    .find(n => n.textContent === "Signaler");
+  await signaler.listeners.click();
+  await attendre(); await attendre();
+  const signalement = forumEnvois.find(e => e.url === "forum/signalement");
+  check(signalement && signalement.corps.id === "m-autre",
+        "« Signaler » envoie l'identifiant du message d'un autre");
+  check(/Signalé/.test(vuDuForum()),
+        "et la page confirme qu'un humain va le lire");
+
+  forumEnvois.length = 0;
+  const supprimer = tousLesNoeuds(nodes.vueforum)
+    .find(n => /Supprimer mon message/.test(n.textContent || ""));
+  check(!!supprimer, "un bouton de suppression n'existe que sur SON message");
+  await supprimer.listeners.click();
+  await attendre(); await attendre();
+  check(forumEnvois.some(e => String(e.url).startsWith("forum?id=")),
+        "supprimer part sur l'identifiant de son propre message");
+  const apresSuppression = vuDuForum();
+  check(!/boucle/.test(apresSuppression), "et il disparaît du fil");
+  check(!tousLesNoeuds(nodes.vueforum)
+          .some(n => /Supprimer mon message/.test(n.textContent || "")),
+        "il ne reste aucun bouton « supprimer » sur le message d'un autre");
+
+  // Le catalogue existant sert a changer de fil, sans quitter la vue.
+  calls.length = 0;
+  nodes.forumex.value = "tp2-ex0";
+  await nodes.forumex.listeners.change();
+  await attendre(); await attendre();
+  check(calls.some(c => String(c.url).startsWith("forum?ex=tp2-ex0")),
+        "changer d'exercice recharge le fil correspondant");
+  check(/Personne n'a encore écrit/.test(vuDuForum()),
+        "un fil vide le dit, et invite à écrire");
+
+  // --- REVENIR À L'EXERCICE SANS RIEN PERDRE -------------------------------
+  await nodes.discussions.listeners.click();
+  await attendre();
+  check(nodes.travail.hidden === false && nodes.vueforum.hidden === true,
+        "le même bouton ramène à l'exercice");
+  check(nodes.code.value === "// mon code en cours",
+        "et le travail en cours est intact : " + nodes.code.value);
+
+  // --- MODÉRATEUR : LA FILE DE SIGNALEMENTS ET LE MASQUAGE -----------------
+  FORUM_MODERATEUR = true;
+  await nodes.discussions.listeners.click();
+  await attendre(); await attendre();
+  const vuMod = vuDuForum();
+  check(/Signalements/.test(vuMod) && /1 signalement/.test(vuMod),
+        "un modérateur voit la file, avec le nombre : " + vuMod.slice(0, 40));
+  check(/j'ai la meme erreur/.test(vuMod),
+        "et le texte du message signalé, rendu par le MÊME assainisseur");
+  check(/&lt;img src=x onerror=alert\(1\)&gt;/.test(vuMod) && !/<img/.test(vuMod),
+        "la vue de modération n'affiche PAS le HTML brut « pour voir dedans » : "
+        + "c'est la page dont une attaque paierait le plus");
+
+  forumEnvois.length = 0;
+  const masquer = tousLesNoeuds(nodes.vueforum)
+    .find(n => n.textContent === "Masquer");
+  await masquer.listeners.click();
+  await attendre(); await attendre();
+  const action = forumEnvois.find(e => e.url === "forum/moderation");
+  check(action && action.corps.action === "masquer" && action.corps.id === "m-autre",
+        "« Masquer » part avec l'action et l'identifiant");
+  check(/masqué/.test(vuDuForum()),
+        "et l'état est écrit en toutes lettres, pas seulement en couleur");
+  const retablir = tousLesNoeuds(nodes.vueforum)
+    .find(n => n.textContent === "Rétablir");
+  check(!!retablir, "un message masqué se rétablit, il ne disparaît pas");
+
+  // ET UN ÉTUDIANT ORDINAIRE NE LE VOIT PLUS DU TOUT.
+  FORUM_MODERATEUR = false;
+  nodes.forumex.value = "tp2-ex3";
+  await nodes.forumex.listeners.change();
+  await attendre(); await attendre();
+  const vuEtudiant = vuDuForum();
+  check(!/j'ai la meme erreur/.test(vuEtudiant),
+        "un message masqué n'existe plus pour un étudiant ordinaire");
+  check(!/Signalements/.test(vuEtudiant),
+        "et la file de signalements ne lui est pas offerte");
+
+  // --- UNE PANNE SE DIT, ET N'EMPORTE PAS L'EXERCICE -----------------------
+  await nodes.discussions.listeners.click();   // fermer
+  await attendre();
+  FORUM_CASSE = true;
+  await nodes.discussions.listeners.click();
+  await attendre(); await attendre();
+  const forumCasse = vuDuForum();
+  check(/ne sont pas disponibles/.test(forumCasse),
+        "une panne se dit clairement : " + forumCasse.slice(-70));
+  check(!/Publier/.test(forumCasse),
+        "et le formulaire n'est même pas offert");
+  check(/fonctionnent normalement/.test(forumCasse),
+        "en disant que le juge, lui, marche toujours");
+  await nodes.discussions.listeners.click();   // retour à l'exercice
+  await attendre();
+  calls.length = 0;
+  nodes.code.value = "int main(void){return 0;}";
+  await nodes.go.listeners.click();
+  await attendre(); await attendre();
+  check(calls.some(c => c.url === "submit"),
+        "et l'exercice reste soumettable pendant ce temps-là");
+  FORUM_CASSE = false;
 
   // « SUPPRIMER MES DONNÉES » couvre aussi la progression : le serveur efface,
   // et la page ne garde pas un solde à l'écran après coup.

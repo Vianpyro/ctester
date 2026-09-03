@@ -15,10 +15,12 @@ GRANT :
       python3 test_postgres.py
 
 POURQUOI CE FICHIER EXISTE. `test_ctester.py` simule la base : ce qu'il éprouve
-est la frontière HTTP, pas le SQL. Or les écritures de progression ne sont pas
-du SQL ordinaire -- une CTE modifiante qui alimente un INSERT, un `unnest`
-d'un tableau paramétré, six DELETE dans une seule instruction. Ces formes
-compilent dans la tête et échouent en production ; il n'y a pas de milieu.
+est la frontière HTTP, pas le SQL. Or les écritures de progression et de forum
+ne sont pas du SQL ordinaire -- une CTE modifiante qui alimente un INSERT, une
+CTE modifiante qui alimente un UPDATE, un `unnest` d'un tableau paramétré, un
+INSERT ... SELECT dont la clause `WHERE` est le contrôle d'accès, neuf DELETE
+dans une seule instruction. Ces formes compilent dans la tête et échouent en
+production ; il n'y a pas de milieu.
 
 SANS `CTESTER_DB_DSN`, IL NE FAIT RIEN ET SORT EN 0. C'est délibéré : il doit
 pouvoir être lancé partout sans devenir une raison de plus de ne pas lancer les
@@ -48,7 +50,8 @@ if not etat.enabled():
     raise SystemExit("psycopg manque : pip install 'psycopg[binary]'")
 
 TABLES = ("brouillon_exercice", "etat_exercice", "tentative_pratique",
-          "evenement_progression", "transaction_xp", "succes_obtenu")
+          "evenement_progression", "transaction_xp", "succes_obtenu",
+          "forum_message", "forum_signalement", "forum_moderation")
 
 ALICE, BOB = "sub-alice", "sub-bob"
 
@@ -206,20 +209,126 @@ def cloisonnement():
     print("ok   deux comptes, le même fait, aucun mélange")
 
 
+def forum():
+    """Le forum : un fil par exercice, un signalement unique, une modération
+    journalisée -- et la CTE modifiante qui écrit l'état ET le journal d'un coup.
+    """
+    m1, m2 = "a" * 32, "b" * 32
+    assert etat.forum_publier(m1, "tp2-ex3", ALICE, "Pourquoi ma boucle tourne ?")
+    assert etat.forum_publier(m2, "tp2-ex3", BOB, "j'ai le même souci")
+    assert etat.forum_publier("c" * 32, "tp2-ex0", BOB, "autre exercice")
+    fil = etat.forum_fil("tp2-ex3", 200)
+    assert [m["id"] for m in fil] == [m1, m2], fil
+    assert fil[0]["utilisateur"] == ALICE and fil[0]["masque"] is False
+    # À LA MINUTE, pas au jour : un fil se lit dans l'ordre.
+    assert len(fil[0]["cree_le"]) == 16, fil[0]["cree_le"]
+    # UN FIL PAR EXERCICE : rien ne fuit d'un exercice à l'autre.
+    assert len(etat.forum_fil("tp2-ex0", 200)) == 1
+    assert etat.forum_fil("tp2-ex3", 1) == fil[:1]        # la borne s'applique
+
+    # LA CLÉ PRIMAIRE EST LA RÈGLE : deux fois le même signalement, une ligne.
+    assert etat.forum_signaler(m2, ALICE) == [(m2,)]
+    assert etat.forum_signaler(m2, ALICE) == []
+    # Et un identifiant inventé n'insère RIEN -- pas de ligne orpheline portant
+    # un `sub` pour rien. C'est le `SELECT ... FROM forum_message` qui le tient.
+    assert etat.forum_signaler("f" * 32, ALICE) == []
+    assert compte("forum_signalement", ALICE) == 1
+    assert etat.forum_signaler(m2, BOB) == [(m2,)]        # deux comptes, oui
+    file_mod = etat.forum_signalements(200)
+    assert len(file_mod) == 1, file_mod
+    assert file_mod[0]["id"] == m2 and file_mod[0]["signalements"] == 2
+    assert file_mod[0]["texte"] == "j'ai le même souci"
+    assert file_mod[0]["exercice_id"] == "tp2-ex3"
+
+    # MASQUER, PUIS RÉTABLIR : l'état change, le journal s'ajoute, dans UNE
+    # instruction. Deux `_query` en autocommit laisseraient un message masqué
+    # que rien n'explique si la connexion tombait entre les deux.
+    assert etat.forum_moderer("d" * 32, m2, ALICE, "masquer") == [(m2,)]
+    assert etat.forum_fil("tp2-ex3", 200)[1]["masque"] is True
+    assert etat.forum_moderer("e" * 32, m2, ALICE, "retablir") == [(m2,)]
+    assert etat.forum_fil("tp2-ex3", 200)[1]["masque"] is False
+    assert compte("forum_moderation", ALICE) == 2        # AJOUT SEUL : les deux
+    assert etat.forum_moderer("9" * 32, "f" * 32, ALICE, "masquer") == []
+    # LE CHECK DU SCHÉMA, ÉPROUVÉ SANS PASSER PAR LA GARDE PYTHON : deux actions
+    # existent, et c'est Postgres qui refuse la troisième.
+    assert etat._query(
+        "INSERT INTO forum_moderation"
+        " (action_id, message_id, utilisateur, action)"
+        " VALUES (%s, %s, %s, 'supprimer')",
+        ("7" * 32, m2, ALICE)) is None
+
+    # SUPPRIMER LE SIEN, JAMAIS CELUI D'UN AUTRE. La clause `utilisateur` EST le
+    # contrôle d'accès : il n'y a pas de lecture préalable à faire mentir.
+    assert etat.forum_supprimer(m2, ALICE) == []          # pas le sien
+    assert etat.forum_supprimer(m1, ALICE) == [(m1,)]
+    assert etat.forum_supprimer(m1, ALICE) == []          # déjà parti
+    assert [m["id"] for m in etat.forum_fil("tp2-ex3", 200)] == [m2]
+    # On lui en redonne un : `suppression()` plus bas vérifie que CHAQUE table
+    # avait quelque chose à effacer.
+    assert etat.forum_publier("1" * 32, "tp2-ex3", ALICE, "je reviens")
+    print("ok   forum : fil par exercice, signalement unique, modération "
+          "journalisée")
+
+
+def forum_privileges():
+    """Le GRANT du forum : l'API met à jour `masque`, ET RIEN D'AUTRE.
+
+    C'est un GRANT DE COLONNE (`UPDATE (masque)`), pas un `UPDATE` de table. Un
+    message est immuable : l'API ne doit pas pouvoir réécrire le texte de
+    quelqu'un, ni changer l'auteur d'un signalement, ni retoucher le journal de
+    modération. La propriété ne dépend donc pas de la discipline de `etat.py`.
+
+    Non joué quand les deux DSN sont le même -- il n'y aurait rien à refuser.
+    """
+    if ADMIN_DSN == DSN:
+        print("--   privilèges du forum : NON JOUÉ (pas de CTESTER_DB_ADMIN_DSN "
+              "distinct)")
+        return
+    import psycopg
+    essais = (
+        ("forum_message.texte", "UPDATE forum_message SET texte = 'réécrit'"),
+        ("forum_message.utilisateur",
+         "UPDATE forum_message SET utilisateur = 'sub-x'"),
+        ("forum_signalement",
+         "UPDATE forum_signalement SET utilisateur = 'sub-x'"),
+        ("forum_moderation",
+         "UPDATE forum_moderation SET action = 'retablir'"),
+    )
+    refuses = []
+    for nom, sql in essais:
+        with psycopg.connect(DSN, autocommit=True) as cx:
+            try:
+                cx.execute(sql)
+            except psycopg.errors.InsufficientPrivilege:
+                refuses.append(nom)
+    assert len(refuses) == len(essais), "UPDATE accepté quelque part : " \
+                                       + str(refuses)
+    # ET `masque` PASSE : c'est le seul état que la modération a besoin de
+    # changer, et le seul que le GRANT accorde. Sans ce contrôle-ci, un GRANT
+    # trop étroit rendrait la modération muette sans que rien ne le dise.
+    with psycopg.connect(DSN, autocommit=True) as cx:
+        cx.execute("UPDATE forum_message SET masque = masque")
+    print("ok   forum : seul `masque` est modifiable, le reste est en ajout seul")
+
+
 def suppression():
     avant = {t: compte(t, ALICE) for t in TABLES}
     assert all(avant.values()), "test inutile : il n'y a rien à effacer " + str(avant)
     assert etat.forget(ALICE)
     apres = {t: compte(t, ALICE) for t in TABLES}
     assert not any(apres.values()), apres
-    # LES SIX DELETE SONT DANS UNE SEULE INSTRUCTION, et les CTE non
+    # LES NEUF DELETE SONT DANS UNE SEULE INSTRUCTION, et les CTE non
     # référencées s'exécutent quand même -- c'est ce qu'on vérifie ici, pas la
     # documentation de PostgreSQL.
     assert compte("brouillon_exercice", BOB) == 1, "effacé chez le voisin !"
     assert etat.read_progress(BOB)["xp"] == 15
+    # ET LES MESSAGES DU VOISIN RESTENT. Effacer son compte n'efface pas la
+    # conversation des autres -- seulement ce que cette personne a écrit.
+    assert compte("forum_message", BOB) == 2, "message effacé chez le voisin !"
+    assert compte("forum_signalement", BOB) == 1
     assert etat.forget(ALICE)                            # rejouable
-    print("ok   « Supprimer mes données » vide les six tables, et seulement les "
-          "siennes")
+    print("ok   « Supprimer mes données » vide les neuf tables, et seulement "
+          "les siennes")
 
 
 def main():
@@ -232,6 +341,8 @@ def main():
     attributions()
     succes_et_lecture()
     cloisonnement()
+    forum()
+    forum_privileges()
     suppression()
     etat.forget(BOB)
     print("\nle SQL tient sur un vrai PostgreSQL.")

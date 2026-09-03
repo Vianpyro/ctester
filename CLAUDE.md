@@ -19,11 +19,14 @@ Rien à compiler, rien à lier : `app/app.py`, `app/etat.py` et `app/politique.p
 sont bibliothèque standard + `psycopg` (et `psycopg` seulement si
 `CTESTER_DB_DSN` est là).
 
-La page est en six fichiers, tous servis par la liste blanche de `do_GET` :
+La page est en sept fichiers, tous servis par la liste blanche de `do_GET` :
 `index.html` (le markup seul), `style.css`, `app.js` (le noyau), puis `quiz.js`,
-`compte.js` et `progres.js`, que le noyau va chercher **à la demande**. Rien de
-tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que le
-navigateur reçoit.
+`compte.js`, `progres.js` et `forum.js`, que le noyau va chercher **à la
+demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
+`app/vendor/` (marked et DOMPurify), servies par la même liste blanche et
+chargées seulement à l'ouverture des discussions — voir `app/vendor/README.md`.
+Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
+le navigateur reçoit.
 
 ## Avant de déployer une modif de la page ou du contenu
 
@@ -31,6 +34,7 @@ Sur le contrôleur, jamais sur le Dell (les trois derniers ont besoin de gcc) :
 
 ```sh
 python3 test_ctester.py          # les défenses et la progression, sans rien installer
+npm ci                           # UNE FOIS : jsdom, pour les contrôles XSS du forum
 node    test_page.js             # le JS de la page, sur un DOM en carton
 python3 valider_contenu.py ../unittests
 python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
@@ -51,7 +55,10 @@ docker stop pg
   d'équilibrage, qu'un sondage rejoué ou une réussite refaite n'accorde pas
   deux fois, qu'un échec n'accorde rien, et que `forget()` efface **chaque**
   table du schéma — ce dernier contrôle lit `schema.sql` et `etat.py`, donc
-  ajouter une table sans l'effacer le fait échouer tout seul.
+  ajouter une table sans l'effacer le fait échouer tout seul. Il couvre aussi le
+  forum : forum éteint par défaut, rôle de modération, bornes, quota, absence de
+  double signalement, isolement de deux comptes, et qu'aucun `sub` ne franchisse
+  la frontière.
 - **`test_bac_a_sable.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
   les exécute avec un vrai gcc, chemins déplacés, sans Docker. C'est le seul
   contrôle qui **éprouve l'invariant de confidentialité** au lieu d'en parler :
@@ -65,21 +72,30 @@ docker stop pg
   qu'un exercice qui ouvre en novembre soit prouvé en septembre.
 - **`test_postgres.py`** — le SEUL contrôle qui éprouve le SQL. Les autres
   simulent la base : ils vérifient la frontière HTTP, pas les instructions. Or
-  les écritures de progression ne sont pas du SQL ordinaire — une CTE modifiante
-  qui alimente un INSERT, un `unnest` d'un tableau paramétré, six DELETE dans une
-  seule instruction — et ces formes compilent dans la tête puis échouent en
-  production. Il demande un vrai PostgreSQL ; **sans `CTESTER_DB_DSN` il ne fait
+  les écritures de progression et de forum ne sont pas du SQL ordinaire — une CTE
+  modifiante qui alimente un INSERT, une CTE modifiante qui alimente un UPDATE, un
+  `unnest` d'un tableau paramétré, un `INSERT ... SELECT` dont la clause `WHERE`
+  EST le contrôle d'accès, neuf DELETE dans une seule instruction — et ces formes
+  compilent dans la tête puis échouent en production. Il demande un vrai PostgreSQL ; **sans `CTESTER_DB_DSN` il ne fait
   rien et sort en 0**, et il n'est PAS dans la vérification Ansible parce qu'il
   écrit. Avec `CTESTER_DB_ADMIN_DSN` en plus, il rejoue exactement la
   production : schéma posé par `postgres`, tout le reste par `ctester_app` et ses
-  seuls GRANT — ce qui prouve du même coup que le GRANT suffit et que Postgres
-  refuse bien l'UPDATE sur les trois tables en ajout seul.
+  seuls GRANT — ce qui prouve du même coup que le GRANT suffit, que Postgres
+  refuse bien l'UPDATE sur les trois tables de progression, et que le GRANT DE
+  COLONNE du forum laisse passer `masque` en refusant `texte` et `utilisateur`.
 - **`test_page.js`** — exécute le JS contre un DOM en carton et vérifie que la
   soumission part vraiment. **`node --check` ne suffit pas** : la seule panne que
   cette page ait connue en production était une `ReferenceError` de zone morte
   temporelle (une variable redéclarée dans un bloc `try` qui masquait la charge
   utile utilisée deux lignes plus haut). Le `fetch` ne partait jamais, le `catch`
   affichait « le serveur ne répond pas », et les logs du conteneur étaient vides.
+  **Il a maintenant UNE dépendance, de test seulement : `jsdom`** (`npm ci`).
+  DOMPurify refuse de travailler sans DOM — `isSupported` passe à faux et
+  `sanitize()` rend alors son entrée **telle quelle**. Un harnais qui l'utilisait
+  dans cet état écrirait « aucune injection ne passe » sans avoir rien assaini,
+  c'est-à-dire le pire des contrôles de sécurité : celui qui rassure. Le fichier
+  refuse donc de démarrer sans jsdom, en le disant. L'APPLICATION, elle, n'a
+  toujours aucune dépendance npm.
 
 Après chaque `ansible-playbook … --tags tests` :
 
@@ -198,8 +214,8 @@ sans le corps : un HEAD qui annoncerait une autre politique serait un piège à
 revalidation.
 
 Les réponses d'API (`/r/<id>`, `/etats`, `/pratique`, `/progres`,
-`/brouillon`, `/oidc.json`) restent en `no-store`. Ce sont des données de
-compte, pas des fichiers.
+`/brouillon`, `/oidc.json`, `/forum*`) restent en `no-store`. Ce sont des
+données de compte, pas des fichiers.
 
 **La compression est faite ici, à partir de 1 Ko.** Reste à mesurer si
 Cloudflare ne la refaisait pas déjà en amont — `curl -sI -H 'Accept-Encoding:
@@ -259,6 +275,63 @@ ont leur propre `GRANT` **sans UPDATE** : l'API n'en a pas besoin, et c'est
 Postgres qui tient alors la propriété d'ajout seul. Ajouter une table sans
 l'ajouter au `GRANT` la rend muette ; sans l'ajouter à `forget()`, `python3
 test_ctester.py` échoue.
+
+## Le forum d'entraide (hors phases, entre 1 et 2)
+
+Pour les comptes connectés SEULEMENT, **et seulement si des modérateurs sont
+configurés**. L'anonyme ne télécharge rien de tout ça — ni `forum.js`, ni les
+74 Ko de bibliothèques de rendu — et n'émet aucune requête ; `test_page.js` le
+vérifie, comme pour la progression.
+
+**Il est ÉTEINT par l'absence d'une variable, pas par un booléen.**
+`CTESTER_FORUM_MODERATORS` vide → `forum_enabled()` est faux → le bouton
+n'apparaît pas, `/oidc.json` annonce `forum: false`, et les six routes répondent
+503 en le disant. Un forum sans personne pour le lire est un canal de partage de
+solutions avec une charte dessus ; on ne l'ouvre pas « en attendant ». Le
+démarrage l'écrit dans `docker logs` quand OIDC est actif et la liste vide.
+
+**Le rôle de modération est recalculé côté serveur à chaque appel**, depuis le
+`sub` authentifié, et jamais depuis un claim OIDC : un rôle dérivé d'un claim non
+vérifié se réclame depuis n'importe quel compte. La page reçoit bien un drapeau
+`moderateur`, mais il ne sert qu'à décider quoi dessiner.
+
+**Aucun `sub` ne franchit la frontière HTTP.** `forum_vue()` traduit l'auteur en
+« Vous » / « Participant » / « Équipe du cours », et c'est tout ce que la page
+reçoit. Pas de pseudonyme stable non plus — ce serait une identité, en plus
+petit. Un test l'éprouve en cherchant les `sub` dans la charge JSON.
+
+**Le rendu est la partie dangereuse, et il a deux barrières.** Les messages sont
+stockés SOUS LEUR FORME SOURCE ; le serveur ne rend rien et n'assainit rien, il
+borne. Dans `forum.js` : (1) `<` est échappé AVANT l'analyse Markdown, donc
+`marked` ne voit jamais une balise venant d'un étudiant ; (2) sa sortie passe par
+DOMPurify avec une allow-list fermée. **`<` seulement, pas `>`** — échapper `>`
+tuait la citation Markdown, qui est dans l'allow-list, et une balise commence
+toujours par `<`. L'assainissement se fait **à chaque affichage** (le fil,
+l'aperçu, la vue de modération) et pas à l'écriture : une règle resserrée plus
+tard doit s'appliquer aux messages déjà en base. `rendreMarkdown()` porte le
+SEUL `innerHTML` du client, et il reçoit la sortie de l'assainisseur à l'instant
+même. Si une bibliothèque manque ou si `DOMPurify.isSupported` est faux, tout
+retombe sur `textContent` — du texte brut, jamais du HTML non filtré.
+
+**La CSP n'est pas la défense principale**, et le commentaire de `csp()` le dit.
+Elle porte le hachage du script de thème **calculé sur le corps servi**, jamais
+recopié à la main : un hachage figé se périmerait à la première virgule changée
+et la page repartirait sans thème. Elle est aussi posée sur le 304, sinon elle
+disparaîtrait dès la deuxième visite. `style-src` garde `'unsafe-inline'` : la
+page pose des attributs `style` calculés (jauges, coches de verdict).
+
+**Un message est immuable.** Son auteur le supprime, un modérateur le masque ou
+le rétablit — et c'est tout. Côté Postgres, les trois tables sont en ajout seul
+avec **un GRANT DE COLONNE** pour la seule exception : `UPDATE (masque) ON
+forum_message`. Pas d'UPDATE de table : une ligne de Python distraite ne peut pas
+réécrire le texte de quelqu'un. `test_postgres.py` éprouve les deux moitiés.
+
+**Le quota du forum est compté PAR COMPTE, pas par IP** (contrairement à celui
+des soumissions), et il ne couvre que les écritures : un quota qui empêcherait de
+relire un fil empêcherait de suivre la réponse qu'on attend.
+
+**Ajouter une table de forum sans l'ajouter à `forget()` fait échouer
+`test_ctester.py`** — le contrôle lit `schema.sql` et compte neuf tables.
 
 ## Mesurer avant de tourner un bouton
 
@@ -398,10 +471,11 @@ toucher :
   repli** : un réseau qui revient doit pouvoir réessayer. Un détail qui n'arrive
   pas ne bloque rien — les noms de fichiers viennent du catalogue, donc
   l'étudiant peut coller son code et soumettre.
-- **`afficherVue()` est le seul arbitre des trois écrans** (exercice, « Mes
-  exercices », « Mes progrès »), et il vit dans le noyau. Les deux vues sont
-  dans deux modules chargés séparément : si chacun masquait l'autre de son
-  côté, en ouvrir une par-dessus l'autre laisserait deux moitiés à l'écran.
+- **`afficherVue()` est le seul arbitre des quatre écrans** (exercice, « Mes
+  exercices », « Mes progrès », « Discussions »), et il vit dans le noyau. Les
+  trois vues sont dans trois modules chargés séparément : si chacun masquait
+  les autres de son côté, en ouvrir une par-dessus l'autre laisserait deux
+  moitiés à l'écran.
   Revenir depuis « Mes progrès » ne repasse PAS par `switchMode()` : c'est ce
   qui garde l'éditeur et le verdict exactement où on les avait laissés.
 - **`currentId` est ce que l'ÉDITEUR tient, pas ce que le menu montre**, et
@@ -409,7 +483,7 @@ toucher :
   poser dans `switchMode()` ferait attribuer le code de l'exercice précédent,
   toujours affiché, à l'identifiant du nouveau dès le prochain `saveDraft()`.
 
-### quiz.js, compte.js et progres.js — chargés à la demande
+### quiz.js, compte.js, progres.js et forum.js — chargés à la demande
 
 - **Sens unique, jamais de cycle.** `app.js` détient l'état partagé (jeton,
   catalogue, brouillons) et l'expose une fois dans `window.ctester` ; les deux
@@ -425,11 +499,13 @@ toucher :
 - **Un échec de chargement n'est pas gardé.** `charger()` oublie la promesse
   rejetée : sans ça, une coupure d'une seconde condamnerait la fonction pour
   toute la visite, le second clic retombant sur le rejet sans jamais retenter.
-- **Le parcours anonyme ne télécharge rien de `compte.js` ni de `progres.js`**,
-  même sur un déploiement où la connexion est offerte. `test_page.js` le
-  vérifie ; c'est la raison d'être du découpage. `progres.js` va plus loin : le
-  bouton n'apparaît que connecté, et le fichier ne descend qu'au clic — un
-  étudiant connecté qui n'ouvre jamais ses progrès n'en paie rien.
+- **Le parcours anonyme ne télécharge rien de `compte.js`, `progres.js` ni
+  `forum.js`**, même sur un déploiement où la connexion et le forum sont
+  offerts. `test_page.js` le vérifie ; c'est la raison d'être du découpage.
+  `progres.js` et `forum.js` vont plus loin : leur bouton n'apparaît que
+  connecté, et le fichier ne descend qu'au clic — un étudiant connecté qui
+  n'ouvre jamais ses progrès n'en paie rien, et celui qui n'ouvre jamais les
+  discussions ne paie ni le module ni ses 74 Ko de bibliothèques de rendu.
 - **`progres.js` ne calcule RIEN.** Solde, niveau, compétences, succès et
   recommandation arrivent tout faits de `GET /progres`. Une page qui calculerait
   son propre XP serait une page où l'on se le donne depuis la console — c'est
@@ -470,3 +546,7 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   objet global `window.ctester`, pas des modules ES : voir la section « La page »
   ci-dessus pour la raison (TDZ sur import circulaire). À reprendre le jour où
   l'état partagé est vraiment séparé, pas avant.
+- **`forum.js`** — un fil se lit en entier (200 messages au plus), sans
+  pagination ni chargement incrémental. À 27 étudiants et un exercice ouvert à
+  la fois, un fil dépasse rarement la dizaine. Paginer le jour où la borne se
+  voit. Même remarque pour la file de modération, qui n'a ni filtre ni tri.

@@ -6,3 +6,8 @@ __pycache__/
 app/tps.json
 app/quiz/
 app/tp/
+
+# Le harnais de la page a une dependance de TEST (jsdom, voir package.json) :
+# elle donne un vrai DOM a DOMPurify pour que les tests XSS soient reels.
+# L application, elle, n a aucune dependance npm.
+node_modules/

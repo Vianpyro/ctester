@@ -138,3 +138,64 @@ CREATE TABLE IF NOT EXISTS succes_obtenu (
     obtenu_le    TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (utilisateur, succes_id)
 );
+
+-- --------------------------------------------------------------------------
+-- Forum d'entraide (MVP) : UN fil par exercice publié, pour les comptes
+-- connectés seulement. Ce n'est PAS de la gamification -- rien ici n'accorde
+-- d'XP, ne débloque de succès ni ne touche aux trois tables ci-dessus.
+--
+-- CE QUI EST STOCKÉ, ET RIEN D'AUTRE : le `sub` opaque de l'auteur,
+-- l'identifiant du message, l'exercice PUBLIC, le texte, les dates, l'état
+-- visible/masqué, l'auteur d'un signalement, et les actions de modération. Ni
+-- nom, ni courriel, ni numéro étudiant, ni pseudonyme persistant : aux autres
+-- étudiants, une publication s'annonce « Participant », et c'est l'API qui
+-- dérive ce mot du `sub` sans jamais le laisser sortir.
+--
+-- LA PLATEFORME FERME EN DÉCEMBRE. Aucune saison, aucun report entre sessions :
+-- ces trois tables se vident avec la base à la fin du cours.
+
+-- Un message est IMMUABLE. Son auteur peut le supprimer (la ligne disparaît),
+-- un modérateur peut seulement le masquer ou le rétablir -- d'où `masque`, la
+-- seule colonne que l'API a le droit de mettre à jour (voir le GRANT dans
+-- VHome : `UPDATE (masque)`, pas `UPDATE`). Il n'y a pas d'édition : un
+-- message corrigé après coup rendrait un signalement illisible.
+CREATE TABLE IF NOT EXISTS forum_message (
+    message_id  TEXT        PRIMARY KEY,   -- uuid4().hex, généré en Python
+    exercice_id TEXT        NOT NULL,      -- un identifiant PUBLIC du catalogue
+    utilisateur TEXT        NOT NULL,
+    texte       TEXT        NOT NULL,
+    masque      BOOLEAN     NOT NULL DEFAULT false,
+    cree_le     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Un fil se lit par exercice, du plus ancien au plus récent : c'est la seule
+-- lecture qui ne passe pas par la clé primaire.
+CREATE INDEX IF NOT EXISTS forum_message_fil_idx
+    ON forum_message (exercice_id, cree_le);
+
+-- Le signalement. LA CLÉ PRIMAIRE EST LA RÈGLE : un même compte ne peut pas
+-- signaler deux fois le même message, et c'est Postgres qui le tient -- pas
+-- une lecture suivie d'une écriture, qui laisserait la course ouverte.
+CREATE TABLE IF NOT EXISTS forum_signalement (
+    message_id  TEXT        NOT NULL,
+    utilisateur TEXT        NOT NULL,      -- l'auteur du SIGNALEMENT
+    cree_le     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (message_id, utilisateur)
+);
+
+-- Les actions de modération, EN AJOUT SEUL. On masque, on rétablit, et les deux
+-- se relisent : « le message a été masqué puis rétabli » est une information,
+-- pas un bruit à écraser. L'état courant vit dans `forum_message.masque` ;
+-- ceci en est le journal.
+--
+-- ponytail: pas de clé étrangère vers forum_message. Les deux s'écrivent dans
+-- UNE instruction (voir `forum_moderer` dans etat.py), et un message supprimé
+-- par son auteur laisse une ligne de journal qui ne s'affiche nulle part --
+-- c'est le comportement voulu d'un journal.
+CREATE TABLE IF NOT EXISTS forum_moderation (
+    action_id   TEXT        PRIMARY KEY,   -- uuid4().hex, généré en Python
+    message_id  TEXT        NOT NULL,
+    utilisateur TEXT        NOT NULL,      -- le MODÉRATEUR qui a agi
+    action      TEXT        NOT NULL CHECK (action IN ('masquer', 'retablir')),
+    cree_le     TIMESTAMPTZ NOT NULL DEFAULT now()
+);

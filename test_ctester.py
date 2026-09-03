@@ -838,7 +838,7 @@ def test_suppression_couvre_toutes_les_tables():
     schema = lire(os.path.join(HERE, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
-    assert len(tables) == 6, tables
+    assert len(tables) == 9, tables
     efface = lire(os.path.join(HERE, "app", "etat.py"))
     efface = efface[efface.index("def forget(user):"):]
     assert set(re.findall(r"DELETE FROM (\w+)", efface)) == tables
@@ -925,14 +925,22 @@ def test_http_end_to_end():
                   encoding="utf-8") as fh:
             json.dump({"statement": "consigne de " + tp_id, "files": []}, fh)
     with open(os.path.join(static, "index.html"), "w", encoding="utf-8") as fh:
-        fh.write("<!doctype html>")
+        # Un script INLINE, comme celui du thème dans la vraie page : c'est lui
+        # dont la CSP doit porter le hachage.
+        fh.write('<!doctype html><script id="theme-init">var t=1;</script>'
+                 '<script src="app.js"></script>')
     # `app.js` dépasse le seuil de compression : c'est lui qui éprouve la
     # négociation gzip plus bas. Les autres restent minuscules exprès.
     for nom, contenu in (("style.css", "body{}"), ("app.js", "// " + "x" * 2000),
                          ("quiz.js", "// quiz"), ("compte.js", "// compte"),
-                         ("progres.js", "// progres")):
+                         ("progres.js", "// progres"), ("forum.js", "// forum")):
         with open(os.path.join(static, nom), "w", encoding="utf-8") as fh:
             fh.write(contenu)
+    os.makedirs(os.path.join(static, "vendor"))
+    for chemin in app.VENDOR:
+        with open(os.path.join(static, *chemin.split("/")), "w",
+                  encoding="utf-8") as fh:
+            fh.write("// " + chemin)
 
     app.SPOOL, app.STATIC, app.KEY, app.QUEUE_MAX = spool, static, "cle-de-test", 4
     app.Handler.quota = app.Quota(cooldown=0, hourly=100)  # testés ailleurs
@@ -976,11 +984,29 @@ def test_http_end_to_end():
         assert call("GET", "/quiz.js")[0] == 200
         assert call("GET", "/compte.js")[0] == 200
         assert call("GET", "/progres.js")[0] == 200
+        assert call("GET", "/forum.js")[0] == 200
+        # Les deux bibliothèques du rendu, sous leur nom versionné, et RIEN
+        # d'autre sous `/vendor/` : la liste est close, pas un répertoire.
+        for chemin in app.VENDOR:
+            assert call("GET", "/" + chemin)[0] == 200, chemin
         # Rien d'autre n'est servi : liste blanche, pas de racine de fichiers.
         # `/app.py` reste un 404 : servir `/app.js` ne relâche pas la voisine.
         for path in ("/etc/passwd", "/../app/app.py", "/app.py",
-                     "/tps.json/../app.py", "/etat.py", "/../app/etat.py"):
+                     "/tps.json/../app.py", "/etat.py", "/../app/etat.py",
+                     "/vendor/", "/vendor/marked.umd.js",
+                     "/vendor/../app.py", "/vendor/purify.min.js"):
             assert call("GET", path)[0] == 404, path
+
+        # LA CSP EST SUR LE DOCUMENT, ET SUR LUI SEUL. Elle porte le hachage du
+        # script inline de thème, et elle doit survivre au 304 : sinon elle
+        # disparaîtrait dès la deuxième visite, c'est-à-dire presque toujours.
+        code, tetes = entetes_de("/")
+        assert code == 200 and "'sha256-" in tetes["Content-Security-Policy"]
+        rejoue = entetes_de("/", {"If-None-Match": tetes["ETag"]})
+        assert rejoue[0] == 304
+        assert rejoue[1]["Content-Security-Policy"] \
+            == tetes["Content-Security-Policy"]
+        assert "Content-Security-Policy" not in entetes_de("/app.js")[1]
 
         # Le quiz public est servi, le corrigé ne l'est nulle part.
         status, quiz = call("GET", "/quiz/tp1.json")
@@ -1027,6 +1053,24 @@ def test_http_end_to_end():
         conn.close()
         assert tete.getheader("Cache-Control") == "no-cache"
         assert tete.getheader("ETag") == entetes_de("/")[1]["ETag"]
+
+        # UNE REQUÊTE REFUSÉE AVANT SON CORPS NE DOIT PAS CASSER LA CONNEXION.
+        # En HTTP/1.1 elle est réutilisée : le corps laissé dans la socket
+        # serait lu comme la ligne de requête suivante, et le navigateur
+        # récolterait un 400 sur une requête parfaitement valide. C'est le cas
+        # de tout PUT/POST refusé pour jeton expiré ou fonction désactivée.
+        garde_vive = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        garde_vive.request("PUT", "/brouillon",
+                           json.dumps({"tp": "tp2-ex3", "files": {}}),
+                           {"Content-Type": "application/json"})
+        refus = garde_vive.getresponse()
+        refus.read()
+        assert refus.status == 503, refus.status      # pas de persistance ici
+        garde_vive.request("GET", "/healthz")
+        suivante = garde_vive.getresponse()
+        assert suivante.status == 200, suivante.status
+        assert json.loads(suivante.read()) == {"ok": True}
+        garde_vive.close()
 
         assert submit(key="mauvaise")[0] == 403
         assert submit(key="")[0] == 403
@@ -1406,6 +1450,475 @@ def test_http_comptes():
         srv.server_close()
         (app.etat, app.current_user, app.STATIC, app.SPOOL, app.KEY,
          app.OIDC_ISSUER, app.OIDC_CLIENT_ID) = garde
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# Forum d'entraide (MVP)
+# --------------------------------------------------------------------------
+
+def test_forum_eteint_par_defaut():
+    """SANS MODERATEUR CONFIGURE, LE FORUM N'EXISTE PAS. C'est le reglage sur.
+
+    Un forum sans personne pour le moderer est un canal de partage de solutions
+    avec une charte dessus. Le defaut doit donc etre « eteint », et il l'est par
+    l'ABSENCE d'une variable -- pas par un booleen qu'on pourrait oublier
+    d'ecrire.
+    """
+    garde = (app.OIDC_ISSUER, app.OIDC_CLIENT_ID, app.FORUM_MODERATORS, app.etat)
+    try:
+        app.OIDC_ISSUER = "https://auth.exemple"
+        app.OIDC_CLIENT_ID = "ctester"
+        app.etat = type("Base", (), {"enabled": staticmethod(lambda: True)})
+        app.FORUM_MODERATORS = frozenset()
+        assert app.oidc_enabled() and not app.forum_enabled()
+        app.FORUM_MODERATORS = frozenset({"sub-mod"})
+        assert app.forum_enabled()
+        assert app.is_moderator("sub-mod") and not app.is_moderator("sub-alice")
+        # Un `sub` vide n'est pas un moderateur, meme si la liste en contient un
+        # vide par accident de configuration.
+        assert not app.is_moderator("") and not app.is_moderator(None)
+        # La CONNEXION reste la premiere condition : un forum sans compte n'a
+        # personne a qui attribuer un message ni a qui offrir la suppression.
+        app.OIDC_ISSUER = ""
+        assert not app.forum_enabled()
+    finally:
+        (app.OIDC_ISSUER, app.OIDC_CLIENT_ID, app.FORUM_MODERATORS,
+         app.etat) = garde
+
+
+def test_forum_texte_borne_et_stocke_la_source():
+    """Ce qu'un message a le droit d'etre : court, non vide, et SA SOURCE.
+
+    LE SERVEUR NE REND RIEN ET N'ASSAINIT RIEN. Ce qui est stocke est le
+    Markdown tel qu'il a ete tape -- balises comprises, sous leur forme source.
+    Le rendu et l'assainissement se font a CHAQUE affichage, dans `forum.js` :
+    assainir a l'ecriture seulement laisserait les messages deja en base hors de
+    portee d'une regle resserree ensuite.
+    """
+    assert app.forum_texte("  Pourquoi mon while ne s'arrete pas ?  ") == (
+        "Pourquoi mon while ne s'arrete pas ?", None)
+    assert app.forum_texte("")[0] is None
+    assert app.forum_texte("   \n  ")[0] is None
+    assert app.forum_texte(None)[0] is None
+    assert app.forum_texte(42)[0] is None
+    assert app.forum_texte("x" * (app.FORUM_MAX_CHARS + 1))[0] is None
+    assert app.forum_texte("x" * app.FORUM_MAX_CHARS)[0] is not None
+    # LA SOURCE PASSE INTACTE, y compris ce qui ressemble a du HTML : c'est le
+    # rendu qui l'echappe, et il le fera a chaque affichage.
+    hostile = "<script>alert(1)</script> et **gras**"
+    assert app.forum_texte(hostile)[0] == hostile
+    assert app.forum_texte("[doc](https://exemple.test)")[0] \
+        == "[doc](https://exemple.test)"
+    # Les caracteres de controle partent : ils ne servent a rien dans du
+    # Markdown et compliquent une relecture humaine pour rien.
+    assert app.forum_texte("a\x00b\x07c")[0] == "abc"
+    assert app.forum_texte("ligne 1\r\nligne 2")[0] == "ligne 1\nligne 2"
+
+
+def test_forum_bibliotheques_epinglees():
+    """Les deux bibliotheques du rendu sont VERSIONNEES, presentes, et servies.
+
+    CE CONTROLE EXISTE PARCE QU'UN ASSAINISSEUR ABSENT NE SE VOIT PAS. La page
+    retombe alors sur du texte brut -- c'est le bon comportement -- et personne
+    ne remarque que le rendu a disparu. Ici, un nom qui ne correspond plus entre
+    `VENDOR`, `forum.js` et le disque fait echouer la suite tout de suite.
+    """
+    assert len(app.VENDOR) == 2, app.VENDOR
+    source = lire(os.path.join(HERE, "app", "forum.js"))
+    for chemin in app.VENDOR:
+        sur_disque = os.path.join(HERE, "app", *chemin.split("/"))
+        assert os.path.exists(sur_disque), chemin
+        assert '"' + chemin + '"' in source, chemin
+        # Le nom PORTE la version : c'est ce qui rend l'epinglage impossible a
+        # perdre, et une montee de version impossible a faire par accident.
+        assert re.search(r"-\d+\.\d+\.\d+[.-]", chemin), chemin
+    # `/vendor/` N'EST PAS UN REPERTOIRE OUVERT : la liste est close, comme
+    # celle des `.js` de la page.
+    assert "vendor/" in app.VENDOR[0] and "vendor/" in app.VENDOR[1]
+
+
+def test_csp_du_document():
+    """La CSP porte le hachage du script de theme, et rien d'autre n'est inline.
+
+    ELLE N'EST PAS LA DEFENSE PRINCIPALE -- l'assainisseur et `textContent` le
+    sont -- mais elle doit etre juste : une CSP qui oublie le script inline
+    casse le theme, et une CSP qui oublie l'emetteur OIDC casse la connexion,
+    toutes deux en silence.
+    """
+    page = lire(os.path.join(HERE, "app", "index.html")).encode()
+    politique = app.csp(page, "https://auth.exemple/auth/v1")
+    assert "default-src 'none'" in politique
+    assert "'sha256-" in politique, politique
+    assert "script-src 'self' 'sha256-" in politique
+    # UN SEUL script inline dans la page : celui du theme. Un second passerait
+    # ici en silence, d'ou le decompte.
+    assert politique.count("'sha256-") == 1, politique
+    # L'EMETTEUR OIDC EST DANS connect-src, en ORIGINE seulement : `compte.js`
+    # y va chercher la decouverte puis le jeton.
+    assert "connect-src 'self' https://auth.exemple" in politique
+    assert "/auth/v1" not in politique, politique
+    for interdit in ("frame-ancestors 'none'", "base-uri 'none'",
+                     "form-action 'none'", "img-src 'self'"):
+        assert interdit in politique, interdit
+    # `style-src` garde 'unsafe-inline' : la page pose des attributs `style`
+    # calcules (largeur de jauge, rang d'une coche). C'est un choix, il est
+    # ecrit, et il ne doit pas deraper vers script-src.
+    assert "style-src 'self' 'unsafe-inline'" in politique
+    assert "unsafe-inline" not in politique.split("style-src")[0], politique
+    assert "unsafe-eval" not in politique
+    # Sans emetteur https, pas d'origine tierce du tout.
+    assert app.csp(page, "").split("connect-src ")[1].startswith("'self';")
+
+
+def test_forum_vue_ne_laisse_sortir_aucun_sub():
+    """« Vous », « Participant », « Equipe du cours » -- et RIEN d'autre.
+
+    CE CONTROLE EST LA FRONTIERE DE CONFIDENTIALITE DU FORUM. Un `sub` qui
+    traverse, meme dans un champ que personne n'affiche, rend deux messages
+    recollables au meme etudiant -- ce que ni un pseudonyme ni un identifiant
+    stable ne doivent permettre en phase MVP.
+    """
+    garde = app.FORUM_MODERATORS
+    try:
+        app.FORUM_MODERATORS = frozenset({"sub-mod"})
+        fil = [{"id": "a" * 32, "utilisateur": "sub-alice", "texte": "moi",
+                "masque": False, "cree_le": "2026-09-03 10:00"},
+               {"id": "b" * 32, "utilisateur": "sub-bob", "texte": "lui",
+                "masque": False, "cree_le": "2026-09-03 10:01"},
+               {"id": "c" * 32, "utilisateur": "sub-mod", "texte": "eux",
+                "masque": False, "cree_le": "2026-09-03 10:02"},
+               {"id": "d" * 32, "utilisateur": "sub-bob", "texte": "cache",
+                "masque": True, "cree_le": "2026-09-03 10:03"}]
+        vu = app.forum_vue(fil, "sub-alice", False)
+        assert [m["auteur"] for m in vu] == [
+            "Vous", "Participant", "Équipe du cours"], vu
+        assert [m["mien"] for m in vu] == [True, False, False]
+        # UN MESSAGE MASQUE N'EXISTE PAS pour un etudiant ordinaire.
+        assert len(vu) == 3
+        texte = json.dumps(vu, ensure_ascii=False)
+        for interdit in ("sub-alice", "sub-bob", "sub-mod", "utilisateur"):
+            assert interdit not in texte, interdit
+        # Un moderateur, LUI, voit le masque -- sinon il ne pourrait pas le
+        # retablir -- et pas davantage d'identite pour autant.
+        vu_mod = app.forum_vue(fil, "sub-mod", True)
+        assert len(vu_mod) == 4 and vu_mod[3]["masque"] is True
+        assert vu_mod[2]["auteur"] == "Vous"      # son propre message
+        assert "sub-bob" not in json.dumps(vu_mod, ensure_ascii=False)
+    finally:
+        app.FORUM_MODERATORS = garde
+
+
+def test_http_forum():
+    """Le forum de bout en bout : authentification, role, bornes, isolement.
+
+    LA BASE EST SIMULEE, comme dans `test_http_comptes` : ce qui est eprouve ici
+    est la FRONTIERE -- qui a le droit de quoi, ce qui traverse, et ce qui est
+    refuse. Le SQL, lui, est eprouve par `test_postgres.py`, seul endroit ou il
+    y a un vrai PostgreSQL pour repondre.
+    """
+    import http.client
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    tmp = tempfile.mkdtemp(prefix="ctester-forum-")
+    static = os.path.join(tmp, "app")
+    os.makedirs(static)
+    with open(os.path.join(static, "tps.json"), "w", encoding="utf-8") as fh:
+        json.dump([
+            {"id": "tp2-ex3", "mode": "io", "label": "TP2 ex.3", "files": []},
+            {"id": "tp2-ex0", "mode": "io", "label": "TP2 ex.0", "files": []},
+        ], fh)
+
+    messages, signales, journal = [], {}, []
+
+    class BaseSimulee:
+        enabled = staticmethod(lambda: True)
+
+        @staticmethod
+        def forum_fil(exercise_id, limite):
+            return [dict(m) for m in messages
+                    if m["exercice_id"] == exercise_id][:limite]
+
+        @staticmethod
+        def forum_publier(message_id, exercise_id, user, texte):
+            messages.append({"id": message_id, "exercice_id": exercise_id,
+                             "utilisateur": user, "texte": texte,
+                             "masque": False, "cree_le": "2026-09-03 10:00"})
+            return True
+
+        @staticmethod
+        def forum_supprimer(message_id, user):
+            for m in list(messages):
+                if m["id"] == message_id and m["utilisateur"] == user:
+                    messages.remove(m)
+                    return [(message_id,)]
+            return []
+
+        @staticmethod
+        def forum_signaler(message_id, user):
+            if not any(m["id"] == message_id for m in messages):
+                return []                      # un identifiant invente
+            if (message_id, user) in signales:
+                return []                      # deja signale par lui
+            signales[(message_id, user)] = True
+            return [(message_id,)]
+
+        @staticmethod
+        def forum_signalements(limite):
+            combien = {}
+            for message_id, _who in signales:
+                combien[message_id] = combien.get(message_id, 0) + 1
+            return [{"id": m["id"], "exercice_id": m["exercice_id"],
+                     "texte": m["texte"], "masque": m["masque"],
+                     "cree_le": m["cree_le"],
+                     "signalements": combien[m["id"]]}
+                    for m in messages if m["id"] in combien][:limite]
+
+        @staticmethod
+        def forum_moderer(action_id, message_id, moderator, action):
+            for m in messages:
+                if m["id"] == message_id:
+                    m["masque"] = action == "masquer"
+                    journal.append((action_id, message_id, moderator, action))
+                    return [(message_id,)]
+            return []
+
+        @staticmethod
+        def forget(user):
+            for m in [m for m in messages if m["utilisateur"] == user]:
+                messages.remove(m)
+            for cle in [k for k in signales if k[1] == user]:
+                del signales[cle]
+            journal[:] = [a for a in journal if a[2] != user]
+            return True
+
+    JETONS = {"alice": "sub-alice", "bob": "sub-bob", "mod": "sub-mod"}
+    garde = (app.etat, app.current_user, app.STATIC, app.OIDC_ISSUER,
+             app.OIDC_CLIENT_ID, app.FORUM_MODERATORS,
+             app.Handler.forum_quota)
+    app.etat = BaseSimulee
+    app.STATIC = static
+    app.OIDC_ISSUER = "https://auth.exemple"
+    app.OIDC_CLIENT_ID = "ctester"
+    app.FORUM_MODERATORS = frozenset()
+    app.Handler.forum_quota = app.Quota(cooldown=0, hourly=1000)
+    app.current_user = lambda entetes: JETONS.get(
+        entetes.get("Authorization", "")[7:])
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+
+    def call(method, path, payload=None, jeton=None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        entetes = {"Content-Type": "application/json"}
+        if jeton:
+            entetes["Authorization"] = "Bearer " + jeton
+        conn.request(method, path,
+                     None if payload is None else json.dumps(payload), entetes)
+        resp = conn.getresponse()
+        raw = resp.read()
+        conn.close()
+        try:
+            return resp.status, json.loads(raw)
+        except ValueError:
+            return resp.status, raw
+
+    def fil(jeton, ex="tp2-ex3"):
+        return call("GET", "/forum?ex=" + ex, jeton=jeton)
+
+    try:
+        # --- ETEINT : toutes les routes le disent, et rien d'autre ne bouge --
+        assert call("GET", "/oidc.json")[1]["forum"] is False
+        for methode, chemin, corps in (
+                ("GET", "/forum?ex=tp2-ex3", None),
+                ("POST", "/forum", {"tp": "tp2-ex3", "texte": "salut"}),
+                ("DELETE", "/forum?id=" + "a" * 32, None),
+                ("POST", "/forum/signalement", {"id": "a" * 32}),
+                ("GET", "/forum/moderation", None),
+                ("POST", "/forum/moderation",
+                 {"id": "a" * 32, "action": "masquer"})):
+            code, quoi = call(methode, chemin, corps, jeton="mod")
+            assert code == 503 and "activ" in quoi["error"], (chemin, code)
+
+        app.FORUM_MODERATORS = frozenset({"sub-mod"})
+        assert call("GET", "/oidc.json")[1]["forum"] is True
+
+        # --- SANS JETON, AUCUNE PORTE ---------------------------------------
+        assert fil(None)[0] == 401
+        assert call("POST", "/forum", {"tp": "tp2-ex3", "texte": "x"})[0] == 401
+        assert call("POST", "/forum/signalement", {"id": "a" * 32})[0] == 401
+        assert call("GET", "/forum/moderation")[0] == 401
+        assert call("DELETE", "/forum?id=" + "a" * 32)[0] == 401
+
+        # --- L'EXERCICE PASSE PAR find_tp, TOUJOURS -------------------------
+        assert fil("alice", "pasuntp")[0] == 400
+        assert fil("alice", "../tps")[0] == 400
+        assert call("POST", "/forum",
+                    {"tp": "pasuntp", "texte": "salut"}, jeton="alice")[0] == 400
+
+        # --- LES BORNES DU TEXTE --------------------------------------------
+        for mauvais in ("", "   ", "x" * (app.FORUM_MAX_CHARS + 1)):
+            assert call("POST", "/forum", {"tp": "tp2-ex3", "texte": mauvais},
+                        jeton="alice")[0] == 400, mauvais
+        # LE HTML EST ACCEPTE PAR L'API ET STOCKE TEL QUEL : c'est le rendu qui
+        # l'echappe, a chaque affichage. Un serveur qui refuserait ici donnerait
+        # l'illusion d'une protection dont le rendu n'aurait plus besoin.
+        assert call("POST", "/forum",
+                    {"tp": "tp2-ex3", "texte": "<b>x</b>"},
+                    jeton="bob")[0] == 200
+        assert messages[-1]["texte"] == "<b>x</b>", messages[-1]
+        messages.pop()
+
+        # --- PUBLIER, PUIS LIRE ---------------------------------------------
+        assert call("POST", "/forum",
+                    {"tp": "tp2-ex3", "texte": "  Pourquoi ma boucle tourne ?  "},
+                    jeton="alice")[0] == 200
+        vu = fil("alice")[1]
+        assert vu["exercice_id"] == "tp2-ex3" and vu["moderateur"] is False
+        assert vu["max"] == app.FORUM_MAX_CHARS
+        assert len(vu["messages"]) == 1
+        mien = vu["messages"][0]
+        assert mien["auteur"] == "Vous" and mien["mien"] is True
+        assert mien["texte"] == "Pourquoi ma boucle tourne ?"
+        assert app.MSG_RE.match(mien["id"]), mien["id"]
+
+        # AUCUN `sub` NE TRAVERSE, ni ici ni ailleurs.
+        assert "sub-alice" not in json.dumps(vu, ensure_ascii=False)
+
+        # --- DEUX COMPTES, DEUX POINTS DE VUE -------------------------------
+        assert call("POST", "/forum",
+                    {"tp": "tp2-ex3", "texte": "j'ai le meme souci"},
+                    jeton="bob")[0] == 200
+        cote_bob = fil("bob")[1]["messages"]
+        assert [m["auteur"] for m in cote_bob] == ["Participant", "Vous"]
+        # ET LE FIL EST PAR EXERCICE : rien ne fuit d'un exercice a l'autre.
+        assert fil("alice", "tp2-ex0")[1]["messages"] == []
+
+        # --- SUPPRIMER : LE SIEN, JAMAIS CELUI D'UN AUTRE -------------------
+        # Le meme 404 pour « n'existe pas » et « pas a toi » : les distinguer
+        # dirait a qui essaie qu'un identifiant existe.
+        assert call("DELETE", "/forum?id=" + mien["id"], jeton="bob")[0] == 404
+        assert call("DELETE", "/forum?id=" + "f" * 32, jeton="alice")[0] == 404
+        assert call("DELETE", "/forum?id=pasunid", jeton="alice")[0] == 400
+        assert len(fil("alice")[1]["messages"]) == 2
+
+        # --- SIGNALER, ET UNE SEULE FOIS ------------------------------------
+        celui_de_bob = [m for m in fil("alice")[1]["messages"] if not m["mien"]][0]
+        assert call("POST", "/forum/signalement", {"id": celui_de_bob["id"]},
+                    jeton="alice")[0] == 200
+        # LE DOUBLON EST UN NON-EVENEMENT, pas une erreur : meme reponse, et la
+        # base n'a qu'une ligne. Un second signalement du meme compte ne doit
+        # pas peser deux fois dans la file de moderation.
+        assert call("POST", "/forum/signalement", {"id": celui_de_bob["id"]},
+                    jeton="alice")[0] == 200
+        assert len(signales) == 1, signales
+        # Un identifiant invente ne cree pas de ligne orpheline.
+        assert call("POST", "/forum/signalement", {"id": "e" * 32},
+                    jeton="alice")[0] == 200
+        assert len(signales) == 1, signales
+        assert call("POST", "/forum/signalement", {"id": "pasunid"},
+                    jeton="alice")[0] == 400
+
+        # --- LA MODERATION EST RESERVEE, ET LE ROLE EST CALCULE SERVEUR -----
+        assert call("GET", "/forum/moderation", jeton="alice")[0] == 403
+        assert call("POST", "/forum/moderation",
+                    {"id": celui_de_bob["id"], "action": "masquer"},
+                    jeton="alice")[0] == 403
+        assert not journal, journal
+        # Et il ne s'obtient pas en le demandant : rien dans le corps ni dans
+        # les en-tetes ne fabrique un moderateur.
+        assert call("POST", "/forum/moderation",
+                    {"id": celui_de_bob["id"], "action": "masquer",
+                     "moderateur": True, "utilisateur": "sub-mod"},
+                    jeton="alice")[0] == 403
+
+        file_mod = call("GET", "/forum/moderation", jeton="mod")[1]
+        assert len(file_mod["signalements"]) == 1
+        assert file_mod["signalements"][0]["signalements"] == 1
+        assert file_mod["signalements"][0]["texte"] == "j'ai le meme souci"
+
+        # --- MASQUER PUIS RETABLIR, LES DEUX JOURNALISEES -------------------
+        assert call("POST", "/forum/moderation",
+                    {"id": celui_de_bob["id"], "action": "supprimer"},
+                    jeton="mod")[0] == 400            # deux actions, pas trois
+        assert call("POST", "/forum/moderation",
+                    {"id": "f" * 32, "action": "masquer"}, jeton="mod")[0] == 404
+        assert call("POST", "/forum/moderation",
+                    {"id": celui_de_bob["id"], "action": "masquer"},
+                    jeton="mod")[0] == 200
+        # INVISIBLE POUR LES ETUDIANTS, y compris pour son auteur, et VISIBLE
+        # pour le moderateur -- qui doit pouvoir le retablir.
+        assert len(fil("alice")[1]["messages"]) == 1
+        assert len(fil("bob")[1]["messages"]) == 1
+        cote_mod = fil("mod")[1]
+        assert cote_mod["moderateur"] is True and len(cote_mod["messages"]) == 2
+        assert [m["masque"] for m in cote_mod["messages"]] == [False, True]
+
+        assert call("POST", "/forum/moderation",
+                    {"id": celui_de_bob["id"], "action": "retablir"},
+                    jeton="mod")[0] == 200
+        assert len(fil("alice")[1]["messages"]) == 2
+        assert [a[3] for a in journal] == ["masquer", "retablir"], journal
+        assert all(a[2] == "sub-mod" for a in journal), journal
+
+        # Un message de l'equipe s'annonce comme tel -- c'est la seule etiquette
+        # d'identite du forum, et elle porte un ROLE, pas une personne.
+        assert call("POST", "/forum",
+                    {"tp": "tp2-ex3", "texte": "Pense a relire la consigne."},
+                    jeton="mod")[0] == 200
+        assert [m["auteur"] for m in fil("alice")[1]["messages"]] == [
+            "Vous", "Participant", "Équipe du cours"]
+
+        # --- LE QUOTA FREINE LES ECRITURES, JAMAIS LA LECTURE ---------------
+        app.Handler.forum_quota = app.Quota(cooldown=30, hourly=1)
+        assert call("POST", "/forum", {"tp": "tp2-ex3", "texte": "encore"},
+                    jeton="alice")[0] == 200
+        trop = call("POST", "/forum", {"tp": "tp2-ex3", "texte": "et encore"},
+                    jeton="alice")
+        assert trop[0] == 429 and trop[1]["retry_after"] > 0, trop
+        assert call("POST", "/forum/signalement", {"id": celui_de_bob["id"]},
+                    jeton="alice")[0] == 429
+        # PAR COMPTE ET PAS PAR IP : deux etudiants derriere le meme NAT
+        # d'ecole ne doivent pas se gener.
+        assert call("POST", "/forum", {"tp": "tp2-ex3", "texte": "moi aussi"},
+                    jeton="bob")[0] == 200
+        # ET LIRE RESTE POSSIBLE : un quota qui empecherait de relire un fil
+        # empecherait de suivre la reponse qu'on attend.
+        assert fil("alice")[0] == 200
+        app.Handler.forum_quota = app.Quota(cooldown=0, hourly=1000)
+
+        # --- UNE BASE MUETTE SE DIT, ET N'EMPORTE PAS LE RESTE --------------
+        muet = BaseSimulee.forum_fil
+        BaseSimulee.forum_fil = staticmethod(lambda ex, limite: None)
+        assert fil("alice")[0] == 503
+        BaseSimulee.forum_fil = muet
+
+        # --- « SUPPRIMER MES DONNEES » COUVRE LE FORUM ----------------------
+        # Les messages d'alice partent, ses signalements aussi, et RIEN de ce
+        # qu'un autre a ecrit n'est touche.
+        avant = len(messages)
+        assert call("DELETE", "/moi", jeton="alice")[0] == 200
+        restants = [m["utilisateur"] for m in messages]
+        assert "sub-alice" not in restants, restants
+        assert "sub-bob" in restants and "sub-mod" in restants, restants
+        assert len(messages) < avant
+        assert not signales, signales
+        # Et son propre message se supprime aussi a l'unite, quand elle le
+        # demande message par message.
+        neuf = call("POST", "/forum", {"tp": "tp2-ex3", "texte": "je reviens"},
+                    jeton="alice")
+        assert neuf[0] == 200, neuf
+        a_moi = [m for m in fil("alice")[1]["messages"] if m["mien"]][0]
+        assert call("DELETE", "/forum?id=" + a_moi["id"],
+                    jeton="alice")[0] == 200
+        assert not [m for m in fil("alice")[1]["messages"] if m["mien"]]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        (app.etat, app.current_user, app.STATIC, app.OIDC_ISSUER,
+         app.OIDC_CLIENT_ID, app.FORUM_MODERATORS,
+         app.Handler.forum_quota) = garde
         shutil.rmtree(tmp, ignore_errors=True)
 
 

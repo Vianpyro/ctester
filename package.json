@@ -1,0 +1,11 @@
+{
+  "name": "ctester-page",
+  "private": true,
+  "description": "Harnais de test de la page. L'application, elle, n'a AUCUNE dependance npm : marked et DOMPurify sont vendorises dans app/vendor/ et servis depuis cette origine.",
+  "scripts": {
+    "test": "node test_page.js"
+  },
+  "devDependencies": {
+    "jsdom": "30.0.1"
+  }
+}

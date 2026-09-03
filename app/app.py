@@ -10,6 +10,7 @@ Bibliothèque standard uniquement : rien à installer au démarrage, rien à
 patcher, et l'image officielle python:3.13-slim suffit telle quelle.
 """
 
+import base64
 import gzip
 import hashlib
 import hmac
@@ -44,8 +45,43 @@ OIDC_ISSUER = os.environ.get("CTESTER_OIDC_ISSUER", "").rstrip("/")
 OIDC_CLIENT_ID = os.environ.get("CTESTER_OIDC_CLIENT_ID", "")
 OIDC_TTL = int(os.environ.get("CTESTER_OIDC_CACHE_TTL", "300"))
 
+# --- Forum d'entraide (MVP) -------------------------------------------------
+# ÉTEINT PAR DÉFAUT, ET C'EST LE RÉGLAGE SÛR. Sans au moins un `sub` de
+# modérateur configuré, `forum_enabled()` est faux : le bouton n'apparaît pas,
+# `forum.js` n'est jamais demandé, et les routes répondent 503 en le disant. Un
+# forum sans personne pour le modérer est un canal de partage de solutions avec
+# une charte dessus -- on ne l'ouvre pas « en attendant ».
+#
+# DES `sub` OIDC OPAQUES, séparés par virgule ou espace, JAMAIS un claim du
+# jeton : un rôle dérivé d'un claim non vérifié se réclame depuis un compte que
+# l'on contrôle. Voir le runbook du rôle Ansible pour relever ces valeurs sans
+# les écrire dans le dépôt ni les exposer au navigateur.
+FORUM_MODERATORS = frozenset(
+    s for s in re.split(r"[,\s]+",
+                        os.environ.get("CTESTER_FORUM_MODERATORS", "")) if s)
+FORUM_MAX_CHARS = int(os.environ.get("CTESTER_FORUM_MAX_CHARS", "1200"))
+FORUM_COOLDOWN = int(os.environ.get("CTESTER_FORUM_COOLDOWN", "10"))
+FORUM_HOURLY = int(os.environ.get("CTESTER_FORUM_HOURLY_QUOTA", "20"))
+# Borne de LECTURE d'un fil et de la file de modération. Un fil d'exercice à 27
+# étudiants n'en approche pas ; la borne existe pour que la page ne puisse pas
+# recevoir un objet sans fin le jour où quelque chose tourne mal.
+FORUM_MAX_FIL = 200
+
+# LES DEUX BIBLIOTHÈQUES DU RENDU, ÉPINGLÉES DANS LEUR NOM DE FICHIER. Elles
+# vivent dans le dépôt (`app/vendor/`, voir son README) et sont servies depuis
+# cette origine : la CSP dit `script-src 'self'`, donc un CDN serait bloqué, et
+# c'est voulu. Monter de version demande de toucher à cette liste ET à
+# `forum.js` -- une mise à jour d'assainisseur HTML ne doit pas se faire par
+# accident.
+VENDOR = ("vendor/marked-18.0.11.umd.js", "vendor/purify-3.4.14.min.js")
+
 TP_RE = re.compile(r"\A[a-z0-9_-]{1,32}\Z")
 JOB_RE = re.compile(r"\A[0-9a-f]{32}\Z")
+# Les identifiants de message et d'action ont la même forme qu'un job (uuid4
+# hexadécimal), mais ce n'est pas la même chose : les confondre dans une seule
+# constante ferait qu'un jour où l'une des deux formes change, l'autre changerait
+# en silence avec elle.
+MSG_RE = re.compile(r"\A[0-9a-f]{32}\Z")
 
 
 def load_tps():
@@ -511,6 +547,130 @@ def progress_payload(entries, facts, states, practice):
     }
 
 
+# --- Forum d'entraide (MVP) -------------------------------------------------
+# UN fil chronologique par exercice PUBLIÉ, privé aux comptes connectés. Rien
+# ici ne produit de valeur de jeu : pas d'XP, pas de succès, pas de compteur, et
+# la progression de la phase 1 n'est ni lue ni écrite depuis ces routes.
+#
+# LA MODÉRATION EST HUMAINE, ET ON NE PRÉTEND PAS L'INVERSE. Il n'y a pas de
+# détecteur de solution : les seules règles automatiques sont des bornes
+# (longueur, quota) et le refus des liens, qui est une règle de la charte -- pas
+# un jugement sur le contenu. Tout le reste passe par un signalement et par
+# quelqu'un qui lit.
+
+
+def forum_enabled():
+    """True quand le forum peut être offert. FAUX par défaut.
+
+    Il faut la connexion (donc l'émetteur, le client et la base) ET au moins un
+    modérateur configuré. La seconde condition n'est pas cosmétique : le
+    signalement doit aboutir chez quelqu'un, sinon on offre un canal public sans
+    recours.
+    """
+    return oidc_enabled() and bool(FORUM_MODERATORS)
+
+
+def is_moderator(sub):
+    """Le contrôle de rôle, et il est ICI -- jamais dans le navigateur.
+
+    La page reçoit bien un drapeau `moderateur`, mais c'est un drapeau
+    d'AFFICHAGE : chaque route de modération le recalcule à partir du `sub`
+    authentifié. Un booléen retourné par un client n'est pas une autorisation.
+    """
+    return bool(sub) and sub in FORUM_MODERATORS
+
+
+def forum_texte(brut):
+    """(texte, message d'erreur) -- du Markdown restreint, court, et rien d'autre.
+
+    CE QUI EST STOCKÉ EST LA SOURCE, PAS DU HTML. Le serveur ne rend rien et
+    n'assainit rien : il borne. Le rendu -- Markdown puis assainisseur -- se
+    fait au moment de l'AFFICHAGE, à chaque affichage, dans `forum.js`. Assainir
+    à l'écriture seulement serait la mauvaise moitié du travail : une règle
+    resserrée plus tard ne s'appliquerait pas aux messages déjà en base.
+
+    Les caractères de contrôle partent quand même : ils ne servent à rien dans
+    du Markdown, ils compliquent une relecture humaine, et ils n'ont aucune
+    raison d'attendre le navigateur pour disparaître.
+    """
+    if not isinstance(brut, str):
+        return None, "message manquant"
+    texte = brut.replace("\r\n", "\n")
+    texte = "".join(c for c in texte if c in "\n\t" or c >= " ").strip()
+    if not texte:
+        return None, "un message vide n'aide personne"
+    if len(texte) > FORUM_MAX_CHARS:
+        return None, f"message trop long (maximum {FORUM_MAX_CHARS} caractères)"
+    return texte, None
+
+
+def forum_vue(messages, sub, moderateur):
+    """Ce qu'un fil devient pour CET appelant. AUCUN `sub` ne franchit cette ligne.
+
+    « Vous » pour son auteur, « Participant » pour les autres, « Équipe du
+    cours » pour un modérateur : trois mots dérivés ici, et la page ne reçoit
+    rien qui permette de recoller deux messages au même étudiant. Pas de
+    pseudonyme persistant non plus -- ce serait une identité, en plus petit.
+
+    Les messages masqués ne sortent QUE vers un modérateur : c'est lui qui doit
+    pouvoir les rétablir.
+    """
+    return [{"id": m["id"], "texte": m["texte"], "cree_le": m["cree_le"],
+             "auteur": ("Vous" if m["utilisateur"] == sub
+                        else "Équipe du cours"
+                        if is_moderator(m["utilisateur"]) else "Participant"),
+             "mien": m["utilisateur"] == sub,
+             "masque": m["masque"]}
+            for m in messages if moderateur or not m["masque"]]
+
+
+# --- La CSP du document -----------------------------------------------------
+# CE N'EST PAS LA DÉFENSE PRINCIPALE, et il faut le lire comme ça. Ce qui
+# empêche le HTML d'un étudiant de s'exécuter, c'est l'assainisseur épinglé de
+# `forum.js` et le fait que tout le reste de la page passe par `textContent`.
+# La CSP est la couche qui limite les dégâts si l'une de ces deux-là cède : elle
+# transforme une injection réussie en injection qui ne peut ni charger un script
+# d'ailleurs, ni parler à un autre hôte, ni s'encadrer.
+#
+# LE HACHAGE DU SCRIPT DE THÈME EST CALCULÉ SUR LE CORPS SERVI, pas écrit à la
+# main. Ce script DOIT rester inline (il pose le thème avant le premier rendu,
+# voir index.html) ; un hachage recopié se périmerait à la première virgule
+# changée, et la page repartirait sans thème avec une erreur de console que
+# personne ne lit.
+_INLINE_SCRIPT_RE = re.compile(rb"<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>",
+                               re.DOTALL)
+
+
+def csp(body, issuer=""):
+    """La politique de sécurité du contenu pour CE document HTML.
+
+    `style-src` garde `'unsafe-inline'` : la page pose des attributs `style`
+    calculés (la largeur d'une jauge, le rang d'une coche de verdict). Ce sont
+    des styles, pas des scripts, et les retirer demanderait de réécrire trois
+    composants pour un gain nul face à la menace visée ici.
+
+    `connect-src` doit contenir l'émetteur OIDC : `compte.js` va y chercher le
+    document de découverte puis le jeton. Sans lui, la connexion échoue en
+    silence -- et c'est le genre de panne qu'une CSP produit sans le dire.
+    """
+    empreintes = " ".join(
+        "'sha256-" + base64.b64encode(hashlib.sha256(bloc).digest()).decode() + "'"
+        for bloc in _INLINE_SCRIPT_RE.findall(body) if bloc.strip())
+    origine = ""
+    if issuer.startswith("https://"):
+        origine = " " + "/".join(issuer.split("/")[:3])
+    return "; ".join([
+        "default-src 'none'",
+        ("script-src 'self' " + empreintes).strip(),
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self'",
+        "connect-src 'self'" + origine,
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'",
+    ])
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ctester"
     quota = Quota(COOLDOWN, HOURLY)
@@ -518,6 +678,10 @@ class Handler(BaseHTTPRequestHandler):
     # get their own, far looser limiter. It exists to bound abuse, not to pace
     # a student who types.
     state_quota = Quota(cooldown=1, hourly=1200)
+    # Le forum a le sien, compté PAR COMPTE et pas par IP, et il couvre les
+    # écritures seulement -- publier et signaler. Sobre exprès : il freine une
+    # rafale, il n'empêche ni de lire un fil ni de soumettre du C.
+    forum_quota = Quota(FORUM_COOLDOWN, FORUM_HOURLY)
     lock = Lock()
 
     # HTTP/1.1 pour garder la connexion ouverte pendant le sondage : à 40
@@ -535,7 +699,42 @@ class Handler(BaseHTTPRequestHandler):
         `docker logs`.
         """
 
+    def handle_one_request(self):
+        self._corps_lu = False
+        BaseHTTPRequestHandler.handle_one_request(self)
+
+    def _vider(self):
+        """Lit et jette le corps d'une requête à laquelle on répond sans lui.
+
+        EN HTTP/1.1 LA CONNEXION EST RÉUTILISÉE (voir `protocol_version`), et un
+        corps laissé dans la socket est lu comme la LIGNE DE REQUÊTE suivante :
+        le navigateur récolte alors un 400 sur une requête parfaitement valide,
+        et le journal du conteneur se remplit de « Bad request version ».
+        Ça arrive dès qu'un PUT ou un POST se fait refuser AVANT `_body()` --
+        jeton expiré, forum éteint, rôle insuffisant -- c'est-à-dire au plus
+        mauvais moment, quand l'étudiant réessaie.
+        """
+        if self._corps_lu:
+            return
+        self._corps_lu = True
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return
+        # Au-delà de ce que `_body` accepterait, on ne vide pas : on ferme. Lire
+        # pour jeter un corps sans limite serait un déni de service offert.
+        if length > MAX_CODE + 4096:
+            self.close_connection = True
+            return
+        try:
+            self.rfile.read(length)
+        except Exception:
+            self.close_connection = True
+
     def _json(self, code, payload):
+        self._vider()
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -568,6 +767,10 @@ class Handler(BaseHTTPRequestHandler):
         (bfcache) : avec lui, le bouton Retour refaisait toute la page.
         """
         etiquette = '"' + hashlib.sha256(body).hexdigest()[:16]
+        # LA CSP EST CALCULÉE SUR LE CORPS EN CLAIR, avant la compression : le
+        # hachage porte sur le script inline du document, pas sur son transport.
+        politique = (csp(body, OIDC_ISSUER)
+                     if ctype.startswith("text/html") else "")
         # UNE ÉTIQUETTE PAR REPRÉSENTATION. Deux corps différents pour une même
         # URL -- l'original et le gzip -- ne peuvent pas partager un ETag : un
         # cache intermédiaire servirait l'un en croyant valider l'autre.
@@ -583,6 +786,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("ETag", etiquette)
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Vary", "Accept-Encoding")
+            # SUR LE 304 AUSSI. Le navigateur rejoue la réponse gardée en la
+            # mettant à jour avec ces en-têtes ; une CSP qui n'apparaîtrait que
+            # sur le 200 disparaîtrait donc dès la deuxième visite, c'est-à-dire
+            # presque toujours.
+            if politique:
+                self.send_header("Content-Security-Policy", politique)
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
@@ -592,6 +801,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("ETag", etiquette)
         self.send_header("Vary", "Accept-Encoding")
+        if politique:
+            self.send_header("Content-Security-Policy", politique)
         if comprime:
             self.send_header("Content-Encoding", "gzip")
         self.end_headers()
@@ -640,8 +851,14 @@ class Handler(BaseHTTPRequestHandler):
             self._file("style.css", "text/css; charset=utf-8")
         elif path == "/favicon.svg":
             self._file("favicon.svg", "image/svg+xml")
-        elif path in ("/app.js", "/quiz.js", "/compte.js", "/progres.js"):
+        elif path in ("/app.js", "/quiz.js", "/compte.js", "/progres.js",
+                      "/forum.js"):
             # Liste close, pas un suffixe : `.js` n'ouvre pas le répertoire.
+            self._file(path[1:], "text/javascript; charset=utf-8")
+        elif path[1:] in VENDOR:
+            # Les deux bibliothèques du rendu, servies depuis cette origine et
+            # sous leur nom versionné. `VENDOR` est une liste close comme
+            # au-dessus : `/vendor/` n'est pas un répertoire ouvert.
             self._file(path[1:], "text/javascript; charset=utf-8")
         elif path == "/tps.json":
             # RELU À CHAQUE FOIS, pas mis en cache au démarrage : publier un
@@ -661,7 +878,12 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/oidc.json":
             # The page asks this before showing anything: an empty object means
             # "no sign-in here", and it then behaves exactly as it always did.
-            self._json(200, {"issuer": OIDC_ISSUER, "client_id": OIDC_CLIENT_ID}
+            # `forum` voyage ici parce que c'est déjà l'endpoint « ce qui est
+            # offert sur ce déploiement », lu avant que la page n'affiche quoi
+            # que ce soit. Faux ou absent : le bouton n'existe pas et
+            # `forum.js` n'est jamais demandé.
+            self._json(200, {"issuer": OIDC_ISSUER, "client_id": OIDC_CLIENT_ID,
+                             "forum": forum_enabled()}
                             if oidc_enabled() else {})
         elif path == "/etats":
             self._states()
@@ -671,6 +893,10 @@ class Handler(BaseHTTPRequestHandler):
             self._progress()
         elif path == "/brouillon":
             self._read_draft()
+        elif path == "/forum":
+            self._forum_fil()
+        elif path == "/forum/moderation":
+            self._forum_file_moderation()
         else:
             self._json(404, {"error": "inconnu"})
 
@@ -699,6 +925,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(413, {"error": "corps trop gros ou vide"})
             return None
         try:
+            self._corps_lu = True
             data = json.loads(self.rfile.read(length))
         except ValueError:
             data = None
@@ -779,17 +1006,215 @@ class Handler(BaseHTTPRequestHandler):
         sub = self._who()
         if sub is None:
             return
-        query = self.path.split("?", 1)[1] if "?" in self.path else ""
-        wanted = ""
-        for pair in query.split("&"):
-            if pair.startswith("ex="):
-                wanted = urllib.parse.unquote(pair[3:])
+        wanted = self._param("ex")
         if find_tp(wanted) is None:
             self._json(400, {"error": "TP inconnu"})
             return
         # An absent draft is not an error: it is a student opening an exercise
         # for the first time. `sources: null` says so without dressing it up.
         self._json(200, {"sources": etat.read_resume(sub, wanted)})
+
+    # --- Forum d'entraide ---------------------------------------------------
+    # Six routes, toutes derrière `_forum_qui()`, qui est le `_who()` habituel
+    # plus la condition d'activation. AUCUNE ne prend d'identifiant
+    # d'utilisateur dans la requête, et aucune ne balaye les données de tous
+    # les étudiants : on lit UN fil d'exercice, ou la file des signalements.
+    #
+    # LE FORUM NE DOIT JAMAIS EMPÊCHER DE FAIRE UN EXERCICE. Une base muette,
+    # un forum éteint ou une panne ici répondent 503 en le disant, et « Tester »
+    # continue de marcher -- c'est ce que `test_page.js` éprouve.
+
+    def _param(self, name):
+        """La valeur d'un paramètre de requête, décodée. Chaîne vide si absent."""
+        query = self.path.split("?", 1)[1] if "?" in self.path else ""
+        for pair in query.split("&"):
+            if pair.startswith(name + "="):
+                return urllib.parse.unquote(pair[len(name) + 1:])
+        return ""
+
+    def _forum_qui(self):
+        """Le `sub` de l'appelant, ou None après avoir répondu 503/401 lui-même."""
+        if not forum_enabled():
+            self._json(503, {"error": "les discussions ne sont pas activées "
+                                      "sur ce déploiement"})
+            return None
+        return self._who()
+
+    def _forum_moderateur(self):
+        """Le `sub` d'un modérateur, ou None après un 401/403/503.
+
+        LE RÔLE EST RECALCULÉ ICI, À CHAQUE APPEL, DEPUIS LE `sub` AUTHENTIFIÉ.
+        La page reçoit bien un drapeau, mais il ne sert qu'à décider quoi
+        dessiner : aucune de ces deux routes ne le croit sur parole.
+        """
+        sub = self._forum_qui()
+        if sub is None:
+            return None
+        if not is_moderator(sub):
+            self._json(403, {"error": "réservé à l'équipe du cours"})
+            return None
+        return sub
+
+    def _forum_entree(self, brut):
+        """L'entrée de catalogue nommée, ou None après un 400.
+
+        `find_tp` est la SEULE porte : il n'existe pas de fil pour un exercice
+        absent du catalogue, donc pas de fil à créer avec un identifiant
+        fabriqué, et pas de chemin à traverser.
+        """
+        entry = find_tp(str(brut or ""))
+        if entry is None:
+            self._json(400, {"error": "TP inconnu"})
+        return entry
+
+    def _forum_message_id(self, brut):
+        """Un identifiant de message bien formé, ou None après un 400."""
+        message_id = str(brut or "")
+        if not MSG_RE.match(message_id):
+            self._json(400, {"error": "identifiant invalide"})
+            return None
+        return message_id
+
+    def _forum_throttle(self, sub):
+        """True quand ce COMPTE doit ralentir (et vient de l'apprendre).
+
+        PAR `sub`, PAS PAR IP : le forum est une fonction de compte, et deux
+        étudiants derrière le même NAT d'école n'ont pas à se gêner. La LECTURE
+        n'y passe jamais -- un quota qui empêcherait de relire un fil
+        empêcherait de suivre la réponse qu'on attend.
+        """
+        with self.lock:
+            wait = self.forum_quota.check(sub, time.time())
+        if wait:
+            self._json(429, {"error": "trop de messages d'un coup -- réessaie "
+                                      f"dans {wait} s", "retry_after": wait})
+        return bool(wait)
+
+    def _forum_fil(self):
+        """GET /forum?ex=<exercice> -- le fil, tel que cet appelant a le droit de
+        le voir."""
+        sub = self._forum_qui()
+        if sub is None:
+            return
+        entry = self._forum_entree(self._param("ex"))
+        if entry is None:
+            return
+        messages = etat.forum_fil(entry["id"], FORUM_MAX_FIL)
+        if messages is None:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        moderateur = is_moderator(sub)
+        self._json(200, {
+            "exercice_id": entry["id"],
+            "moderateur": moderateur,
+            "max": FORUM_MAX_CHARS,
+            "messages": forum_vue(messages, sub, moderateur),
+        })
+
+    def _forum_publier(self):
+        """POST /forum -- publier dans le fil d'un exercice publié."""
+        sub = self._forum_qui()
+        if sub is None:
+            return
+        data = self._body()
+        if data is None:
+            return
+        entry = self._forum_entree(data.get("tp"))
+        if entry is None:
+            return
+        texte, message = forum_texte(data.get("texte"))
+        if message:
+            self._json(400, {"error": message})
+            return
+        if self._forum_throttle(sub):
+            return
+        if not etat.forum_publier(uuid.uuid4().hex, entry["id"], sub, texte):
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        self._json(200, {"ok": True})
+
+    def _forum_supprimer(self):
+        """DELETE /forum?id=<message> -- supprimer SON message, jamais un autre.
+
+        Le même 404 pour « ce message n'existe pas » et « il n'est pas à toi » :
+        les distinguer dirait à qui essaie qu'un identifiant existe.
+        """
+        sub = self._forum_qui()
+        if sub is None:
+            return
+        message_id = self._forum_message_id(self._param("id"))
+        if message_id is None:
+            return
+        efface = etat.forum_supprimer(message_id, sub)
+        if efface is None:
+            self._json(503, {"error": "la base ne répond pas"})
+        elif not efface:
+            self._json(404, {"error": "message introuvable"})
+        else:
+            self._json(200, {"ok": True})
+
+    def _forum_signaler(self):
+        """POST /forum/signalement -- signaler un message.
+
+        LA MÊME RÉPONSE pour un signalement neuf, un doublon et un identifiant
+        inconnu : c'est déjà ce que la base impose (clé primaire, et un INSERT
+        qui ne trouve pas son message n'insère rien), et l'étudiant n'a pas
+        besoin d'apprendre lequel des trois cas s'applique. Il a signalé ;
+        quelqu'un lira.
+        """
+        sub = self._forum_qui()
+        if sub is None:
+            return
+        data = self._body()
+        if data is None:
+            return
+        message_id = self._forum_message_id(data.get("id"))
+        if message_id is None:
+            return
+        if self._forum_throttle(sub):
+            return
+        if etat.forum_signaler(message_id, sub) is None:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        self._json(200, {"ok": True})
+
+    def _forum_file_moderation(self):
+        """GET /forum/moderation -- les signalements. Réservé, contrôlé serveur."""
+        if self._forum_moderateur() is None:
+            return
+        signales = etat.forum_signalements(FORUM_MAX_FIL)
+        if signales is None:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        self._json(200, {"signalements": signales})
+
+    def _forum_moderer(self):
+        """POST /forum/moderation -- masquer ou rétablir UN message.
+
+        Les deux seules actions possibles. Éditer ou réécrire un message n'en
+        fait pas partie : un message est immuable, et un modérateur qui pourrait
+        le corriger pourrait aussi faire dire autre chose à quelqu'un.
+        """
+        sub = self._forum_moderateur()
+        if sub is None:
+            return
+        data = self._body()
+        if data is None:
+            return
+        message_id = self._forum_message_id(data.get("id"))
+        if message_id is None:
+            return
+        action = str(data.get("action", ""))
+        if action not in ("masquer", "retablir"):
+            self._json(400, {"error": "action inconnue"})
+            return
+        fait = etat.forum_moderer(uuid.uuid4().hex, message_id, sub, action)
+        if fait is None:
+            self._json(503, {"error": "la base ne répond pas"})
+        elif not fait:
+            self._json(404, {"error": "message introuvable"})
+        else:
+            self._json(200, {"ok": True})
 
     def do_PUT(self):  # noqa: N802 -- imposé par BaseHTTPRequestHandler
         path = self.path.split("?", 1)[0]
@@ -832,7 +1257,11 @@ class Handler(BaseHTTPRequestHandler):
         The consent sentence shown before the redirect to Rauthy promises this
         exists, so it exists -- not "later".
         """
-        if self.path.split("?", 1)[0] != "/moi":
+        path = self.path.split("?", 1)[0]
+        if path == "/forum":
+            self._forum_supprimer()
+            return
+        if path != "/moi":
             self._json(404, {"error": "inconnu"})
             return
         sub = self._who()
@@ -921,7 +1350,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"state": "gone"})
 
     def do_POST(self):  # noqa: N802 -- imposé par BaseHTTPRequestHandler
-        if self.path.split("?", 1)[0] != "/submit":
+        path = self.path.split("?", 1)[0]
+        if path == "/forum":
+            self._forum_publier()
+            return
+        if path == "/forum/signalement":
+            self._forum_signaler()
+            return
+        if path == "/forum/moderation":
+            self._forum_moderer()
+            return
+        if path != "/submit":
             self._json(404, {"error": "inconnu"})
             return
         try:
@@ -932,6 +1371,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(413, {"error": "soumission trop grosse ou vide"})
             return
         try:
+            self._corps_lu = True
             data = json.loads(self.rfile.read(length))
             key = str(data["key"])
             tp = str(data["tp"])
@@ -1039,6 +1479,12 @@ def main():
     if OIDC_ISSUER and not oidc_enabled():
         print("connexion desactivee : il faut CTESTER_OIDC_ISSUER en https,"
               " CTESTER_OIDC_CLIENT_ID et CTESTER_DB_DSN", file=sys.stderr)
+    # Le forum est ETEINT tant qu'aucun moderateur n'est configure, et il le
+    # dit : « personne ne clique dessus » et « il n'existe pas » se ressemblent
+    # trop de l'exterieur pour qu'on laisse deviner lequel des deux.
+    if oidc_enabled() and not FORUM_MODERATORS:
+        print("discussions desactivees : CTESTER_FORUM_MODERATORS est vide"
+              " (liste de `sub` OIDC separes par des virgules)", file=sys.stderr)
     os.makedirs(SPOOL, exist_ok=True)
     ThreadingHTTPServer(("", PORT), Handler).serve_forever()
 

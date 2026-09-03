@@ -12,7 +12,7 @@
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="style.css?v=20260903-progres">
+<link rel="stylesheet" href="style.css?v=20260903-forum">
 </head>
 <body>
 <div id="top">
@@ -39,6 +39,7 @@
   <span id="moi" hidden></span>
   <button type="button" id="mesexos" class="nav" hidden>Mes exercices</button>
   <button type="button" id="mesprogres" class="nav" hidden>Mes progrès</button>
+  <button type="button" id="discussions" class="nav" hidden>Discussions</button>
   <button type="button" id="oublier" class="nav" hidden>Supprimer mes données</button>
   <button type="button" id="deconnexion" class="nav" hidden>Se déconnecter</button>
   <button type="button" id="connexion" class="nav" hidden>Se connecter</button>
@@ -48,14 +49,21 @@
        identifiant de compte opaque (ni ton nom, ni ton courriel), le code que
        tu écris pour chaque exercice, et l'historique de tes tentatives et de
        leurs résultats.</p>
+    <p>Si les discussions sont ouvertes sur ce site&nbsp;: les messages que tu y
+       publies sont visibles des autres comptes connectés, et ils sont lus par
+       des personnes, pas par un automate. Tu y apparais comme
+       «&nbsp;Participant&nbsp;» — ni ton nom, ni un pseudonyme stable.</p>
     <p>Ce n'est pas une note, et rien n'est transmis à ton enseignant. Tu peux
-       tout effacer quand tu veux avec «&nbsp;Supprimer mes données&nbsp;». Sans
-       connexion, la page continue de fonctionner exactement pareil.</p>
+       tout effacer quand tu veux avec «&nbsp;Supprimer mes données&nbsp;»,
+       messages compris. Sans connexion, la page continue de fonctionner
+       exactement pareil.</p>
     <div class="row">
       <button type="button" id="consentok">Continuer vers la connexion</button>
       <button type="button" id="consentnon" class="nav">Annuler</button>
     </div>
   </div>
+
+  <div id="charte" hidden></div>
 </div>
 
 
@@ -110,8 +118,9 @@
 
 <div id="liste" hidden></div>
 <section id="vueprogres" aria-labelledby="progrestitre" hidden></section>
+<section id="vueforum" aria-labelledby="forumtitre" hidden></section>
 </main>
 
-<script src="app.js?v=20260903-progres"></script>
+<script src="app.js?v=20260903-forum"></script>
 </body>
 </html>

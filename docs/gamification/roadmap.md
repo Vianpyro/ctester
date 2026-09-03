@@ -12,6 +12,30 @@ Objectif: comptes connectes voient skills, XP/niveau et quelques accomplissement
 
 **Ce qui reste ouvert.** Les montants, plafonds et seuils sont des valeurs de pilote non observees (voir [xp.md](xp.md) et [levels.md](levels.md)); aucune correction d'XP administrative n'existe encore, et le GRANT applicatif l'interdit deliberement.
 
+## Hors phases — forum d'entraide MVP (livre)
+
+Un lot volontairement place ENTRE la Phase 1 et la Phase 2, et qui n'appartient a
+aucune des deux. Voir [D-008](decisions.md) et [social.md](social.md).
+
+**Ce qui est en place.** Trois tables de faits (`forum_message`,
+`forum_signalement`, `forum_moderation`) dans `app/schema.sql`, en ajout seul a
+une colonne pres (`UPDATE (masque)` par GRANT de colonne); six routes derriere
+`_who()`, toutes bornees par `find_tp()`; un role de moderation configure par
+`CTESTER_FORUM_MODERATORS` et recalcule serveur a chaque appel; la vue
+`app/forum.js`, chargee au clic et seulement connectee, avec un rendu Markdown
+restreint assaini a chaque affichage ([D-009](decisions.md)); une charte visible
+en permanence et avant la premiere publication; `DELETE /moi` etendu.
+
+**Ce que ce lot ne fait PAS.** Il ne realise pas la Phase 4 : ni objectif de
+classe, ni contribution mesuree, ni groupe-cours, ni visibilite configurable. Il
+ne recompense rien — aucun XP, aucun succes, aucun compteur. Il ne remplace pas
+la Phase 2, et ne dit rien de la maitrise.
+
+**Ce qui reste ouvert.** L'equilibre du quota d'ecriture (10 s / 20 par heure et
+par compte) et la longueur maximale (1200 caracteres) sont des valeurs non
+observees. Le forum depend entierement d'une moderation humaine : sa charge reelle
+a 27 etudiants n'est pas connue, et c'est le critere de sortie a surveiller.
+
 ## Phase 2 — maitrise verifiee (valeur educative prioritaire)
 
 Ajouter variantes de verification, evidence, projection de maitrise provisoire, recommandations et vue de preparation aux examens. Pre-requis: politique d'aide, accommodation, contenu revise pour transfert, scripts de test secrets, pilote et validation pedagogique. Ne pas annoncer une prediction de note.
@@ -22,7 +46,7 @@ Ajouter collection, titres/cosmetiques justifies et profil prive/public opt-in. 
 
 ## Phase 4 — social
 
-Objectifs collectifs et contribution sans partage de solution, avec moderation/politique. Mesurer pression sociale et retirer toute mecanique nuisible.
+Objectifs collectifs et contribution sans partage de solution, avec moderation/politique. Mesurer pression sociale et retirer toute mecanique nuisible. **Le forum MVP livre plus haut n'est PAS cette phase** : il n'agrege rien, ne mesure aucune contribution et ne connait pas de cohorte.
 
 ## Phase 5 — classe
 

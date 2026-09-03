@@ -66,12 +66,60 @@ client Rauthy avec `https://tch009.thevhome.com/` en URI de redirection, et
 **Ce que la base contient :** l'identifiant opaque `sub` émis par Rauthy, le
 code écrit par exercice, et un statut. Ni nom, ni courriel, ni code permanent.
 Le jeton est validé en appelant `/userinfo` de Rauthy — pas de bibliothèque de
-crypto embarquée, pas de rotation de clés à tenir. Le bouton « Supprimer mes
-données » efface tout ce qui précède, et la phrase de consentement le dit avant
-la première redirection.
+crypto embarquée, pas de rotation de clés à tenir. S'y ajoutent, quand les discussions sont
+ouvertes, les messages publiés et les signalements — voir plus bas. Le bouton
+« Supprimer mes données » efface tout ce qui précède, et la phrase de
+consentement le dit avant la première redirection.
 
 Rien de tout cela ne touche au bac à sable : le conteneur exposé gagne une
 connexion Postgres, pas l'accès aux tests.
+
+## Les discussions (forum d'entraide)
+
+Un fil par exercice publié, réservé aux comptes connectés, pour poser une
+question **conceptuelle** — pas pour échanger du code. C'est de l'entraide, pas
+une fonctionnalité de jeu : aucun XP, aucun succès, aucun compteur, et la
+progression n'est ni lue ni écrite par ces routes.
+
+**Éteint par défaut, et c'est le réglage sûr.** Il faut au moins un `sub` de
+responsable dans `CTESTER_FORUM_MODERATORS` ; sans lui, le bouton n'apparaît
+pas, `forum.js` n'est jamais téléchargé, et les routes répondent 503 en le
+disant. Un forum sans personne pour le lire est un canal de partage de solutions
+avec une charte dessus. La configuration exacte est dans le README du rôle
+`VHome/roles/ctester`, section « Ouvrir le forum d'entraide ».
+
+```
+CTESTER_FORUM_MODERATORS   des `sub` OIDC opaques, séparés par des virgules
+CTESTER_FORUM_MAX_CHARS    longueur maximale d'un message (1200)
+CTESTER_FORUM_COOLDOWN     délai entre deux écritures d'un même compte (10 s)
+CTESTER_FORUM_HOURLY_QUOTA écritures par heure et par compte (20)
+```
+
+**La modération est humaine, et la page le dit.** Il n'y a aucun détecteur de
+solution : les seules règles automatiques sont des bornes de forme. Le reste
+tient sur une charte visible, un bouton « Signaler », et quelqu'un qui lit. Un
+message est immuable : son auteur peut le supprimer, un responsable peut le
+masquer ou le rétablir (action journalisée), personne ne peut le réécrire.
+
+**Personne n'y a de nom.** Une publication s'annonce « Vous » à son auteur,
+« Participant » aux autres, « Équipe du cours » pour un responsable. Le `sub` ne
+franchit jamais la frontière HTTP, et il n'y a pas de pseudonyme stable — ce
+serait une identité, en plus petit.
+
+**Le rendu est du Markdown restreint, assaini à chaque affichage.** Les messages
+sont stockés sous leur forme source ; le navigateur les rend avec `marked` puis
+`DOMPurify`, tous deux épinglés par version et servis depuis cette origine
+(`app/vendor/`, jamais un CDN — la CSP dit `script-src 'self'`). Le HTML brut est
+échappé avant l'analyse, l'allow-list est fermée (`p br strong em ul ol li
+blockquote code a`), les liens sont limités à `http(s)` et reçoivent
+`rel="noopener noreferrer"`. Si l'une des deux bibliothèques n'arrive pas, tout
+retombe en texte brut — jamais en HTML non filtré. Voir
+`docs/gamification/decisions.md`, D-009.
+
+Conservation jusqu'à la fermeture de décembre, sans archivage ni report.
+« Supprimer mes données » efface aussi les messages, les signalements et les
+actions de modération de la personne qui le demande ; ce qu'un autre a écrit
+reste.
 
 ## Ce que ce service n'est pas
 

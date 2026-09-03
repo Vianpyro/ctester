@@ -50,19 +50,35 @@ async function getJson(path) {
   }
 }
 
-async function putJson(path, payload) {
-  if (!ctester.token()) return false;
+// UNE ÉCRITURE AUTHENTIFIÉE, ET SON CORPS D'ERREUR. Le forum a besoin du
+// message que l'API renvoie -- « message trop long », « trop de messages d'un
+// coup » -- et pas seulement d'un booléen : afficher « ça n'a pas marché » sur
+// une règle qu'on peut respecter est la façon la plus sûre de faire recommencer
+// quelqu'un à l'identique.
+//
+// Rend null quand il n'y a pas de session ou que le réseau a lâché, sinon
+// {ok, status, corps}. `corps` peut être null : une page de blocage Cloudflare
+// ou une erreur nginx en HTML n'est pas du JSON.
+async function sendJson(path, method, payload) {
+  if (!ctester.token()) return null;
   try {
     const answer = await authFetch(path, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      method: method,
+      headers: payload === undefined ? {} : { "Content-Type": "application/json" },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
     });
-    if (answer.status === 401) { signOut(); return false; }
-    return answer.ok;
+    if (answer.status === 401) { signOut(); return null; }
+    let corps = null;
+    try { corps = await answer.json(); } catch (e) { corps = null; }
+    return { ok: answer.ok, status: answer.status, corps: corps };
   } catch (e) {
-    return false;
+    return null;
   }
+}
+
+async function putJson(path, payload) {
+  const reponse = await sendJson(path, "PUT", payload);
+  return !!(reponse && reponse.ok);
 }
 
 async function syncDraft(exerciseId, files) {
@@ -152,6 +168,10 @@ function signOut() {
   // La projection privée part avec la session : la laisser à l'écran
   // montrerait les progrès de quelqu'un qui vient de se déconnecter.
   if (ctester.progres) ctester.progres.oublier();
+  // Le fil part avec la session pour la même raison : il n'est lisible que
+  // connecté, et le laisser à l'écran montrerait des messages à quelqu'un que
+  // le serveur ne reconnaît plus.
+  if (ctester.forum) ctester.forum.oublier();
   showListView(false);
 }
 
@@ -278,6 +298,7 @@ ctester.compte = {
   startSignIn: startSignIn,
   signOut: signOut,
   getJson: getJson,
+  sendJson: sendJson,
   syncDraft: syncDraft,
   loadStates: loadStates,
   loadPractice: loadPractice,
