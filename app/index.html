@@ -12,7 +12,7 @@
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="style.css?v=20260903-forum">
+<link rel="stylesheet" href="style.css?v=20260903-menu">
 </head>
 <body>
 <div id="top">
@@ -34,15 +34,23 @@
             title="Exercice suivant">›</button>
   </span>
   <span class="grow"></span>
+  <span class="groupe">
+    <button type="button" id="mesexos" class="nav" hidden>Mes exercices</button>
+    <button type="button" id="mesprogres" class="nav" hidden>Mes progrès</button>
+    <button type="button" id="discussions" class="nav" hidden>Discussions</button>
+  </span>
+  <span class="sep"></span>
   <button type="button" id="theme" class="nav" title="Changer de thème"
           aria-label="Changer de thème">☀</button>
-  <span id="moi" hidden></span>
-  <button type="button" id="mesexos" class="nav" hidden>Mes exercices</button>
-  <button type="button" id="mesprogres" class="nav" hidden>Mes progrès</button>
-  <button type="button" id="discussions" class="nav" hidden>Discussions</button>
-  <button type="button" id="oublier" class="nav" hidden>Supprimer mes données</button>
-  <button type="button" id="deconnexion" class="nav" hidden>Se déconnecter</button>
   <button type="button" id="connexion" class="nav" hidden>Se connecter</button>
+  <details class="menu" id="menucompte" hidden>
+    <summary class="nav">Compte</summary>
+    <div class="menupanneau">
+      <span id="moi" hidden></span>
+      <button type="button" id="deconnexion" class="nav" hidden>Se déconnecter</button>
+      <button type="button" id="oublier" class="nav" hidden>Supprimer mes données</button>
+    </div>
+  </details>
 
   <div id="consentement" hidden>
     <p>Te connecter fait conserver, sur le serveur de ce site&nbsp;: un
@@ -121,6 +129,6 @@
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
 </main>
 
-<script src="app.js?v=20260903-forum"></script>
+<script src="app.js?v=20260903-menu"></script>
 </body>
 </html>

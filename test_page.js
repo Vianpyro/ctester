@@ -734,6 +734,13 @@ const attendre = async () => { await sleep(); await sleep(); };
         "« suivant » affiche la page 2 et se désactive au bout");
   champs[2].value = "0x17";
 
+  // LE BROUILLON DU QUIZ : même magasin que l'éditeur, sinon changer de TP
+  // efface 40 réponses en silence.
+  nodes.quiz.listeners.input();
+  fireLastTimer();
+  check(JSON.parse(storage["ctester.drafts"]).tp1.q3 === "0x17",
+        "les réponses saisies partent au brouillon");
+
   SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "b".repeat(32) }) };
   calls.length = 0;
   await nodes.go.listeners.click();
@@ -780,6 +787,16 @@ const attendre = async () => { await sleep(); await sleep(); };
   const neutres = tousLesNoeuds(nodes.out).filter(n => n.className === "rien");
   check(neutres.length === 1 && /167/.test(neutres[0].textContent),
         "seule la question non repondue passe en neutre, pas la reponse fausse");
+
+  // ALLER-RETOUR COMPLET : on quitte le quiz, on y revient, les reponses sont
+  // la. C'est tout ce que le brouillon promet.
+  await choisir("TP 2", "tp2-ex0");
+  await choisir("TP 1");
+  await attendre();
+  const revenus = nodes.quiz.querySelectorAll();
+  check(revenus.length === 3 && revenus[0].value === "00010111"
+        && revenus[2].value === "0x17",
+        "revenir sur le quiz retrouve les reponses saisies");
 
   // --- Le verdict rend a l'etudiant ce qui lui appartient ---
   // On passe par le VRAI chemin -- soumission puis sondage -- parce que render()

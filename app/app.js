@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260903-forum";
+const ASSET_REVISION = "20260903-menu";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -203,6 +203,9 @@ function refreshAccount() {
   $("discussions").hidden = !on || !(oidc && oidc.forum);
   $("moi").hidden = !on;
   $("moi").textContent = on ? "connecté" : "";
+  // Le menu ne s'ouvre que sur un compte : « Se connecter » reste dehors,
+  // parce qu'enterrer l'entrée dans un menu, c'est la faire disparaître.
+  $("menucompte").hidden = !on;
 }
 
 // UNE SEULE VUE À LA FOIS, ET L'ARBITRAGE EST ICI. « Mes exercices » et
@@ -323,20 +326,27 @@ function showDraftStatus(text, failed) {
 
 const twoDigits = (n) => String(n).padStart(2, "0");
 
-function saveDraft() {
-  if (currentId === null || actif === null) return;
-  sources[actif] = $("code").value;
-  drafts[currentId] = sources;
+// L'ÉCRITURE SEULE, partagée avec le quiz : lui aussi a un brouillon, de la
+// même forme `{clé: texte}`, et il n'a ni onglet ni gabarit à traverser.
+function persistDrafts() {
   try {
     localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
   } catch (e) {
     showDraftStatus("brouillon NON enregistré — garde une copie de ton code", true);
-    return;
+    return false;
   }
   const t = new Date();
   showDraftStatus("brouillon enregistré à "
                 + twoDigits(t.getHours()) + ":" + twoDigits(t.getMinutes()));
   $("purger").hidden = false;
+  return true;
+}
+
+function saveDraft() {
+  if (currentId === null || actif === null) return;
+  sources[actif] = $("code").value;
+  drafts[currentId] = sources;
+  if (!persistDrafts()) return;
   if (ctester.compte) ctester.compte.syncDraft(currentId, sources);
 }
 $("purger").hidden = !Object.keys(drafts).length;
@@ -533,6 +543,10 @@ $("consentok").addEventListener("click", async () => {
               + ". Tu peux continuer sans compte.");
   }
 });
+// Un <details> ne se referme pas tout seul quand on clique dedans.
+$("menucompte").addEventListener("click", (e) => {
+  if (e.target && e.target.tagName === "BUTTON") $("menucompte").open = false;
+});
 $("mesexos").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.basculerListe();
 });
@@ -597,6 +611,15 @@ Object.assign(ctester, {
   switchMode: switchMode,
   fillExercises: fillExercises,
   showDraftStatus: showDraftStatus,
+  // LE BROUILLON DU QUIZ, local seulement : `/brouillon` valide les noms de
+  // fichiers déclarés par l'exercice, et un identifiant de question n'en est
+  // pas un. Même magasin, même bouton « Effacer mes brouillons ».
+  brouillon: (id) => drafts[id] || null,
+  enregistrerBrouillon: (id, valeurs) => {
+    if (!id) return;
+    drafts[id] = valeurs;
+    persistDrafts();
+  },
   exerciceOuvert: () => currentId,
   afficherVue: afficherVue,
   vue: () => vueCourante,

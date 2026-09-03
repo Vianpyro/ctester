@@ -10,11 +10,25 @@ const $ = ctester.$;
 let pagesQuiz = [];
 let pageQuiz = 0;
 let groupeDeQuestion = {};
+let exerciceQuiz = null;
+let minuteur = null;
+
+// MÊME CONTRAT QUE L'ÉDITEUR : ce qu'on a saisi se retrouve au retour. Le
+// magasin est celui de app.js, donc « Effacer mes brouillons » efface aussi
+// les réponses. Un seul écouteur, posé une fois : le module ne charge qu'une
+// fois, mais `loadQuiz` rappelle sur le même noeud.
+$("quiz").addEventListener("input", () => {
+  clearTimeout(minuteur);
+  minuteur = setTimeout(
+    () => ctester.enregistrerBrouillon(exerciceQuiz, answers()), 1500);
+});
 
 async function loadQuiz(id) {
   const box = $("quiz");
   box.textContent = "Chargement…";
   const data = await (await fetch("quiz/" + id + ".json")).json();
+  const brouillon = ctester.brouillon(id) || {};
+  exerciceQuiz = id;
   box.innerHTML = "";
   pagesQuiz = [];
   groupeDeQuestion = {};
@@ -39,6 +53,7 @@ async function loadQuiz(id) {
     input.spellcheck = false;
     input.autocomplete = "off";
     input.dataset.qid = q.id;
+    input.value = brouillon[q.id] || "";
     row.append(label, input);
     courante.noeud.append(row);
   }
