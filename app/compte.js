@@ -81,6 +81,37 @@ async function putJson(path, payload) {
   return !!(reponse && reponse.ok);
 }
 
+// --- LE THÈME SUIT LE COMPTE, PAS L'APPAREIL -------------------------------
+// Le stockage local garde le thème de CE navigateur ; le serveur garde celui du
+// compte. Au démarrage d'une session, c'est le compte qui a le dernier mot : un
+// étudiant qui passe du labo à son portable doit retrouver son écran, pas le
+// défaut de la machine où il vient de s'asseoir.
+//
+// SEULEMENT S'IL A DÉJÀ CHOISI. Un thème vide veut dire « aucun choix
+// enregistré » (et une lecture ratée rend `null`) : dans les deux cas on garde
+// ce que l'appareil affiche déjà, et on lui envoie ce choix pour que le compte
+// en ait un. Écraser par un défaut à la première panne ferait clignoter la page
+// de quelqu'un chaque fois que Postgres tousse.
+async function chargerTheme() {
+  const prefs = await getJson("preferences");
+  if (!prefs) return;                       // base muette : l'appareil décide
+  if (!prefs.theme) {                       // premier compte, aucun choix
+    await enregistrerTheme(ctester.themeCourant());
+    return;
+  }
+  ctester.appliquerTheme(prefs.theme);
+  // Recopié localement pour que la PROCHAINE visite parte du bon thème avant
+  // le premier rendu : le serveur, lui, répond toujours après la peinture.
+  ctester.retenirTheme(prefs.theme);
+}
+
+// Appelé par le bouton du noyau, sans être attendu. Silencieux à dessein : le
+// thème est déjà à l'écran et gardé sur cet appareil, et annoncer une panne de
+// synchronisation par-dessus un verdict de compilation coûterait plus qu'elle.
+async function enregistrerTheme(nom) {
+  await putJson("preferences", { theme: nom });
+}
+
 async function syncDraft(exerciseId, files) {
   const ok = await putJson("brouillon", { tp: exerciseId, files });
   if (!ok && exerciseId === ctester.exerciceOuvert()) {
@@ -288,6 +319,9 @@ async function demarrer() {
   if (authCode) await finishSignIn();
   ctester.refreshAccount();
   if (!ctester.token()) return;
+  // AVANT les projections : c'est l'écran qu'on répare, et il doit l'être le
+  // plus tôt possible dans la session.
+  await chargerTheme();
   await loadStates();
   await loadPractice();
   ctester.switchMode();
@@ -302,6 +336,8 @@ ctester.compte = {
   syncDraft: syncDraft,
   loadStates: loadStates,
   loadPractice: loadPractice,
+  chargerTheme: chargerTheme,
+  enregistrerTheme: enregistrerTheme,
   oublier: oublier,
   basculerListe: () => showListView($("liste").hidden),
 };

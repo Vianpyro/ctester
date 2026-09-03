@@ -12,7 +12,7 @@
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="style.css?v=20260903-identite3">
+<link rel="stylesheet" href="style.css?v=20260903-theme">
 </head>
 <body>
 <div id="top">
@@ -56,8 +56,9 @@
   <div id="consentement" hidden>
     <p>Te connecter fait conserver, sur le serveur de ce site&nbsp;: un
        identifiant de compte opaque (ni ton nom, ni ton courriel), le code que
-       tu écris pour chaque exercice, et l'historique de tes tentatives et de
-       leurs résultats.</p>
+       tu écris pour chaque exercice, l'historique de tes tentatives et de
+       leurs résultats, et tes préférences d'affichage (le thème clair ou
+       sombre, pour le retrouver sur tes autres appareils).</p>
     <p>Si les discussions sont ouvertes sur ce site&nbsp;: les messages que tu y
        publies sont visibles des autres comptes connectés, et ils sont lus par
        des personnes, pas par un automate. Tu y apparais comme
@@ -131,6 +132,6 @@
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
 </main>
 
-<script src="app.js?v=20260903-identite3"></script>
+<script src="app.js?v=20260903-theme"></script>
 </body>
 </html>

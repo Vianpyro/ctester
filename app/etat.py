@@ -34,6 +34,9 @@ _lock = threading.Lock()
 _conn = None
 
 STATUSES = ("essaye", "valide")
+# Les deux seuls thèmes de la page. Même liste que le CHECK de `schema.sql`
+# et que le script du `<head>` : trois endroits, une seule règle à tenir.
+THEMES = ("light", "dark")
 
 
 def enabled():
@@ -300,6 +303,55 @@ def _jour(valeur):
         return str(valeur)[:10]
 
 
+# --- Les préférences d'affichage -------------------------------------------
+# Le thème, et rien d'autre pour l'instant. Il vit ici plutôt que dans le seul
+# `localStorage` parce que le stockage local est PAR APPAREIL : un étudiant qui
+# travaille au labo puis chez lui repartait chaque fois du thème par défaut.
+# Le compte transporte déjà le brouillon d'un poste à l'autre ; le réglage
+# d'affichage prend le même chemin.
+#
+# LE STOCKAGE LOCAL RESTE, et il ne fait pas doublon : c'est lui que le script
+# du `<head>` lit avant le premier rendu, bien avant qu'une réponse HTTP puisse
+# arriver. Ce qui est ici est la vérité du COMPTE ; ce qui est là-bas est ce
+# qui évite le flash sombre->clair à chaque visite.
+
+
+def read_theme(user):
+    """Le thème de ce compte : "light", "dark", ou "" s'il n'a rien choisi.
+
+    None -- et rien d'autre -- veut dire « la base n'a pas répondu ». La chaîne
+    vide veut dire « aucun choix enregistré », et l'appelant garde alors celui
+    de l'appareil : confondre les deux ferait sauter le réglage de quelqu'un
+    chaque fois que Postgres est muet ou neuf.
+    """
+    rows = _query("SELECT theme FROM preference_affichage WHERE utilisateur = %s",
+                  (user,), read=True)
+    if rows is None:
+        return None
+    return rows[0][0] if rows else ""
+
+
+def write_theme(user, theme):
+    """Le thème choisi, écrasé en place. False si la valeur ou la base refuse.
+
+    AVEC LE BROUILLON ET L'ÉTAT, LA SEULE ÉCRITURE DE CE FICHIER QUI REMPLACE
+    AU LIEU D'AJOUTER. L'ancien thème de quelqu'un n'est pas un fait à relire,
+    et un journal grossirait à chaque clic sur un bouton fait pour être cliqué.
+
+    La liste blanche est répétée ici ET dans le CHECK du schéma : celle-ci
+    évite un aller-retour, celui-là tient pour tous les chemins d'écriture.
+    """
+    if theme not in THEMES:
+        return False
+    return _query(
+        "INSERT INTO preference_affichage (utilisateur, theme, maj)"
+        " VALUES (%s, %s, now())"
+        " ON CONFLICT (utilisateur)"
+        " DO UPDATE SET theme = EXCLUDED.theme, maj = now()",
+        (user, theme),
+    ) is not None
+
+
 # --- Forum d'entraide (MVP) ------------------------------------------------
 # UN fil par exercice publié, pour les comptes connectés seulement. Rien ici ne
 # touche à la progression : ni XP, ni succès, ni statut d'exercice.
@@ -550,7 +602,7 @@ def forget(user):
     The consent sentence shown before redirecting to Rauthy promises this exists,
     so it exists -- not "later".
 
-    ELEVEN DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
+    TWELVE DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
     statement per table, a connection dropped in the middle would leave half a
     student erased and half not -- and the half that stays is the half nobody
     can see any more to ask for again. Data-modifying CTEs run exactly once each
@@ -574,7 +626,8 @@ def forget(user):
         "     g AS (DELETE FROM forum_signalement  WHERE utilisateur = %(u)s),"
         "     h AS (DELETE FROM forum_moderation   WHERE utilisateur = %(u)s),"
         "     i AS (DELETE FROM forum_profil       WHERE utilisateur = %(u)s),"
-        "     k AS (DELETE FROM forum_nom_signale  WHERE utilisateur = %(u)s)"
+        "     k AS (DELETE FROM forum_nom_signale  WHERE utilisateur = %(u)s),"
+        "     p AS (DELETE FROM preference_affichage WHERE utilisateur = %(u)s)"
         " SELECT 1",
         {"u": user},
     ) is not None

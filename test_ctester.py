@@ -838,7 +838,7 @@ def test_suppression_couvre_toutes_les_tables():
     schema = lire(os.path.join(HERE, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
-    assert len(tables) == 11, tables
+    assert len(tables) == 12, tables
     efface = lire(os.path.join(HERE, "app", "etat.py"))
     efface = efface[efface.index("def forget(user):"):]
     assert set(re.findall(r"DELETE FROM (\w+)", efface)) == tables
@@ -854,6 +854,11 @@ def test_progression_degradee_sans_base():
     assert etat.unlock("u", ["premiere-reussite"], "e", "v") is False
     assert etat.unlock("u", [], "e", "v") is True     # rien a faire, pas un echec
     assert etat.read_progress("u") is None
+    # Le theme degrade comme le reste : None dit « la base n'a pas repondu »,
+    # jamais « pas de theme » -- c'est ce qui laisse la page garder le sien.
+    assert etat.read_theme("u") is None
+    assert etat.write_theme("u", "light") is False
+    assert etat.write_theme("u", "neon") is False    # refuse avant meme la base
     assert etat.forget("u") is False
 
 
@@ -1169,6 +1174,7 @@ def test_http_comptes():
 
     class BaseSimulee:
         STATUSES = ("essaye", "valide")
+        THEMES = ("light", "dark")
         enabled = staticmethod(lambda: True)
         read_resume = staticmethod(lambda user, ex: ecrit.get((user, ex)))
         read_states = staticmethod(
@@ -1179,7 +1185,7 @@ def test_http_comptes():
             if saved_user == user])
         @staticmethod
         def forget(user):
-            for table in (ecrit, evenements, xp, obtenus):
+            for table in (ecrit, evenements, xp, obtenus, themes):
                 table.clear()
             return True
 
@@ -1216,6 +1222,17 @@ def test_http_comptes():
                     "succes": mien(obtenus), "transactions": mien(xp)}
 
         @staticmethod
+        def read_theme(user):
+            return themes.get(user, "")
+
+        @staticmethod
+        def write_theme(user, theme):
+            if theme not in BaseSimulee.THEMES:
+                return False
+            themes[user] = theme
+            return True
+
+        @staticmethod
         def write_draft(user, ex, sources):
             ecrit[(user, ex)] = sources
             return True
@@ -1236,6 +1253,7 @@ def test_http_comptes():
             return True
 
     pratique, jobs_pratique = {}, set()
+    themes = {}
     evenements, xp, obtenus = {}, {}, {}
     spool = os.path.join(tmp, "spool")
     os.makedirs(spool)
@@ -1321,6 +1339,28 @@ def test_http_comptes():
         assert ("sub-alice", "tp2-ex3", "valide") in ecrit, ecrit
 
         assert call("GET", "/etats", jeton="bon")[1]["etats"][0]["statut"] == "valide"
+
+        # --- LE THÈME SUIT LE COMPTE, PAS L'APPAREIL -----------------------
+        # Même porte que le reste : sans jeton, ni lecture ni écriture. C'est
+        # un réglage anodin, mais il se lit et s'écrit par `sub`, et un `sub`
+        # pris ailleurs que dans le jeton serait le réglage du voisin.
+        assert call("GET", "/preferences")[0] == 401
+        assert call("PUT", "/preferences", {"theme": "light"})[0] == 401
+        # Rien de choisi n'est PAS une panne : la page garde alors le thème de
+        # l'appareil. Répondre 503 ici lui ferait croire l'inverse.
+        assert call("GET", "/preferences", jeton="bon")[1] == {"theme": ""}
+        assert call("PUT", "/preferences", {"theme": "light"}, jeton="bon")[0] == 200
+        assert call("GET", "/preferences", jeton="bon")[1] == {"theme": "light"}
+        assert themes == {"sub-alice": "light"}, themes
+        # Une valeur inventée est refusée ici ET par le CHECK du schéma.
+        assert call("PUT", "/preferences", {"theme": "néon"}, jeton="bon")[0] == 400
+        assert call("PUT", "/preferences", {}, jeton="bon")[0] == 400
+        # L'IDENTITÉ VIENT DU JETON, comme partout ailleurs : un `utilisateur`
+        # dans le corps ne déplace pas l'écriture.
+        assert call("PUT", "/preferences",
+                    {"theme": "dark", "utilisateur": "sub-bob"},
+                    jeton="bon")[0] == 200
+        assert themes == {"sub-alice": "dark"}, themes
 
         # Une tentative vient d'un job attribue au compte par le serveur, pas
         # du statut que le navigateur voudrait declarer. La lecture du verdict

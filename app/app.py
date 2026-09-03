@@ -1022,6 +1022,8 @@ class Handler(BaseHTTPRequestHandler):
             self._progress()
         elif path == "/brouillon":
             self._read_draft()
+        elif path == "/preferences":
+            self._preferences_lire()
         elif path == "/forum":
             self._forum_fil()
         elif path == "/forum/moderation":
@@ -1369,6 +1371,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self):  # noqa: N802 -- imposé par BaseHTTPRequestHandler
         path = self.path.split("?", 1)[0]
+        # AVANT LE TRONC COMMUN, et pas dans une branche plus bas : tout ce qui
+        # suit valide un exercice et une liste de fichiers, ce qu'une
+        # préférence d'affichage n'a pas. La faire passer par `_entry()`
+        # demanderait un `tp` bidon dans le corps.
+        if path == "/preferences":
+            self._preferences_ecrire()
+            return
         if path not in ("/brouillon", "/etat"):
             self._json(404, {"error": "inconnu"})
             return
@@ -1398,6 +1407,54 @@ class Handler(BaseHTTPRequestHandler):
         # The page shows "saved" only on a true answer, so this boolean has to
         # mean what it says: a database that did not write must not answer 200.
         if not ok:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        self._json(200, {"ok": True})
+
+    def _preferences_lire(self):
+        """GET /preferences -- les réglages d'affichage de CE compte.
+
+        Le thème suit le compte et pas l'appareil : c'est tout l'objet de la
+        route. La page l'applique au démarrage d'une session, par-dessus ce que
+        le navigateur avait gardé localement.
+
+        UN THÈME VIDE N'EST PAS UNE PANNE, et la page doit pouvoir les
+        distinguer : « rien de choisi » garde le réglage de l'appareil, « la
+        base ne répond pas » aussi -- mais l'une des deux est un 200 et l'autre
+        un 503, et confondre les deux ferait écrire un défaut par-dessus le
+        choix de quelqu'un à la première panne.
+        """
+        sub = self._who()
+        if sub is None:
+            return
+        theme = etat.read_theme(sub)
+        if theme is None:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        self._json(200, {"theme": theme})
+
+    def _preferences_ecrire(self):
+        """PUT /preferences -- enregistrer le thème choisi, pour tous ses appareils.
+
+        MÊME RÉGULATEUR QUE LE BROUILLON (`_throttle`) : c'est un bouton, et un
+        bouton se clique. Le quota des soumissions serait absurde ici, et aucun
+        quota du tout ferait d'un clic répété une écriture Postgres par clic.
+        """
+        sub = self._who()
+        if sub is None:
+            return
+        data = self._body()
+        if data is None:
+            return
+        theme = str(data.get("theme", ""))
+        if theme not in etat.THEMES:
+            self._json(400, {"error": "thème inconnu"})
+            return
+        if self._throttle():
+            return
+        # La page n'annonce « enregistré » que sur une réponse vraie : une base
+        # qui n'a pas écrit ne doit pas répondre 200.
+        if not etat.write_theme(sub, theme):
             self._json(503, {"error": "la base ne répond pas"})
             return
         self._json(200, {"ok": True})
