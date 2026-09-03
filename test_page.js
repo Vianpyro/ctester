@@ -700,28 +700,49 @@ const attendre = async () => { await sleep(); await sleep(); };
   // visite sans qu'aucun test ne bronche : les etats et la pratique tombaient
   // en silence, et « Mes exercices » annoncait « a faire » sur un exercice
   // reussi. C'est arrive.
-  // UN CLIC QUI NE FAIT RIEN ET NE DIT RIEN est la pire des issues : c'est
-  // exactement ce qu'un `startSignIn()` lance sans `await` produisait quand il
-  // levait, et ca a coute une session de deboguage cote utilisateur.
+  // TROIS CAS, DANS CET ORDRE : les deux echecs d'abord, parce que la
+  // decouverte OIDC est memoisee des qu'elle a reussi une fois et qu'on ne
+  // pourrait plus la faire echouer ensuite.
+  //
+  // UN CLIC QUI NE FAIT RIEN ET NE DIT RIEN est la pire des issues : c'est ce
+  // qu'un `startSignIn()` lance sans `await` produisait quand il levait.
+  const cliquerConnexion = async () => {
+    nodes.connexion.listeners.click();
+    await nodes.consentok.listeners.click();
+    await attendre();
+  };
+
   DECOUVERTE_CASSEE = true;
-  nodes.connexion.listeners.click();
-  await nodes.consentok.listeners.click();
-  await attendre();
+  await cliquerConnexion();
+  check(!!global.ctester.compte, "accepter le consentement charge compte.js");
   check(/connexion n'a pas pu démarrer/.test(shown()),
-        "une connexion qui echoue le dit : " + shown());
+        "un fournisseur injoignable le dit : " + shown());
   check(redirections.length === 0, "et n'envoie evidemment personne nulle part");
   DECOUVERTE_CASSEE = false;
 
-  calls.length = 0;
+  // LA CONFIG ABSENTE. compte.js peut etre evalue avant que oidc.json soit
+  // revenu -- ou n'etre jamais revenu, un bloqueur de publicite suffit. Lue au
+  // chargement du module, elle restait `null` pour toute la visite et le bouton
+  // levait « reading 'issuer' of null » dans une promesse que personne ne
+  // lisait. C'est arrive.
+  const vraieConfig = global.ctester.oidc;
+  global.ctester.oidc = () => null;
+  await cliquerConnexion();
+  check(/configuration de connexion n'est pas disponible/.test(shown()),
+        "sans configuration, la connexion le dit clairement : " + shown());
+  check(redirections.length === 0, "et n'envoie toujours personne nulle part");
+
+  // ET ELLE REPART DES QUE LA CONFIG EST LA : la lecture se fait a l'appel, pas
+  // au chargement du module. C'est tout le correctif.
+  global.ctester.oidc = vraieConfig;
   nodes.connexion.listeners.click();
   await nodes.consentok.listeners.click();
-  await attendre(); await attendre();
-  check(!!global.ctester.compte, "accepter le consentement charge compte.js");
-  // Le defi PKCE passe par crypto.subtle : une vraie operation de la plateforme,
-  // pas une microtache. Elle demande une poignee de tours de boucle, d'ou
-  // l'attente bornee -- qui sort des qu'elle a rendu.
+  // Le defi PKCE passe par crypto.subtle : une vraie operation de la
+  // plateforme, pas une microtache. Elle demande une poignee de tours de
+  // boucle, d'ou l'attente bornee -- qui sort des qu'elle a rendu.
   for (let n = 0; n < 60 && !redirections.length; n++) await attendre();
-  check(redirections.length === 1, "et part vraiment vers le fournisseur");
+  check(redirections.length === 1,
+        "une config revenue entre-temps suffit a faire repartir la connexion");
   check(!!session["ctester.pkce"], "en ayant garde son verificateur PKCE");
   const pkce = JSON.parse(session["ctester.pkce"] || "{}");
   check(redirections[0].includes("state=" + pkce.state),

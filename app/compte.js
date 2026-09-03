@@ -17,7 +17,20 @@ const authState = ctester.authState;
 // `oidc` et `token` restent au noyau : c'est lui qui lit oidc.json avant de
 // savoir s'il faut ce fichier, et c'est lui qui pose l'en-tête Authorization
 // d'une soumission. Ici on ne fait que les lire et les poser par le contexte.
-const oidc = ctester.oidc();
+//
+// LU A CHAQUE APPEL, JAMAIS AU CHARGEMENT. `const oidc = ctester.oidc()` en
+// tête de fichier était un instantané : ce module peut être évalué avant que
+// `oidc.json` soit revenu -- ou n'être jamais revenu du tout, un bloqueur de
+// publicité suffit -- et la config restait `null` pour toute la visite. Le
+// bouton de connexion levait alors « reading 'issuer' of null », dans une
+// promesse que personne ne lisait.
+function config() {
+  const c = ctester.oidc();
+  if (!c || !c.issuer || !c.client_id) {
+    throw new Error("la configuration de connexion n'est pas disponible");
+  }
+  return c;
+}
 let states = {};
 let practice = {};
 
@@ -74,7 +87,7 @@ let discovered = null;
 async function discovery() {
   if (!discovered) {
     discovered = await (await fetch(
-      oidc.issuer + "/.well-known/openid-configuration")).json();
+      config().issuer + "/.well-known/openid-configuration")).json();
   }
   return discovered;
 }
@@ -89,7 +102,7 @@ async function startSignIn() {
   sessionSet("ctester.retour", location.search);
   const params = new URLSearchParams({
     response_type: "code",
-    client_id: oidc.client_id,
+    client_id: config().client_id,
     redirect_uri: redirectUri(),
     scope: "openid profile",
     state: state,
@@ -110,7 +123,7 @@ async function finishSignIn() {
   const form = new URLSearchParams({
     grant_type: "authorization_code",
     code: authCode,
-    client_id: oidc.client_id,
+    client_id: config().client_id,
     redirect_uri: redirectUri(),
     code_verifier: pkce.verifier,
   });
