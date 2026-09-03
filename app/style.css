@@ -442,6 +442,10 @@ pre {
   text-transform: uppercase; color: var(--muted); font-weight: 600;
 }
 #vueforum p { margin: 0 0 .5rem; font-size: 13.5px; max-width: 40rem; }
+/* Le corps d'un message, lui, prend toute sa colonne : c'est le contenu
+   qu'on vient lire, et il est déjà borné par la largeur de la colonne. */
+#vueforum .texte p, #vueforum .texte li, #vueforum .texte blockquote
+  { max-width: none; }
 #vueforum p:last-child { margin-bottom: 0; }
 #vueforum .rate { color: var(--bad); font-weight: 600; }
 #vueforum .annonce:empty { display: none; }
