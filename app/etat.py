@@ -419,6 +419,111 @@ def forum_moderer(action_id, message_id, moderator, action):
          "quoi": action, "masque": action == "masquer"}, read=True)
 
 
+# --- Le nom choisi et le numéro d'équipe ------------------------------------
+# EN AJOUT SEUL, LA DERNIÈRE LIGNE FAIT FOI. Pas d'UPDATE, donc pas de GRANT
+# d'UPDATE : la propriété est tenue par Postgres et pas par la discipline de
+# celui qui écrit la requête suivante. `DISTINCT ON` fait la lecture en une
+# passe sur l'index (utilisateur, cree_le DESC).
+
+_PROFIL_COLONNES = ("pseudo", "groupe", "pseudo_public", "groupe_public")
+
+
+def _profil(row):
+    return {"pseudo": row[1], "groupe": None if row[2] is None else int(row[2]),
+            "pseudo_public": bool(row[3]), "groupe_public": bool(row[4])}
+
+
+def forum_profils(utilisateurs):
+    """{sub: profil} pour ces comptes. {} pour ceux qui n'en ont jamais posé.
+
+    UNE SEULE REQUÊTE POUR TOUT UN FIL : un fil de vingt messages ne doit pas
+    coûter vingt allers-retours derrière le verrou global. `= ANY(%s)` prend la
+    liste telle quelle -- même forme que le `unnest` de la progression.
+    """
+    gens = sorted({u for u in utilisateurs if u})
+    if not gens:
+        return {}
+    rows = _query(
+        "SELECT DISTINCT ON (utilisateur)"
+        "       utilisateur, pseudo, groupe, pseudo_public, groupe_public"
+        "  FROM forum_profil WHERE utilisateur = ANY(%s)"
+        " ORDER BY utilisateur, cree_le DESC, profil_id DESC",
+        (gens,), read=True)
+    if rows is None:
+        return None
+    return {row[0]: _profil(row) for row in rows}
+
+
+def forum_profil(user):
+    """Le profil de CE compte, {} s'il n'en a jamais posé. None si base muette."""
+    profils = forum_profils([user])
+    if profils is None:
+        return None
+    return profils.get(user, {"pseudo": None, "groupe": None,
+                              "pseudo_public": False, "groupe_public": False})
+
+
+def forum_profil_ecrire(profil_id, user, pseudo, groupe, pseudo_public,
+                        groupe_public, par_moderateur=False):
+    """Ajoute une ligne de profil. Les anciennes restent, et c'est voulu."""
+    return _query(
+        "INSERT INTO forum_profil (profil_id, utilisateur, pseudo, groupe,"
+        "                          pseudo_public, groupe_public, par_moderateur)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (profil_id, user, pseudo, groupe, bool(pseudo_public),
+         bool(groupe_public), bool(par_moderateur)),
+    ) is not None
+
+
+def forum_nom_signaler(message_id, user):
+    """Signale le NOM de l'auteur d'un message. Mêmes deux protections que
+    `forum_signaler` : le SELECT interdit un identifiant inventé, la clé
+    primaire interdit le doublon."""
+    return _query(
+        "INSERT INTO forum_nom_signale (message_id, utilisateur)"
+        " SELECT m.message_id, %s FROM forum_message m WHERE m.message_id = %s"
+        " ON CONFLICT (message_id, utilisateur) DO NOTHING"
+        " RETURNING message_id", (user, message_id), read=True)
+
+
+def forum_noms_signales(limite):
+    """Les NOMS signalés, pour un modérateur. Le nom, l'équipe, le compte à
+    poignée -- jamais le `sub` : `app.py` ne recopie que ce qui s'affiche.
+
+    Un même compte peut être signalé depuis plusieurs de ses messages ; on rend
+    une ligne par message porteur, la plus signalée d'abord, avec le profil
+    courant de l'auteur.
+    """
+    rows = _query(
+        "SELECT m.message_id, m.utilisateur, p.pseudo, p.groupe, m.cree_le,"
+        "       count(*) AS combien"
+        "  FROM forum_nom_signale s"
+        "  JOIN forum_message m ON m.message_id = s.message_id"
+        "  LEFT JOIN LATERAL ("
+        "       SELECT pseudo, groupe FROM forum_profil"
+        "        WHERE utilisateur = m.utilisateur"
+        "        ORDER BY cree_le DESC, profil_id DESC LIMIT 1) p ON true"
+        " GROUP BY m.message_id, m.utilisateur, p.pseudo, p.groupe, m.cree_le"
+        " ORDER BY combien DESC, m.cree_le LIMIT %s",
+        (max(int(limite), 0),), read=True)
+    if rows is None:
+        return None
+    return [{"id": row[0], "utilisateur": row[1], "pseudo": row[2],
+             "groupe": None if row[3] is None else int(row[3]),
+             "cree_le": _minute(row[4]), "signalements": int(row[5])}
+            for row in rows]
+
+
+def forum_auteur(message_id):
+    """Le `sub` de l'auteur d'un message, ou None. Réservé à la modération de
+    nom : la page n'a qu'une poignée de message, jamais un identifiant."""
+    rows = _query("SELECT utilisateur FROM forum_message WHERE message_id = %s",
+                  (message_id,), read=True)
+    if not rows:
+        return None
+    return rows[0][0]
+
+
 def _minute(valeur):
     """Un horodatage à la MINUTE, en UTC explicite. La chaîne telle quelle sinon.
 
@@ -445,7 +550,7 @@ def forget(user):
     The consent sentence shown before redirecting to Rauthy promises this exists,
     so it exists -- not "later".
 
-    NINE DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
+    ELEVEN DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
     statement per table, a connection dropped in the middle would leave half a
     student erased and half not -- and the half that stays is the half nobody
     can see any more to ask for again. Data-modifying CTEs run exactly once each
@@ -467,7 +572,9 @@ def forget(user):
         "     s AS (DELETE FROM succes_obtenu      WHERE utilisateur = %(u)s),"
         "     f AS (DELETE FROM forum_message      WHERE utilisateur = %(u)s),"
         "     g AS (DELETE FROM forum_signalement  WHERE utilisateur = %(u)s),"
-        "     h AS (DELETE FROM forum_moderation   WHERE utilisateur = %(u)s)"
+        "     h AS (DELETE FROM forum_moderation   WHERE utilisateur = %(u)s),"
+        "     i AS (DELETE FROM forum_profil       WHERE utilisateur = %(u)s),"
+        "     k AS (DELETE FROM forum_nom_signale  WHERE utilisateur = %(u)s)"
         " SELECT 1",
         {"u": user},
     ) is not None

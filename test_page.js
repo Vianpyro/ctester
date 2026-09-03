@@ -272,10 +272,18 @@ const FORUM_MAX = 400;
 const FORUM = {
   "tp2-ex3": [{ id: "m-autre", ex: "tp2-ex3", auteur: "Participant",
                 mien: false, masque: false, cree_le: "2026-09-03T22:30Z",
-                texte: "<img src=x onerror=alert(1)> j'ai la meme erreur" }],
+                nom_signalable: false,
+                texte: "<img src=x onerror=alert(1)> j'ai la meme erreur" },
+              { id: "m-nomme", ex: "tp2-ex3", auteur: "Bob B", mien: false,
+                masque: false, cree_le: "2026-09-03T22:35Z", groupe: 7,
+                nom_signalable: true, texte: "moi aussi" }],
   "tp2-ex0": [],
 };
 const FORUM_SIGNALES = new Map();   // identifiant de message -> combien de fois
+// LE PROFIL DE CE COMPTE. `suggestion` est le `preferred_username` de Rauthy :
+// une PROPOSITION, qui ne doit rien afficher tant qu'on n'a pas enregistre.
+const PROFIL = { pseudo: null, groupe: null, pseudo_public: false,
+                 groupe_public: false, max_pseudo: 24, suggestion: "vveremme" };
 const forumEnvois = [];
 let forumCompteur = 0;
 // UNE COMPETENCE HOSTILE : les identifiants viennent du depot de tests, et un
@@ -376,6 +384,24 @@ function forumRepond(url, opts) {
     const cible = tous().find((m) => m.id === corps.id);
     if (!cible) return rendErreur(404, "message introuvable");
     cible.masque = corps.action === "masquer";
+    return rendJson({ ok: true });
+  }
+  // LE PROFIL : le nom qu'on s'est donne, l'equipe, et ce qui est affiche.
+  if (url === "forum/profil") {
+    if (methode === "GET") return rendJson(Object.assign({}, PROFIL));
+    forumEnvois.push({ url, corps });
+    Object.assign(PROFIL, {
+      pseudo: corps.pseudo || null,
+      groupe: corps.groupe === "" ? null : Number(corps.groupe),
+      pseudo_public: !!corps.pseudo_public && !!corps.pseudo,
+      groupe_public: !!corps.groupe_public,
+      suggestion: "",
+    });
+    // Le fil reflete le nom choisi, comme le ferait le serveur.
+    for (const m of tous()) {
+      if (!m.mien) continue;
+      m.auteur = PROFIL.pseudo_public ? PROFIL.pseudo : "Vous";
+    }
     return rendJson({ ok: true });
   }
   if (url === "forum/signalement") {
@@ -1167,6 +1193,45 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(/&lt;img src=x onerror=alert\(1\)&gt;/.test(vuForum),
         "dont le HTML est ÉCHAPPÉ à l'affichage, pas interprété");
   check(!/sub-/.test(vuForum), "et aucun identifiant de compte n'apparaît");
+
+  // --- MON IDENTITÉ : facultative, et invisible tant qu'on ne l'a pas voulu --
+  check(nodes.forumpseudo.value === "vveremme",
+        "le nom de connexion PRÉ-REMPLIT le champ : " + nodes.forumpseudo.value);
+  check(nodes.forumvoirnom.checked === false
+        && nodes.forumvoirgroupe.checked === false,
+        "mais rien n'est coché -- l'anonymat est l'état de départ, "
+        + "et le nom de connexion de quelqu'un ne se publie pas tout seul");
+  check(!forumEnvois.some((e) => e.url === "forum/profil"),
+        "et rien n'a encore été enregistré : ouvrir la vue n'écrit pas");
+  check(/Bob B/.test(vuForum) && /équipe 07/.test(vuForum),
+        "un nom choisi par un autre s'affiche, avec son équipe sur deux chiffres");
+  const signalerNom = tousLesNoeuds(nodes.vueforum)
+    .find((n) => n.textContent === "Signaler le nom");
+  check(!!signalerNom, "un nom affiché est signalable");
+
+  nodes.forumpseudo.value = "Léa";
+  nodes.forumgroupe.value = "7";
+  nodes.forumvoirnom.checked = true;
+  const enregistrer = tousLesNoeuds(nodes.vueforum)
+    .find((n) => n.textContent === "Enregistrer");
+  await enregistrer.listeners.click();
+  await sleep(); await sleep(); await sleep();
+  const profilEnvoye = forumEnvois.find((e) => e.url === "forum/profil");
+  check(profilEnvoye && profilEnvoye.corps.pseudo === "Léa"
+        && profilEnvoye.corps.groupe === "7"
+        && profilEnvoye.corps.pseudo_public === true
+        && profilEnvoye.corps.groupe_public === false,
+        "« Enregistrer » envoie le nom, l'équipe et les DEUX visibilités "
+        + "séparément : " + JSON.stringify(profilEnvoye && profilEnvoye.corps));
+  check(nodes.forumpseudo.value === "Léa",
+        "et la vue redessinée repart du profil enregistré, pas de la suggestion");
+
+  await signalerNom.listeners.click();
+  await sleep(); await sleep();
+  const nomSignale = forumEnvois.find(
+    (e) => e.url === "forum/signalement" && e.corps && e.corps.quoi === "nom");
+  check(!!nomSignale && nomSignale.corps.id === "m-nomme",
+        "signaler un NOM passe par la même route, avec la poignée du message");
 
   // L'HEURE DU LECTEUR. Le serveur date en UTC ; affichée telle quelle, une
   // question posée le soir à Montréal apparaissait le lendemain.

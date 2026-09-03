@@ -57,8 +57,9 @@ docker stop pg
   table du schéma — ce dernier contrôle lit `schema.sql` et `etat.py`, donc
   ajouter une table sans l'effacer le fait échouer tout seul. Il couvre aussi le
   forum : forum éteint par défaut, rôle de modération, bornes, quota, absence de
-  double signalement, isolement de deux comptes, et qu'aucun `sub` ne franchisse
-  la frontière.
+  double signalement, isolement de deux comptes, l'identité choisie (bornes du
+  nom et de l'équipe, visibilité, nom signalé puis effacé), et qu'aucun `sub` ne
+  franchisse la frontière.
 - **`test_bac_a_sable.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
   les exécute avec un vrai gcc, chemins déplacés, sans Docker. C'est le seul
   contrôle qui **éprouve l'invariant de confidentialité** au lieu d'en parler :
@@ -296,9 +297,36 @@ vérifié se réclame depuis n'importe quel compte. La page reçoit bien un drap
 `moderateur`, mais il ne sert qu'à décider quoi dessiner.
 
 **Aucun `sub` ne franchit la frontière HTTP.** `forum_vue()` traduit l'auteur en
-« Vous » / « Participant » / « Équipe du cours », et c'est tout ce que la page
-reçoit. Pas de pseudonyme stable non plus — ce serait une identité, en plus
-petit. Un test l'éprouve en cherchant les `sub` dans la charge JSON.
+« Vous » / « Équipe du cours » / le nom que l'étudiant a **choisi d'afficher**,
+sinon « Participant ». Un test l'éprouve en cherchant les `sub` dans la charge
+JSON — y compris dans la vue la plus renseignée, celle d'un modérateur.
+
+**L'identité est choisie, facultative, et invisible par défaut.** `forum_profil`
+est un journal en ajout seul (la dernière ligne d'un compte fait foi) : un nom
+d'affichage, un numéro d'équipe de 1 à 99, et **deux** cases de visibilité
+indépendantes. Rien n'apparaît sans que son porteur l'ait coché — une seule
+exception, écrite dans le formulaire : **l'équipe du cours voit le numéro
+d'équipe en tout temps**, jamais le nom s'il n'est pas affiché. Cocher sans
+avoir écrit n'affiche rien (`app.py` refuse la visibilité d'un champ vide), et
+les étiquettes de l'interface (« Vous », « Participant », « Équipe du cours »)
+sont des noms réservés : un message qui se ferait passer pour une réponse du
+cours ne se rattrape par aucune couleur.
+
+**Le `preferred_username` de Rauthy PRÉ-REMPLIT, il ne synchronise pas.**
+`current_name()` lit le claim déjà rapporté par `/userinfo` (aucun appel de
+plus, il voyage dans le cache de jetons) et il n'est offert que tant que le
+compte n'a pas choisi de nom. Rien n'est enregistré ni affiché avant un clic sur
+« Enregistrer » avec la case cochée : chez Rauthy ce nom est souvent le code
+d'accès de l'école, et le publier tout seul serait un consentement pris de
+travers. Il passe par la même validation que ce qu'un étudiant taperait.
+
+**Un nom affiché est signalable**, par la même route que les messages
+(`{quoi: "nom"}`) et avec la poignée d'un message, faute d'identifiant de compte
+côté page. Le modérateur a une file séparée et une seule action : **effacer le
+nom** — une ligne de profil de plus, `par_moderateur` à vrai, l'équipe et le
+message intacts. Pas de ligne dans `forum_moderation` : ce journal-là porte
+l'état `masque` d'un message, et y écrire « masquer-nom » rétablirait un message
+caché au passage.
 
 **Le rendu est la partie dangereuse, et il a deux barrières.** Les messages sont
 stockés SOUS LEUR FORME SOURCE ; le serveur ne rend rien et n'assainit rien, il
@@ -331,7 +359,7 @@ des soumissions), et il ne couvre que les écritures : un quota qui empêcherait
 relire un fil empêcherait de suivre la réponse qu'on attend.
 
 **Ajouter une table de forum sans l'ajouter à `forget()` fait échouer
-`test_ctester.py`** — le contrôle lit `schema.sql` et compte neuf tables.
+`test_ctester.py`** — le contrôle lit `schema.sql` et compte onze tables.
 
 ## Mesurer avant de tourner un bouton
 

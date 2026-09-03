@@ -230,32 +230,64 @@ def current_user(headers):
     now = time.time()
     with _tokens_lock:
         known = _tokens.get(fingerprint)
-        if known and known[1] > now:
+        if known and known[2] > now:
             return known[0]
-    sub = _ask_userinfo(token)
+    sub, nom = _ask_userinfo(token)
     with _tokens_lock:
         # ponytail: full flush rather than an LRU. The cache is a round-trip
         # saver, not a session store; losing it costs one call per student.
         if len(_tokens) >= TOKENS_MAX:
             _tokens.clear()
-        _tokens[fingerprint] = (sub, now + (OIDC_TTL if sub else 30))
+        _tokens[fingerprint] = (sub, nom, now + (OIDC_TTL if sub else 30))
     return sub
 
 
+def current_name(headers):
+    """Le `preferred_username` de Rauthy pour ce jeton, ou "".
+
+    UNE SUGGESTION, PAS UNE IDENTITÉ. Elle ne sert qu'à pré-remplir le champ
+    « Nom affiché » d'un compte qui n'en a pas encore choisi : rien n'est
+    enregistré, rien n'est affiché aux autres tant que l'étudiant n'a pas
+    enregistré ET coché la case. Synchroniser pour de bon publierait le nom
+    d'ouverture de session de quelqu'un dans un forum de classe sans qu'il l'ait
+    demandé -- et ce nom-là, chez Rauthy, est souvent le code d'accès de
+    l'école.
+
+    LIT LE CACHE, N'APPELLE RIEN : `current_user` vient de le remplir sur la
+    même requête. Un cache vide (ou un `current_user` remplacé par un test) rend
+    "", et le champ s'ouvre vide comme avant.
+    """
+    header = headers.get("Authorization", "")
+    if not header.startswith("Bearer "):
+        return ""
+    fingerprint = hashlib.sha256(header[7:].strip().encode()).hexdigest()
+    with _tokens_lock:
+        known = _tokens.get(fingerprint)
+    return known[1] if known and known[2] > time.time() and known[1] else ""
+
+
 def _ask_userinfo(token):
+    """(sub, preferred_username) -- (None, "") quand le jeton ne vaut rien.
+
+    Le second sert UNIQUEMENT de suggestion de nom (voir `current_name`), et il
+    passe par la même validation que ce qu'un étudiant taperait : un claim n'est
+    pas plus digne de confiance parce qu'il vient d'un fournisseur d'identité.
+    """
     url = userinfo_url()
     if not url:
-        return None
+        return None, ""
     try:
         claims = _get_json(url, {"Authorization": "Bearer " + token})
     except Exception:
-        return None
+        return None, ""
     sub = claims.get("sub") if isinstance(claims, dict) else None
     # This value becomes half of a primary key: bound it, and refuse anything
     # that is not a string. Rauthy issues a UUID, but we do not assume it.
     if not isinstance(sub, str) or not 0 < len(sub) <= 128:
-        return None
-    return sub
+        return None, ""
+    propose = claims.get("preferred_username")
+    nom, _ = forum_pseudo(propose if isinstance(propose, str) else None)
+    return sub, nom or ""
 
 
 def client_id(headers, peer):
@@ -604,24 +636,112 @@ def forum_texte(brut):
     return texte, None
 
 
-def forum_vue(messages, sub, moderateur):
+# Un nom d'affichage : court, sur une ligne, et qui ne se fait pas passer pour
+# une étiquette de l'interface.
+FORUM_PSEUDO_MAX = int(os.environ.get("CTESTER_FORUM_PSEUDO_MAX", "24"))
+_PSEUDOS_RESERVES = frozenset({"vous", "participant", "equipe du cours",
+                               "équipe du cours", "moderateur", "modérateur",
+                               "anonyme", "enseignant"})
+
+
+def forum_pseudo(brut):
+    """(nom|None, erreur) -- le nom qu'on se donne, ou rien.
+
+    RIEN NE VIENT D'UN CLAIM OIDC : ce champ est saisi, donc il est borné comme
+    un message. Vide ou absent veut dire « pas de nom », pas une erreur -- c'est
+    l'état par défaut et il reste offert.
+
+    Les étiquettes de l'interface sont réservées : un « Équipe du cours » choisi
+    par un étudiant ferait passer son message pour une réponse du cours, et
+    aucune couleur ne rattrape ça.
+    """
+    if brut is None:
+        return None, None
+    if not isinstance(brut, str):
+        return None, "nom invalide"
+    # LES CARACTÈRES DE CONTRÔLE DEVIENNENT DES ESPACES, ils ne disparaissent
+    # pas : les retirer collerait un nom écrit sur deux lignes en un seul mot,
+    # c'est-à-dire en un autre nom que celui qui a été tapé.
+    nom = " ".join("".join(c if c >= " " else " " for c in brut).split())
+    if not nom:
+        return None, None
+    if len(nom) > FORUM_PSEUDO_MAX:
+        return None, f"nom trop long (maximum {FORUM_PSEUDO_MAX} caractères)"
+    if nom.casefold() in _PSEUDOS_RESERVES:
+        return None, "ce nom est réservé à l'interface, choisis-en un autre"
+    return nom, None
+
+
+def forum_groupe(brut):
+    """(1..99|None, erreur) -- le numéro d'équipe, ou rien.
+
+    Deux chiffres, parce que c'est ce qu'un plan de cours distribue ; au-delà de
+    la dizaine c'est déjà rare, mais borner à 11 ferait mentir la première
+    session à douze équipes.
+    """
+    if brut is None or brut == "":
+        return None, None
+    if isinstance(brut, bool):
+        return None, "numéro d'équipe invalide"
+    try:
+        numero = int(brut)
+    except (TypeError, ValueError):
+        return None, "numéro d'équipe invalide"
+    if not 1 <= numero <= 99:
+        return None, "le numéro d'équipe va de 1 à 99"
+    return numero, None
+
+
+def forum_identite(profil, sub, auteur, moderateur_lecteur):
+    """(auteur affiché, numéro d'équipe affiché, le nom est-il choisi).
+
+    LA SEULE PLACE OÙ UN PROFIL DEVIENT PUBLIC. Un nom ne sort que si son
+    porteur l'a rendu visible ; le numéro d'équipe sort en plus pour l'équipe du
+    cours, en tout temps, parce que c'est ce qui permet de rattacher un
+    problème à une équipe sans demander de nom à personne.
+    """
+    profil = profil or {}
+    pseudo = profil.get("pseudo")
+    choisi = bool(pseudo) and bool(profil.get("pseudo_public"))
+    if auteur == sub:
+        nom = "Vous"
+    elif is_moderator(auteur):
+        nom = "Équipe du cours"
+    else:
+        nom = pseudo if choisi else "Participant"
+    groupe = profil.get("groupe")
+    if groupe is not None and not (profil.get("groupe_public")
+                                  or moderateur_lecteur or auteur == sub):
+        groupe = None
+    return nom, groupe, choisi and auteur != sub
+
+
+def forum_vue(messages, sub, moderateur, profils=None):
     """Ce qu'un fil devient pour CET appelant. AUCUN `sub` ne franchit cette ligne.
 
-    « Vous » pour son auteur, « Participant » pour les autres, « Équipe du
-    cours » pour un modérateur : trois mots dérivés ici, et la page ne reçoit
-    rien qui permette de recoller deux messages au même étudiant. Pas de
-    pseudonyme persistant non plus -- ce serait une identité, en plus petit.
+    « Vous » pour son auteur, « Équipe du cours » pour un modérateur, et pour
+    les autres le nom qu'ils ont CHOISI D'AFFICHER, sinon « Participant ».
+    Le nom et le numéro d'équipe sont saisis par l'étudiant et n'apparaissent
+    que s'il les a rendus visibles -- l'anonymat reste l'état par défaut, et
+    deux messages ne se recollent que si leur auteur l'a voulu. Le `sub`, lui,
+    ne traverse toujours pas.
 
     Les messages masqués ne sortent QUE vers un modérateur : c'est lui qui doit
     pouvoir les rétablir.
     """
-    return [{"id": m["id"], "texte": m["texte"], "cree_le": m["cree_le"],
-             "auteur": ("Vous" if m["utilisateur"] == sub
-                        else "Équipe du cours"
-                        if is_moderator(m["utilisateur"]) else "Participant"),
-             "mien": m["utilisateur"] == sub,
-             "masque": m["masque"]}
-            for m in messages if moderateur or not m["masque"]]
+    profils = profils or {}
+    vus = []
+    for m in messages:
+        if not (moderateur or not m["masque"]):
+            continue
+        nom, groupe, signalable = forum_identite(
+            profils.get(m["utilisateur"]), sub, m["utilisateur"], moderateur)
+        vus.append({"id": m["id"], "texte": m["texte"], "cree_le": m["cree_le"],
+                    "auteur": nom, "groupe": groupe,
+                    "nom_signalable": signalable,
+                    "mien": m["utilisateur"] == sub,
+                    "masque": m["masque"]})
+    return vus
 
 
 # --- La CSP du document -----------------------------------------------------
@@ -897,6 +1017,8 @@ class Handler(BaseHTTPRequestHandler):
             self._forum_fil()
         elif path == "/forum/moderation":
             self._forum_file_moderation()
+        elif path == "/forum/profil":
+            self._forum_profil_lire()
         else:
             self._json(404, {"error": "inconnu"})
 
@@ -1108,7 +1230,8 @@ class Handler(BaseHTTPRequestHandler):
             "exercice_id": entry["id"],
             "moderateur": moderateur,
             "max": FORUM_MAX_CHARS,
-            "messages": forum_vue(messages, sub, moderateur),
+            "messages": forum_vue(messages, sub, moderateur,
+                                  etat.forum_profils([m["utilisateur"] for m in messages]) or {}),
         })
 
     def _forum_publier(self):
@@ -1173,6 +1296,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self._forum_throttle(sub):
             return
+        # DEUX CIBLES, UNE ROUTE. Signaler un nom, c'est le même geste et la
+        # même file : le message sert de poignée parce que le navigateur n'a
+        # aucun identifiant de compte, et il n'en aura pas.
+        if str(data.get("quoi", "message")) == "nom":
+            if etat.forum_nom_signaler(message_id, sub) is None:
+                self._json(503, {"error": "la base ne répond pas"})
+            else:
+                self._json(200, {"ok": True})
+            return
         if etat.forum_signaler(message_id, sub) is None:
             self._json(503, {"error": "la base ne répond pas"})
             return
@@ -1183,10 +1315,17 @@ class Handler(BaseHTTPRequestHandler):
         if self._forum_moderateur() is None:
             return
         signales = etat.forum_signalements(FORUM_MAX_FIL)
-        if signales is None:
+        noms = etat.forum_noms_signales(FORUM_MAX_FIL)
+        if signales is None or noms is None:
             self._json(503, {"error": "la base ne répond pas"})
             return
-        self._json(200, {"signalements": signales})
+        # LE `sub` NE TRAVERSE PAS ICI NON PLUS : on recopie ce qui s'affiche
+        # (le nom signalé, l'équipe, la poignée du message), jamais la colonne
+        # `utilisateur` qui a servi à les joindre.
+        self._json(200, {"signalements": signales, "noms": [
+            {"id": n["id"], "pseudo": n["pseudo"], "groupe": n["groupe"],
+             "cree_le": n["cree_le"], "signalements": n["signalements"]}
+            for n in noms]})
 
     def _forum_moderer(self):
         """POST /forum/moderation -- masquer ou rétablir UN message.
@@ -1205,6 +1344,9 @@ class Handler(BaseHTTPRequestHandler):
         if message_id is None:
             return
         action = str(data.get("action", ""))
+        if action == "effacer-nom":
+            self._forum_effacer_nom(message_id, sub)
+            return
         if action not in ("masquer", "retablir"):
             self._json(400, {"error": "action inconnue"})
             return
@@ -1246,6 +1388,85 @@ class Handler(BaseHTTPRequestHandler):
             ok = etat.write_state(sub, entry["id"], status_name, files)
         # The page shows "saved" only on a true answer, so this boolean has to
         # mean what it says: a database that did not write must not answer 200.
+        if not ok:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        self._json(200, {"ok": True})
+
+    def _forum_effacer_nom(self, message_id, moderateur):
+        """Efface le NOM de l'auteur d'un message signalé. Rien d'autre.
+
+        Le numéro d'équipe et sa visibilité restent : ce qui est signalé, c'est
+        le nom. Et on ÉCRIT UNE LIGNE de plus, on n'en corrige aucune -- le
+        journal garde ce que le nom était, ce qu'une modération veut relire.
+        L'étudiant peut en choisir un autre après ; la récidive est une affaire
+        humaine, pas une machine à états.
+
+        PAS DE LIGNE DANS `forum_moderation` : ce journal-là porte l'état
+        `masque` d'un message, et y écrire « masquer-nom » rétablirait un
+        message caché au passage. La ligne de profil `par_moderateur` EST le
+        journal de cette action.
+        """
+        auteur = etat.forum_auteur(message_id)
+        if not auteur:
+            self._json(404, {"error": "message introuvable"})
+            return
+        profil = etat.forum_profil(auteur)
+        if profil is None:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        ok = etat.forum_profil_ecrire(
+            uuid.uuid4().hex, auteur, None, profil.get("groupe"), False,
+            bool(profil.get("groupe_public")), par_moderateur=True)
+        if not ok:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        self._json(200, {"ok": True})
+
+    def _forum_profil_lire(self):
+        """GET /forum/profil -- SON profil, en entier. Jamais celui d'un autre.
+
+        Il n'y a pas de route pour lire le profil de quelqu'un d'autre : ce qui
+        est public d'un profil arrive déjà par le fil, déjà filtré.
+        """
+        sub = self._forum_qui()
+        if sub is None:
+            return
+        profil = etat.forum_profil(sub)
+        if profil is None:
+            self._json(503, {"error": "la base ne répond pas"})
+            return
+        # LA SUGGESTION N'EST PAS LE PROFIL. Elle n'accompagne un profil que
+        # tant qu'il n'a pas de nom : une fois choisi, le nom de l'étudiant a
+        # préséance sur celui du fournisseur d'identité, toujours.
+        self._json(200, dict(profil, max_pseudo=FORUM_PSEUDO_MAX,
+                             suggestion=("" if profil.get("pseudo")
+                                         else current_name(self.headers))))
+
+    def _forum_profil_ecrire(self):
+        """POST /forum/profil -- choisir son nom, son équipe, et ce qui s'affiche."""
+        sub = self._forum_qui()
+        if sub is None:
+            return
+        data = self._body()
+        if data is None:
+            return
+        pseudo, message = forum_pseudo(data.get("pseudo"))
+        if message:
+            self._json(400, {"error": message})
+            return
+        groupe, message = forum_groupe(data.get("groupe"))
+        if message:
+            self._json(400, {"error": message})
+            return
+        if self._forum_throttle(sub):
+            return
+        # UN NOM VIDE N'EST PAS UN NOM VISIBLE : sans ça, cocher la case sans
+        # rien écrire afficherait « Participant » en croyant s'être nommé.
+        ok = etat.forum_profil_ecrire(
+            uuid.uuid4().hex, sub, pseudo, groupe,
+            bool(data.get("pseudo_public")) and pseudo is not None,
+            bool(data.get("groupe_public")) and groupe is not None)
         if not ok:
             self._json(503, {"error": "la base ne répond pas"})
             return
@@ -1359,6 +1580,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/forum/moderation":
             self._forum_moderer()
+            return
+        if path == "/forum/profil":
+            self._forum_profil_ecrire()
             return
         if path != "/submit":
             self._json(404, {"error": "inconnu"})

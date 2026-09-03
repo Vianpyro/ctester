@@ -452,12 +452,26 @@ pre {
 #vueforum .annonce { margin: .3rem 0 0; font-size: 13px; color: var(--ink); }
 #vueforum label { display: block; font-size: 12.5px; color: var(--muted);
                   margin-bottom: .3rem; }
-#vueforum select, #vueforum textarea {
+#vueforum select, #vueforum textarea, #vueforum input[type="text"],
+#vueforum input[type="number"] {
   width: 100%; max-width: 40rem; font-family: var(--sans); font-size: 13.5px;
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
   border: 1px solid var(--line-2); border-radius: 6px;
 }
 #vueforum textarea { min-height: 5.5rem; resize: vertical; }
+#vueforum input[type="number"] { max-width: 6rem; }
+/* Une case à cocher est une case, pas un bloc : la règle `label` ci-dessus
+   couperait la ligne entre la case et son texte. */
+#vueforum .coche {
+  display: flex; align-items: center; gap: .45rem; margin: .5rem 0 0;
+  color: var(--fg); font-size: 13px; cursor: pointer;
+}
+#vueforum .coche input { width: auto; margin: 0; }
+/* Le numéro d'équipe : une pastille, à côté du nom et jamais à sa place. */
+#vueforum .equipe {
+  font-size: 12px; color: var(--muted); padding: 0 .4rem;
+  border: 1px solid var(--line-2); border-radius: 999px;
+}
 #vueforum button { margin-top: .5rem; }
 #vueforum .regles { margin: 0 0 .5rem; padding-left: 1.1rem; }
 #vueforum .regles li { font-size: 13px; margin-bottom: .25rem; }

@@ -199,3 +199,44 @@ CREATE TABLE IF NOT EXISTS forum_moderation (
     action      TEXT        NOT NULL CHECK (action IN ('masquer', 'retablir')),
     cree_le     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- L'IDENTITÉ CHOISIE, ET ELLE EST FACULTATIVE DES DEUX CÔTÉS. Un nom qu'on
+-- s'est donné, un numéro d'équipe, et pour chacun le droit de ne pas
+-- l'afficher. Rien ici ne vient d'un claim OIDC : ni nom légal, ni courriel --
+-- ce que l'étudiant écrit est ce que l'étudiant a décidé d'écrire.
+--
+-- EN AJOUT SEUL, COMME LE RESTE DU FORUM : la dernière ligne d'un compte fait
+-- foi (voir `forum_profil` dans etat.py). Aucun UPDATE, donc aucun GRANT
+-- d'UPDATE, donc pas d'instruction distraite qui réécrit le nom de quelqu'un ;
+-- et l'historique des changements de nom est précisément ce qu'une modération
+-- veut pouvoir relire.
+--
+-- `par_moderateur` marque la ligne écrite par l'équipe du cours quand elle
+-- efface un nom signalé. L'étudiant peut en choisir un autre ensuite : le
+-- récidiviste est une affaire humaine, pas une machine à états.
+CREATE TABLE IF NOT EXISTS forum_profil (
+    profil_id      TEXT        PRIMARY KEY,  -- uuid4().hex, généré en Python
+    utilisateur    TEXT        NOT NULL,
+    pseudo         TEXT,                     -- NULL = aucun nom choisi
+    groupe         SMALLINT    CHECK (groupe BETWEEN 1 AND 99),
+    pseudo_public  BOOLEAN     NOT NULL DEFAULT false,
+    groupe_public  BOOLEAN     NOT NULL DEFAULT false,
+    par_moderateur BOOLEAN     NOT NULL DEFAULT false,
+    cree_le        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- La lecture qui compte : la dernière ligne d'un compte, ou de quelques comptes
+-- à la fois quand on affiche un fil.
+CREATE INDEX IF NOT EXISTS forum_profil_dernier_idx
+    ON forum_profil (utilisateur, cree_le DESC);
+
+-- Signaler un NOM, pas un message. Même règle et même clé primaire que
+-- `forum_signalement` : un compte ne signale un nom qu'une fois par message
+-- porteur. Le message sert de poignée -- il n'y a pas d'identifiant de compte
+-- côté navigateur, et il ne doit pas y en avoir.
+CREATE TABLE IF NOT EXISTS forum_nom_signale (
+    message_id  TEXT        NOT NULL,
+    utilisateur TEXT        NOT NULL,      -- l'auteur du SIGNALEMENT
+    cree_le     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (message_id, utilisateur)
+);

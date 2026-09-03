@@ -148,6 +148,12 @@ function rendreMarkdown(cible, source) {
 // pendant une panne, c'est faire croire que personne n'a répondu.
 let fil = null;
 let signalements = null;
+let nomsSignales = null;
+// Le profil de CE compte : le nom qu'il s'est donné, son équipe, et ce qu'il a
+// choisi d'afficher. `null` tant qu'on ne l'a pas lu -- on n'invente pas un
+// profil vide, ça reviendrait à annoncer « tu n'as pas de nom » pendant une
+// panne.
+let profil = null;
 let moderateur = false;
 let maxTexte = 0;
 let erreur = "";
@@ -174,6 +180,7 @@ const INDISPO = "Les discussions ne sont pas disponibles pour l'instant. "
 async function charger(id) {
   fil = null;
   signalements = null;
+  nomsSignales = null;
   exercice = id;
   if (!ctester.compte) {
     erreur = "Reconnecte-toi pour ouvrir les discussions.";
@@ -200,7 +207,10 @@ async function charger(id) {
     const file = await ctester.compte.getJson("forum/moderation");
     signalements = file && Array.isArray(file.signalements)
       ? file.signalements : null;
+    nomsSignales = file && Array.isArray(file.noms) ? file.noms : null;
   }
+  const mien = await ctester.compte.getJson("forum/profil");
+  if (mien && typeof mien === "object") profil = mien;
 }
 
 // Le message d'erreur de l'API est REPRIS TEL QUEL quand il y en a un :
@@ -242,6 +252,18 @@ const supprimer = (id) => ecrire(
 const signaler = (id) => ecrire(
   "forum/signalement", "POST", { id: id },
   "Signalé. Un responsable du cours va le lire.", "Signalement impossible");
+
+const signalerNom = (id) => ecrire(
+  "forum/signalement", "POST", { id: id, quoi: "nom" },
+  "Nom signalé. Un responsable du cours va le lire.", "Signalement impossible");
+
+const effacerNom = (id) => ecrire(
+  "forum/moderation", "POST", { id: id, action: "effacer-nom" },
+  "Nom effacé.", "Action impossible");
+
+const enregistrerProfil = (charge) => ecrire(
+  "forum/profil", "POST", charge,
+  "Identité enregistrée.", "Identité non enregistrée");
 
 const moderer = (id, action) => ecrire(
   "forum/moderation", "POST", { id: id, action: action },
@@ -292,6 +314,84 @@ function montrerCharte(ensuite) {
   rangee.append(bouton("Annuler", "nav", () => { boite.hidden = true; }));
   boite.append(rangee);
   boite.hidden = false;
+}
+
+// Deux chiffres, comme sur un plan de cours : « 7 » s'affiche « 07 ».
+const numeroEquipe = (n) => "équipe " + String(n).padStart(2, "0");
+
+// MON IDENTITÉ. Le nom et l'équipe sont FACULTATIFS et INVISIBLES par défaut :
+// cocher est un geste, ne rien faire reste l'anonymat. Le serveur revalide tout
+// -- ce formulaire borne pour éviter un aller-retour, il n'autorise rien.
+function monIdentite() {
+  const bloc = noeud("div", "bloc");
+  bloc.append(noeud("h3", "soustitre", "Mon identité"));
+  if (profil === null) {
+    bloc.append(noeud("p", "aide", "Ton identité n'a pas pu être lue."));
+    return bloc;
+  }
+
+  const nomId = "forumpseudo";
+  const etiqNom = noeud("label", "", "Nom affiché (facultatif)");
+  etiqNom.setAttribute("for", nomId);
+  const champNom = noeud("input");
+  champNom.id = nomId;
+  champNom.type = "text";
+  champNom.autocomplete = "off";
+  champNom.maxLength = profil.max_pseudo || 24;
+  // LA SUGGESTION DE RAUTHY NE SERT QU'À PRÉ-REMPLIR, et seulement tant qu'on
+  // n'a pas choisi de nom. Elle n'est ni enregistrée ni affichée aux autres
+  // avant un clic sur « Enregistrer » avec la case cochée : le nom d'ouverture
+  // de session de quelqu'un ne se publie pas tout seul.
+  champNom.value = profil.pseudo || profil.suggestion || "";
+  champNom.placeholder = "Participant";
+
+  const groupeId = "forumgroupe";
+  const etiqGroupe = noeud("label", "", "Numéro d'équipe (1 à 99, facultatif)");
+  etiqGroupe.setAttribute("for", groupeId);
+  const champGroupe = noeud("input");
+  champGroupe.id = groupeId;
+  champGroupe.type = "number";
+  champGroupe.min = "1";
+  champGroupe.max = "99";
+  champGroupe.value = profil.groupe === null || profil.groupe === undefined
+    ? "" : String(profil.groupe);
+
+  const [voirNom, ligneNom] = caseACocher(
+    "forumvoirnom", "Afficher mon nom dans les discussions",
+    profil.pseudo_public);
+  const [voirGroupe, ligneGroupe] = caseACocher(
+    "forumvoirgroupe", "Afficher mon numéro d'équipe",
+    profil.groupe_public);
+
+  bloc.append(etiqNom, champNom, etiqGroupe, champGroupe, ligneNom, ligneGroupe);
+  // CE QUE LA CASE NE COUVRE PAS, ET IL FAUT LE DIRE : l'équipe du cours voit
+  // le numéro d'équipe en tout temps. Le laisser croire l'inverse serait un
+  // consentement obtenu de travers.
+  if (!profil.pseudo && profil.suggestion) {
+    bloc.append(noeud("p", "aide", "Nom proposé par ta connexion — modifie-le "
+      + "si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
+  }
+  bloc.append(noeud("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
+    + "autres. L'équipe du cours, elle, voit toujours ton numéro d'équipe — "
+    + "jamais ton nom si tu ne l'affiches pas."));
+  bloc.append(bouton("Enregistrer", "", () => enregistrerProfil({
+    pseudo: champNom.value,
+    groupe: champGroupe.value,
+    pseudo_public: voirNom.checked,
+    groupe_public: voirGroupe.checked,
+  })));
+  return bloc;
+}
+
+function caseACocher(id, texte, coche) {
+  const ligne = noeud("label", "coche");
+  ligne.setAttribute("for", id);
+  const boite = noeud("input");
+  boite.id = id;
+  boite.type = "checkbox";
+  boite.checked = !!coche;
+  ligne.append(boite, noeud("span", "", texte));
+  return [boite, ligne];
 }
 
 function choixExercice() {
@@ -387,6 +487,7 @@ function unMessage(m) {
   // recoller deux messages au même étudiant.
   const tete = noeud("p", "qui");
   tete.append(noeud("span", "auteur", m.auteur));
+  if (m.groupe) tete.append(noeud("span", "equipe", numeroEquipe(m.groupe)));
   const quand = noeud("time", "quand", quandLocal(m.cree_le));
   quand.setAttribute("datetime", String(m.cree_le).replace(" ", "T"));
   tete.append(quand);
@@ -400,6 +501,12 @@ function unMessage(m) {
     actions.append(bouton("Supprimer mon message", "nav", () => supprimer(m.id)));
   } else {
     actions.append(bouton("Signaler", "nav", () => signaler(m.id)));
+  }
+  // ON NE SIGNALE QUE CE QUI S'AFFICHE : le bouton n'existe que sur un nom
+  // choisi par quelqu'un d'autre. « Participant » n'est pas signalable, il n'y
+  // a rien dedans.
+  if (m.nom_signalable) {
+    actions.append(bouton("Signaler le nom", "nav", () => signalerNom(m.id)));
   }
   if (moderateur) {
     actions.append(m.masque
@@ -461,6 +568,39 @@ function fileModeration() {
   return bloc;
 }
 
+// LES NOMS SIGNALÉS, à côté des messages signalés et pas dedans : ce n'est pas
+// le message qui pose problème, c'est le nom, et l'action n'est pas la même.
+function fileNoms() {
+  const bloc = noeud("div", "bloc second");
+  bloc.append(noeud("h3", "soustitre", "Noms signalés"));
+  if (nomsSignales === null) {
+    bloc.append(noeud("p", "rate", "La file des noms n'a pas pu être lue."));
+    return bloc;
+  }
+  if (!nomsSignales.length) {
+    bloc.append(noeud("p", "aide", "Aucun nom signalé."));
+    return bloc;
+  }
+  const liste = noeud("ul", "fil");
+  for (const n of nomsSignales) {
+    const item = document.createElement("li");
+    item.className = "message";
+    const tete = noeud("p", "qui");
+    tete.append(noeud("span", "auteur", n.pseudo || "(nom déjà effacé)"));
+    if (n.groupe) tete.append(noeud("span", "equipe", numeroEquipe(n.groupe)));
+    tete.append(noeud("time", "quand", quandLocal(n.cree_le)));
+    tete.append(noeud("span", "etat", n.signalements + " signalement"
+      + (n.signalements > 1 ? "s" : "")));
+    item.append(tete);
+    const actions = noeud("div", "row");
+    actions.append(bouton("Effacer le nom", "nav", () => effacerNom(n.id)));
+    item.append(actions);
+    liste.append(item);
+  }
+  bloc.append(liste);
+  return bloc;
+}
+
 function dessiner() {
   const box = $("vueforum");
   box.innerHTML = "";
@@ -486,6 +626,7 @@ function dessiner() {
   box.append(gauche, droite);
 
   if (ctester.catalogue().length) gauche.append(choixExercice());
+  gauche.append(monIdentite());
 
   const regles = noeud("div", "bloc second");
   regles.append(noeud("h3", "soustitre", "Ce qui se publie ici"));
@@ -502,7 +643,7 @@ function dessiner() {
   }
   gauche.append(formulaire());
   droite.append(leFil());
-  if (moderateur) droite.append(fileModeration());
+  if (moderateur) droite.append(fileModeration(), fileNoms());
 }
 
 // --- Entrées ---------------------------------------------------------------

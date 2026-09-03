@@ -838,7 +838,7 @@ def test_suppression_couvre_toutes_les_tables():
     schema = lire(os.path.join(HERE, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
-    assert len(tables) == 9, tables
+    assert len(tables) == 11, tables
     efface = lire(os.path.join(HERE, "app", "etat.py"))
     efface = efface[efface.index("def forget(user):"):]
     assert set(re.findall(r"DELETE FROM (\w+)", efface)) == tables
@@ -1609,6 +1609,50 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
         app.FORUM_MODERATORS = garde
 
 
+def test_forum_identite_bornes_et_visibilite():
+    """Le nom choisi et le numero d'equipe : ce qui est accepte, ce qui sort.
+
+    LA REGLE TIENT EN UNE LIGNE : rien ne s'affiche que son porteur n'ait
+    rendu visible -- sauf le numero d'equipe pour l'equipe du cours, en tout
+    temps, et c'est ecrit dans le formulaire.
+    """
+    assert app.forum_pseudo(None) == (None, None)
+    assert app.forum_pseudo("   ") == (None, None)
+    assert app.forum_pseudo("  Lea   B ") == ("Lea B", None)
+    assert app.forum_pseudo("Lea" + chr(10) + "B")[0] == "Lea B"   # une ligne
+    for reserve in ("Vous", "participant", "Équipe du cours", "Anonyme"):
+        assert app.forum_pseudo(reserve)[0] is None, reserve
+    assert app.forum_pseudo("x" * (app.FORUM_PSEUDO_MAX + 1))[0] is None
+    assert app.forum_groupe("07") == (7, None)
+    for mauvais in (0, 100, -1, "sept", True):
+        assert app.forum_groupe(mauvais)[0] is None, mauvais
+
+    garde = app.FORUM_MODERATORS
+    try:
+        app.FORUM_MODERATORS = frozenset({"sub-mod"})
+        fil = [{"id": "a" * 32, "utilisateur": "sub-bob", "texte": "x",
+                "masque": False, "cree_le": "2026-09-03T10:00Z"}]
+        cache = {"sub-bob": {"pseudo": "Bob", "groupe": 7,
+                             "pseudo_public": False, "groupe_public": False}}
+        vu = app.forum_vue(fil, "sub-alice", False, cache)[0]
+        assert vu["auteur"] == "Participant" and vu["groupe"] is None
+        assert vu["nom_signalable"] is False
+        # Le modérateur voit l'equipe SANS que le nom devienne public pour
+        # autant : deux cases, deux effets.
+        vu_mod = app.forum_vue(fil, "sub-mod", True, cache)[0]
+        assert vu_mod["auteur"] == "Participant" and vu_mod["groupe"] == 7
+        montre = {"sub-bob": dict(cache["sub-bob"], pseudo_public=True)}
+        vu2 = app.forum_vue(fil, "sub-alice", False, montre)[0]
+        assert vu2["auteur"] == "Bob" and vu2["nom_signalable"] is True
+        # Son propre nom reste « Vous » : on ne se signale pas soi-meme.
+        a_moi = app.forum_vue(fil, "sub-bob", False, montre)[0]
+        assert a_moi["auteur"] == "Vous" and a_moi["nom_signalable"] is False
+        assert "sub-bob" not in json.dumps(
+            [vu, vu_mod, vu2, a_moi], ensure_ascii=False)
+    finally:
+        app.FORUM_MODERATORS = garde
+
+
 def test_http_forum():
     """Le forum de bout en bout : authentification, role, bornes, isolement.
 
@@ -1631,6 +1675,7 @@ def test_http_forum():
         ], fh)
 
     messages, signales, journal = [], {}, []
+    profils, noms_signales = {}, {}
 
     class BaseSimulee:
         enabled = staticmethod(lambda: True)
@@ -1685,11 +1730,65 @@ def test_http_forum():
             return []
 
         @staticmethod
+        def forum_profils(utilisateurs):
+            return {u: profils[u] for u in set(utilisateurs) if u in profils}
+
+        @staticmethod
+        def forum_profil(user):
+            return profils.get(user, {"pseudo": None, "groupe": None,
+                                      "pseudo_public": False,
+                                      "groupe_public": False})
+
+        @staticmethod
+        def forum_profil_ecrire(profil_id, user, pseudo, groupe, pseudo_public,
+                                groupe_public, par_moderateur=False):
+            profils[user] = {"pseudo": pseudo, "groupe": groupe,
+                             "pseudo_public": bool(pseudo_public),
+                             "groupe_public": bool(groupe_public)}
+            return True
+
+        @staticmethod
+        def forum_auteur(message_id):
+            for m in messages:
+                if m["id"] == message_id:
+                    return m["utilisateur"]
+            return None
+
+        @staticmethod
+        def forum_nom_signaler(message_id, user):
+            if not any(m["id"] == message_id for m in messages):
+                return []
+            if (message_id, user) in noms_signales:
+                return []
+            noms_signales[(message_id, user)] = True
+            return [(message_id,)]
+
+        @staticmethod
+        def forum_noms_signales(limite):
+            combien = {}
+            for message_id, _who in noms_signales:
+                combien[message_id] = combien.get(message_id, 0) + 1
+            sortie = []
+            for m in messages:
+                if m["id"] not in combien:
+                    continue
+                profil = profils.get(m["utilisateur"], {})
+                sortie.append({"id": m["id"], "utilisateur": m["utilisateur"],
+                               "pseudo": profil.get("pseudo"),
+                               "groupe": profil.get("groupe"),
+                               "cree_le": m["cree_le"],
+                               "signalements": combien[m["id"]]})
+            return sortie[:limite]
+
+        @staticmethod
         def forget(user):
             for m in [m for m in messages if m["utilisateur"] == user]:
                 messages.remove(m)
             for cle in [k for k in signales if k[1] == user]:
                 del signales[cle]
+            for cle in [k for k in noms_signales if k[1] == user]:
+                del noms_signales[cle]
+            profils.pop(user, None)
             journal[:] = [a for a in journal if a[2] != user]
             return True
 
@@ -1737,7 +1836,9 @@ def test_http_forum():
                 ("POST", "/forum/signalement", {"id": "a" * 32}),
                 ("GET", "/forum/moderation", None),
                 ("POST", "/forum/moderation",
-                 {"id": "a" * 32, "action": "masquer"})):
+                 {"id": "a" * 32, "action": "masquer"}),
+                ("GET", "/forum/profil", None),
+                ("POST", "/forum/profil", {"pseudo": "Léa"})):
             code, quoi = call(methode, chemin, corps, jeton="mod")
             assert code == 503 and "activ" in quoi["error"], (chemin, code)
 
@@ -1749,6 +1850,8 @@ def test_http_forum():
         assert call("POST", "/forum", {"tp": "tp2-ex3", "texte": "x"})[0] == 401
         assert call("POST", "/forum/signalement", {"id": "a" * 32})[0] == 401
         assert call("GET", "/forum/moderation")[0] == 401
+        assert call("GET", "/forum/profil")[0] == 401
+        assert call("POST", "/forum/profil", {"pseudo": "Léa"})[0] == 401
         assert call("DELETE", "/forum?id=" + "a" * 32)[0] == 401
 
         # --- L'EXERCICE PASSE PAR find_tp, TOUJOURS -------------------------
@@ -1870,6 +1973,92 @@ def test_http_forum():
         assert [m["auteur"] for m in fil("alice")[1]["messages"]] == [
             "Vous", "Participant", "Équipe du cours"]
 
+        # --- NOM CHOISI, NUMERO D'EQUIPE, ET LE DROIT DE NE RIEN DIRE ------
+        # L'ANONYMAT EST L'ETAT DE DEPART. Un profil jamais posé ne rend ni nom
+        # ni equipe, et surtout aucun drapeau de visibilite a vrai.
+        vide = call("GET", "/forum/profil", jeton="bob")[1]
+        assert vide["pseudo"] is None and vide["groupe"] is None, vide
+        assert vide["pseudo_public"] is False and vide["groupe_public"] is False
+
+        # LES BORNES : une etiquette de l'interface ne se choisit pas, un nom
+        # tient sur une ligne courte, et une equipe va de 1 a 99.
+        for mauvais in ({"pseudo": "Équipe du cours"}, {"pseudo": "participant"},
+                        {"pseudo": "x" * (app.FORUM_PSEUDO_MAX + 1)},
+                        {"groupe": 0}, {"groupe": 100}, {"groupe": "sept"}):
+            assert call("POST", "/forum/profil", mauvais,
+                        jeton="bob")[0] == 400, mauvais
+
+        assert call("POST", "/forum/profil",
+                    {"pseudo": "  Bob  B  ", "groupe": 7,
+                     "pseudo_public": True, "groupe_public": False},
+                    jeton="bob")[0] == 200
+        de_bob = [m for m in fil("alice")[1]["messages"] if m["auteur"] == "Bob B"]
+        assert de_bob, fil("alice")[1]["messages"]
+        # SIGNALABLE, parce que c'est un nom que quelqu'un a choisi d'afficher.
+        assert de_bob[0]["nom_signalable"] is True
+        # SON EQUIPE, ELLE, N'EST PAS AFFICHEE : il ne l'a pas cochee.
+        assert all(m["groupe"] is None for m in fil("alice")[1]["messages"])
+        # MAIS L'EQUIPE DU COURS LA VOIT EN TOUT TEMPS -- c'est la seule
+        # exception, et elle est ecrite dans le formulaire.
+        cote_mod = [m for m in fil("mod")[1]["messages"] if m["auteur"] == "Bob B"]
+        assert cote_mod and cote_mod[0]["groupe"] == 7, cote_mod
+        # ET TOUJOURS AUCUN `sub`, meme dans la vue la plus renseignee.
+        assert "sub-bob" not in json.dumps(fil("mod")[1], ensure_ascii=False)
+
+        # DECOCHER SUFFIT A REDEVENIR ANONYME, et le nom reste a soi.
+        assert call("POST", "/forum/profil",
+                    {"pseudo": "Bob B", "groupe": 7,
+                     "pseudo_public": False, "groupe_public": True},
+                    jeton="bob")[0] == 200
+        autres = [m for m in fil("alice")[1]["messages"] if not m["mien"]]
+        assert not [m for m in autres if m["auteur"] == "Bob B"], autres
+        assert [m for m in autres if m["groupe"] == 7], autres
+        assert call("GET", "/forum/profil", jeton="bob")[1]["pseudo"] == "Bob B"
+
+        # UNE CASE COCHEE SANS NOM N'AFFICHE RIEN : sans ca, on croirait s'etre
+        # nomme en voyant « Participant ».
+        assert call("POST", "/forum/profil",
+                    {"pseudo": "", "pseudo_public": True},
+                    jeton="bob")[0] == 200
+        assert call("GET", "/forum/profil",
+                    jeton="bob")[1]["pseudo_public"] is False
+        assert call("POST", "/forum/profil",
+                    {"pseudo": "Bob B", "groupe": 7, "pseudo_public": True,
+                     "groupe_public": True}, jeton="bob")[0] == 200
+
+        # --- SIGNALER UN NOM, PUIS L'EFFACER --------------------------------
+        assert call("POST", "/forum/signalement",
+                    {"id": celui_de_bob["id"], "quoi": "nom"},
+                    jeton="alice")[0] == 200
+        assert len(noms_signales) == 1, noms_signales
+        # Meme regle que pour un message : un compte ne signale qu'une fois.
+        assert call("POST", "/forum/signalement",
+                    {"id": celui_de_bob["id"], "quoi": "nom"},
+                    jeton="alice")[0] == 200
+        assert len(noms_signales) == 1, noms_signales
+
+        file_noms = call("GET", "/forum/moderation", jeton="mod")[1]["noms"]
+        assert len(file_noms) == 1 and file_noms[0]["pseudo"] == "Bob B"
+        assert file_noms[0]["groupe"] == 7
+        assert "sub-bob" not in json.dumps(file_noms, ensure_ascii=False)
+
+        assert call("POST", "/forum/moderation",
+                    {"id": celui_de_bob["id"], "action": "effacer-nom"},
+                    jeton="alice")[0] == 403          # reserve, comme le reste
+        assert call("POST", "/forum/moderation",
+                    {"id": "f" * 32, "action": "effacer-nom"},
+                    jeton="mod")[0] == 404
+        assert call("POST", "/forum/moderation",
+                    {"id": celui_de_bob["id"], "action": "effacer-nom"},
+                    jeton="mod")[0] == 200
+        # LE NOM PART, LE MESSAGE RESTE, ET L'EQUIPE AUSSI : ce qui a ete
+        # signale est le nom, pas le reste.
+        efface = call("GET", "/forum/profil", jeton="bob")[1]
+        assert efface["pseudo"] is None and efface["pseudo_public"] is False
+        assert efface["groupe"] == 7 and efface["groupe_public"] is True
+        assert [m for m in fil("alice")[1]["messages"]
+                if m["id"] == celui_de_bob["id"]], "le message n'a pas bouge"
+
         # --- LE QUOTA FREINE LES ECRITURES, JAMAIS LA LECTURE ---------------
         app.Handler.forum_quota = app.Quota(cooldown=30, hourly=1)
         assert call("POST", "/forum", {"tp": "tp2-ex3", "texte": "encore"},
@@ -1898,12 +2087,17 @@ def test_http_forum():
         # Les messages d'alice partent, ses signalements aussi, et RIEN de ce
         # qu'un autre a ecrit n'est touche.
         avant = len(messages)
+        assert call("POST", "/forum/profil",
+                    {"pseudo": "Alice", "groupe": 3, "pseudo_public": True},
+                    jeton="alice")[0] == 200
+        assert "sub-alice" in profils
         assert call("DELETE", "/moi", jeton="alice")[0] == 200
         restants = [m["utilisateur"] for m in messages]
         assert "sub-alice" not in restants, restants
         assert "sub-bob" in restants and "sub-mod" in restants, restants
         assert len(messages) < avant
         assert not signales, signales
+        assert "sub-alice" not in profils, profils
         # Et son propre message se supprime aussi a l'unite, quand elle le
         # demande message par message.
         neuf = call("POST", "/forum", {"tp": "tp2-ex3", "texte": "je reviens"},

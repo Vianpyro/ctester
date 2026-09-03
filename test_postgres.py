@@ -18,7 +18,8 @@ POURQUOI CE FICHIER EXISTE. `test_ctester.py` simule la base : ce qu'il éprouve
 est la frontière HTTP, pas le SQL. Or les écritures de progression et de forum
 ne sont pas du SQL ordinaire -- une CTE modifiante qui alimente un INSERT, une
 CTE modifiante qui alimente un UPDATE, un `unnest` d'un tableau paramétré, un
-INSERT ... SELECT dont la clause `WHERE` est le contrôle d'accès, neuf DELETE
+INSERT ... SELECT dont la clause `WHERE` est le contrôle d'accès, un
+`DISTINCT ON` et une jointure LATERAL pour le dernier profil, onze DELETE
 dans une seule instruction. Ces formes compilent dans la tête et échouent en
 production ; il n'y a pas de milieu.
 
@@ -51,7 +52,8 @@ if not etat.enabled():
 
 TABLES = ("brouillon_exercice", "etat_exercice", "tentative_pratique",
           "evenement_progression", "transaction_xp", "succes_obtenu",
-          "forum_message", "forum_signalement", "forum_moderation")
+          "forum_message", "forum_signalement", "forum_moderation",
+          "forum_profil", "forum_nom_signale")
 
 ALICE, BOB = "sub-alice", "sub-bob"
 
@@ -272,8 +274,59 @@ def forum():
           "journalisée")
 
 
+def identite():
+    """Le nom choisi et le numéro d'équipe : un JOURNAL dont la dernière ligne
+    fait foi.
+
+    LES DEUX FORMES QUI NE SE VÉRIFIENT QUE SUR UNE VRAIE BASE : le
+    `DISTINCT ON (utilisateur) ... ORDER BY utilisateur, cree_le DESC` qui
+    ramène le dernier profil de plusieurs comptes en une passe, et la jointure
+    LATERAL qui accroche ce même dernier profil à chaque nom signalé. Les deux
+    compilent dans la tête.
+    """
+    # Rien de posé : ce n'est pas une erreur, c'est l'anonymat par défaut.
+    assert etat.forum_profils([ALICE, BOB]) == {}
+    assert etat.forum_profil(ALICE) == {"pseudo": None, "groupe": None,
+                                        "pseudo_public": False,
+                                        "groupe_public": False}
+    assert etat.forum_profil_ecrire("p" * 32, ALICE, "Alice", 3, True, False)
+    assert etat.forum_profil_ecrire("q" * 32, BOB, "Bob", 7, False, True)
+    # LA DERNIÈRE LIGNE FAIT FOI, et l'ancienne reste : changer de nom n'efface
+    # pas l'historique qu'une modération veut pouvoir relire.
+    assert etat.forum_profil_ecrire("r" * 32, ALICE, "Alice B", 3, True, True)
+    assert compte("forum_profil", ALICE) == 2
+    profils = etat.forum_profils([ALICE, BOB, "sub-personne"])
+    assert profils[ALICE] == {"pseudo": "Alice B", "groupe": 3,
+                              "pseudo_public": True, "groupe_public": True}
+    assert profils[BOB]["pseudo"] == "Bob" and profils[BOB]["groupe"] == 7
+    assert "sub-personne" not in profils
+    # LE CHECK DU SCHÉMA, ÉPROUVÉ SANS PASSER PAR LA GARDE PYTHON : une équipe
+    # va de 1 à 99, et c'est Postgres qui refuse le reste.
+    assert etat.forum_profil_ecrire("s" * 32, ALICE, "Alice", 0, False, False)         is False
+    assert etat.forum_profil_ecrire("t" * 32, ALICE, "Alice", 100, False, False)         is False
+
+    # SIGNALER UN NOM : mêmes deux protections que pour un message.
+    message = etat.forum_fil("tp2-ex3", 200)[0]["id"]
+    assert etat.forum_auteur(message) in (ALICE, BOB)
+    assert etat.forum_auteur("f" * 32) is None
+    assert etat.forum_nom_signaler(message, BOB) == [(message,)]
+    assert etat.forum_nom_signaler(message, BOB) == []      # une seule fois
+    assert etat.forum_nom_signaler("f" * 32, BOB) == []     # rien d'orphelin
+    signales = etat.forum_noms_signales(200)
+    assert len(signales) == 1 and signales[0]["id"] == message, signales
+    # LA JOINTURE LATERAL : le nom rendu est le DERNIER, pas le premier.
+    auteur = etat.forum_auteur(message)
+    assert signales[0]["pseudo"] == etat.forum_profils([auteur])[auteur]["pseudo"]
+    assert signales[0]["signalements"] == 1
+    print("ok   identité : journal, dernière ligne, bornes du schéma, "
+          "nom signalé")
+
+
 def forum_privileges():
     """Le GRANT du forum : l'API met à jour `masque`, ET RIEN D'AUTRE.
+
+    Y COMPRIS SUR LE PROFIL : le nom choisi et sa visibilité sont un journal en
+    ajout seul, sans aucune colonne modifiable.
 
     C'est un GRANT DE COLONNE (`UPDATE (masque)`), pas un `UPDATE` de table. Un
     message est immuable : l'API ne doit pas pouvoir réécrire le texte de
@@ -295,6 +348,14 @@ def forum_privileges():
          "UPDATE forum_signalement SET utilisateur = 'sub-x'"),
         ("forum_moderation",
          "UPDATE forum_moderation SET action = 'retablir'"),
+        # L'IDENTITÉ EST UN JOURNAL, ELLE AUSSI : on ajoute une ligne, on ne
+        # réécrit pas le nom que quelqu'un s'est donné. Sans ce refus-là, une
+        # requête distraite pourrait renommer un étudiant en silence.
+        ("forum_profil.pseudo", "UPDATE forum_profil SET pseudo = 'autre'"),
+        ("forum_profil.pseudo_public",
+         "UPDATE forum_profil SET pseudo_public = true"),
+        ("forum_nom_signale",
+         "UPDATE forum_nom_signale SET utilisateur = 'sub-x'"),
     )
     refuses = []
     for nom, sql in essais:
@@ -319,7 +380,7 @@ def suppression():
     assert etat.forget(ALICE)
     apres = {t: compte(t, ALICE) for t in TABLES}
     assert not any(apres.values()), apres
-    # LES NEUF DELETE SONT DANS UNE SEULE INSTRUCTION, et les CTE non
+    # LES ONZE DELETE SONT DANS UNE SEULE INSTRUCTION, et les CTE non
     # référencées s'exécutent quand même -- c'est ce qu'on vérifie ici, pas la
     # documentation de PostgreSQL.
     assert compte("brouillon_exercice", BOB) == 1, "effacé chez le voisin !"
@@ -329,7 +390,7 @@ def suppression():
     assert compte("forum_message", BOB) == 2, "message effacé chez le voisin !"
     assert compte("forum_signalement", BOB) == 1
     assert etat.forget(ALICE)                            # rejouable
-    print("ok   « Supprimer mes données » vide les neuf tables, et seulement "
+    print("ok   « Supprimer mes données » vide les onze tables, et seulement "
           "les siennes")
 
 
@@ -344,6 +405,7 @@ def main():
     succes_et_lecture()
     cloisonnement()
     forum()
+    identite()
     forum_privileges()
     suppression()
     etat.forget(BOB)
