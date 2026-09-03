@@ -422,16 +422,18 @@ pre {
    vit dans l'une ou l'autre. */
 #vueforum > h2, #vueforum > p { grid-column: 1 / -1; }
 #vueforum .colonne { min-width: 0; }
-@media (min-width: 68rem) {
-  #vueforum { grid-template-columns: minmax(19rem, 26rem) minmax(0, 1fr); }
-  /* Le fil prend la place qui restait vide, mais les lignes de texte gardent
-     leur mesure lisible (`#vueforum p`), sinon on lit en travers de l'écran. */
-  #vueforum .colonne.large .bloc { max-width: 62rem; }
+/* 56rem = deux colonnes tiennent encore : 24rem d'un côté, le reste de
+   l'autre. Plus haut, la fenêtre de 1000 px restait sur une colonne de 42rem
+   et laissait un tiers de l'écran vide. */
+@media (min-width: 56rem) {
+  #vueforum { grid-template-columns: minmax(17rem, 24rem) minmax(0, 64rem); }
 }
 #vueforum[hidden] { display: none; }
 #vueforum h2 { font-size: 1rem; margin: 0 0 .35rem; }
+/* PAS DE LARGEUR MAXIMALE ICI : un cadre remplit sa colonne, et c'est la
+   colonne qui borne. La mesure de lecture, elle, tient sur `#vueforum p`. */
 #vueforum .bloc {
-  max-width: 42rem; margin: .9rem 0 0; padding: .75rem .85rem;
+  margin: .9rem 0 0; padding: .75rem .85rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
 }
 #vueforum .bloc.second { background: none; border-style: dashed; }

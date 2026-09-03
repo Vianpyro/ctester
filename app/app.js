@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260903-menu";
+const ASSET_REVISION = "20260903-menu2";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
