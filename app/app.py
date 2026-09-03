@@ -475,6 +475,8 @@ class Handler(BaseHTTPRequestHandler):
             self._file("index.html", "text/html; charset=utf-8")
         elif path == "/style.css":
             self._file("style.css", "text/css; charset=utf-8")
+        elif path == "/favicon.svg":
+            self._file("favicon.svg", "image/svg+xml")
         elif path in ("/app.js", "/quiz.js", "/compte.js"):
             # Liste close, pas un suffixe : `.js` n'ouvre pas le répertoire.
             self._file(path[1:], "text/javascript; charset=utf-8")
