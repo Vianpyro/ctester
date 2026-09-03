@@ -342,6 +342,48 @@ pre {
 #liste .valide { color: var(--ok); }
 #liste .essaye { color: var(--wait); }
 
+/* « Mes progrès » : même place que la vue liste, mêmes composants. Rien
+   n'y dépend de la couleur seule -- chaque jauge double un texte qui dit la
+   même chose, et c'est ce texte que lit un lecteur d'écran. */
+#vueprogres {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .9rem;
+  font-family: var(--sans);
+}
+#vueprogres[hidden] { display: none; }
+#vueprogres h2 { font-size: 1rem; margin: 0 0 .35rem; }
+#vueprogres .bloc {
+  max-width: 42rem; margin: .9rem 0 0; padding: .75rem .85rem;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+}
+/* Le niveau et l'XP au SECOND PLAN, et ça se voit : encadré en pointillés,
+   sans fond, après ce qui a été pratiqué et ce qu'il reste à faire. */
+#vueprogres .bloc.second { background: none; border-style: dashed; }
+#vueprogres .soustitre {
+  margin: 0 0 .45rem; font-size: .68rem; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--muted); font-weight: 600;
+}
+#vueprogres p { margin: 0 0 .5rem; font-size: 13.5px; max-width: 40rem; }
+#vueprogres p:last-child { margin-bottom: 0; }
+#vueprogres .rate { color: var(--bad); font-weight: 600; }
+#vueprogres .jauge {
+  display: block; height: 6px; margin: .3rem 0 .5rem; border-radius: 999px;
+  background: var(--line); overflow: hidden;
+}
+#vueprogres .jauge i { display: block; height: 100%; background: var(--ok); }
+#vueprogres .competences { list-style: none; margin: 0 0 .6rem; padding: 0; }
+#vueprogres .competences li { margin-bottom: .55rem; }
+#vueprogres .nom { display: block; font-size: 13.5px; font-weight: 600; }
+#vueprogres .chiffres {
+  display: block; color: var(--muted); font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+#vueprogres .succes { margin: 0; }
+#vueprogres .succes dt { font-size: 13.5px; font-weight: 600; margin-top: .6rem; }
+#vueprogres .succes dt:first-child { margin-top: 0; }
+#vueprogres .succes dd { margin: 0; font-size: 12.5px; color: var(--muted); }
+#vueprogres .quand { display: block; }
+#vueprogres .aide { font-family: var(--sans); }
+
 @media (max-width: 900px) {
   html, body { height: auto; }
   main { display: block; }

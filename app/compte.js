@@ -149,6 +149,9 @@ function signOut() {
   states = {};
   practice = {};
   ctester.setToken(null);
+  // La projection privée part avec la session : la laisser à l'écran
+  // montrerait les progrès de quelqu'un qui vient de se déconnecter.
+  if (ctester.progres) ctester.progres.oublier();
   showListView(false);
 }
 
@@ -233,10 +236,11 @@ function progression() {
 
 function showListView(on) {
   if (on) buildList();
-  $("liste").hidden = !on;
-  $("travail").hidden = on;
+  // C'est le noyau qui décide quelle vue est à l'écran : « Mes progrès »
+  // occupe la même place, et deux modules qui se masquent l'un l'autre chacun
+  // de son côté finissent par en laisser deux moitiés.
+  ctester.afficherVue(on ? "liste" : "");
   if (on) $("quizwrap").hidden = true;
-  $("mesexos").textContent = on ? "Retour à l'exercice" : "Mes exercices";
   if (!on && ctester.catalogue().length) ctester.switchMode();
 }
 
@@ -248,10 +252,14 @@ async function oublier() {
   } catch (e) {
     ok = false;
   }
+  // SE DECONNECTER D'ABORD, ANNONCER ENSUITE. `signOut` repasse par la vue
+  // exercice, qui réécrit `#out` avec son message d'attente : annoncée avant,
+  // la confirmation de suppression était effacée dans la milliseconde et
+  // l'étudiant ne voyait jamais que sa demande avait abouti.
+  if (ok) signOut();
   show(ok ? "ok" : "bad",
        ok ? "Tes données ont été supprimées du serveur."
           : "Suppression impossible pour l'instant : réessaie plus tard.");
-  if (ok) signOut();
 }
 
 // Le noyau a deja lu oidc.json et repere une session (ou un retour de

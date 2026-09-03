@@ -15,20 +15,22 @@ Tout se règle par variables d'environnement. Chaque script porte ses propres
 défauts (ceux du rôle Ansible) pour tourner hors déploiement ; c'est ce qui rend
 les contrôles ci-dessous exécutables sans rien installer.
 
-Rien à compiler, rien à lier : `app/app.py` et `app/etat.py` sont bibliothèque
-standard + `psycopg` (et `psycopg` seulement si `CTESTER_DB_DSN` est là).
+Rien à compiler, rien à lier : `app/app.py`, `app/etat.py` et `app/politique.py`
+sont bibliothèque standard + `psycopg` (et `psycopg` seulement si
+`CTESTER_DB_DSN` est là).
 
-La page est en cinq fichiers, tous servis par la liste blanche de `do_GET` :
-`index.html` (le markup seul), `style.css`, `app.js` (le noyau), puis `quiz.js`
-et `compte.js`, que le noyau va chercher **à la demande**. Rien de tout ça n'est
-compilé ni assemblé : ce que le dépôt contient est ce que le navigateur reçoit.
+La page est en six fichiers, tous servis par la liste blanche de `do_GET` :
+`index.html` (le markup seul), `style.css`, `app.js` (le noyau), puis `quiz.js`,
+`compte.js` et `progres.js`, que le noyau va chercher **à la demande**. Rien de
+tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que le
+navigateur reçoit.
 
 ## Avant de déployer une modif de la page ou du contenu
 
 Sur le contrôleur, jamais sur le Dell (les trois derniers ont besoin de gcc) :
 
 ```sh
-python3 test_ctester.py          # les défenses, sans rien installer
+python3 test_ctester.py          # les défenses et la progression, sans rien installer
 node    test_page.js             # le JS de la page, sur un DOM en carton
 python3 valider_contenu.py ../unittests
 python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
@@ -36,7 +38,12 @@ python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
 
 - **`test_ctester.py`** — le parsing des verdicts et la frontière du catalogue
   (`publish_catalogue`, `public_quiz` : aucune clé `answer` ne survit). Pur
-  Python, tourne partout, y compris sur le Dell.
+  Python, tourne partout, y compris sur le Dell. Il couvre aussi la
+  progression : que `politique.py` reste le SEUL endroit où vit un chiffre
+  d'équilibrage, qu'un sondage rejoué ou une réussite refaite n'accorde pas
+  deux fois, qu'un échec n'accorde rien, et que `forget()` efface **chaque**
+  table du schéma — ce dernier contrôle lit `schema.sql` et `etat.py`, donc
+  ajouter une table sans l'effacer le fait échouer tout seul.
 - **`test_bac_a_sable.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
   les exécute avec un vrai gcc, chemins déplacés, sans Docker. C'est le seul
   contrôle qui **éprouve l'invariant de confidentialité** au lieu d'en parler :
@@ -171,9 +178,9 @@ croyant valider l'autre. `do_HEAD` sur `/` passe par le même code que `do_GET`,
 sans le corps : un HEAD qui annoncerait une autre politique serait un piège à
 revalidation.
 
-Les réponses d'API (`/r/<id>`, `/etats`, `/pratique`, `/brouillon`,
-`/oidc.json`) restent en `no-store`. Ce sont des données de compte, pas des
-fichiers.
+Les réponses d'API (`/r/<id>`, `/etats`, `/pratique`, `/progres`,
+`/brouillon`, `/oidc.json`) restent en `no-store`. Ce sont des données de
+compte, pas des fichiers.
 
 **La compression est faite ici, à partir de 1 Ko.** Reste à mesurer si
 Cloudflare ne la refaisait pas déjà en amont — `curl -sI -H 'Accept-Encoding:
@@ -189,6 +196,50 @@ Le `noindex` du `<head>` est **délibéré** : site temporaire, les étudiants o
 le lien, et rester hors des moteurs limite le trafic sur une infra personnelle.
 Le score SEO de Lighthouse (54, « Page is blocked from indexing ») est donc le
 résultat attendu — ne pas le « corriger ».
+
+## La progression (phase 1 de la gamification)
+
+Pour les comptes connectés SEULEMENT. L'anonyme ne télécharge rien de tout ça
+et n'émet aucune requête : `test_page.js` le vérifie, c'est la raison d'être du
+découpage.
+
+**Les chiffres sont dans `app/politique.py`, et nulle part ailleurs.** Montants
+d'XP par difficulté, plafond quotidien, seuils de niveau, identifiants et
+libellés de succès, plus la `version` qui les date. Piloter le semestre, c'est
+éditer ce fichier et redémarrer le conteneur `web` — aucune migration, aucun
+changement de logique. Un test refuse qu'un montant réapparaisse en dur dans
+`app.py` : sans lui, la politique deviendrait décorative.
+
+**Ce qui produit de la valeur, c'est le SERVEUR en lisant le verdict**, dans
+`_result()` — jamais le navigateur. Une seule règle : la **première** réussite
+complète d'un exercice publié. Un échec ne rapporte rien, refaire le même
+exercice non plus, un sondage rejoué non plus. Les trois tiennent par la même
+chose : l'identifiant d'événement vaut `reussite:<exercice>` et sa clé primaire
+refuse le doublon. C'est pour ça qu'on peut laisser la pratique illimitée sans
+la rendre farmable.
+
+**Les récompenses commencent à l'activation.** Rien ne relit les anciennes
+`tentative_pratique` pour distribuer de l'XP rétroactivement. Un exercice
+réussi avant la phase 1 puis refait après rapporte une fois, et c'est le
+comportement voulu — l'inverse punirait ceux qui ont travaillé tôt.
+
+**Rien n'est mis en cache en base.** Solde, niveau, compétences pratiquées et
+recommandation sont recalculés à chaque `GET /progres` depuis trois tables de
+faits et le catalogue public. Il n'y a donc pas de projection à reconstruire, et
+changer la politique ne demande pas de migration — seules les transactions déjà
+écrites gardent la version qui les a produites.
+
+**« Pratiquée » n'est pas « maîtrisée »**, et l'interface doit continuer de le
+dire. Le juge est en libre service : une réussite prouve qu'on a soumis quelque
+chose qui passe, pas qu'on saurait le refaire seul. La vérification indépendante
+est la phase 2 (`docs/gamification/mastery.md`), elle n'existe pas encore.
+
+Trois tables s'ajoutent au schéma : `evenement_progression` (le journal),
+`transaction_xp` et `succes_obtenu`, toutes en ajout seul. Côté `VHome`, elles
+ont leur propre `GRANT` **sans UPDATE** : l'API n'en a pas besoin, et c'est
+Postgres qui tient alors la propriété d'ajout seul. Ajouter une table sans
+l'ajouter au `GRANT` la rend muette ; sans l'ajouter à `forget()`, `python3
+test_ctester.py` échoue.
 
 ## Exploitation (runbook)
 
@@ -290,12 +341,18 @@ toucher :
   repli** : un réseau qui revient doit pouvoir réessayer. Un détail qui n'arrive
   pas ne bloque rien — les noms de fichiers viennent du catalogue, donc
   l'étudiant peut coller son code et soumettre.
+- **`afficherVue()` est le seul arbitre des trois écrans** (exercice, « Mes
+  exercices », « Mes progrès »), et il vit dans le noyau. Les deux vues sont
+  dans deux modules chargés séparément : si chacun masquait l'autre de son
+  côté, en ouvrir une par-dessus l'autre laisserait deux moitiés à l'écran.
+  Revenir depuis « Mes progrès » ne repasse PAS par `switchMode()` : c'est ce
+  qui garde l'éditeur et le verdict exactement où on les avait laissés.
 - **`currentId` est ce que l'ÉDITEUR tient, pas ce que le menu montre**, et
   c'est `setupFiles()` qui le pose. Le remplissage passe par le réseau : le
   poser dans `switchMode()` ferait attribuer le code de l'exercice précédent,
   toujours affiché, à l'identifiant du nouveau dès le prochain `saveDraft()`.
 
-### quiz.js et compte.js — chargés à la demande
+### quiz.js, compte.js et progres.js — chargés à la demande
 
 - **Sens unique, jamais de cycle.** `app.js` détient l'état partagé (jeton,
   catalogue, brouillons) et l'expose une fois dans `window.ctester` ; les deux
@@ -311,9 +368,18 @@ toucher :
 - **Un échec de chargement n'est pas gardé.** `charger()` oublie la promesse
   rejetée : sans ça, une coupure d'une seconde condamnerait la fonction pour
   toute la visite, le second clic retombant sur le rejet sans jamais retenter.
-- **Le parcours anonyme ne télécharge rien de `compte.js`**, même sur un
-  déploiement où la connexion est offerte. `test_page.js` le vérifie ; c'est la
-  raison d'être du découpage.
+- **Le parcours anonyme ne télécharge rien de `compte.js` ni de `progres.js`**,
+  même sur un déploiement où la connexion est offerte. `test_page.js` le
+  vérifie ; c'est la raison d'être du découpage. `progres.js` va plus loin : le
+  bouton n'apparaît que connecté, et le fichier ne descend qu'au clic — un
+  étudiant connecté qui n'ouvre jamais ses progrès n'en paie rien.
+- **`progres.js` ne calcule RIEN.** Solde, niveau, compétences, succès et
+  recommandation arrivent tout faits de `GET /progres`. Une page qui calculerait
+  son propre XP serait une page où l'on se le donne depuis la console — c'est
+  l'erreur que `recordState()` a déjà coûtée, en plus petit.
+- **Une projection absente n'est pas un zéro.** Base en panne, API muette :
+  la vue affiche un message et AUCUN chiffre. Annoncer « 0 XP » pendant une
+  panne, c'est dire à quelqu'un que son travail a disparu.
 - **Le contexte expose des FONCTIONS (`ctester.token()`, `ctester.oidc()`,
   `ctester.catalogue()`), jamais des `get`.** `Object.assign` copie la *valeur*
   d'un getter, pas le getter : `ctester.token` est resté figé à `null` pour
@@ -338,6 +404,11 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
 - **`runner.py`** — le verrou entre workers, c'est `os.mkdir` (atomique, un seul
   hôte). Sondage du spool à 0,5 s ; une unité systemd `.path` le jour où cette
   latence se voit.
+- **`etat.py` / `schema.sql`** — progression : trois tables de faits, **aucune
+  table de projection**. Le solde est un `sum()` sur quelques dizaines de lignes
+  par étudiant ; matérialiser créerait un second endroit où la vérité peut
+  diverger. Pas de clé étrangère entre le journal et les XP non plus : les deux
+  s'écrivent dans UNE instruction et s'effacent ensemble.
 - **`app.js`** — les modules à la demande sont des `<script>` injectés et un
   objet global `window.ctester`, pas des modules ES : voir la section « La page »
   ci-dessus pour la raison (TDZ sur import circulaire). À reprendre le jour où

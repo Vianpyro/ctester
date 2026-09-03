@@ -12,7 +12,7 @@
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="style.css?v=20260903-quiz-exercice">
+<link rel="stylesheet" href="style.css?v=20260903-progres">
 </head>
 <body>
 <div id="top">
@@ -38,6 +38,7 @@
           aria-label="Changer de thème">☀</button>
   <span id="moi" hidden></span>
   <button type="button" id="mesexos" class="nav" hidden>Mes exercices</button>
+  <button type="button" id="mesprogres" class="nav" hidden>Mes progrès</button>
   <button type="button" id="oublier" class="nav" hidden>Supprimer mes données</button>
   <button type="button" id="deconnexion" class="nav" hidden>Se déconnecter</button>
   <button type="button" id="connexion" class="nav" hidden>Se connecter</button>
@@ -108,8 +109,9 @@
 </div>
 
 <div id="liste" hidden></div>
+<section id="vueprogres" aria-labelledby="progrestitre" hidden></section>
 </main>
 
-<script src="app.js?v=20260903-quiz-exercice"></script>
+<script src="app.js?v=20260903-progres"></script>
 </body>
 </html>

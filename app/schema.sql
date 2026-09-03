@@ -68,3 +68,73 @@ CREATE INDEX IF NOT EXISTS tentative_pratique_utilisateur_finie_idx
 
 -- The two state tables are covered by their primary key.  Practice history is
 -- read newest-first per user, hence its one explicit index above.
+
+-- --------------------------------------------------------------------------
+-- Progression (phase 1) : XP, niveau dérivé et quelques succès, pour les
+-- comptes connectés seulement. TROIS TABLES DE FAITS, aucune de solde.
+--
+-- Le solde XP, le niveau, les compétences pratiquées et la recommandation sont
+-- des PROJECTIONS : `app.py` les recalcule à la lecture depuis ces faits et le
+-- catalogue public. Rien n'est mis en cache ici.
+--
+-- ponytail: pas de table de projection. Le solde est un `sum()` sur quelques
+-- dizaines de lignes par étudiant, et une projection matérialisée serait un
+-- deuxième endroit où la vérité peut diverger. À reprendre le jour où la somme
+-- se voit, pas avant.
+--
+-- L'IDENTIFIANT D'ÉVÉNEMENT EST LE FAIT, PAS L'APPEL. « reussite:tp2-ex3 » se
+-- lit, et sa clé primaire est ce qui rend l'écriture idempotente : un sondage
+-- HTTP rejoué, un worker relancé ou deux requêtes concurrentes ne peuvent pas
+-- créer deux fois le même XP. C'est aussi ce qui interdit le farming -- réussir
+-- deux fois le même exercice produit deux fois le même identifiant.
+
+-- Le journal (outbox) : ce que le serveur a constaté, en clair et pour l'audit.
+-- `charge` porte le strict minimum -- le job d'origine et la difficulté ayant
+-- servi au calcul -- jamais le code soumis ni un détail secret du verdict.
+CREATE TABLE IF NOT EXISTS evenement_progression (
+    utilisateur  TEXT        NOT NULL,
+    evenement_id TEXT        NOT NULL,
+    type         TEXT        NOT NULL,
+    exercice_id  TEXT,
+    politique    TEXT        NOT NULL,
+    charge       TEXT        NOT NULL DEFAULT '{}',   -- JSON minimal
+    cree_le      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (utilisateur, evenement_id)
+);
+
+-- Les attributions d'XP, en ajout seul, une par événement source.
+--
+-- `montant >= 0` ET PAS `> 0` : une réussite au-delà du plafond quotidien est
+-- enregistrée à zéro plutôt que passée sous silence. Le fait a eu lieu, il se
+-- relit, et l'étudiant peut voir qu'il a déjà été récompensé aujourd'hui.
+--
+-- ponytail: pas de clé étrangère vers evenement_progression. Les deux tables
+-- partagent (utilisateur, evenement_id), l'insertion des deux se fait dans UNE
+-- seule instruction, et `forget` les efface ensemble. Une contrainte de plus ne
+-- protégerait ici que d'un psql ouvert à minuit.
+CREATE TABLE IF NOT EXISTS transaction_xp (
+    utilisateur  TEXT        NOT NULL,
+    evenement_id TEXT        NOT NULL,
+    montant      INTEGER     NOT NULL CHECK (montant >= 0),
+    motif        TEXT        NOT NULL,
+    exercice_id  TEXT,
+    politique    TEXT        NOT NULL,
+    accorde_le   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (utilisateur, evenement_id)
+);
+
+-- Le plafond quotidien somme les attributions du jour pour un étudiant :
+-- c'est la seule lecture qui ne passe pas par le préfixe de la clé primaire.
+CREATE INDEX IF NOT EXISTS transaction_xp_jour_idx
+    ON transaction_xp (utilisateur, accorde_le DESC);
+
+-- Les succès obtenus, en ajout seul. La clé primaire EST la règle « une seule
+-- obtention » ; `evenement_id` dit lequel des faits l'a déclenchée.
+CREATE TABLE IF NOT EXISTS succes_obtenu (
+    utilisateur  TEXT        NOT NULL,
+    succes_id    TEXT        NOT NULL,
+    evenement_id TEXT        NOT NULL,
+    politique    TEXT        NOT NULL,
+    obtenu_le    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (utilisateur, succes_id)
+);

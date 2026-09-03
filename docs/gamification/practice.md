@@ -14,4 +14,6 @@ l'unicite du job. `GET /pratique` retourne un resume par exercice. Cette
 information de pratique ne constitue pas une verification de maitrise et ne
 produit ni XP ni note.
 
+Depuis la phase 1, cette meme lecture de verdict accorde l'XP d'une premiere reussite complete (voir [xp.md](xp.md)). La tentative reste ce qu'elle etait: une preuve de pratique, jamais une verification de maitrise.
+
 Garde-fous: dedupliquer la premiere reussite d'une variante, diminuer la valeur de repetitions similaires, plafonner les boucles de soumission et separer les erreurs techniques des echecs pedagogiques. Le feedback ne divulgue pas les secrets existants du juge. Mesurer abandon, tentatives, aides et reprise; ne pas transformer le nombre d'erreurs en etiquette de faiblesse.

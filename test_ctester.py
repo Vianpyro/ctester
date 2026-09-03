@@ -15,6 +15,7 @@ python3 qui s'y trouve.
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -27,8 +28,18 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 
-import app      # noqa: E402
-import runner   # noqa: E402
+import app        # noqa: E402
+import etat       # noqa: E402
+import politique  # noqa: E402
+import runner     # noqa: E402
+
+
+def lire(chemin):
+    """Le contenu d'un fichier du depot. Plusieurs controles lisent la
+    source plutot que d'appeler : ce qui est verifie est justement qu'une
+    regle est ECRITE la ou on la croit."""
+    with open(chemin, encoding="utf-8") as fh:
+        return fh.read()
 
 UNITY_OK = """\
 test_tp1.c:12:test_addition:PASS
@@ -695,6 +706,158 @@ def test_forbidden_includes():
 
 
 # --------------------------------------------------------------------------
+# Progression : politique, projections, suppression
+# --------------------------------------------------------------------------
+
+def test_politique_est_declarative():
+    """Les chiffres sont dans la politique, et nulle part ailleurs.
+
+    CE QUI EST VERIFIE ICI : qu'un pilote puisse changer un montant sans relire
+    l'API. Un nombre d'equilibrage qui reapparait dans app.py rendrait la
+    politique decorative, et c'est exactement ce que D-005 interdit.
+    """
+    assert politique.VERSION
+    seuils = politique.POLITIQUE["niveaux"]
+    assert seuils[0] == 0 and seuils == sorted(seuils) == list(dict.fromkeys(seuils))
+    # Chaque succes a de quoi s'afficher SANS couleur ni icone : un titre et une
+    # description, plus le fait dont il derive.
+    ids = set()
+    for succes in politique.POLITIQUE["succes"]:
+        assert succes["titre"] and succes["description"]
+        assert succes["sur"] and succes["seuil"] >= 1
+        assert succes["id"] not in ids
+        ids.add(succes["id"])
+    assert set(politique.SUCCES) == ids
+    # AUCUNE VALEUR D'EQUILIBRAGE NE S'ECRIT EN DUR DANS L'API. Sans ce
+    # controle la politique deviendrait decorative : deux endroits ou changer un
+    # montant, dont un que personne ne pense a relire.
+    source = lire(os.path.join(HERE, "app", "app.py"))
+    debut = source.index("# --- Progression (phase 1)")
+    progression = source[debut:source.index("class Handler(", debut)]
+    for montant in set(politique.POLITIQUE["xp"].values()):
+        assert not re.search(r"%d" % montant, progression), montant
+    assert not re.search(r"%d" % politique.plafond_quotidien(), progression)
+
+
+def test_niveau_derive_du_solde():
+    seuils = politique.POLITIQUE["niveaux"]
+    assert politique.niveau(0)["rang"] == 1
+    assert politique.niveau(-5)["rang"] == 1          # un solde ne recule pas
+    assert politique.niveau(seuils[1])["rang"] == 2
+    assert politique.niveau(seuils[1] - 1)["rang"] == 1
+    au_bout = politique.niveau(seuils[-1] + 1000)
+    assert au_bout["rang"] == len(seuils) and au_bout["prochain"] is None
+    # `restant` est un nombre d'XP, pas un pourcentage : l'interface en fait une
+    # phrase, et une barre sans phrase ne se lit pas a voix haute.
+    assert politique.niveau(seuils[1] - 4)["restant"] == 4
+
+
+def test_succes_derives_de_faits():
+    assert politique.succes_atteints({}) == []
+    assert politique.succes_atteints({"reussites": 1}) == ["premiere-reussite"]
+    beaucoup = politique.succes_atteints({"reussites": 10, "competences": 3})
+    assert set(beaucoup) == set(politique.SUCCES)
+    # Un fait inconnu de l'appelant vaut zero : ajouter un critere ne doit pas
+    # faire lever sur un appelant plus ancien.
+    assert politique.succes_atteints({"inconnu": 99}) == []
+
+
+CATALOGUE_DEMO = [
+    {"id": "tp2-ex0", "learning": {"skills": ["variables"], "difficulty": "intro"}},
+    {"id": "tp2-ex3", "learning": {"skills": ["variables", "arithmetic-operators"],
+                                   "difficulty": "foundation"}},
+    {"id": "tp6-ex1", "learning": {"skills": ["arrays-1d"]}},
+    {"id": "tp1"},                                    # sans metadonnees : legal
+]
+
+
+def test_projection_des_competences():
+    etats = [{"exercice_id": "tp2-ex0", "statut": "valide"},
+             {"exercice_id": "tp2-ex3", "statut": "essaye"}]
+    pratique = [{"exercice_id": "tp6-ex1", "tentatives": 2, "reussites": 0}]
+    touches, reussis = app.exercise_facts(etats, pratique)
+    assert touches == {"tp2-ex0", "tp2-ex3", "tp6-ex1"}
+    assert reussis == {"tp2-ex0"}
+    vue = app.skills_view(CATALOGUE_DEMO, touches, reussis)
+    # L'ORDRE EST CELUI DU COURS, pas un tri par score : la premiere ligne est
+    # la premiere competence rencontree, ce que l'etudiant reconnait.
+    assert [c["id"] for c in vue] == ["variables", "arithmetic-operators", "arrays-1d"]
+    assert vue[0] == {"id": "variables", "total": 2, "pratiques": 2, "reussis": 1}
+    assert vue[2] == {"id": "arrays-1d", "total": 1, "pratiques": 1, "reussis": 0}
+
+
+def test_recommandation_deterministe():
+    etats = [{"exercice_id": "tp2-ex0", "statut": "valide"}]
+    touches, reussis = app.exercise_facts(etats, [])
+    # Deja pratique `variables` : on repart sur l'exercice non reussi qui la
+    # reprend, pas sur le premier venu.
+    assert app.recommander(CATALOGUE_DEMO, touches, reussis) == {
+        "exercice_id": "tp2-ex3", "competence": "variables"}
+    # Aucune competence en commun : le premier non reussi, dans l'ordre du cours.
+    assert app.recommander(CATALOGUE_DEMO, set(), set()) == {
+        "exercice_id": "tp2-ex0", "competence": None}
+    # Tout reussi : rien a proposer, et on le dit au lieu d'inventer.
+    tout = {e["id"] for e in CATALOGUE_DEMO}
+    assert app.recommander(CATALOGUE_DEMO, tout, tout) is None
+    assert app.recommander([], set(), set()) is None
+
+
+def test_progression_ne_publie_rien_de_secret():
+    faits = {"xp": 25, "succes": [{"id": "premiere-reussite",
+                                   "obtenu_le": "2026-09-03", "politique": "x"},
+                                  {"id": "disparu", "obtenu_le": "2026-09-03",
+                                   "politique": "x"}],
+             "transactions": [{"exercice_id": "tp2-ex0", "montant": 10,
+                               "motif": "premiere reussite",
+                               "accorde_le": "2026-09-03"}]}
+    charge = app.progress_payload(
+        CATALOGUE_DEMO, faits,
+        [{"exercice_id": "tp2-ex0", "statut": "valide"}], [])
+    assert charge["politique"] == politique.VERSION
+    assert charge["xp"] == 25 and charge["niveau"]["rang"] >= 1
+    assert charge["exercices"] == {"total": 4, "pratiques": 1, "reussis": 1}
+    # Un succes dont la politique ne connait plus la definition ne s'affiche
+    # pas -- il reste en base, il ne devient pas une ligne vide a l'ecran.
+    assert [s["id"] for s in charge["succes"]] == ["premiere-reussite"]
+    assert charge["succes"][0]["titre"] and charge["succes"][0]["description"]
+    # RIEN DE SECRET NE TRAVERSE : ni chemin de tests, ni code soumis, ni
+    # detail de verdict. Meme frontiere que publish_catalogue.
+    texte = json.dumps(charge, ensure_ascii=False)
+    for interdit in ("path", "answer", "statement", "sources", "template"):
+        assert interdit not in texte, interdit
+
+
+def test_suppression_couvre_toutes_les_tables():
+    """`forget` efface CHAQUE table du schema, en une seule instruction.
+
+    C'EST LA PROMESSE DU BANDEAU DE CONSENTEMENT. Ajouter une table de
+    progression sans l'ajouter la laisserait des donnees derriere quelqu'un qui
+    a demande leur suppression -- et personne ne s'en apercevrait, puisque plus
+    rien ne les affiche.
+    """
+    schema = lire(os.path.join(HERE, "app", "schema.sql"))
+    tables = set(re.findall(
+        r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
+    assert len(tables) == 6, tables
+    efface = lire(os.path.join(HERE, "app", "etat.py"))
+    efface = efface[efface.index("def forget(user):"):]
+    assert set(re.findall(r"DELETE FROM (\w+)", efface)) == tables
+    # UNE SEULE INSTRUCTION : six `_query` en autocommit laisseraient un
+    # etudiant a moitie efface si la connexion tombe au milieu.
+    assert efface.count("_query(") == 1
+
+
+def test_progression_degradee_sans_base():
+    """Sans DSN, tout rend None/False et rien ne leve. Le juge, lui, continue."""
+    assert not etat.enabled()
+    assert etat.grant_first_solve("u", "tp", "e", 10, "m", "v", {}, 100) is None
+    assert etat.unlock("u", ["premiere-reussite"], "e", "v") is False
+    assert etat.unlock("u", [], "e", "v") is True     # rien a faire, pas un echec
+    assert etat.read_progress("u") is None
+    assert etat.forget("u") is False
+
+
+# --------------------------------------------------------------------------
 # File, quotas, HTTP
 # --------------------------------------------------------------------------
 
@@ -766,7 +929,8 @@ def test_http_end_to_end():
     # `app.js` dépasse le seuil de compression : c'est lui qui éprouve la
     # négociation gzip plus bas. Les autres restent minuscules exprès.
     for nom, contenu in (("style.css", "body{}"), ("app.js", "// " + "x" * 2000),
-                         ("quiz.js", "// quiz"), ("compte.js", "// compte")):
+                         ("quiz.js", "// quiz"), ("compte.js", "// compte"),
+                         ("progres.js", "// progres")):
         with open(os.path.join(static, nom), "w", encoding="utf-8") as fh:
             fh.write(contenu)
 
@@ -811,6 +975,7 @@ def test_http_end_to_end():
         assert call("GET", "/app.js")[0] == 200
         assert call("GET", "/quiz.js")[0] == 200
         assert call("GET", "/compte.js")[0] == 200
+        assert call("GET", "/progres.js")[0] == 200
         # Rien d'autre n'est servi : liste blanche, pas de racine de fichiers.
         # `/app.py` reste un 404 : servir `/app.js` ne relâche pas la voisine.
         for path in ("/etc/passwd", "/../app/app.py", "/app.py",
@@ -946,8 +1111,15 @@ def test_http_comptes():
     static = os.path.join(tmp, "app")
     os.makedirs(static)
     with open(os.path.join(static, "tps.json"), "w", encoding="utf-8") as fh:
-        json.dump([{"id": "tp2-ex3", "mode": "io", "label": "TP2 ex.3",
-                    "files": [{"name": "submission.c", "template": ""}]}], fh)
+        json.dump([
+            {"id": "tp2-ex3", "mode": "io", "label": "TP2 ex.3",
+             "files": [{"name": "submission.c", "template": ""}],
+             "learning": {"skills": ["variables", "arithmetic-operators"],
+                          "difficulty": "foundation"}},
+            {"id": "tp2-ex0", "mode": "io", "label": "TP2 ex.0",
+             "files": [{"name": "submission.c", "template": ""}],
+             "learning": {"skills": ["variables"], "difficulty": "intro"}},
+        ], fh)
 
     ecrit = {}          # (utilisateur, exercice) -> ce qui a été rangé
 
@@ -961,7 +1133,43 @@ def test_http_comptes():
             {"exercice_id": ex, "tentatives": n, "reussites": solved}
             for (saved_user, ex), (n, solved) in pratique.items()
             if saved_user == user])
-        forget = staticmethod(lambda user: (ecrit.clear(), True)[1])
+        @staticmethod
+        def forget(user):
+            for table in (ecrit, evenements, xp, obtenus):
+                table.clear()
+            return True
+
+        @staticmethod
+        def grant_first_solve(user, ex, event_id, amount, motif, policy,
+                              payload, daily_cap):
+            # LA CLE EST LE FAIT, pas l'appel : « reussite:<exercice> ». Rejouer
+            # le meme verdict, ou reussir deux fois le meme exercice, retombe
+            # sur la meme cle et ne cree rien.
+            if (user, event_id) in evenements:
+                return None
+            evenements[(user, event_id)] = {"exercice_id": ex,
+                                            "politique": policy,
+                                            "charge": payload}
+            deja = sum(t["montant"] for (who, _), t in xp.items() if who == user)
+            xp[(user, event_id)] = {
+                "exercice_id": ex, "montant": max(min(amount, daily_cap - deja), 0),
+                "motif": motif, "accorde_le": "2026-09-03"}
+            return xp[(user, event_id)]["montant"]
+
+        @staticmethod
+        def unlock(user, ids, event_id, policy):
+            for succes_id in ids:
+                obtenus.setdefault((user, succes_id),
+                                   {"id": succes_id, "obtenu_le": "2026-09-03",
+                                    "politique": policy})
+            return True
+
+        @staticmethod
+        def read_progress(user):
+            mien = lambda table: [v for (who, _), v in sorted(table.items())
+                                  if who == user]
+            return {"xp": sum(t["montant"] for t in mien(xp)),
+                    "succes": mien(obtenus), "transactions": mien(xp)}
 
         @staticmethod
         def write_draft(user, ex, sources):
@@ -984,6 +1192,7 @@ def test_http_comptes():
             return True
 
     pratique, jobs_pratique = {}, set()
+    evenements, xp, obtenus = {}, {}, {}
     spool = os.path.join(tmp, "spool")
     os.makedirs(spool)
     garde = (app.etat, app.current_user, app.STATIC, app.SPOOL, app.KEY,
@@ -998,6 +1207,8 @@ def test_http_comptes():
     app.current_user = lambda headers: (
         "sub-alice" if headers.get("Authorization") == "Bearer bon" else None)
     app.Handler.state_quota = app.Quota(cooldown=0, hourly=1000)
+    # Plusieurs soumissions de suite ici : le cooldown est eprouve ailleurs.
+    app.Handler.quota = app.Quota(cooldown=0, hourly=1000)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     port = srv.server_address[1]
@@ -1088,13 +1299,106 @@ def test_http_comptes():
         assert call("GET", "/pratique", jeton="bon")[1]["pratique"] == [
             {"exercice_id": "tp2-ex3", "tentatives": 1, "reussites": 1}]
         assert ("sub-alice", "tp2-ex3", "valide") in ecrit, ecrit
+        # --- PROGRESSION : la valeur est produite par le SERVEUR ------------
+        # Meme porte que tout le reste : sans jeton, rien.
+        assert call("GET", "/progres")[0] == 401
+
+        def verdict(code, resultat):
+            """Depose un verdict de worker, comme le fait runner.py."""
+            with open(os.path.join(spool, code, "result.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump(resultat, fh)
+
+        progres = call("GET", "/progres", jeton="bon")[1]
+        # C'est la POLITIQUE qui dit combien vaut une reussite, pas l'API :
+        # tp2-ex3 s'annonce `foundation` dans son catalogue.
+        vaut = politique.POLITIQUE["xp"]["foundation"]
+        assert progres["politique"] == politique.VERSION
+        assert progres["xp"] == vaut, progres
+        assert progres["niveau"]["rang"] == politique.niveau(vaut)["rang"]
+        assert {s["id"] for s in progres["succes"]} == {"premiere-reussite",
+                                                        "premiere-competence"}
+        assert all(s["titre"] and s["description"] and s["obtenu_le"]
+                   for s in progres["succes"])
+        competences = {c["id"]: c for c in progres["competences"]}
+        assert competences["variables"] == {"id": "variables", "total": 2,
+                                            "pratiques": 1, "reussis": 1}
+        # La recommandation est deterministe : le seul exercice non reussi, et
+        # il reprend une competence deja pratiquee.
+        assert progres["suivant"] == {"exercice_id": "tp2-ex0",
+                                      "competence": "variables"}
+        assert progres["exercices"] == {"total": 2, "pratiques": 1, "reussis": 1}
+
+        # SONDER DEUX FOIS NE PAIE PAS DEUX FOIS. Le navigateur repasse sur
+        # /r/<id> a chaque rafraichissement, et un worker relance rejoue le
+        # meme verdict : les deux retombent sur le meme identifiant d'evenement.
+        assert call("GET", "/r/" + submitted["id"], jeton="bon")[0] == 200
+        assert call("GET", "/progres", jeton="bon")[1]["xp"] == vaut
+
+        # REFAIRE LE MEME EXERCICE NON PLUS -- nouveau job, nouveau verdict
+        # juste, zero XP de plus. C'est ce qui rend la pratique illimitee sans
+        # la rendre farmable : on peut recommencer autant qu'on veut.
+        encore = call("POST", "/submit", {
+            "key": "cle-de-test", "tp": "tp2-ex3", "files": code}, jeton="bon")[1]
+        verdict(encore["id"], {"state": "done", "status": "ok",
+                               "total": 2, "passed": 2})
+        assert call("GET", "/r/" + encore["id"], jeton="bon")[0] == 200
+        assert call("GET", "/progres", jeton="bon")[1]["xp"] == vaut
+
+        # UN ECHEC NE RAPPORTE RIEN. La pratique garde sa valeur pedagogique --
+        # la tentative est enregistree, l'exercice compte comme pratique -- mais
+        # elle ne produit aucune valeur de jeu.
+        rate = call("POST", "/submit", {
+            "key": "cle-de-test", "tp": "tp2-ex0", "files": code}, jeton="bon")[1]
+        verdict(rate["id"], {"state": "done", "status": "ok",
+                             "total": 2, "passed": 1})
+        assert call("GET", "/r/" + rate["id"], jeton="bon")[0] == 200
+        apres = call("GET", "/progres", jeton="bon")[1]
+        assert apres["xp"] == vaut, apres
+        assert len(apres["transactions"]) == 1
+        assert apres["exercices"]["pratiques"] == 2, apres
+
+        # LE PLAFOND QUOTIDIEN NE BLOQUE PAS LA PRATIQUE, il cesse seulement de
+        # payer. Le fait est quand meme enregistre -- a zero -- pour qu'il se
+        # relise : cacher l'attribution ferait croire a une perte.
+        plafond = politique.POLITIQUE["plafond_quotidien"]
+        politique.POLITIQUE["plafond_quotidien"] = 0
+        try:
+            plein = call("POST", "/submit", {
+                "key": "cle-de-test", "tp": "tp2-ex0", "files": code},
+                jeton="bon")[1]
+            verdict(plein["id"], {"state": "done", "status": "ok",
+                                  "total": 2, "passed": 2})
+            assert call("GET", "/r/" + plein["id"], jeton="bon")[0] == 200
+        finally:
+            politique.POLITIQUE["plafond_quotidien"] = plafond
+        plafonne = call("GET", "/progres", jeton="bon")[1]
+        assert plafonne["xp"] == vaut, plafonne
+        assert len(plafonne["transactions"]) == 2, plafonne["transactions"]
+        assert min(t["montant"] for t in plafonne["transactions"]) == 0
+
+        # LA BASE MUETTE SE DIT, et n'invente pas un solde a zero -- ce serait
+        # annoncer a quelqu'un que son travail a disparu. Le juge, lui, continue.
+        muette = BaseSimulee.read_progress
+        BaseSimulee.read_progress = staticmethod(lambda user: None)
+        assert call("GET", "/progres", jeton="bon")[0] == 503
+        assert call("POST", "/submit", {"key": "cle-de-test", "tp": "tp2-ex3",
+                                        "files": code})[0] == 200
+        BaseSimulee.read_progress = muette
+
+        # SUPPRIMER, C'EST TOUT SUPPRIMER : les brouillons, l'etat, les
+        # tentatives, le journal, les XP et les succes. Une table oubliee ici
+        # laisserait des donnees derriere quelqu'un qui a demande leur retrait.
         assert call("DELETE", "/moi", jeton="bon")[0] == 200 and not ecrit
+        vide = call("GET", "/progres", jeton="bon")[1]
+        assert vide["xp"] == 0 and vide["succes"] == [] and not vide["transactions"]
 
         # SANS BASE, LA CONNEXION N'EST MÊME PAS PROPOSÉE, et toutes les routes
         # de compte se ferment : c'est l'état d'un déploiement qui n'a pas changé.
         BaseSimulee.enabled = staticmethod(lambda: False)
         assert call("GET", "/oidc.json")[1] == {}
         assert call("GET", "/etats", jeton="bon")[0] == 503
+        assert call("GET", "/progres", jeton="bon")[0] == 503
         assert call("PUT", "/brouillon", {"tp": "tp2-ex3", "files": code},
                     jeton="bon")[0] == 503
     finally:

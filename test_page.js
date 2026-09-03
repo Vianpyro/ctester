@@ -37,6 +37,9 @@ function el(id) {
     disabled: false, tabIndex: 0, dataset: {}, files: [], children: [],
     listeners: {}, attrs: {}, selectionStart: 0, selectionEnd: 0,
     setAttribute(k, v) { this.attrs[k] = v; },
+    // Un vrai element en a un : la vue « Mes progrès » y déplace le focus en
+    // s'ouvrant, et un harnais qui ne le connait pas ferait lever la page.
+    focus() { focusé = this.id; },
     getAttribute(k) { return this.attrs[k]; },
     addEventListener(ev, fn) { this.listeners[ev] = fn; },
     append(...kids) {
@@ -109,6 +112,9 @@ function el(id) {
   return node;
 }
 const nodes = {};
+// Le dernier element a avoir recu le focus. Changer d'ecran sans l'emmener
+// laisse la tabulation au debut de la page et n'annonce rien a un lecteur.
+let focusé = null;
 // L'interrupteur du mode de panne neuf : un module qui n'arrive pas.
 let chargementCasse = false;
 // Ce que la page est allee chercher : sert a prouver ce qu'elle N'A PAS
@@ -219,6 +225,25 @@ const ETATS = { etats: [{ exercice_id: "tp2-ex0", statut: "valide" }] };
 const PRATIQUE = { pratique: [
   { exercice_id: "tp2-ex3", tentatives: 3, reussites: 1 }] };
 let POLL_RESPONSE = { state: "queued", position: 1 };
+let PROGRES_CASSE = false;
+// UNE COMPETENCE HOSTILE : les identifiants viennent du depot de tests, et un
+// libelle inconnu s'affiche tel quel. S'il finit dans du HTML, il s'execute.
+const PROGRES = {
+  politique: "pilote-1",
+  xp: 45,
+  niveau: { rang: 2, depuis: 30, prochain: 80, restant: 35 },
+  exercices: { total: 4, pratiques: 2, reussis: 1 },
+  competences: [
+    { id: "variables", total: 2, pratiques: 2, reussis: 1 },
+    { id: "<img src=x onerror=alert(1)>", total: 1, pratiques: 1, reussis: 0 },
+  ],
+  succes: [{ id: "premiere-reussite", titre: "Premier exercice réussi",
+             description: "Tu as fait passer tous les tests d'un exercice.",
+             obtenu_le: "2026-09-01" }],
+  suivant: { exercice_id: "tp2-ex3", competence: "variables" },
+  transactions: [{ exercice_id: "tp2-ex0", montant: 15,
+                   motif: "première réussite", accorde_le: "2026-09-01" }],
+};
 global.fetch = async (url, opts) => {
   calls.push({ url, opts });
   if (url === "tps.json") {
@@ -247,15 +272,19 @@ global.fetch = async (url, opts) => {
   if (url === "oidc.json") {
     return { ok: true, status: 200, json: async () => OIDC_RESPONSE };
   }
-  if (url === "etats" || url === "pratique") {
+  if (url === "etats" || url === "pratique" || url === "progres") {
     // LE JETON FAIT FOI. Une requete de compte sans en-tete doit repartir
     // vide : c'est ce qui distingue « pas connecte » de « rien a montrer ».
     const porteur = opts && opts.headers && opts.headers.Authorization;
     if (porteur !== "Bearer " + JETON) {
       return { ok: false, status: 401, json: async () => ({}) };
     }
+    if (url === "progres" && PROGRES_CASSE) {
+      return { ok: false, status: 503,
+               json: async () => ({ error: "la base ne répond pas" }) };
+    }
     return { ok: true, status: 200, json: async () => (
-      url === "etats" ? ETATS : PRATIQUE) };
+      url === "etats" ? ETATS : url === "pratique" ? PRATIQUE : PROGRES) };
   }
   if (url.startsWith("brouillon")) {
     return { ok: true, status: 200, json: async () => ({ sources: {} }) };
@@ -312,6 +341,8 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(!global.ctester.compte, "sans session, compte.js n'est pas charge");
   check(!charges.some(n => n.startsWith("compte.js?")),
         "et il n'est meme pas demande au serveur");
+  check(!global.ctester.progres && !charges.some(n => n.startsWith("progres.js?")),
+        "progres.js non plus : la progression n'existe qu'avec un compte");
   check(charges.some(n => n.startsWith("quiz.js?")),
         "quiz.js, lui, arrive avec le premier exercice de ce mode");
   // ET UN DETAIL QUI N'ARRIVE PAS NE BLOQUE RIEN : publication en retard,
@@ -700,6 +731,7 @@ const attendre = async () => { await sleep(); await sleep(); };
                                     c.opts.headers.Authorization);
   check(entetes.length === 0, "aucune requête ne porte de jeton");
   check(!calls.some(c => c.url === "etats" || c.url === "etat" ||
+                         c.url === "pratique" || c.url === "progres" ||
                          String(c.url).startsWith("brouillon")),
         "et rien n'est écrit ni lu côté compte");
 
@@ -819,6 +851,140 @@ const attendre = async () => { await sleep(); await sleep(); };
         + lignes.join(" // "));
   check(lignes.some(l => /à faire/.test(l)),
         "les autres restent a faire");
+
+  // --- « MES PROGRÈS » : LA VUE PRIVÉE -------------------------------------
+  // Tout ce qui suit n'existe QUE connecté. Le bloc anonyme plus haut prouve
+  // l'inverse : ni fichier, ni requête, ni en-tête.
+  await choisir("TP 2", "tp2-ex0");
+  nodes.code.value = "// le travail en cours";
+  check(nodes.mesprogres.hidden === false,
+        "« Mes progrès » apparaît une fois connecté");
+  check(!charges.some(n => n.startsWith("progres.js?")),
+        "mais son fichier n'est toujours pas descendu");
+
+  calls.length = 0;
+  await nodes.mesprogres.listeners.click();
+  await attendre();
+  check(charges.some(n => n.startsWith("progres.js?")),
+        "le clic va le chercher, comme compte.js");
+  const appelProgres = calls.find(c => c.url === "progres");
+  check(appelProgres &&
+        appelProgres.opts.headers.Authorization === "Bearer " + JETON,
+        "et la projection privée part avec le jeton, jamais sans");
+  check(nodes.travail.hidden === true && nodes.vueprogres.hidden === false &&
+        nodes.liste.hidden === true,
+        "la vue remplace l'exercice, et la vue liste reste fermée");
+  check(nodes.mesprogres.textContent === "Retour à l'exercice",
+        "le bouton dit comment revenir");
+  check(focusé === "progrestitre",
+        "le focus suit l'écran : sans ça, la tabulation repart du haut et un "
+        + "lecteur d'écran n'annonce rien");
+
+  const vu = texteDe(nodes.vueprogres);
+  // L'ORDRE EST LE MESSAGE. Ce qui reste à faire d'abord, le compteur ensuite :
+  // l'inverse ferait d'un site d'exercices un site de points.
+  check(vu.indexOf("Action suivante") >= 0 &&
+        vu.indexOf("Action suivante") < vu.indexOf("Niveau et XP"),
+        "l'action suivante vient AVANT le niveau et l'XP");
+  check(/2 exercices pratiqués sur 4 publiés, dont 1 réussi/.test(vu),
+        "ce qui est pratiqué est écrit en toutes lettres");
+  check(/2 exercices pratiqués sur 2, dont 1 réussi/.test(vu),
+        "et chaque compétence porte ses valeurs, pas seulement une barre");
+  check(/Niveau 2 — 45 XP/.test(vu) && /Encore 35 XP avant le niveau 3/.test(vu),
+        "le niveau et le solde viennent du serveur : " + vu.slice(0, 40));
+  check(/ne sont ni une note ni une maîtrise vérifiée/.test(vu),
+        "l'XP dit ce qu'il n'est pas, à l'écran");
+  check(/Ce n'est pas une maîtrise vérifiée/.test(vu),
+        "et « pratiquée » ne se présente jamais comme une maîtrise");
+  check(/Premier exercice réussi/.test(vu) &&
+        /fait passer tous les tests/.test(vu) && /obtenu le 2026-09-01/.test(vu),
+        "un succès porte titre, description ET date -- pas une couleur seule");
+  check(/continue avec « TP2 : ex.3 loi d'Ohm »/.test(vu),
+        "la recommandation nomme l'exercice et la compétence : " + vu.slice(0, 60));
+
+  // AUCUNE INJECTION. Les identifiants de compétence viennent du dépôt de
+  // tests ; s'ils passaient par innerHTML, une balise s'exécuterait dans la
+  // page de l'étudiant. Même règle que la coloration syntaxique plus haut.
+  check(nodes.vueprogres.innerHTML === "",
+        "rien n'est posé par innerHTML : tout passe par textContent");
+  check(vu.includes("<img src=x onerror=alert(1)>"),
+        "et une donnée hostile s'affiche comme du texte, pas comme une balise");
+
+  // REVENIR À L'EXERCICE SANS RIEN PERDRE. Le brouillon est sauvé, mais le
+  // texte à l'écran ne doit pas non plus repartir de zéro : on n'a fait que
+  // changer d'écran.
+  await nodes.mesprogres.listeners.click();
+  await attendre();
+  check(nodes.travail.hidden === false && nodes.vueprogres.hidden === true,
+        "le même bouton ramène à l'exercice");
+  check(nodes.code.value === "// le travail en cours",
+        "et le travail en cours est intact : " + nodes.code.value);
+
+  // La recommandation est un VRAI bouton, donc atteignable au clavier.
+  await nodes.mesprogres.listeners.click();
+  await attendre();
+  const ouvrir = tousLesNoeuds(nodes.vueprogres)
+    .find(n => /^Ouvrir /.test(n.textContent || ""));
+  check(!!ouvrir && ouvrir.id === "<button>",
+        "la recommandation est un bouton, pas un lien décoratif");
+  ouvrir.listeners.click();
+  await attendre();
+  check(nodes.ex.value === "tp2-ex3" && nodes.vueprogres.hidden === true,
+        "il ouvre l'exercice recommandé et referme la vue");
+
+  // APRÈS UN VERDICT, la projection est redemandée AU SERVEUR. C'est lui qui
+  // vient peut-être d'accorder l'XP d'une première réussite ; la page n'en
+  // calcule aucune part, elle la relit.
+  POLL_RESPONSE = { state: "done", status: "ok", kind: "io",
+                    passed: 1, total: 1, cases: [] };
+  SUBMIT_RESPONSE = { ok: true, status: 200,
+                      json: async () => ({ id: "f".repeat(32) }) };
+  nodes.code.value = "int main(void){return 0;}";
+  calls.length = 0;
+  await nodes.go.listeners.click();
+  await attendre(); await attendre(); await attendre();
+  check(calls.some(c => c.url === "progres"),
+        "après un verdict, la projection privée est redemandée");
+  check(/1 \/ 1/.test(texteQuiz(nodes.out)) && nodes.out.className === "ok",
+        "sans rien changer à l'affichage du résultat : " + shown().slice(0, 30));
+
+  // LA PROGRESSION INDISPONIBLE NE DOIT RIEN EMPORTER. Base en panne, API de
+  // progression cassée : l'exercice, lui, reste utilisable. Et surtout, on
+  // n'invente pas un solde à zéro -- ce serait annoncer que tout a disparu.
+  PROGRES_CASSE = true;
+  await nodes.mesprogres.listeners.click();   // ouvrir, sur une panne
+  await attendre();
+  const casse = texteDe(nodes.vueprogres);
+  check(/ne sont pas disponibles/.test(casse),
+        "une panne se dit clairement : " + casse.slice(0, 60));
+  check(!/XP/.test(casse) && !/Niveau/.test(casse),
+        "et aucun chiffre n'est inventé");
+  await nodes.mesprogres.listeners.click();   // retour à l'exercice
+  await attendre();
+  check(nodes.travail.hidden === false,
+        "et on revient à l'exercice comme si de rien n'était");
+  calls.length = 0;
+  nodes.code.value = "int main(void){return 0;}";
+  await nodes.go.listeners.click();
+  await attendre(); await attendre();
+  check(calls.some(c => c.url === "submit"),
+        "et l'exercice reste soumettable pendant ce temps-là");
+  PROGRES_CASSE = false;
+
+  // « SUPPRIMER MES DONNÉES » couvre aussi la progression : le serveur efface,
+  // et la page ne garde pas un solde à l'écran après coup.
+  await nodes.mesprogres.listeners.click();
+  await attendre();
+  check(nodes.vueprogres.hidden === false, "la vue est bien ouverte avant");
+  await nodes.oublier.listeners.click();
+  await attendre();
+  check(/supprimées/.test(shown()), "la suppression est confirmée : " + shown().slice(0, 40));
+  check(nodes.vueprogres.hidden === true && nodes.travail.hidden === false,
+        "la vue de progrès se referme");
+  check(global.ctester.progres.projection() === null,
+        "et la projection est oubliée avec la session");
+  check(nodes.mesprogres.hidden === true,
+        "le bouton disparaît, comme le reste du bandeau connecté");
 
   // Se deconnecter remet tout a zero, jusqu'au bandeau.
   global.ctester.compte.signOut();

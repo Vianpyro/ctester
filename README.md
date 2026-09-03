@@ -20,8 +20,10 @@ app/style.css     sa feuille de style
 app/app.js        son script : editeur, verdict, soumission
 app/quiz.js       le mode quiz, chargé quand un exercice de ce mode s'ouvre
 app/compte.js     OIDC et « Mes exercices », chargés seulement si on se connecte
+app/progres.js    « Mes progrès », chargé seulement quand on l'ouvre
+app/politique.py  les chiffres de la progression : XP, niveaux, succès (PROVISOIRES)
 app/etat.py       la persistance des comptes -- facultative, voir plus bas
-app/schema.sql    les deux tables Postgres, et pourquoi ce n'est pas SQLite
+app/schema.sql    les tables Postgres, et pourquoi ce n'est pas SQLite
 requirements.txt  psycopg, la seule dépendance externe, et seulement pour ça
 runner.py         le worker de l'hôte : lit la file, lance le bac à sable
 build-unity.sh    ce qui tourne DANS le bac à sable, mode tests unitaires
@@ -37,8 +39,15 @@ déploiement.
 ## La connexion facultative (OIDC + Postgres)
 
 Un étudiant peut se connecter pour retrouver son travail d'une machine à
-l'autre et voir ce qu'il a déjà validé. **C'est facultatif de bout en bout** :
-le parcours anonyme reste le défaut, et il est intact.
+l'autre, voir ce qu'il a déjà validé, et ouvrir « Mes progrès » : ce qu'il a
+pratiqué, ce qui reste, un niveau et quelques accomplissements. **C'est
+facultatif de bout en bout** : le parcours anonyme reste le défaut, et il est
+intact.
+
+Les XP mesurent l'ACTIVITÉ DE PRATIQUE, jamais une aptitude et jamais une note.
+Une première réussite complète d'un exercice publié en accorde une fois ; un
+échec n'en accorde pas, refaire le même exercice non plus. Le calcul est
+entièrement côté serveur, à la lecture du verdict du worker.
 
 Trois variables l'activent, et il les faut toutes les trois — sinon
 `/oidc.json` répond `{}` et la page se comporte comme avant :
@@ -50,7 +59,7 @@ CTESTER_DB_DSN           la connexion Postgres du rôle applicatif
 ```
 
 Ce que le rôle Ansible doit fournir en plus, côté `VHome` : le service
-Postgres, `app/schema.sql` appliqué, un rôle SQL limité à ces deux tables, le
+Postgres, `app/schema.sql` appliqué, un rôle SQL limité à ces tables, le
 client Rauthy avec `https://tch009.thevhome.com/` en URI de redirection, et
 `pip install -r requirements.txt` dans l'image.
 

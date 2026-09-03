@@ -5,7 +5,7 @@
 | Quelle politique IA s'applique a chaque type d'activite? | verification | afficher une politique par contenu et demander accord explicite |
 | Quels formats de verification sont valides/accessible? | Phase 2 | pilote avec enseignant et accommodations definies |
 | Quel modele, seuils et recence de mastery? | affichage chiffre | commencer par bandes qualitatives hybridees, valider sur donnees |
-| Quels montants/plafonds XP et niveaux? | Phase 1 activee | config sans valeurs figees, observer un pilote |
+| Quels montants/plafonds XP et niveaux? | ~~Phase 1 activee~~ **provisoirement tranche** | `app/politique.py`, version `pilote-1`: 10/15/20/30 XP par difficulte, plafond 100/jour, sept paliers. Valeurs non observees, a rejuger apres une session |
 | Quelle retention/export pour tentatives/evenements? | premiere migration | politique institutionnelle et minimisation avant collecte |
 | Quels roles enseignants/admin et quels acces? | premiere migration | moindre privilege/audit |
 | Quelle proportion de contexte prefere/exploration? | recommandations | preference modifiable, aucun ratio initial impose |

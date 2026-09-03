@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260903-quiz-exercice";
+const ASSET_REVISION = "20260903-progres";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -194,8 +194,26 @@ function refreshAccount() {
   $("deconnexion").hidden = !on;
   $("oublier").hidden = !on;
   $("mesexos").hidden = !on;
+  $("mesprogres").hidden = !on;
   $("moi").hidden = !on;
   $("moi").textContent = on ? "connecté" : "";
+}
+
+// UNE SEULE VUE À LA FOIS, ET L'ARBITRAGE EST ICI. « Mes exercices » et
+// « Mes progrès » vivent dans deux modules chargés séparément : si chacun
+// masquait l'autre de son côté, ouvrir le second par-dessus le premier
+// laisserait les deux moitiés à l'écran, ou aucune.
+let vueCourante = "";
+
+function afficherVue(nom) {          // "" (l'exercice) | "liste" | "progres"
+  vueCourante = nom;
+  $("liste").hidden = nom !== "liste";
+  $("vueprogres").hidden = nom !== "progres";
+  $("travail").hidden = nom !== "";
+  $("mesexos").textContent =
+    nom === "liste" ? "Retour à l'exercice" : "Mes exercices";
+  $("mesprogres").textContent =
+    nom === "progres" ? "Retour à l'exercice" : "Mes progrès";
 }
 
 const current = () => catalogue.find(t => t.id === $("ex").value) || null;
@@ -509,6 +527,13 @@ $("consentok").addEventListener("click", async () => {
 $("mesexos").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.basculerListe();
 });
+// LE BOUTON N'EXISTE QUE CONNECTÉ (refreshAccount), et le fichier n'arrive
+// qu'au clic : même contrat que compte.js. Un étudiant connecté qui n'ouvre
+// jamais ses progrès n'en télécharge rien non plus.
+$("mesprogres").addEventListener("click", async () => {
+  if (!await activerModule("progres", "« Mes progrès »")) return;
+  await ctester.progres.basculer();
+});
 $("deconnexion").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.signOut();
 });
@@ -553,6 +578,12 @@ Object.assign(ctester, {
   fillExercises: fillExercises,
   showDraftStatus: showDraftStatus,
   exerciceOuvert: () => currentId,
+  afficherVue: afficherVue,
+  vue: () => vueCourante,
+  // Les libellés de compétence sont déjà ici pour la barre de contexte : les
+  // recopier dans progres.js ferait deux tables à tenir à jour, dont une se
+  // périmerait en silence.
+  skillLabel: (id) => SKILL_LABELS[id] || id,
 });
 
 let sortieClavier = false;
@@ -754,11 +785,22 @@ async function poll(id, tries, portee) {
     // The API has just derived the exercise state from this verdict. Refresh
     // the private projections so « Mes exercices » reflects it immediately;
     // this is display state, not a client-side declaration of success.
-    if (ctester.compte) {
-      await Promise.all([ctester.compte.loadStates(),
-                         ctester.compte.loadPractice()]);
+    // LE VERDICT EST DÉJÀ À L'ÉCRAN, et rien de ce qui suit ne doit pouvoir le
+    // gâter : d'où le `finally`. Sans lui, une projection privée qui lèverait
+    // laisserait les deux boutons « Tester » bloqués sur un résultat correct.
+    try {
+      if (ctester.compte) {
+        await Promise.all([ctester.compte.loadStates(),
+                           ctester.compte.loadPractice()]);
+      }
+      // L'API vient peut-être d'accorder l'XP d'une première réussite. On
+      // REDEMANDE la projection au serveur -- la page n'en calcule aucune part.
+      // Rien à rafraîchir tant que le module n'a jamais été ouvert : il ira
+      // chercher l'état frais à son premier affichage.
+      if (ctester.progres) await ctester.progres.rafraichir();
+    } finally {
+      occupe(false);
     }
-    occupe(false);
     return;
   }
   if (r.status === 404 || tries <= 0) {

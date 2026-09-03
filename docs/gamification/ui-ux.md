@@ -4,4 +4,6 @@ Le tableau de bord connecte privilegie: (1) ce que j'ai appris, (2) ce qui est a
 
 Dans l'exercice, afficher objectif/skill/contexte, politique d'aide, statut `pratique` ou `verification`, feedback et action suivante. Avant une verification, expliquer l'independance, le temps s'il existe, les accommodations et ce qui sera enregistre. Apres, afficher resultat, confiance compréhensible et recommandations; pas de couleur rouge sans texte ni de comparaison a autrui.
 
+**Phase 1:** c'est fait — un bouton «Mes progres» visible seulement connecte, dont le fichier ne descend qu'au clic. La vue montre, dans cet ordre: l'action suivante, ce qui a ete pratique et ce qu'il reste, puis le niveau et l'XP au second plan avec la phrase qui dit ce qu'ils ne sont pas, puis les accomplissements. Revenir a l'exercice ne repasse pas par un rechargement: l'editeur et le dernier verdict restent exactement ou on les avait laisses.
+
 L'integration peut commencer par un onglet «Mes progres» uniquement pour comptes OIDC, sans regresser le flux anonyme ni alourdir l'editeur. Toute UI nouvelle requiert tests JS, et les donnees venant des tests/etudiants restent rendues avec `textContent` comme le client actuel.

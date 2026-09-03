@@ -194,16 +194,130 @@ def read_practice_summary(user):
             for ex, attempts, solved in rows]
 
 
+def grant_first_solve(user, exercise_id, event_id, amount, motif,
+                      policy, payload, daily_cap):
+    """Enregistre UNE première réussite et son XP, en une seule instruction.
+
+    Rend le montant réellement accordé (0 si le plafond du jour est atteint),
+    ou None si le fait existait déjà -- ou si la base n'a pas répondu. Les deux
+    se traitent pareil chez l'appelant : il n'y a rien de neuf à célébrer.
+
+    L'IDEMPOTENCE EST DANS LA CLÉ, pas dans une lecture préalable. `event_id`
+    nomme le fait (« reussite:tp2-ex3 »), sa clé primaire le rend unique par
+    étudiant, et l'`ON CONFLICT` fait que deux sondages simultanés du même
+    verdict, un worker relancé ou un rejeu HTTP n'accordent qu'une fois. Une
+    lecture suivie d'une écriture aurait laissé la course ouverte.
+
+    Le plafond est calculé DANS la même instruction : le lire à part le rendrait
+    faux dès deux réussites concurrentes.
+    """
+    rows = _query(
+        "WITH reste AS ("
+        "  SELECT GREATEST(%(cap)s - COALESCE(sum(montant), 0), 0) AS solde"
+        "    FROM transaction_xp"
+        "   WHERE utilisateur = %(user)s"
+        "     AND accorde_le >= date_trunc('day', now())"
+        "), nouveau AS ("
+        "  INSERT INTO evenement_progression"
+        "    (utilisateur, evenement_id, type, exercice_id, politique, charge)"
+        "  VALUES (%(user)s, %(event)s, 'ExerciceReussi', %(ex)s,"
+        "          %(policy)s, %(payload)s)"
+        "  ON CONFLICT (utilisateur, evenement_id) DO NOTHING"
+        "  RETURNING evenement_id"
+        ") "
+        "INSERT INTO transaction_xp"
+        "  (utilisateur, evenement_id, montant, motif, exercice_id, politique) "
+        "SELECT %(user)s, nouveau.evenement_id,"
+        "       LEAST(%(amount)s, reste.solde), %(motif)s, %(ex)s, %(policy)s "
+        "  FROM nouveau, reste "
+        "RETURNING montant",
+        {"user": user, "event": event_id, "ex": exercise_id,
+         "policy": policy, "payload": json.dumps(payload),
+         "amount": max(int(amount), 0), "motif": motif,
+         "cap": max(int(daily_cap), 0)},
+        read=True)
+    return int(rows[0][0]) if rows else None
+
+
+def unlock(user, achievement_ids, event_id, policy):
+    """Ajoute les succès manquants. Rejouer la même liste ne crée rien de plus."""
+    if not achievement_ids:
+        return True
+    return _query(
+        "INSERT INTO succes_obtenu"
+        "  (utilisateur, succes_id, evenement_id, politique) "
+        "SELECT %s, quoi, %s, %s FROM unnest(%s::text[]) AS quoi "
+        "ON CONFLICT (utilisateur, succes_id) DO NOTHING",
+        (user, event_id, policy, list(achievement_ids)),
+    ) is not None
+
+
+def read_progress(user):
+    """Les faits de progression d'un étudiant, ou None si la base est muette.
+
+    {"xp": int, "succes": [{id, obtenu_le, politique}],
+     "transactions": [{exercice_id, montant, motif, accorde_le}]}
+
+    Le solde, le niveau et les compétences ne sont PAS ici : ce sont des
+    projections, `app.py` les recalcule à partir de ces faits et du catalogue
+    public. Ce qui est stocké est ce qui s'est passé, pas ce qui s'affiche.
+
+    Les dates sortent en JOUR seulement. C'est ce que l'interface montre, et
+    l'heure exacte d'une soumission n'a pas à voyager.
+    """
+    total = _query(
+        "SELECT COALESCE(sum(montant), 0) FROM transaction_xp"
+        " WHERE utilisateur = %s", (user,), read=True)
+    unlocked = _query(
+        "SELECT succes_id, obtenu_le, politique FROM succes_obtenu"
+        " WHERE utilisateur = %s ORDER BY obtenu_le, succes_id",
+        (user,), read=True)
+    # BORNÉ, et c'est le contrat : cette liste est la consultation/export des
+    # attributions, pas un journal illimité. Une réussite par exercice publié
+    # tient largement dessous.
+    grants = _query(
+        "SELECT exercice_id, montant, motif, accorde_le FROM transaction_xp"
+        " WHERE utilisateur = %s ORDER BY accorde_le DESC, evenement_id LIMIT 200",
+        (user,), read=True)
+    if total is None or unlocked is None or grants is None:
+        return None
+    return {
+        "xp": int(total[0][0]) if total else 0,
+        "succes": [{"id": row[0], "obtenu_le": _jour(row[1]),
+                    "politique": row[2]} for row in unlocked],
+        "transactions": [{"exercice_id": row[0], "montant": int(row[1]),
+                          "motif": row[2], "accorde_le": _jour(row[3])}
+                         for row in grants],
+    }
+
+
+def _jour(valeur):
+    """La date d'un horodatage, en ISO. La chaîne telle quelle si ce n'en est pas un."""
+    try:
+        return valeur.date().isoformat()
+    except AttributeError:
+        return str(valeur)[:10]
+
+
 def forget(user):
-    """Erase everything stored for this user.
+    """Erase everything stored for this user, in ONE statement.
 
     The consent sentence shown before redirecting to Rauthy promises this exists,
     so it exists -- not "later".
+
+    SIX DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
+    statement per table, a connection dropped in the middle would leave half a
+    student erased and half not -- and the half that stays is the half nobody
+    can see any more to ask for again. Data-modifying CTEs run exactly once each
+    and commit together.
     """
-    drafts = _query(
-        "DELETE FROM brouillon_exercice WHERE utilisateur = %s", (user,))
-    states = _query(
-        "DELETE FROM etat_exercice WHERE utilisateur = %s", (user,))
-    attempts = _query(
-        "DELETE FROM tentative_pratique WHERE utilisateur = %s", (user,))
-    return drafts is not None and states is not None and attempts is not None
+    return _query(
+        "WITH b AS (DELETE FROM brouillon_exercice WHERE utilisateur = %(u)s),"
+        "     e AS (DELETE FROM etat_exercice      WHERE utilisateur = %(u)s),"
+        "     t AS (DELETE FROM tentative_pratique WHERE utilisateur = %(u)s),"
+        "     j AS (DELETE FROM evenement_progression WHERE utilisateur = %(u)s),"
+        "     x AS (DELETE FROM transaction_xp     WHERE utilisateur = %(u)s),"
+        "     s AS (DELETE FROM succes_obtenu      WHERE utilisateur = %(u)s)"
+        " SELECT 1",
+        {"u": user},
+    ) is not None
