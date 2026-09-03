@@ -9,6 +9,10 @@ const $ = (id) => document.getElementById(id);
 const ctester = window.ctester = {};
 
 const charges = {};
+// Cloudflare caches static assets independently from index.html.  Keep this
+// token in sync with index.html whenever app.js or a lazy module changes, so a
+// deployed page cannot combine a new core with an old compte.js/quiz.js.
+const ASSET_REVISION = "20260903-oidc-fix";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -18,7 +22,7 @@ function charger(nom) {
       const balise = document.createElement("script");
       balise.onload = () => ok();
       balise.onerror = () => ko(new Error(nom));
-      balise.src = nom;
+      balise.src = nom + "?v=" + ASSET_REVISION;
       document.body.append(balise);
     }).catch((e) => {
       // ON OUBLIE L'ÉCHEC. Sans ça, une coupure réseau d'une seconde condamne
@@ -777,4 +781,3 @@ $("go").addEventListener("click", async () => {
     $("go").disabled = false;
   }
 });
-

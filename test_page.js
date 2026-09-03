@@ -16,6 +16,11 @@ const html = lire("index.html");
 const css = lire("style.css");
 const js = lire("app.js");
 
+const appRevision = (html.match(/<script src="app\.js\?v=([^"]+)"/) || [])[1];
+if (!appRevision || !js.includes('const ASSET_REVISION = "' + appRevision + '"')) {
+  throw new Error("index.html et app.js doivent partager la révision des assets");
+}
+
 // --- DOM en carton --------------------------------------------------------
 // CE QUE LE MARKUP MASQUE DEJA. `<div id="liste" hidden>` part masque dans un
 // vrai navigateur ; un faux DOM qui le rend visible fait basculer a l'envers
@@ -74,10 +79,11 @@ function el(id) {
     set(v) {
       source = v;
       charges.push(v);
+      const fichier = v.split("?", 1)[0];
       let echec = chargementCasse;
       if (!echec) {
         try {
-          new Function(lire(v))();
+          new Function(lire(fichier))();
         } catch (e) {
           // UN MODULE QUI LEVE DOIT SE VOIR. Sans cette ligne il partirait
           // dans le chemin onerror, indistinguable d'une panne reseau
@@ -304,9 +310,9 @@ const attendre = async () => { await sleep(); await sleep(); };
   // compte n'est descendu : personne ne s'est connecte. C'est la promesse de
   // tout ce decoupage, et le parcours anonyme est le parcours par defaut.
   check(!global.ctester.compte, "sans session, compte.js n'est pas charge");
-  check(charges.indexOf("compte.js") < 0,
+  check(!charges.some(n => n.startsWith("compte.js?")),
         "et il n'est meme pas demande au serveur");
-  check(charges.indexOf("quiz.js") >= 0,
+  check(charges.some(n => n.startsWith("quiz.js?")),
         "quiz.js, lui, arrive avec le premier exercice de ce mode");
   // ET UN DETAIL QUI N'ARRIVE PAS NE BLOQUE RIEN : publication en retard,
   // reseau coupe. Les NOMS de fichiers viennent du catalogue, donc on peut
@@ -690,7 +696,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   nodes.connexion.listeners.click();
   await nodes.consentok.listeners.click();
   await attendre();
-  check(charges.filter((n) => n === "compte.js").length === 2,
+  check(charges.filter((n) => n.startsWith("compte.js?")).length === 2,
         "un second essai redemande vraiment le fichier");
   chargementCasse = false;
 
