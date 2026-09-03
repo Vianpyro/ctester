@@ -207,6 +207,7 @@ const calls = [];
 // tout se comporter comme avant tant que personne ne s'est connecté.
 const OIDC_RESPONSE = { issuer: "https://auth.example", client_id: "ctester" };
 let SUBMIT_RESPONSE;
+let DECOUVERTE_CASSEE = false;
 const JETON = "jeton-de-test";
 const ETATS = { etats: [{ exercice_id: "tp2-ex0", statut: "valide" }] };
 const PRATIQUE = { pratique: [
@@ -230,6 +231,12 @@ global.fetch = async (url, opts) => {
         { id: "q2", group: "Exercice 1 : binaire", label: "167", type: "bin8" },
         { id: "q3", group: "Exercice 2 : hexadécimal", label: "23", type: "hex8" },
       ] }) };
+  }
+  if (url.includes("openid-configuration")) {
+    if (DECOUVERTE_CASSEE) throw new Error("fournisseur injoignable");
+    return { ok: true, status: 200, json: async () => ({
+      authorization_endpoint: "https://auth.example/authorize",
+      token_endpoint: "https://auth.example/token" }) };
   }
   if (url === "oidc.json") {
     return { ok: true, status: 200, json: async () => OIDC_RESPONSE };
@@ -693,6 +700,18 @@ const attendre = async () => { await sleep(); await sleep(); };
   // visite sans qu'aucun test ne bronche : les etats et la pratique tombaient
   // en silence, et « Mes exercices » annoncait « a faire » sur un exercice
   // reussi. C'est arrive.
+  // UN CLIC QUI NE FAIT RIEN ET NE DIT RIEN est la pire des issues : c'est
+  // exactement ce qu'un `startSignIn()` lance sans `await` produisait quand il
+  // levait, et ca a coute une session de deboguage cote utilisateur.
+  DECOUVERTE_CASSEE = true;
+  nodes.connexion.listeners.click();
+  await nodes.consentok.listeners.click();
+  await attendre();
+  check(/connexion n'a pas pu démarrer/.test(shown()),
+        "une connexion qui echoue le dit : " + shown());
+  check(redirections.length === 0, "et n'envoie evidemment personne nulle part");
+  DECOUVERTE_CASSEE = false;
+
   calls.length = 0;
   nodes.connexion.listeners.click();
   await nodes.consentok.listeners.click();
@@ -710,6 +729,9 @@ const attendre = async () => { await sleep(); await sleep(); };
         + "le code de quelqu'un d'autre finirait la connexion sous ce compte");
   check(redirections[0].includes("code_challenge_method=S256"),
         "et le defi PKCE part avec");
+  check(redirections[0].startsWith("https://auth.example/authorize?"),
+        "vers le point d'autorisation annonce par la decouverte : "
+        + redirections[0].slice(0, 60));
 
   // LE CONTEXTE DOIT ETRE VIVANT. `Object.assign` copie la VALEUR d'un getter
   // et pas le getter : c'est exactement comme ca que le jeton s'est fige.

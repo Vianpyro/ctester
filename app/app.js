@@ -483,7 +483,17 @@ $("connexion").addEventListener("click", () => { $("consentement").hidden = fals
 $("consentnon").addEventListener("click", () => { $("consentement").hidden = true; });
 $("consentok").addEventListener("click", async () => {
   $("consentement").hidden = true;
-  if (await activerModule("compte", "la partie « compte »")) ctester.compte.startSignIn();
+  if (!await activerModule("compte", "la partie « compte »")) return;
+  // ATTENDU, ET PAS LANCÉ DANS LE VIDE. `startSignIn` fait une découverte
+  // réseau puis un défi PKCE : sans ce `await`, un échec devient une promesse
+  // rejetée que personne ne lit, et le bouton ne fait RIEN — ni redirection,
+  // ni message. C'est précisément la panne qu'on a vue.
+  try {
+    await ctester.compte.startSignIn();
+  } catch (e) {
+    show("bad", "La connexion n'a pas pu démarrer : " + e.message
+              + ". Tu peux continuer sans compte.");
+  }
 });
 $("mesexos").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.basculerListe();
