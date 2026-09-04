@@ -371,6 +371,15 @@ pre {
 #liste .puce::before { content: "\25CF\00a0"; }
 #liste .valide { color: var(--ok); }
 #liste .essaye { color: var(--wait); }
+/* La remise du TP, sous la dernière ligne du groupe. Retrait à gauche et pas
+   de cadre : c'est une action SUR la liste au-dessus, pas une ligne de plus
+   dedans -- sans ça on clique dessus en croyant ouvrir un exercice. */
+#liste .exportligne {
+  display: flex; align-items: center; gap: .6rem;
+  margin: -.05rem 0 .9rem 5.6rem;
+}
+#liste .exportetat { font-size: 12px; color: var(--muted); }
+#liste .exportetat.rate { color: var(--bad); font-weight: 600; }
 
 /* « Mes progrès » : même place que la vue liste, mêmes composants. Rien
    n'y dépend de la couleur seule -- chaque jauge double un texte qui dit la

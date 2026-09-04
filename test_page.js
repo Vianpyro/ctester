@@ -62,7 +62,25 @@ function el(id) {
     focus() { focusé = this.id; },
     getAttribute(k) { return this.attrs[k]; },
     addEventListener(ev, fn) { this.listeners[ev] = fn; },
+    // UN <a download> QU'ON CLIQUE, c'est un fichier qui part sur le disque.
+    // Ici on retient ce qui serait parti : le CONTENU du main.c exporte est
+    // tout ce qu'on veut eprouver, et c'est la seule facon de l'atteindre sans
+    // navigateur. Les autres elements gardent le comportement attendu --
+    // declencher leur ecouteur de clic.
+    click() {
+      if (this.download) {
+        telechargements.push({ nom: this.download,
+                               texte: (blobs[this.href] || {}).texte || "" });
+      }
+      if (this.listeners.click) this.listeners.click();
+    },
+    remove() {
+      if (this.parent) {
+        this.parent.children = this.parent.children.filter((k) => k !== this);
+      }
+    },
     append(...kids) {
+      for (const k of kids) if (k && typeof k === "object") k.parent = this;
       this.children.push(...kids);
       // FIDÉLITÉ AU NAVIGATEUR, et elle est load-bearing : un <select> adopte
       // la première option comme valeur courante dès qu'on la lui ajoute. Sans
@@ -220,6 +238,24 @@ global.sessionStorage = {
   setItem: (k, v) => { session[k] = v; },
   removeItem: (k) => { delete session[k]; },
 };
+// LE TELECHARGEMENT, EN CARTON. Node n'a ni Blob navigable ni
+// `URL.createObjectURL` : on retient le texte qu'on leur donne. Deux methodes
+// posees SUR l'URL de Node plutot qu'un objet neuf -- remplacer la classe
+// casserait tout ce qui voudrait construire une vraie URL un jour.
+const telechargements = [];
+const blobs = {};
+let blobSuivant = 0;
+global.Blob = function (parts, options) {
+  this.type = options && options.type;
+  this.texte = parts.join("");
+};
+URL.createObjectURL = (blob) => {
+  const url = "blob:ctester/" + (++blobSuivant);
+  blobs[url] = blob;
+  return url;
+};
+URL.revokeObjectURL = (url) => { delete blobs[url]; };
+
 // Ou la page envoie l'etudiant quand il accepte de se connecter.
 const redirections = [];
 global.history = { replaceState: () => {} };
@@ -269,6 +305,9 @@ const PRATIQUE = { pratique: [
   { exercice_id: "tp2-ex3", tentatives: 3, reussites: 1 }] };
 let POLL_RESPONSE = { state: "queued", position: 1 };
 let PROGRES_CASSE = false;
+// Les brouillons que le COMPTE porte, par-dela cet appareil : c'est ce qui
+// permet a l'export d'assembler un exercice travaille au labo depuis la maison.
+let BROUILLONS_SERVEUR = {};
 
 // --- Le forum, cote serveur, en carton -------------------------------------
 // Un modele minuscule mais VIVANT : ce qu'on publie se relit, ce qu'on masque
@@ -375,7 +414,12 @@ global.fetch = async (url, opts) => {
     return { ok: true, status: 200, json: async () => ({ theme: THEME_SERVEUR }) };
   }
   if (url.startsWith("brouillon")) {
-    return { ok: true, status: 200, json: async () => ({ sources: {} }) };
+    // LE BROUILLON QUE LE COMPTE A, ET QUE CET APPAREIL N'A PAS. Vide par
+    // defaut : c'est l'etat normal, et le remplir en permanence ferait passer
+    // l'export pour bon alors qu'il lirait le stockage local.
+    const ex = decodeURIComponent(String(url).split("ex=")[1] || "");
+    return { ok: true, status: 200,
+             json: async () => ({ sources: BROUILLONS_SERVEUR[ex] || {} }) };
   }
   if (String(url).startsWith("forum")) return forumRepond(url, opts);
   if (url === "submit") return SUBMIT_RESPONSE;
@@ -1663,6 +1707,172 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(global.ctester.token() === null, "se deconnecter oublie le jeton");
   check(nodes.mesexos.hidden === true && nodes.connexion.hidden === false,
         "et le bandeau repropose la connexion");
+
+  // --- EXPORTER UN TP EN UN SEUL main.c ------------------------------------
+  // Le format de remise du cours : un `#define exercice N` qui choisit lequel
+  // des `main()` est compile, un `#if exercice == N` par exercice, les
+  // `#include` remontes une seule fois. CTester garde un brouillon par
+  // exercice ; sans ce bouton, l'etudiant recolle huit fichiers a la main la
+  // veille de la remise, et c'est la qu'il en perd un.
+  //
+  // TOUT CE BLOC TOURNE A LA FIN, expres : il change de TP et pose des
+  // brouillons, et rien ne doit heriter de cet etat.
+  check(!global.ctester.exporter &&
+        !charges.some((n) => n.startsWith("exporter.js?")),
+        "exporter.js n'est pas descendu : ni le parcours anonyme ni le "
+        + "parcours connecte ne le paient tant que personne ne clique");
+
+  // QUI A DROIT AU BOUTON, ET LA REGLE VIT DANS LE NOYAU. Un quiz n'a pas de
+  // code ; un exercice « unity » est un module SANS `main()`, donc un fichier
+  // qui ne compilerait pas. Promettre l'export la serait promettre une remise
+  // cassee.
+  await choisir("TP 1");
+  check(nodes.exporttp.hidden === true, "aucun export sur un quiz");
+  await choisir("TP 6");
+  check(nodes.exporttp.hidden === true,
+        "ni sur un TP « unity » : ses exercices n'ont pas de main() a choisir");
+  await choisir("TP 2", "tp2-ex3");
+  check(nodes.exporttp.hidden === false,
+        "mais oui sur un TP « io », dont chaque exercice est un programme complet");
+
+  // UN CODE QUI PORTE LES DEUX PIEGES : un `#include` au premier niveau, qui
+  // doit remonter et se dedoublonner, et un `#include` DEJA pris dans un `#if`
+  // de l'etudiant, qui doit rester ou il est -- le remonter le rendrait
+  // inconditionnel et changerait le sens de son code.
+  const CODE_EX3 = [
+    "#define _CRT_SECURE_NO_WARNINGS",
+    "#include <stdio.h>",
+    "#include <stdlib.h>",
+    "",
+    "int main(void) {",
+    "#ifdef DEBUG",
+    "#include <assert.h>",
+    "#endif",
+    '    printf("ohm\\n");',
+    "    return EXIT_SUCCESS;",
+    "}",
+  ].join("\n");
+  global.ctester.enregistrerBrouillon("tp2-ex3", { "submission.c": CODE_EX3 });
+  // ET L'AUTRE EXERCICE DU TP, VIDE : c'est l'etat de celui qui a travaille au
+  // labo et exporte depuis la maison, et c'est lui qui doit faire descendre le
+  // brouillon du compte un peu plus bas.
+  global.ctester.enregistrerBrouillon("tp2-ex0", {});
+
+  // SANS COMPTE, ET C'EST LE POINT : les brouillons de cet appareil suffisent.
+  // L'export est la seule chose du parcours anonyme qui produise un fichier, et
+  // il ne doit toujours parler a personne.
+  const avantExport = calls.length;
+  await nodes.exporttp.listeners.click();
+  await attendre();
+  check(charges.some((n) => n.startsWith("exporter.js?")),
+        "le module descend au clic, et pas avant");
+  check(calls.length === avantExport,
+        "sans compte, exporter n'emet AUCUNE requete");
+  const seul = telechargements[telechargements.length - 1];
+  check(seul && seul.nom === "main.c",
+        "un fichier main.c part sur le disque : " + (seul && seul.nom));
+  check(seul.texte.charCodeAt(0) === 0xFEFF,
+        "avec sa marque d'ordre UTF-8, sans quoi Visual Studio lit les accents "
+        + "de l'etudiant en cp1252");
+  check(/#define _CRT_SECURE_NO_WARNINGS/.test(seul.texte),
+        "l'en-tete pose _CRT_SECURE_NO_WARNINGS, comme le fichier du cours");
+  check(/\n#define exercice 3\n/.test(seul.texte),
+        "et `#define exercice` designe le PREMIER exercice qui a du code : un "
+        + "fichier qui s'ouvre sur un bloc vide ne compile pas");
+  check(/Auteur : \n/.test(seul.texte),
+        "sans compte, le champ Auteur reste vide -- on n'invente pas un nom");
+  check(/Description : Exercices 0, 3 — TP 2 — TCH009/.test(seul.texte),
+        "la description enumere les exercices quand ils ne se suivent pas");
+
+  // LES `#include` REMONTENT UNE SEULE FOIS, ET SEULEMENT CEUX DU PREMIER
+  // NIVEAU. C'est la regle la plus subtile du fichier, et la seule qui puisse
+  // changer le sens du code de quelqu'un.
+  const avantPremierBloc = seul.texte.split("#if exercice ==")[0];
+  check((seul.texte.match(/#include <stdio\.h>/g) || []).length === 1 &&
+        avantPremierBloc.includes("#include <stdio.h>"),
+        "les includes remontent en tete, une seule fois");
+  check(!avantPremierBloc.includes("assert.h") &&
+        /#ifdef DEBUG\n#include <assert\.h>/.test(seul.texte),
+        "mais un include deja pris dans un #if de l'etudiant ne bouge PAS");
+  check(!/#if exercice == 3\n#define _CRT_SECURE_NO_WARNINGS/.test(seul.texte),
+        "et _CRT_SECURE_NO_WARNINGS ne se retrouve pas en double dans un bloc");
+
+  // LE MEME EN-TETE, COMMENTE D'UN COTE : c'est le cas courant entre deux
+  // exercices d'un meme TP, et dedoublonner sur la ligne entiere le rate. La
+  // ligne gardee est celle de l'etudiant, commentaire compris.
+  const commente = global.ctester.exporter.construire(
+    [{ id: "tpY-ex1", short: "un", files: [{ name: "submission.c" }] },
+     { id: "tpY-ex2", short: "deux", files: [{ name: "submission.c" }] }],
+    { "tpY-ex1": { "submission.c":
+        "#include <stdio.h>  // pour printf\n#include <stdlib.h>\n\n\nint main(void) { return 0; }" },
+      "tpY-ex2": { "submission.c":
+        "#include <stdio.h>\n#include <stdlib.h>\nint main(void) { return 1; }" } },
+    "", "TP Y");
+  check((commente.texte.match(/#include <stdio\.h>/g) || []).length === 1 &&
+        /#include <stdio\.h>  \/\/ pour printf/.test(commente.texte),
+        "un include commente reste UN include, et garde son commentaire");
+  check(!/\n[ \t]*\n[ \t]*\n/.test(commente.texte),
+        "et le trou laisse par les includes retires est rabattu : pas de "
+        + "fichier en accordeon");
+
+  // UN EXERCICE SANS CODE GARDE SA PLACE. Le supprimer decalerait toute la
+  // numerotation par rapport a l'enonce que l'enseignant lit.
+  check(/#if exercice == 0/.test(seul.texte) &&
+        /Aucun code enregistré pour cet exercice/.test(seul.texte),
+        "un exercice sans brouillon laisse un bloc vide, dit comme tel");
+  check(/1 exercice sur 2 \(rien pour : 0\)/.test(nodes.brouillon.textContent),
+        "et le compte rendu dit ce qui manque : " + nodes.brouillon.textContent);
+
+  // AVEC UN COMPTE, l'export va chercher ce que CET appareil n'a pas : un
+  // exercice travaille au labo se remet depuis la maison.
+  global.ctester.setToken(JETON);
+  BROUILLONS_SERVEUR["tp2-ex0"] = { "submission.c":
+    "#include <stdio.h>\nint main(void) { printf(\"age\\n\"); return 0; }" };
+  await nodes.exporttp.listeners.click();
+  await attendre(); await attendre();
+  const complet = telechargements[telechargements.length - 1];
+  check(calls.some((c) => String(c.url) === "brouillon?ex=tp2-ex0"),
+        "le brouillon manquant est demande au compte");
+  check(/printf\("age/.test(complet.texte) &&
+        !/Aucun code enregistré/.test(complet.texte),
+        "et il complete le fichier : plus aucun bloc vide");
+  check(/\n#define exercice 0\n/.test(complet.texte),
+        "le numero de depart suit, puisque l'exercice 0 a du code maintenant");
+  // LA DESCRIPTION SE LIT COMME L'ENONCE : une enumeration quand il manque des
+  // exercices au TP (ici 0 et 3, l'un des deux n'existe pas dans ce catalogue
+  // de test), un intervalle quand ils se suivent. La seconde branche est
+  // eprouvee en appelant `construire` directement -- c'est le TEXTE qui compte,
+  // et le harnais n'a pas de TP complet a offrir.
+  check(/Description : Exercices 0, 3 — TP 2 — TCH009/.test(complet.texte),
+        "la description enumere ce que le TP contient vraiment : " +
+        (complet.texte.match(/Description : .*/) || [])[0]);
+  const troisFichiers = [1, 2, 3].map((n) =>
+    ({ id: "tpX-ex" + n, short: "ex." + n, files: [{ name: "submission.c" }] }));
+  const suite = global.ctester.exporter.construire(troisFichiers,
+    Object.fromEntries(troisFichiers.map((tp) =>
+      [tp.id, { "submission.c": "int main(void) { return 0; }" }])),
+    "", "TP X");
+  check(/Description : Exercices 1 à 3 — TP X — TCH009/.test(suite.texte),
+        "et passe a l'intervalle quand ils se suivent : " +
+        (suite.texte.match(/Description : .*/) || [])[0]);
+  // LE NOM PRE-REMPLIT, IL NE S'IMPOSE PAS : c'est celui que l'etudiant a
+  // choisi dans « Mon identite », dans un fichier qui va sur SON disque.
+  check(/Auteur : Léa\n/.test(complet.texte),
+        "l'auteur est pre-rempli avec le nom choisi : " +
+        (complet.texte.match(/Auteur : .*/) || [])[0]);
+
+  // LE MEME BOUTON DANS « MES EXERCICES », par laboratoire : c'est la qu'on est
+  // quand on pense « remise » plutot que « exercice courant ».
+  global.ctester.compte.basculerListe();
+  await attendre();
+  const lignesExport = nodes.liste.children
+    .filter((c) => c.className === "exportligne")
+    .map((c) => c.children[0].textContent);
+  check(lignesExport.length === 1 && lignesExport[0] === "Exporter le TP 2 en main.c",
+        "un seul bouton d'export dans la liste, celui du TP qui s'exporte : "
+        + JSON.stringify(lignesExport));
+  global.ctester.compte.basculerListe();
+  await attendre();
 
 // L'ORIGINE DE L'API, LES TROIS BRANCHES. Un `config.js` qui rendrait "" en
   // production enverrait chaque appel sur GitHub Pages, qui repond 404 en HTML :

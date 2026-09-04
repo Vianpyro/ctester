@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260904-theme-live";
+const ASSET_REVISION = "20260904-export-main";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -250,6 +250,25 @@ function afficherVue(nom) {   // "" (l'exercice) | "liste" | "progres" | "forum"
 
 const current = () => catalogue.find(t => t.id === $("ex").value) || null;
 
+// CE QUE LE FORMAT DE REMISE SAIT FAIRE, ET RIEN D'AUTRE. Le `main.c` d'un seul
+// tenant repose sur `#define exercice N` pour choisir LEQUEL des `main()` est
+// compilé : ça n'a de sens que pour les exercices « io », qui sont des
+// programmes complets. Un exercice « unity » est un module SANS `main()`, un
+// quiz n'a pas de code du tout, et proposer le bouton là promettrait un fichier
+// qui ne compile pas.
+//
+// DEUX EXERCICES AU MINIMUM, parce qu'un fichier qui cumule un seul exercice ne
+// cumule rien : l'étudiant a déjà ce code sous les yeux dans l'éditeur.
+//
+// LA RÈGLE EST ICI, DANS LE NOYAU, ET PAS DANS `exporter.js` : c'est elle qui
+// décide si le bouton existe, et il faut le savoir AVANT d'aller chercher le
+// module. Un second exemplaire dans le module dériverait du premier en silence.
+const EXPORT_MINIMUM = 2;
+const exercicesExportables = (groupe) =>
+  catalogue.filter(t => t.group === groupe && t.mode === "io");
+const groupeExportable = (groupe) =>
+  exercicesExportables(groupe).length >= EXPORT_MINIMUM;
+
 const SKILL_LABELS = {
   "number-systems": "systèmes de nombres", "binary-hexadecimal": "binaire et hexadécimal",
   "compilation": "compilation", "main": "main()", "libraries": "bibliothèques",
@@ -396,6 +415,10 @@ function switchMode() {
   $("editor").hidden = quiz;
   $("filewrap").hidden = quiz;
   $("quizwrap").hidden = !quiz;
+  // L'EXPORT SUIT LE TP AFFICHÉ, PAS L'EXERCICE : le fichier de remise couvre
+  // tout le laboratoire. Le bouton n'existe donc que sur un TP dont le format
+  // sait faire quelque chose, et le module ne descend qu'au clic.
+  $("exporttp").hidden = !groupeExportable($("tp").value);
   // Hors quiz il n'y a qu'un bouton et il est primaire. En quiz, l'action
   // courante est l'exercice affiche : tester les 40 questions reste possible,
   // mais cesse d'etre ce sur quoi on tombe par defaut.
@@ -570,6 +593,15 @@ $("menucompte").addEventListener("click", (e) => {
 $("mesexos").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.basculerListe();
 });
+// L'EXPORT MARCHE SANS COMPTE, et c'est voulu : les brouillons de cet appareil
+// suffisent à assembler le fichier. Le compte n'ajoute qu'une chose -- aller
+// chercher les exercices travaillés sur un AUTRE poste -- et `exporter.js` s'en
+// occupe tout seul s'il y a un jeton. Le message part sur la ligne du
+// brouillon : c'est celle qui est juste à côté du bouton.
+$("exporttp").addEventListener("click", async () => {
+  if (!await activerModule("exporter", "l'export du TP")) return;
+  await ctester.exporter.exporter($("tp").value, showDraftStatus);
+});
 // LE BOUTON N'EXISTE QUE CONNECTÉ (refreshAccount), et le fichier n'arrive
 // qu'au clic : même contrat que compte.js. Un étudiant connecté qui n'ouvre
 // jamais ses progrès n'en télécharge rien non plus.
@@ -629,6 +661,11 @@ Object.assign(ctester, {
   // une promesse par fichier, un échec jamais gardé, et l'appelant décide quoi
   // faire quand ça n'arrive pas -- pour le forum, retomber sur du texte brut.
   charger: charger,
+  // Le chargeur de MODULES, celui qui dit à l'étudiant ce qui n'est pas
+  // arrivé. Exposé parce que « Mes exercices » (compte.js) offre lui aussi
+  // l'export : sans lui, compte.js réécrirait `charger()` plus ses deux
+  // messages d'erreur, et la moitié qui manquerait serait toujours ceux-là.
+  activerModule: activerModule,
   // Le thème : le noyau le pose (le bouton est dans la barre, et il
   // existe pour l'anonyme), `compte.js` le synchronise avec le compte.
   appliquerTheme: appliquerTheme,
@@ -652,6 +689,11 @@ Object.assign(ctester, {
     persistDrafts();
   },
   exerciceOuvert: () => currentId,
+  // L'EXPORT, VU DU NOYAU : qui a le droit à un bouton (`groupeExportable`) et
+  // ce qu'il faut assembler (`exercicesExportables`). `exporter.js` et
+  // `compte.js` lisent tous les deux ici -- une seule règle, un seul endroit.
+  exercicesExportables: exercicesExportables,
+  groupeExportable: groupeExportable,
   afficherVue: afficherVue,
   vue: () => vueCourante,
   // Les libellés de compétence sont déjà ici pour la barre de contexte : les

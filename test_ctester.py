@@ -968,7 +968,8 @@ def test_http_end_to_end():
     for nom, contenu in (("style.css", "body{}"), ("app.js", "// " + "x" * 2000),
                          ("config.js", "// config"),
                          ("quiz.js", "// quiz"), ("compte.js", "// compte"),
-                         ("progres.js", "// progres"), ("forum.js", "// forum")):
+                         ("progres.js", "// progres"), ("forum.js", "// forum"),
+                         ("exporter.js", "// exporter")):
         with open(os.path.join(pagedir, nom), "w", encoding="utf-8") as fh:
             fh.write(contenu)
     os.makedirs(os.path.join(pagedir, "vendor"))
@@ -1022,6 +1023,7 @@ def test_http_end_to_end():
         assert call("GET", "/compte.js")[0] == 200
         assert call("GET", "/progres.js")[0] == 200
         assert call("GET", "/forum.js")[0] == 200
+        assert call("GET", "/exporter.js")[0] == 200
         # Les deux bibliothèques du rendu, sous leur nom versionné, et RIEN
         # d'autre sous `/vendor/` : la liste est close, pas un répertoire.
         for chemin in app.VENDOR:

@@ -1098,7 +1098,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/favicon.svg":
             self._file("favicon.svg", "image/svg+xml", PAGE)
         elif path in ("/config.js", "/app.js", "/quiz.js", "/compte.js",
-                      "/progres.js", "/forum.js"):
+                      "/progres.js", "/forum.js", "/exporter.js"):
             # Liste close, pas un suffixe : `.js` n'ouvre pas le répertoire.
             self._file(path[1:], "text/javascript; charset=utf-8", PAGE)
         elif path[1:] in VENDOR:

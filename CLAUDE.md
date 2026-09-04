@@ -110,10 +110,10 @@ encore les deux — la page depuis `CTESTER_PAGE` (`/web`), le catalogue depuis
 `CTESTER_STATIC` (`/app`). Deux variables, deux montages : confondre les deux
 fait servir un `tps.json` introuvable, ou une page introuvable.
 
-La page est en huit fichiers, tous servis par la liste blanche de `do_GET` :
+La page est en neuf fichiers, tous servis par la liste blanche de `do_GET` :
 `index.html` (le markup seul), `style.css`, `config.js` (l'adresse de l'API),
-`app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js` et `forum.js`,
-que le noyau va chercher **à la demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
+`app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js`, `forum.js` et
+`exporter.js`, que le noyau va chercher **à la demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
 `web/vendor/` (marked et DOMPurify), servies par la même liste blanche et
 chargées seulement à l'ouverture des discussions — voir `web/vendor/README.md`.
 Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
@@ -593,6 +593,70 @@ module est là, et le module ne fait rien sans jeton. Rien n'est attendu non
 plus — le thème est déjà à l'écran, et un aller-retour raté ne doit pas donner
 l'impression que le bouton n'a pas marché.
 
+## Exporter un TP en un seul `main.c`
+
+Le cours distribue et attend un fichier d'un seul tenant : un `#define exercice
+N` en tête qui choisit lequel des `main()` est compilé, un `#if exercice == N
+... #endif` par exercice, les `#include` remontés une fois au-dessus. CTester
+garde un brouillon PAR exercice ; sans ce bouton, l'étudiant recolle huit
+fichiers à la main la veille de la remise, et c'est là qu'il en perd un.
+
+**Tout se passe dans la page, et c'est délibéré.** `exporter.js` lit les
+brouillons et fabrique le texte ; aucune route n'a été ajoutée, donc rien à
+tenir en parité entre la v1 et la v2, et le bouton marchera pareil avant et
+après la bascule. La seule chose que le serveur a gagnée, c'est `exporter.js`
+dans la liste blanche des fichiers servis — **des deux côtés** (`app/app.py` et
+`app/routers/page.py`), sinon le module tombe en 404 sur celui qui l'a oublié.
+
+**Seulement les TP « io », et au moins deux exercices.** `#define exercice N` ne
+choisit un `main()` que là où il y en a plusieurs : un exercice « unity » est un
+module SANS `main()`, un quiz n'a pas de code, et un TP d'un seul exercice ne
+cumule rien. La règle vit dans `groupeExportable()` du **noyau**, pas dans le
+module : c'est elle qui décide si le bouton existe, et il faut le savoir avant
+d'aller chercher le fichier.
+
+**Deux boutons, un seul module.** Celui de la barre d'actions exporte le TP
+affiché ; « Mes exercices » en pose un sous la dernière ligne de chaque TP
+exportable. Chacun passe son propre `annoncer(texte, rate)` — `#brouillon` n'est
+pas à l'écran depuis la vue liste, et un module qui choisirait lui-même où
+écrire écrirait dans le vide une fois sur deux.
+
+**Ça marche SANS compte** : les brouillons de l'appareil suffisent, et l'export
+n'émet alors aucune requête. Avec un compte, les exercices qui manquent
+localement sont demandés à `/brouillon?ex=` **un par un** — c'est la connexion
+Postgres unique derrière son verrou global, dix requêtes d'un coup prendraient la
+file à tout le monde.
+
+Quatre détails déjà payés, tous éprouvés dans `test_page.js` :
+
+- **Les `#include` ne remontent qu'au PREMIER NIVEAU.** Un `#include` déjà pris
+  dans un `#if` de l'étudiant est là POUR cette condition ; le remonter le
+  rendrait inconditionnel et changerait le sens de son code. `demonter()` compte
+  donc la profondeur des conditionnelles au lieu de balayer le texte.
+- **Le dédoublonnage porte sur l'en-tête, pas sur la ligne.** `#include
+  <stdio.h>  // pour printf` et `#include <stdio.h>` sont le même include ; les
+  garder tous les deux parce qu'un étudiant a commenté le sien rate exactement
+  ce que le bouton promet. La ligne gardée reste la sienne, commentaire compris.
+- **Les `#define` restent dans leur bloc.** Deux exercices d'un même TP
+  définissent couramment `DIMANCHE`, `LUNDI`, … et c'est le `#if` qui les
+  empêche de se marcher dessus. Seul `_CRT_SECURE_NO_WARNINGS` remonte.
+- **Le numéro vient de l'identifiant (`tp2-ex0` → 0), et le compteur du premier
+  bloc non vide est initialisé à `null`, pas à `0`** : le préambule du
+  laboratoire 2 EST l'exercice 0, et `if (!premier)` le prenait pour « rien
+  trouvé ». Un exercice sans brouillon garde sa place, avec un commentaire qui
+  le dit — le retirer décalerait toute la numérotation par rapport à l'énoncé.
+
+**Le fichier part en UTF-8 AVEC sa marque d'ordre.** Sans elle, Visual Studio
+lit un fichier sans en-tête dans la page de code du système et les accents des
+commentaires de l'étudiant deviennent du charabia — c'est visible dans le
+fichier d'origine du cours. gcc et CLion sautent la marque sans rien dire.
+
+**Le champ `Auteur` est pré-rempli, pas imposé.** CTester ne connaît qu'un `sub`
+opaque : le seul nom disponible est celui choisi dans « Mon identité », ou la
+proposition de Rauthy. Même traitement que le formulaire d'identité — on
+pré-remplit un champ que l'étudiant relit, dans un fichier qui va sur SON
+disque. Rien n'est publié, et le champ reste vide si on ne sait pas.
+
 ## Mesurer avant de tourner un bouton
 
 `charge.py` existe pour qu'on arrête de régler `ctester_workers` à l'instinct.
@@ -799,7 +863,7 @@ toucher :
   poser dans `switchMode()` ferait attribuer le code de l'exercice précédent,
   toujours affiché, à l'identifiant du nouveau dès le prochain `saveDraft()`.
 
-### quiz.js, compte.js, progres.js et forum.js — chargés à la demande
+### quiz.js, compte.js, progres.js, forum.js et exporter.js — à la demande
 
 - **Sens unique, jamais de cycle.** `app.js` détient l'état partagé (jeton,
   catalogue, brouillons) et l'expose une fois dans `window.ctester` ; les deux

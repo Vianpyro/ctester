@@ -31,7 +31,7 @@ SERVIS = dict(
      "favicon.svg": "image/svg+xml"},
     **{nom: "text/javascript; charset=utf-8"
        for nom in ("config.js", "app.js", "quiz.js", "compte.js",
-                   "progres.js", "forum.js")},
+                   "progres.js", "forum.js", "exporter.js")},
     **{nom: "text/javascript; charset=utf-8" for nom in config.VENDOR},
 )
 
