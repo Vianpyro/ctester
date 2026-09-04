@@ -409,7 +409,7 @@ function monIdentite() {
     profil.groupe_public);
 
   bloc.append(etiqNom, champNom, etiqGroupe, champGroupe, ligneNom, ligneGroupe);
-  // CE QUE LA CASE NE COUVRE PAS, ET IL FAUT LE DIRE : l'équipe du cours voit
+  // CE QUE LA CASE NE COUVRE PAS, ET IL FAUT LE DIRE : l'enseignant voit
   // le numéro de groupe en tout temps. Le laisser croire l'inverse serait un
   // consentement obtenu de travers.
   if (!profil.pseudo && profil.suggestion) {
@@ -417,7 +417,7 @@ function monIdentite() {
       + "si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
   }
   bloc.append(noeud("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
-    + "autres. L'équipe du cours, elle, voit toujours ton numéro de groupe — "
+    + "autres. L'enseignant, lui, voit toujours ton numéro de groupe — "
     + "jamais ton nom si tu ne l'affiches pas."));
   const rangee = noeud("div", "row");
   rangee.append(bouton("Enregistrer", "", () => enregistrerProfil({
@@ -550,7 +550,7 @@ function unMessage(m) {
   const item = document.createElement("li");
   item.className = "message";
   // L'AUTEUR EST UN MOT, PAS UN IDENTIFIANT : « Vous », « Participant » ou
-  // « Équipe du cours », dérivés par le serveur. Rien ici ne permet de
+  // « Enseignant », dérivés par le serveur. Rien ici ne permet de
   // recoller deux messages au même étudiant.
   const tete = noeud("p", "qui");
   tete.append(noeud("span", "auteur", m.auteur));

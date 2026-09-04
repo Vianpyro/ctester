@@ -9,7 +9,7 @@ l'interface le dit avant qu'on publie. Ce qui est stocke, et rien d'autre: le
 sous sa forme source, les dates, l'etat visible/masque, l'auteur d'un
 signalement, et les actions de moderation. **Aucun `sub` ne traverse la
 frontiere HTTP**: aux etudiants, une publication s'annonce « Vous », « Participant
-» ou « Equipe du cours », trois mots derives par le serveur. Pas de pseudonyme
+» ou « Enseignant », trois mots derives par le serveur. Pas de pseudonyme
 persistant — ce serait une identite, en plus petit — donc deux messages du meme
 etudiant ne sont pas recollables par le client. Les messages masques et les
 signalements sont invisibles aux etudiants ordinaires; un moderateur ne voit que

@@ -215,8 +215,8 @@ function refreshAccount() {
   // DEUX CONDITIONS, ET LES DEUX VIENNENT DU SERVEUR : être connecté, et un
   // déploiement qui a au moins un modérateur configuré (`oidc.forum`). Sans
   // l'une des deux le bouton n'existe pas, donc `forum.js` n'est jamais
-  // demandé -- l'anonyme n'en télécharge rien, et un déploiement sans équipe
-  // de modération n'ouvre pas un canal que personne ne relit.
+  // demandé -- l'anonyme n'en télécharge rien, et un déploiement sans
+  // modérateur configuré n'ouvre pas un canal que personne ne relit.
   $("discussions").hidden = !on || !(oidc && oidc.forum);
   // MÊME CONDITION QUE « Discussions » : le nom et le numéro de groupe ne
   // servent que là, et le formulaire vit dans cette vue.

@@ -362,7 +362,7 @@ def write_theme(user, theme):
 # d'un autre.
 #
 # CE MODULE REND LE `sub` DE L'AUTEUR à l'appelant, et c'est `app.py` qui le
-# traduit en « Vous » / « Participant » / « Équipe du cours » sans jamais le
+# traduit en « Vous » / « Participant » / « Enseignant » sans jamais le
 # laisser sortir. Le traduire ici aurait demandé de connaître la liste des
 # modérateurs dans la couche SQL, où elle n'a rien à faire.
 

@@ -102,7 +102,7 @@ message est immuable : son auteur peut le supprimer, un responsable peut le
 masquer ou le rétablir (action journalisée), personne ne peut le réécrire.
 
 **Personne n'y a de nom.** Une publication s'annonce « Vous » à son auteur,
-« Participant » aux autres, « Équipe du cours » pour un responsable. Le `sub` ne
+« Participant » aux autres, « Enseignant » pour un responsable. Le `sub` ne
 franchit jamais la frontière HTTP, et il n'y a pas de pseudonyme stable — ce
 serait une identité, en plus petit.
 

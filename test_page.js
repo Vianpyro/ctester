@@ -389,7 +389,7 @@ function forumRepond(url, opts) {
   const tous = () => Object.keys(FORUM).flatMap((ex) => FORUM[ex]);
 
   if (String(url).startsWith("forum/moderation")) {
-    if (!FORUM_MODERATEUR) return rendErreur(403, "réservé à l'équipe du cours");
+    if (!FORUM_MODERATEUR) return rendErreur(403, "réservé à l'enseignant");
     if (methode === "GET") {
       return rendJson({ signalements: tous()
         .filter((m) => FORUM_SIGNALES.has(m.id))
