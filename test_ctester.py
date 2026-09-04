@@ -2285,6 +2285,77 @@ def test_http_forum():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_verrou_perime_est_repris_puis_abandonne():
+    """UN WORKER TUÉ NE DOIT PAS COÛTER DIX MINUTES DE SILENCE À UN ÉTUDIANT.
+
+    C'est la seule chose qu'un redémarrage de worker fait vraiment perdre : la
+    file, elle, est sur disque et son ordre est le mtime de job.json, que
+    personne ne touche. Le job EN VOL, lui, gardait son `.lock` sans verdict,
+    donc claim() le refusait pour toujours et l'étudiant regardait « en file
+    d'attente » jusqu'au balayage.
+
+    Les trois bornes du contrôle, et pas seulement le refus : un verrou frais
+    appartient à un worker vivant et ne se touche pas, un verrou périmé se
+    reprend, et un job qui a déjà épuisé ses reprises rend un verdict au lieu de
+    tourner en boucle sur les workers qu'il tue.
+    """
+    tmp = tempfile.mkdtemp(prefix="ctester-verrou-")
+    try:
+        job = os.path.join(tmp, "job-1")
+        os.makedirs(job)
+        with open(os.path.join(job, "job.json"), "w", encoding="utf-8") as fh:
+            json.dump({"tp": "tp2-ex0"}, fh)
+        lock = os.path.join(job, ".lock")
+        os.mkdir(lock)
+        maintenant = time.time()
+
+        # Verrou frais : c'est un worker vivant, on n'y touche pas.
+        assert not runner.claim(job)
+        assert not runner.reclaim(job, maintenant)
+        assert os.path.isdir(lock)
+
+        # Périmé : repris une fois, et le job redevient prenable.
+        os.utime(lock, (maintenant - runner.LOCK_STALE - 1,) * 2)
+        assert runner.reclaim(job, maintenant)
+        assert runner.claim(job)
+        assert runner.reprises(job) == 1
+
+        # Périmé une seconde fois : plus de reprise, un verdict à la place.
+        os.utime(lock, (maintenant - runner.LOCK_STALE - 1,) * 2)
+        assert not runner.reclaim(job, maintenant)
+        with open(os.path.join(job, "result.json"), encoding="utf-8") as fh:
+            verdict = json.load(fh)
+        assert verdict["status"] == "error", verdict
+        assert verdict["state"] == "done", verdict
+        # Le job porte un verdict : pending_jobs() ne le repropose plus.
+        ancien_spool = runner.SPOOL
+        try:
+            runner.SPOOL = tmp
+            assert runner.pending_jobs() == []
+        finally:
+            runner.SPOOL = ancien_spool
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_le_verrou_perime_ne_double_jamais_le_balayage():
+    """LOCK_STALE < SWEEP_AFTER, sinon la reprise n'arrive jamais.
+
+    Les deux échéances courent sur le même répertoire. Si le balayage passait le
+    premier, tout le code de reprise serait mort sans que rien ne le signale --
+    le genre de réglage qui se dérègle en changeant CTESTER_JOB_TIMEOUT, dont
+    LOCK_STALE est dérivé.
+    """
+    assert runner.LOCK_STALE < runner.SWEEP_AFTER, (
+        "LOCK_STALE (%d) doit rester sous SWEEP_AFTER (%d) : un job doit "
+        "pouvoir être repris avant d'être effacé."
+        % (runner.LOCK_STALE, runner.SWEEP_AFTER))
+    assert runner.LOCK_STALE > runner.JOB_TIMEOUT, (
+        "LOCK_STALE (%d) doit dépasser JOB_TIMEOUT (%d) : sinon un worker "
+        "vivant se fait voler le job qu'il est en train de juger."
+        % (runner.LOCK_STALE, runner.JOB_TIMEOUT))
+
+
 def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
     """CE FICHIER TOURNE SUR LE DELL, AVEC LE PYTHON DE L'HÔTE.
 

@@ -44,6 +44,30 @@ PIDS = os.environ.get("CTESTER_PIDS", "64")
 CPUS = os.environ.get("CTESTER_CPUS", "1")
 SWEEP_AFTER = int(os.environ.get("CTESTER_SWEEP_AFTER", "600"))
 
+# UN VERROU ABANDONNÉ N'EST PAS UN VERROU. `claim()` pose un `.lock` qu'un worker
+# tué -- déploiement, OOM, reboot -- n'emporte pas avec lui : le job reste listé
+# par pending_jobs(), refusé par claim() pour toujours, et l'étudiant regarde
+# « en file d'attente » jusqu'à ce que sweep() efface le répertoire SWEEP_AFTER
+# plus tard. Dix minutes de silence pour une soumission qui n'a jamais échoué.
+#
+# LE SEUIL SE DÉDUIT, IL NE SE CHOISIT PAS, et c'est ce qui rend la reprise sûre
+# à N workers : un worker VIVANT ne peut pas tenir un verrou plus longtemps que
+# le job qu'il exécute, or `sandbox()` est plafonné à JOB_TIMEOUT par
+# subprocess. Trois fois cette borne couvre le reste de run_job() -- écriture
+# des cas, extraction des avertissements -- avec une marge que rien ne rend
+# serrée. Un verrou plus vieux que ça n'appartient à personne.
+#
+# ET IL RESTE BIEN EN DEÇÀ DE SWEEP_AFTER : l'ordre est tout, un job doit
+# pouvoir être repris AVANT d'être balayé, sinon la reprise n'arrive jamais.
+LOCK_STALE = int(os.environ.get("CTESTER_LOCK_STALE", str(3 * JOB_TIMEOUT)))
+
+# UNE reprise, pas une infinité. Un job qui tue son worker à tous les coups --
+# OOM, bogue, panne matérielle -- serait repris en boucle par chaque worker à
+# son tour, qui mourrait dessus à son tour : toute la file s'arrêterait sur une
+# seule soumission. Au-delà, on écrit un verdict d'erreur, que l'étudiant voit
+# au sondage suivant et peut relancer.
+LOCK_RETRIES = int(os.environ.get("CTESTER_LOCK_RETRIES", "1"))
+
 # APERÇU AVANT OUVERTURE, pour la machine de l'enseignant. Mettre CTESTER_APERCU
 # à autre chose que "" ou "0" fait tomber le filtre `available_from` : le
 # catalogue publié ET tp_path voient alors tout, y compris ce qui ouvre en
@@ -1055,6 +1079,60 @@ def claim(job_dir):
         return False
 
 
+def reprises(job_dir):
+    """Combien de fois ce job a déjà été repris à un worker mort."""
+    try:
+        with open(os.path.join(job_dir, "reprises.json"), encoding="utf-8") as fh:
+            return int(json.load(fh).get("n", 0))
+    except (OSError, ValueError, TypeError):
+        return 0
+
+
+def reclaim(job_dir, now):
+    """Libère le verrou d'un worker mort. True si le job peut être reproposé.
+
+    LA COURSE ENTRE DEUX WORKERS EST SANS CONSÉQUENCE, et c'est ce qui permet de
+    ne rien ajouter de plus fort : les deux peuvent juger le verrou périmé, l'un
+    des deux `rmdir` échoue, et c'est le `mkdir` de claim() -- atomique -- qui
+    départage ensuite, exactement comme pour un job neuf.
+
+    Un verrou encore frais appartient à un worker vivant : on ne touche à rien.
+    """
+    lock = os.path.join(job_dir, ".lock")
+    try:
+        if os.stat(lock).st_mtime > now - LOCK_STALE:
+            return False
+    except OSError:
+        # Le verrou vient de disparaître -- sweep(), ou un autre worker. Le
+        # prochain tour de boucle verra l'état réel.
+        return False
+
+    essai = reprises(job_dir) + 1
+    if essai > LOCK_RETRIES:
+        # LE VERROU RESTE EN PLACE : plus personne ne reprend ce job, et le
+        # verdict ci-dessous est ce que l'étudiant lit au sondage suivant, au
+        # lieu d'attendre le balayage.
+        print("ctester: %s: abandonné après %d reprise(s)" % (job_dir, essai - 1),
+              file=sys.stderr, flush=True)
+        write_result(job_dir, {
+            "status": "error",
+            "message": "Le juge a été interrompu pendant ce test. Relance-le.",
+        })
+        return False
+
+    # AVANT le rmdir : si le compteur s'écrivait après, un worker tué entre les
+    # deux rendrait le job repris sans que ça se voie, et la boucle de reprise
+    # que LOCK_RETRIES existe pour empêcher redeviendrait possible.
+    write_json(os.path.join(job_dir, "reprises.json"), {"n": essai})
+    try:
+        os.rmdir(lock)
+    except OSError:
+        return False
+    print("ctester: %s: verrou périmé repris (essai %d)" % (job_dir, essai),
+          file=sys.stderr, flush=True)
+    return True
+
+
 def pending_jobs():
     jobs = []
     for entry in os.scandir(SPOOL):
@@ -1076,9 +1154,10 @@ def pending_jobs():
 def sweep(now):
     """Efface les jobs vieux de SWEEP_AFTER, verrouillés ou non.
 
-    Y compris ceux d'un worker tué en plein travail : le .lock disparaît avec le
-    répertoire, sinon un redémarrage malheureux laisserait un job coincé pour
-    toujours.
+    LE FILET DE SÉCURITÉ, PLUS LE PREMIER RECOURS. Un job dont le worker est
+    mort est repris par reclaim() bien avant cette échéance (LOCK_STALE) ; ce
+    qui arrive jusqu'ici est ce que personne n'a pu reprendre -- un job abandonné
+    après LOCK_RETRIES, ou un répertoire que le web a écrit à moitié.
     """
     for entry in os.scandir(SPOOL):
         try:
@@ -1113,7 +1192,11 @@ def main():
         worked = False
         for job_dir in pending_jobs():
             if not claim(job_dir):
-                continue
+                # Verrou tenu. Par un worker vivant -- on passe -- ou par un
+                # worker mort, et reclaim() tranche sur le seul critère qui ne
+                # ment pas ici : l'âge du verrou.
+                if not (reclaim(job_dir, time.time()) and claim(job_dir)):
+                    continue
             worked = True
             try:
                 write_result(job_dir, run_job(job_dir))

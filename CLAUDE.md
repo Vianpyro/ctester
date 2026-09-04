@@ -248,14 +248,31 @@ que `uptime` sur le Dell ne bronche pas.
 
 ## Ajouter ou modifier un TP
 
-Pousser sur le dépôt privé de tests, puis :
+**Pousser sur le dépôt privé de tests suffit.** `ctester-tests.timer` (dans
+`VHome`) tire toutes les cinq minutes, republie le catalogue et refait
+lui-même le `grep -rl answer` ci-dessus — un tick qui trouve une clé de corrigé
+sort en erreur sans poser son témoin.
+
+**Ce timer ne redémarre rien, et il peut donc tourner en pleine séance.** Rien
+entre le disque et l'étudiant ne garde de copie en mémoire : `cases`,
+`tolerance` et `quiz.json` passent par `load_config()`, relu **à chaque job** ;
+`tps.json` par `load_tps()` dans `app.py`, relu **à chaque requête**. Un cas de
+test ajouté est en service à la soumission suivante, une consigne corrigée au
+rechargement suivant. `publish_catalogue()` y est appelé dans un processus à
+part — le redémarrage du worker n'a jamais été qu'un moyen de le déclencher.
+
+Pour ne pas attendre les cinq minutes, ou pour voir ce qu'a dit le dernier tick :
+
+```sh
+systemctl start ctester-tests        # sur le Dell
+journalctl -u ctester-tests -n 30
+```
+
+Et à la main, quand il faut converger pour autre chose en même temps :
 
 ```sh
 ansible-playbook playbooks/ctester.yml --tags tests --ask-vault-pass
 ```
-
-Ça met à jour le clone et redémarre les workers, ce qui republie le catalogue.
-Refaire ensuite la vérification `grep -rl answer` ci-dessus.
 
 ### Voir un TP avant son ouverture
 
@@ -640,6 +657,9 @@ règle par variables : `ctester_cooldown_seconds` (15), `ctester_hourly_quota`
 docker info --format '{{json .Runtimes}}'      # runsc enregistré ?
 systemctl status 'ctester-runner@*'            # les workers tournent ?
 journalctl -u 'ctester-runner@*' -n 50         # ce que dit un job en erreur
+journalctl -u ctester-tests -n 30              # le dernier tick de tests
+journalctl -u ctester-pull  -n 30              # le dernier tick d'application
+cat /opt/ctester/.tests-deployed               # les révisions de tests publiées
 docker logs ctester-web-1                      # la v1 (silencieuse si tout va bien)
 docker logs ctester-web2-1                     # la v2 (idem)
 docker exec ctester-web2-1 python3 -c   "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8001/healthz').read())"
@@ -832,7 +852,11 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   le jour où elle ne l'est plus.
 - **`runner.py`** — le verrou entre workers, c'est `os.mkdir` (atomique, un seul
   hôte). Sondage du spool à 0,5 s ; une unité systemd `.path` le jour où cette
-  latence se voit.
+  latence se voit. Un worker tué laisse son `.lock` derrière lui : `reclaim()`
+  le reprend au bout de `LOCK_STALE` (3 × `JOB_TIMEOUT` — un worker vivant ne
+  peut pas tenir un verrou plus longtemps que le job qu'il exécute), **une seule
+  fois**, sinon un job qui tue son worker à tous les coups arrêterait la file
+  entière en tuant chaque worker à son tour.
 - **`etat.py` / `schema.sql`** — progression : trois tables de faits, **aucune
   table de projection**. Le solde est un `sum()` sur quelques dizaines de lignes
   par étudiant ; matérialiser créerait un second endroit où la vérité peut
