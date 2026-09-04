@@ -1,17 +1,13 @@
 <!doctype html>
 <html lang="fr">
 <head>
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' https://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>TCH009 — Tester mon code</title>
-<script id="theme-init">
-  try {
-    var t = localStorage.getItem("ctester.theme");
-    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
-  } catch (e) {}
-</script>
+<script src="config.js?v=20260904-theme-live"></script>
 <link rel="stylesheet" href="style.css?v=20260904-theme-live">
 </head>
 <body>
@@ -133,7 +129,6 @@
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
 </main>
 
-<script src="config.js?v=20260904-theme-live"></script>
 <script src="app.js?v=20260904-theme-live"></script>
 </body>
 </html>

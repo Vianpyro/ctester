@@ -149,14 +149,15 @@ inutile pour la page.
 - `connect-src` doit maintenant lister `'self' https://tch099.thevhome.com`
   + l'origine de l'issuer.
 - Le **hachage du script `theme-init`** ne peut plus être calculé à la volée.
-  Deux options, prendre la première :
-  1. `web/csp.py` (ou une fonction de `test_page.js`) calcule le hachage et le
-     compare à celui écrit dans le `meta` ; **un test échoue si le `meta` est
-     périmé**. Le hachage reste écrit à la main, mais il ne peut plus se
-     désynchroniser en silence — c'est exactement la propriété que `csp()`
-     donnait.
-  2. Générer `index.html` à la CI. Refusé : ça introduit un build, contre le
-     principe « ce que le dépôt contient est ce que le navigateur reçoit ».
+  Ni `web/csp.py`, ni un build à la CI : **le script inline a été supprimé**.
+  Son bootstrap de thème est passé dans `web/config.js`, chargé en tête de
+  `<head>` sans `defer` — un `<script src>` classique bloque le rendu, donc il
+  tourne avant la première peinture exactement comme l'inline. `script-src
+  'self'` suffit alors, sans hachage, et il n'y a plus rien à resynchroniser.
+  `csp()` **lève** si un inline réapparaît, au lieu de le hacher en douce.
+  Ce qui reste à tenir, c'est que les deux copies de la politique (l'en-tête et
+  le `<meta>`) disent la même chose : `test_csp_du_document` les compare
+  directive par directive.
 
 ### 6. `ASSET_REVISION` — le corriger au passage
 

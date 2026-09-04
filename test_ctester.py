@@ -939,9 +939,9 @@ def test_http_end_to_end():
                   encoding="utf-8") as fh:
             json.dump({"statement": "consigne de " + tp_id, "files": []}, fh)
     with open(os.path.join(static, "index.html"), "w", encoding="utf-8") as fh:
-        # Un script INLINE, comme celui du thème dans la vraie page : c'est lui
-        # dont la CSP doit porter le hachage.
-        fh.write('<!doctype html><script id="theme-init">var t=1;</script>'
+        # AUCUN SCRIPT INLINE, comme la vraie page : `csp()` les refuse
+        # désormais, ici comme là-bas.
+        fh.write('<!doctype html><script src="config.js"></script>'
                  '<script src="app.js"></script>')
     # `app.js` dépasse le seuil de compression : c'est lui qui éprouve la
     # négociation gzip plus bas. Les autres restent minuscules exprès.
@@ -1020,7 +1020,8 @@ def test_http_end_to_end():
         # script inline de thème, et elle doit survivre au 304 : sinon elle
         # disparaîtrait dès la deuxième visite, c'est-à-dire presque toujours.
         code, tetes = entetes_de("/")
-        assert code == 200 and "'sha256-" in tetes["Content-Security-Policy"]
+        assert code == 200
+        assert "script-src 'self';" in tetes["Content-Security-Policy"]
         rejoue = entetes_de("/", {"If-None-Match": tetes["ETag"]})
         assert rejoue[0] == 304
         assert rejoue[1]["Content-Security-Policy"] \
@@ -1640,25 +1641,41 @@ def test_forum_bibliotheques_epinglees():
 
 
 def test_csp_du_document():
-    """La CSP porte le hachage du script de theme, et rien d'autre n'est inline.
+    """La CSP de l'en-tete et celle du `<meta>` disent la MEME chose.
 
     ELLE N'EST PAS LA DEFENSE PRINCIPALE -- l'assainisseur et `textContent` le
-    sont -- mais elle doit etre juste : une CSP qui oublie le script inline
-    casse le theme, et une CSP qui oublie l'emetteur OIDC casse la connexion,
-    toutes deux en silence.
+    sont -- mais elle doit etre juste : une CSP qui oublie l'emetteur OIDC casse
+    la connexion, une qui oublie l'API casse tout, et les deux en silence.
+
+    DEUX COPIES DE LA POLITIQUE EXISTENT depuis que GitHub Pages sert la page :
+    l'en-tete que pose `csp()` (ce serveur, et le mode local) et le `<meta>` de
+    `index.html` (Pages, qui ne peut poser aucun en-tete). Ce controle est ce
+    qui les empeche de diverger -- editer l'une sans l'autre echoue ici.
+
+    C'est le remplacant du hachage recopie a la main que le plan de separation
+    envisageait : plutot que de surveiller un hachage, la page n'a plus AUCUN
+    script inline, et `csp()` refuse d'en hacher un.
     """
     page = lire(os.path.join(HERE, "web", "index.html")).encode()
     politique = app.csp(page, "https://auth.exemple/auth/v1")
     assert "default-src 'none'" in politique
-    assert "'sha256-" in politique, politique
-    assert "script-src 'self' 'sha256-" in politique
-    # UN SEUL script inline dans la page : celui du theme. Un second passerait
-    # ici en silence, d'ou le decompte.
-    assert politique.count("'sha256-") == 1, politique
+    # PAS DE HACHAGE, et pas de script inline pour en avoir besoin.
+    assert "sha256-" not in politique, politique
+    assert "script-src 'self';" in politique, politique
+    assert b"<script" in page and not app._INLINE_SCRIPT_RE.findall(page), page
+    # Un inline qui reviendrait doit faire du BRUIT, pas se faire hacher.
+    try:
+        app.csp(b"<script>var t=1;</script>")
+        raise AssertionError("un <script> inline est passe sans rien dire")
+    except ValueError:
+        pass
     # L'EMETTEUR OIDC EST DANS connect-src, en ORIGINE seulement : `compte.js`
     # y va chercher la decouverte puis le jeton.
-    assert "connect-src 'self' https://auth.exemple" in politique
+    assert "https://auth.exemple" in politique.split("connect-src")[1]
     assert "/auth/v1" not in politique, politique
+    # L'API AUSSI : sans elle, la page servie par ce serveur pendant la bascule
+    # ne peut joindre `tch099` et n'affiche plus un seul TP.
+    assert app.API_ORIGIN in politique.split("connect-src")[1]
     for interdit in ("frame-ancestors 'none'", "base-uri 'none'",
                      "form-action 'none'", "img-src 'self'"):
         assert interdit in politique, interdit
@@ -1668,8 +1685,23 @@ def test_csp_du_document():
     assert "style-src 'self' 'unsafe-inline'" in politique
     assert "unsafe-inline" not in politique.split("style-src")[0], politique
     assert "unsafe-eval" not in politique
-    # Sans emetteur https, pas d'origine tierce du tout.
-    assert app.csp(page, "").split("connect-src ")[1].startswith("'self';")
+
+    # --- ET MAINTENANT LE <meta>, directive par directive. ---
+    meta = re.search(
+        rb'<meta http-equiv="Content-Security-Policy" content="([^"]+)">', page)
+    assert meta, "le <meta> CSP a disparu de index.html"
+    du_meta = {d.split()[0]: " ".join(d.split()[1:])
+               for d in meta.group(1).decode().split("; ")}
+    du_serveur = {d.split()[0]: " ".join(d.split()[1:])
+                  for d in app.csp(page, app.OIDC_ISSUER or
+                                   "https://auth.thevhome.com/auth/v1").split("; ")}
+    # `frame-ancestors` EST LA SEULE PERTE du passage en <meta> : un <meta> ne
+    # peut pas le porter, et le navigateur le signale en console -- une console
+    # rouge est une panne prod qu'on a deja eue. Il est donc absent du <meta>
+    # EXPRES, et repose sur une Transform Rule Cloudflare (X-Frame-Options).
+    assert "frame-ancestors" not in du_meta, du_meta
+    assert du_serveur.pop("frame-ancestors") == "'none'"
+    assert du_meta == du_serveur, (du_meta, du_serveur)
 
 
 def test_forum_vue_ne_laisse_sortir_aucun_sub():

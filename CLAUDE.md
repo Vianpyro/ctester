@@ -396,11 +396,30 @@ même. Si une bibliothèque manque ou si `DOMPurify.isSupported` est faux, tout
 retombe sur `textContent` — du texte brut, jamais du HTML non filtré.
 
 **La CSP n'est pas la défense principale**, et le commentaire de `csp()` le dit.
-Elle porte le hachage du script de thème **calculé sur le corps servi**, jamais
-recopié à la main : un hachage figé se périmerait à la première virgule changée
-et la page repartirait sans thème. Elle est aussi posée sur le 304, sinon elle
-disparaîtrait dès la deuxième visite. `style-src` garde `'unsafe-inline'` : la
-page pose des attributs `style` calculés (jauges, coches de verdict).
+Elle existe maintenant **en deux exemplaires** : l'en-tête que pose `csp()` (ce
+serveur, et le mode local) et le `<meta http-equiv>` de `index.html`, seul
+moyen d'en avoir une quand GitHub Pages sert la page — Pages ne pose aucun
+en-tête. `test_csp_du_document` compare les deux **directive par directive** :
+éditer l'une sans l'autre fait échouer les tests.
+
+**Il n'y a plus AUCUN script inline, et c'est ce qui rend les deux copies
+tenables.** Un `<meta>` ne peut pas porter un hachage calculé sur le corps
+servi ; recopier le hachage à la main le ferait périmer à la première virgule
+changée, en silence, en emportant le thème. Le bootstrap du thème vit donc dans
+`web/config.js`, chargé **en tête de `<head>` sans `defer`** — un `<script src>`
+classique bloque le rendu, donc il tourne avant la première peinture exactement
+comme l'inline qu'il remplace. `script-src 'self'` suffit alors, sans hachage,
+et `csp()` **lève** si un inline réapparaît plutôt que de le hacher en douce.
+
+**`frame-ancestors` est la seule perte réelle** : un `<meta>` ne peut pas le
+porter, et le navigateur le signale en console — or une console rouge est une
+panne prod déjà vécue. Il est donc absent du `<meta>` exprès, présent dans
+l'en-tête, et à reposer devant Pages par une Transform Rule Cloudflare
+(`X-Frame-Options: DENY`). Le test vérifie cette asymétrie précise.
+
+L'en-tête est aussi posé sur le 304, sinon il disparaîtrait dès la deuxième
+visite. `style-src` garde `'unsafe-inline'` : la page pose des attributs `style`
+calculés (jauges, coches de verdict).
 
 **Un message est immuable.** Son auteur le supprime, un modérateur le masque ou
 le rétablit — et c'est tout. Côté Postgres, les trois tables sont en ajout seul
@@ -424,7 +443,7 @@ d'affichage prend le même chemin — `preference_affichage`, une ligne par comp
 `GET`/`PUT /preferences`.
 
 **Le stockage local RESTE, et il ne fait pas doublon.** C'est lui que le
-`<script id="theme-init">` du `<head>` lit avant le premier rendu ; le serveur,
+`web/config.js` du `<head>` lit avant le premier rendu ; le serveur,
 lui, répond toujours après la première peinture. Ce que le compte dit est donc
 recopié dans `localStorage` — pas pour être relu dans la foulée, mais pour que
 la visite SUIVANTE sur cet appareil parte déjà du bon thème, sans le flash
@@ -575,12 +594,17 @@ toucher :
 
 ### index.html
 
-- **`<script id="theme-init">` doit rester INLINE dans le `<head>`.** C'est lui
-  qui pose le thème avant le premier rendu ; sorti dans un fichier, il
-  arriverait après, et le flash sombre→clair serait déjà passé. Trois lignes,
-  elles restent là. (L'attribut `id` n'est plus load-bearing : `test_page.js`
-  lisait la page par une expression rationnelle qui exigeait une balise `script`
-  sans attribut, et il lit maintenant `app.js` directement.)
+- **`<script src="config.js">` reste en tête de `<head>`, SANS `defer`.** C'est
+  lui qui pose le thème avant le premier rendu depuis qu'il n'y a plus d'inline
+  (voir « La CSP » plus haut) ; un `<script src>` classique bloque le rendu,
+  donc il tourne avant la première peinture. Avec `defer`, ou en fin de
+  `<body>`, le flash sombre→clair serait déjà passé.
+- **Aucun `<script>` inline, jamais.** `script-src 'self'` du `<meta>` le
+  bloquerait, et `csp()` lève plutôt que de le hacher. `test_page.js` et
+  `test_ctester.py` le vérifient tous les deux.
+- **Le `<meta http-equiv="Content-Security-Policy">` doit rester juste après
+  `<meta charset>`**, donc avant tout ce qu'il gouverne : un navigateur
+  n'applique la politique qu'à partir du moment où il la lit.
 - **`<link rel="stylesheet">` reste en tout début de `<head>`.** La feuille est
   externe désormais : plus elle est demandée tôt, moins il y a de risque de voir
   la page non stylée avant qu'elle n'arrive.

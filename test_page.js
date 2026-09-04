@@ -1668,8 +1668,20 @@ const attendre = async () => { await sleep(); await sleep(); };
   // production enverrait chaque appel sur GitHub Pages, qui repond 404 en HTML :
   // le `catch` dirait « le serveur ne repond pas » et les logs de l'origine
   // seraient vides. C'est la panne muette que ce harnais existe pour voir.
+  // `config.js` EST DANS LE <head> ET AVANT `app.js`. C'est lui qui pose le
+  // theme avant le premier rendu depuis qu'il n'y a plus de script inline, et
+  // c'est lui qui pose `window.API` dont depend chaque appel. Charge en fin de
+  // <body>, le flash sombre->clair serait deja passe ; charge apres `app.js`,
+  // la page tomberait sur une ReferenceError au premier fetch.
+  const tete = html.split("</head>")[0];
+  check(/<script src="config\.js/.test(tete), "config.js est charge dans le <head>");
+  check(html.indexOf("config.js") < html.indexOf("app.js"),
+        "et avant app.js");
+  check(!/<script(?![^>]*\ssrc=)[^>]*>[^<]*\S/.test(html),
+        "aucun script inline : `script-src 'self'` du <meta> le bloquerait");
+
   for (const [hote, attendu] of [
-    ["tch009.thevhome.com", "tps.json"],   // le Dell sert encore les deux
+    ["tch009.thevhome.com", "https://tch099.thevhome.com/tps.json"],
     ["vianpyro.github.io", "https://tch099.thevhome.com/tps.json"],
     ["localhost", "tps.json"],
   ]) {

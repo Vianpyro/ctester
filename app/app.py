@@ -10,7 +10,6 @@ Bibliothèque standard uniquement : rien à installer au démarrage, rien à
 patcher, et l'image officielle python:3.13-slim suffit telle quelle.
 """
 
-import base64
 import gzip
 import hashlib
 import hmac
@@ -41,6 +40,12 @@ PAGE = os.environ.get("CTESTER_PAGE", "/web")
 # page du web. Une origine absente de cette liste ne recoit AUCUN en-tete CORS
 # -- le navigateur bloque alors de lui-meme -- plutot qu'un 403 : on ne
 # transforme pas un reglage oublie en panne opaque cote serveur.
+# TRANSITION : l'origine que la PAGE appelle. Ce serveur sert encore la page
+# pendant la bascule, et sa CSP doit donc autoriser `connect-src` vers l'API --
+# sinon la fenetre ou `tch009` est encore sur le Dell mais `config.js` pointe
+# deja `tch099` est une page morte. Disparait avec `csp()` en phase 5.
+API_ORIGIN = os.environ.get("CTESTER_API_ORIGIN", "https://tch099.thevhome.com")
+
 ORIGINS = tuple(o.strip().rstrip("/") for o in os.environ.get(
     "CTESTER_ORIGINS",
     "https://tch009.thevhome.com,https://vianpyro.github.io").split(",")
@@ -803,17 +808,25 @@ def forum_vue(messages, sub, moderateur, profils=None):
 # transforme une injection réussie en injection qui ne peut ni charger un script
 # d'ailleurs, ni parler à un autre hôte, ni s'encadrer.
 #
-# LE HACHAGE DU SCRIPT DE THÈME EST CALCULÉ SUR LE CORPS SERVI, pas écrit à la
-# main. Ce script DOIT rester inline (il pose le thème avant le premier rendu,
-# voir index.html) ; un hachage recopié se périmerait à la première virgule
-# changée, et la page repartirait sans thème avec une erreur de console que
-# personne ne lit.
+# AUCUN SCRIPT INLINE DANS LA PAGE, donc aucun hachage à tenir à jour. C'est ce
+# qui permet à la même politique de tenir dans un en-tête ici ET dans le
+# `<meta>` de `index.html`, que GitHub Pages sert sans pouvoir poser d'en-tête.
+# Le bootstrap du thème vit dans `web/config.js`, chargé en tête de `<head>`
+# sans `defer` : il tourne donc avant le premier rendu, comme l'inline qu'il
+# remplace. Un inline rajouté par distraction est alors bloqué bruyamment, au
+# lieu de passer par un hachage recopié qui se périme en silence.
 _INLINE_SCRIPT_RE = re.compile(rb"<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>",
                                re.DOTALL)
 
 
 def csp(body, issuer=""):
     """La politique de sécurité du contenu pour CE document HTML.
+
+    ELLE DOIT DIRE LA MÊME CHOSE QUE LE `<meta>` de `index.html`, à
+    `frame-ancestors` près : un `<meta>` ne peut pas le porter, et c'est la
+    seule perte réelle du passage à GitHub Pages (à reposer par une Transform
+    Rule Cloudflare, `X-Frame-Options: DENY`). Ici il reste, ce serveur pouvant
+    poser des en-têtes.
 
     `style-src` garde `'unsafe-inline'` : la page pose des attributs `style`
     calculés (la largeur d'une jauge, le rang d'une coche de verdict). Ce sont
@@ -822,20 +835,28 @@ def csp(body, issuer=""):
 
     `connect-src` doit contenir l'émetteur OIDC : `compte.js` va y chercher le
     document de découverte puis le jeton. Sans lui, la connexion échoue en
-    silence -- et c'est le genre de panne qu'une CSP produit sans le dire.
+    silence -- et c'est le genre de panne qu'une CSP produit sans le dire. Il
+    doit aussi contenir l'API : pendant la bascule, ce serveur sert encore la
+    page alors que `config.js` appelle déjà `tch099`.
+
+    `body` N'EST PLUS LU QUE POUR REFUSER UN SCRIPT INLINE. La page n'en a plus
+    aucun ; un qui reviendrait ne serait pas haché en douce, il ferait échouer
+    `test_csp_du_document`.
     """
-    empreintes = " ".join(
-        "'sha256-" + base64.b64encode(hashlib.sha256(bloc).digest()).decode() + "'"
-        for bloc in _INLINE_SCRIPT_RE.findall(body) if bloc.strip())
-    origine = ""
+    if any(bloc.strip() for bloc in _INLINE_SCRIPT_RE.findall(body)):
+        raise ValueError(
+            "un <script> inline est apparu dans la page : `script-src 'self'` "
+            "le bloque, ici comme dans le <meta> servi par GitHub Pages. "
+            "Sortir le code dans un fichier, comme web/config.js.")
+    origines = [o for o in (API_ORIGIN,) if o]
     if issuer.startswith("https://"):
-        origine = " " + "/".join(issuer.split("/")[:3])
+        origines.append("/".join(issuer.split("/")[:3]))
     return "; ".join([
         "default-src 'none'",
-        ("script-src 'self' " + empreintes).strip(),
+        "script-src 'self'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self'",
-        "connect-src 'self'" + origine,
+        " ".join(["connect-src 'self'"] + origines),
         "base-uri 'none'",
         "form-action 'none'",
         "frame-ancestors 'none'",
