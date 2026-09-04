@@ -8,12 +8,12 @@ lui donner le socket Docker.
 `job.json` EST ÉCRIT EN DERNIER, par rename atomique : le worker ne déclenche
 que sur sa présence, et sans cet ordre il lirait un `submission.c` à moitié
 écrit et rendrait une erreur de compilation fantôme, une fois sur cent, à
-l'étudiant qui n'y est pour rien. Ce module lit ; l'écriture arrive avec le
-routeur de soumission.
+l'étudiant qui n'y est pour rien.
 """
 
 import json
 import os
+import uuid
 
 import config
 from services.catalogue import validate_files
@@ -90,3 +90,29 @@ def job_sources(job_id, entry):
         return {}
     files, message, _ = validate_files(entry, submitted)
     return files if message is None else {}
+
+
+def ecrire_job(tp, nom, blob, owner=None):
+    """Écrit le job et rend son identifiant. `job.json` EN DERNIER, par rename.
+
+    Le worker ne déclenche que sur la présence de `job.json`. Sans cet ordre il
+    lirait un `submission.c` à moitié écrit et rendrait une erreur de
+    compilation fantôme, une fois sur cent, à l'étudiant qui n'y est pour rien.
+
+    `owner` VIENT DU JETON VALIDÉ, jamais du corps de la requête -- c'est ce qui
+    rattache une tentative à un compte sans qu'on puisse se rattacher à celui
+    d'un autre. Borné ici aussi : il devient la moitié d'une clé primaire.
+    """
+    job_id = uuid.uuid4().hex
+    chemin = os.path.join(config.SPOOL, job_id)
+    os.mkdir(chemin, 0o755)
+    with open(os.path.join(chemin, nom), "wb") as fh:
+        fh.write(blob)
+    tmp = os.path.join(chemin, "job.json.tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        job = {"tp": tp}
+        if isinstance(owner, str) and 0 < len(owner) <= 128:
+            job["owner"] = owner
+        json.dump(job, fh)
+    os.replace(tmp, os.path.join(chemin, "job.json"))
+    return job_id

@@ -14,13 +14,27 @@ passer deux fois ce qu'il annonce. C'est pour ça que le lancement vit ici, dans
 `__main__`, et pas dans une ligne de commande que quelqu'un recopiera un jour
 avec `--workers 4`. Le jour où un deuxième processus est vraiment nécessaire,
 c'est Redis ou Postgres qui tient ces compteurs, pas uvicorn.
+
+LES ENDPOINTS SONT `def`, PAS `async def`, et c'est délibéré. Starlette exécute
+alors chacun dans son threadpool, ce qui laisse `etat.py` synchrone : ses CTE
+modifiantes, son `INSERT ... SELECT` dont le `WHERE` EST le contrôle d'accès et
+ses GRANT de colonne sont éprouvés contre un vrai Postgres par
+`test_postgres.py`. Les réécrire en SQLAlchemy async remplacerait du SQL prouvé
+par du SQL à prouver, dans la seule couche où une erreur donne accès aux données
+de quelqu'un d'autre.
 """
 
+import os
+import sys
+
 import config
+import deps
 import headers
+import security
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from routers import sante
+from routers import (catalogue, compte, forum, page, progression, sante,
+                     soumission)
 from starlette.exceptions import HTTPException
 
 
@@ -35,6 +49,11 @@ def create_app():
         openapi_url="/openapi.json" if config.DOCS else None,
     )
     app.add_middleware(headers.EnTetes)
+
+    @app.exception_handler(deps.Refus)
+    async def _refus(request, exc):
+        """Nos propres refus : 401, 403, 429, 503, avec leur `retry_after`."""
+        return headers.erreur(exc.code, exc.message, **exc.extra)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request, exc):
@@ -62,14 +81,51 @@ def create_app():
     # 404 sur tout chemin inconnu.
 
     app.include_router(sante.router)
+    app.include_router(catalogue.router)
+    app.include_router(soumission.router)
+    app.include_router(compte.router)
+    app.include_router(progression.router)
+    app.include_router(forum.router)
+    # EN DERNIER, ET SEULEMENT S'IL Y A UNE PAGE À SERVIR. Ce routeur finit par
+    # un attrape-tout `/{nom:path}` : monté plus haut, il masquerait toutes les
+    # routes déclarées après lui. Sans `CTESTER_PAGE`, cette origine ne répond
+    # plus que sur des données -- l'état visé par la séparation front/back.
+    if config.PAGE:
+        app.include_router(page.router)
     return app
 
 
 app = create_app()
 
 
+def _avertir():
+    """Ce qu'un déploiement à moitié configuré doit dire dans `docker logs`.
+
+    UNE FONCTIONNALITÉ FACULTATIVE MAL CONFIGURÉE NE DOIT PAS EMPORTER LE JUGE.
+    Refuser de démarrer sur une faute de frappe dans une variable OIDC
+    empêcherait tout le monde de tester du code, pour une fonctionnalité que
+    personne n'a encore utilisée ce jour-là. Elle se tait donc, mais bruyamment.
+    """
+    if config.OIDC_ISSUER and not security.oidc_enabled():
+        print("connexion desactivee : il faut CTESTER_OIDC_ISSUER en https,"
+              " CTESTER_OIDC_CLIENT_ID et CTESTER_DB_DSN", file=sys.stderr)
+    # « Personne ne clique dessus » et « il n'existe pas » se ressemblent trop
+    # de l'extérieur pour qu'on laisse deviner lequel des deux.
+    if security.oidc_enabled() and not config.FORUM_MODERATORS:
+        print("discussions desactivees : CTESTER_FORUM_MODERATORS est vide"
+              " (liste de `sub` OIDC separes par des virgules)", file=sys.stderr)
+    if config.DOCS:
+        print("ATTENTION : CTESTER_DOCS=1, /docs et /openapi.json sont publics",
+              file=sys.stderr)
+
+
 if __name__ == "__main__":
     import uvicorn
+
+    if not config.KEY:
+        raise SystemExit("CTESTER_KEY est vide : le service refuse de démarrer")
+    _avertir()
+    os.makedirs(config.SPOOL, exist_ok=True)
 
     uvicorn.run(
         app,
@@ -77,15 +133,14 @@ if __name__ == "__main__":
         port=config.PORT,
         # UN SEUL WORKER : voir le docstring de ce module.
         workers=1,
-        # `server_header` retire `Server: uvicorn`, `date_header` garde la date
-        # (les caches en ont besoin). Annoncer sa version de serveur ne sert que
-        # celui qui cherche une version vulnérable.
+        # `server_header` retire `Server: uvicorn` ; la date reste, les caches en
+        # ont besoin. Annoncer sa version de serveur ne sert que celui qui
+        # cherche une version vulnérable.
         server_header=False,
-        # Les en-têtes de proxy ne sont crus QUE de NPM. Sans cette borne,
-        # n'importe qui pourrait poser son propre `X-Forwarded-For` -- et
-        # `client_id()` s'en sert pour compter les quotas.
+        # Les en-têtes de proxy ne sont lus que derrière NPM. `client_id()` s'en
+        # sert pour compter les quotas -- et il préfère de toute façon
+        # `CF-Connecting-IP`, que Cloudflare écrase toujours.
         proxy_headers=True,
-        forwarded_allow_ips="*",
         # Silence sur le chemin heureux : le sondage de `/r/<id>` produit des
         # centaines de 200 par TP, qui noieraient tout ce qui est intéressant
         # dans `docker logs`. Les erreurs, elles, passent toujours.

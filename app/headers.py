@@ -17,6 +17,7 @@ PAS `CORSMiddleware` de Starlette, et c'est délibéré :
 
 import gzip
 import hashlib
+import os
 import re
 
 from starlette.datastructures import MutableHeaders
@@ -140,6 +141,19 @@ class EnTetes:
                     entetes["Cache-Control"] = "no-store"
             await send(message)
 
+        # LA BORNE DE CORPS EST ICI, AVANT TOUTE ANALYSE, et pour toute route.
+        # Uvicorn N'A PAS de limite de taille de corps : sans ce test, un POST
+        # annonçant 2 Go ferait lire 2 Go avant que la moindre validation ne
+        # s'exécute. Le poser une fois ici, plutôt qu'au début de chaque
+        # routeur, est ce qui garantit qu'une route ajoutée un soir de séance
+        # naît bornée.
+        if scope["method"] in ("POST", "PUT"):
+            trop = _corps_hors_bornes(scope)
+            if trop:
+                await _repondre(envoyer, 413,
+                                b'{"error": "corps trop gros ou vide"}')
+                return
+
         # LE PRÉFLIGHT NE PASSE PAS PAR LE ROUTEUR, et c'est ce qui le rend
         # correct. Une route attrape-tout `OPTIONS /{chemin:path}` ferait
         # répondre 405 à tout chemin INCONNU : Starlette retient la
@@ -148,22 +162,51 @@ class EnTetes:
         # mettrait alors à répondre « méthode non autorisée », ce qui est faux
         # et ce qui confirme au passage qu'il existe.
         if scope["method"] == "OPTIONS":
-            await envoyer({"type": "http.response.start", "status": 204,
-                           "headers": [(k.lower().encode(), v.encode())
-                                       for k, v in PREFLIGHT.items()]})
-            await envoyer({"type": "http.response.body", "body": b""})
+            await _repondre(envoyer, 204, b"", PREFLIGHT)
             return
 
         await self.app(scope, receive, envoyer)
 
 
-def erreur(code, message, cle="error"):
+def _corps_hors_bornes(scope):
+    """True si `Content-Length` manque, est illisible, ou sort des bornes.
+
+    Absent vaut « hors bornes » : une requête en `chunked` n'annonce pas sa
+    taille, et on ne lit pas un corps dont on ignore la longueur.
+    """
+    brut = b""
+    for nom, valeur in scope["headers"]:
+        if nom == b"content-length":
+            brut = valeur
+            break
+    try:
+        longueur = int(brut)
+    except ValueError:
+        return True
+    return not 0 < longueur <= config.MAX_CODE + 4096
+
+
+async def _repondre(envoyer, code, corps, entetes=None):
+    """Une réponse complète depuis le middleware, sans passer par le routeur."""
+    lignes = [(b"content-length", str(len(corps)).encode())]
+    if corps:
+        lignes.append((b"content-type", b"application/json; charset=utf-8"))
+    lignes += [(k.lower().encode(), v.encode())
+               for k, v in (entetes or {}).items()]
+    await envoyer({"type": "http.response.start", "status": code,
+                   "headers": lignes})
+    await envoyer({"type": "http.response.body", "body": corps})
+
+
+def erreur(code, message, cle="error", **extra):
     """Le corps d'erreur que la page attend : `{"error": "..."}`, et rien d'autre.
 
     UNE SEULE FORME, parce que `app.js` lit `out.error` et affiche ce qu'il y
-    trouve. `cle` n'existe que pour `_result`, qui répond `{"state": ...}`.
+    trouve. `cle` n'existe que pour le sondage de verdict, qui répond
+    `{"state": ...}` ; `extra` porte `retry_after` sur un 429, dont la page se
+    sert pour dire combien de temps attendre au lieu d'inviter à recliquer.
     """
-    return JSONResponse({cle: message}, status_code=code)
+    return JSONResponse(dict({cle: message}, **extra), status_code=code)
 
 
 def fichier(request, body, ctype, issuer=""):
@@ -206,3 +249,26 @@ def fichier(request, body, ctype, issuer=""):
     if comprime:
         entetes["Content-Encoding"] = "gzip"
     return Response(body, media_type=ctype, headers=entetes)
+
+
+def fichier_du_disque(request, base, nom, ctype, issuer=""):
+    """Un fichier du disque, et `base` DIT LEQUEL DES DEUX RÉPERTOIRES.
+
+    Pas de défaut, exprès : la page (`config.PAGE`) et le catalogue publié par
+    le worker (`config.STATIC`) vivent à part depuis que `web/` est destiné à
+    GitHub Pages, et les deux passent par ici. Un défaut ferait chercher
+    `tp/<id>.json` dans le répertoire de la page -- un 500 sur chaque consigne
+    et chaque quiz, en production seulement, parce qu'un harnais qui monte les
+    deux au même endroit ne peut pas le voir.
+
+    `nom` NE VIENT JAMAIS DE L'URL telle quelle : les appelants le
+    reconstruisent depuis le catalogue ou depuis une liste close. Il n'y a donc
+    pas de chemin à traverser, et pas de `..` à filtrer -- filtrer voudrait dire
+    qu'on accepte une entrée, ce qu'on ne fait pas.
+    """
+    try:
+        with open(os.path.join(base, nom), "rb") as fh:
+            corps = fh.read()
+    except OSError:
+        return erreur(500, "fichier manquant")
+    return fichier(request, corps, ctype, issuer)

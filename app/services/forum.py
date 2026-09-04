@@ -14,7 +14,6 @@ aux messages déjà en base.
 """
 
 import config
-import etat
 from security import is_moderator, oidc_enabled
 
 
