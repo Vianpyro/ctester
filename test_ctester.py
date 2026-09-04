@@ -956,7 +956,10 @@ def test_http_end_to_end():
                   encoding="utf-8") as fh:
             fh.write("// " + chemin)
 
-    app.SPOOL, app.STATIC, app.KEY, app.QUEUE_MAX = spool, static, "cle-de-test", 4
+    # Un seul répertoire pour les deux : le catalogue et la page vivent à part
+    # dans le dépôt (`app/` et `web/`), mais ce harnais n'éprouve pas le montage.
+    app.SPOOL, app.STATIC, app.PAGE = spool, static, static
+    app.KEY, app.QUEUE_MAX = "cle-de-test", 4
     app.Handler.quota = app.Quota(cooldown=0, hourly=100)  # testés ailleurs
     srv = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -1574,9 +1577,9 @@ def test_forum_bibliotheques_epinglees():
     `VENDOR`, `forum.js` et le disque fait echouer la suite tout de suite.
     """
     assert len(app.VENDOR) == 2, app.VENDOR
-    source = lire(os.path.join(HERE, "app", "forum.js"))
+    source = lire(os.path.join(HERE, "web", "forum.js"))
     for chemin in app.VENDOR:
-        sur_disque = os.path.join(HERE, "app", *chemin.split("/"))
+        sur_disque = os.path.join(HERE, "web", *chemin.split("/"))
         assert os.path.exists(sur_disque), chemin
         assert '"' + chemin + '"' in source, chemin
         # Le nom PORTE la version : c'est ce qui rend l'epinglage impossible a
@@ -1595,7 +1598,7 @@ def test_csp_du_document():
     casse le theme, et une CSP qui oublie l'emetteur OIDC casse la connexion,
     toutes deux en silence.
     """
-    page = lire(os.path.join(HERE, "app", "index.html")).encode()
+    page = lire(os.path.join(HERE, "web", "index.html")).encode()
     politique = app.csp(page, "https://auth.exemple/auth/v1")
     assert "default-src 'none'" in politique
     assert "'sha256-" in politique, politique

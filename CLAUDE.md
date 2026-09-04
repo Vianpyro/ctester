@@ -23,8 +23,8 @@ La page est en sept fichiers, tous servis par la liste blanche de `do_GET` :
 `index.html` (le markup seul), `style.css`, `app.js` (le noyau), puis `quiz.js`,
 `compte.js`, `progres.js` et `forum.js`, que le noyau va chercher **à la
 demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
-`app/vendor/` (marked et DOMPurify), servies par la même liste blanche et
-chargées seulement à l'ouverture des discussions — voir `app/vendor/README.md`.
+`web/vendor/` (marked et DOMPurify), servies par la même liste blanche et
+chargées seulement à l'ouverture des discussions — voir `web/vendor/README.md`.
 Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
 le navigateur reçoit.
 
@@ -152,7 +152,7 @@ exercice qu'on voit est un exercice qu'on peut soumettre.
 ```sh
 CTESTER_APERCU=1 CTESTER_TESTS=../unittests CTESTER_APP=app \
   python3 -c 'import runner; runner.publish_catalogue()'
-CTESTER_KEY=dev CTESTER_STATIC=app python3 app/app.py
+CTESTER_KEY=dev CTESTER_STATIC=app CTESTER_PAGE=web python3 app/app.py
 ```
 
 Pour de vrais verdicts il faut en plus un worker (Docker + gVisor) ; sans eux,

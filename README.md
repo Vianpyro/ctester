@@ -15,9 +15,9 @@ runbook, pièges de compilation déjà payés — voir [`CLAUDE.md`](CLAUDE.md).
 
 ```
 app/app.py        l'API, dans le conteneur exposé (uid 65534)
-app/index.html    la page : le markup seul, une centaine de lignes
-app/style.css     sa feuille de style
-app/app.js        son script : editeur, verdict, soumission
+web/index.html    la page : le markup seul, une centaine de lignes
+web/style.css     sa feuille de style
+web/app.js        son script : editeur, verdict, soumission
 app/quiz.js       le mode quiz, chargé quand un exercice de ce mode s'ouvre
 app/compte.js     OIDC et « Mes exercices », chargés seulement si on se connecte
 app/progres.js    « Mes progrès », chargé seulement quand on l'ouvre
@@ -109,7 +109,7 @@ serait une identité, en plus petit.
 **Le rendu est du Markdown restreint, assaini à chaque affichage.** Les messages
 sont stockés sous leur forme source ; le navigateur les rend avec `marked` puis
 `DOMPurify`, tous deux épinglés par version et servis depuis cette origine
-(`app/vendor/`, jamais un CDN — la CSP dit `script-src 'self'`). Le HTML brut est
+(`web/vendor/`, jamais un CDN — la CSP dit `script-src 'self'`). Le HTML brut est
 échappé avant l'analyse, l'allow-list est fermée (`p br strong em ul ol li
 blockquote code a`), les liens sont limités à `http(s)` et reçoivent
 `rel="noopener noreferrer"`. Si l'une des deux bibliothèques n'arrive pas, tout

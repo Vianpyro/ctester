@@ -30,6 +30,11 @@ import politique
 
 SPOOL = os.environ.get("CTESTER_SPOOL", "/spool")
 STATIC = os.environ.get("CTESTER_STATIC", "/app")
+# LA PAGE VIT AILLEURS QUE LE CATALOGUE depuis que `web/` est publié à part.
+# `STATIC` reste le répertoire du catalogue (écrit par le worker) ; `PAGE`
+# n'existe que le temps de la bascule vers GitHub Pages, et disparaît avec
+# `_file` quand l'origine ne servira plus que des données.
+PAGE = os.environ.get("CTESTER_PAGE", "/web")
 KEY = os.environ.get("CTESTER_KEY", "")
 COOLDOWN = int(os.environ.get("CTESTER_COOLDOWN", "15"))
 HOURLY = int(os.environ.get("CTESTER_HOURLY_QUOTA", "40"))
@@ -68,7 +73,7 @@ FORUM_HOURLY = int(os.environ.get("CTESTER_FORUM_HOURLY_QUOTA", "20"))
 FORUM_MAX_FIL = 200
 
 # LES DEUX BIBLIOTHÈQUES DU RENDU, ÉPINGLÉES DANS LEUR NOM DE FICHIER. Elles
-# vivent dans le dépôt (`app/vendor/`, voir son README) et sont servies depuis
+# vivent dans le dépôt (`web/vendor/`, voir son README) et sont servies depuis
 # cette origine : la CSP dit `script-src 'self'`, donc un CDN serait bloqué, et
 # c'est voulu. Monter de version demande de toucher à cette liste ET à
 # `forum.js` -- une mise à jour d'assainisseur HTML ne doit pas se faire par
@@ -904,7 +909,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _file(self, name, ctype):
         try:
-            with open(os.path.join(STATIC, name), "rb") as fh:
+            with open(os.path.join(PAGE, name), "rb") as fh:
                 body = fh.read()
         except OSError:
             self._json(500, {"error": "fichier manquant"})
@@ -983,7 +988,7 @@ class Handler(BaseHTTPRequestHandler):
             # qui annonce une autre étiquette que le GET est un piège à
             # revalidation. D'où le même code, sans le corps.
             try:
-                with open(os.path.join(STATIC, "index.html"), "rb") as fh:
+                with open(os.path.join(PAGE, "index.html"), "rb") as fh:
                     body = fh.read()
             except OSError:
                 self.send_response(500)

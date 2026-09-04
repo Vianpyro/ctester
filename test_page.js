@@ -3,7 +3,7 @@
 // cette page ait connue en production était une ReferenceError de zone morte
 // temporelle -- une erreur d'exécution, pas de syntaxe.
 //
-//   node test_page.js [app/]
+//   node test_page.js [web/]
 //
 // La page est en TROIS fichiers depuis qu'elle a ete decoupee, et chacun porte
 // un contrat different : `html` les identifiants et l'ordre du document, `css`
@@ -13,7 +13,7 @@
 process.env.TZ = "America/Toronto";
 const fs = require("fs");
 
-const APP = process.argv[2] || __dirname + "/app";
+const APP = process.argv[2] || __dirname + "/web";
 const lire = (nom) => fs.readFileSync(APP + "/" + nom, "utf8");
 const html = lire("index.html");
 const css = lire("style.css");
