@@ -274,6 +274,11 @@ PREFIX_RE = re.compile(r"\A\s*TP\s*\d+\s*[:—\-]\s*", re.I)
 CONFORME_RE = re.compile(r"\Atp\d", re.I)
 CHUNKS_RE = re.compile(r"(\d+)")
 BONUS_ROOT = "bonus"
+# Un bonus SITUÉ quelque part vaut mieux qu'un bonus dans un tiroir à part : la
+# note en prose ("Mini-défi de niveau TP2") ne franchissait jamais la
+# frontière du catalogue -- personne ne la lisait jamais que l'auteur. Ce champ
+# la remplace par quelque chose que le menu affiche.
+RELATED_TP_RE = re.compile(r"\Atp(\d+)\Z", re.I)
 
 
 def sort_key(name):
@@ -294,9 +299,16 @@ def sort_key(name):
     return (0 if CONFORME_RE.match(name) else 1, morceaux)
 
 
-def group_of(name):
+def group_of(name, conf=None):
+    """Le groupe du menu -- voir sort_key pour le tri qui s'appuie dessus.
+
+    Un bonus qui déclare `related_tp` (« tp2 ») rejoint « Bonus · TP 2 » plutôt
+    que le fourre-tout « Bonus » : c'est ce sous-groupe, pas une phrase dans le
+    JSON que personne ne lit, qui affirme le niveau auquel il correspond.
+    """
     if name.startswith(BONUS_ROOT + "-"):
-        return "Bonus"
+        related = RELATED_TP_RE.match(str((conf or {}).get("related_tp", "")))
+        return "Bonus · TP " + related.group(1) if related else "Bonus"
     match = ORDER_RE.match(name)
     return "TP " + match.group(1) if match else "Autres"
 
@@ -394,7 +406,7 @@ def catalogue(tout=False):
             # deviennent les onglets de l'éditeur ET la liste blanche que l'API
             # oppose à une soumission.
             "files": files,
-            "group": group_of(name),
+            "group": group_of(name, conf),
             # Libellé pour le second menu, sans le « TP2 : » que le premier
             # affiche déjà. Purement cosmétique : si le préfixe n'est pas là, on
             # garde le libellé entier et rien n'est perdu.

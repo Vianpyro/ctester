@@ -550,6 +550,9 @@ def test_catalogue_order_and_grouping():
     assert runner.group_of("tp2-ex3") == "TP 2"
     assert runner.group_of("tp10") == "TP 10"
     assert runner.group_of("bricolage") == "Autres"
+    assert runner.group_of("bonus-1") == "Bonus"
+    assert runner.group_of("bonus-1", {"related_tp": "tp2"}) == "Bonus · TP 2"
+    assert runner.group_of("bonus-1", {"related_tp": "n'importe quoi"}) == "Bonus"
 
     desordre = ["tp10-ex1", "tp2-ex3", "tp1", "tp2-ex0", "tp13-ex0", "bricolage"]
     assert sorted(desordre, key=runner.sort_key) == [
@@ -671,12 +674,13 @@ def test_bonus_catalogue_is_explicit_and_always_open():
         os.makedirs(dossier)
         with open(os.path.join(dossier, "io.json"), "w", encoding="utf-8") as fh:
             json.dump({"label": "Bonus : Clash 1", "cases": [],
+                       "related_tp": "tp2",
                        "learning": {"skills": ["variables"],
                                     "context": "mechanical",
                                     "difficulty": "foundation"}}, fh)
         entries = runner.catalogue()
         assert [entry["id"] for entry in entries] == ["bonus-bonus-1"]
-        assert entries[0]["group"] == "Bonus"
+        assert entries[0]["group"] == "Bonus · TP 2"
         assert runner.tp_path("bonus-bonus-1") == dossier
     finally:
         runner.TESTS = ancien
