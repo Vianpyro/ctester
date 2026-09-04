@@ -7,6 +7,11 @@
 #   codeql  l'analyse statique. Ce dépôt sert une API exposée à Internet sur
 #           une infra personnelle ; un scan sur le chemin de la requête vaut
 #           mieux qu'une relecture une fois par an.
+#   pages   publie `web/` sur GitHub Pages. DANS CE FICHIER et pas dans un
+#           workflow à part : `needs: tests` est alors la garantie, en une
+#           ligne, qu'une page cassée ne se déploie pas toute seule. Un
+#           `workflow_run` séparé aurait demandé un aiguillage pour dire la
+#           même chose.
 #
 # LES PERMISSIONS SONT AU PLUS BAS À LA RACINE et remontées job par job. Un
 # workflow qui laisse le GITHUB_TOKEN en écriture par défaut donne ce droit à
@@ -39,8 +44,16 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      # Pas d'action pour node : test_page.js est du CommonJS sans dépendance et
-      # le runner en fournit déjà un. Une version de moins à tenir à jour.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      # jsdom, ET RIEN D'AUTRE. DOMPurify refuse de travailler sans DOM :
+      # `isSupported` passe à faux et `sanitize()` rend son entrée telle
+      # quelle. Un harnais qui tournerait dans cet état écrirait « aucune
+      # injection ne passe » sans avoir rien assaini. L'APPLICATION, elle, n'a
+      # aucune dépendance npm.
+      - run: npm ci
       - run: python3 test_ctester.py
       - run: node test_page.js
 
@@ -59,3 +72,34 @@ jobs:
           # Pas d'autobuild : rien ici ne se compile.
           languages: python, javascript-typescript
       - uses: github/codeql-action/analyze@v4
+
+  # LE DÉPLOIEMENT DE LA PAGE. Aucun build : l'artefact est `web/` tel quel,
+  # c'est-à-dire exactement ce que le dépôt contient. Rien n'est compilé, rien
+  # n'est assemblé, rien n'est minifié -- ce que la revue lit est ce que le
+  # navigateur reçoit.
+  pages:
+    needs: tests
+    # Seulement sur `main`, jamais sur une PR : une PR ne doit pas pouvoir
+    # publier. Le job est alors sauté et n'apparaît pas en échec.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write    # l'OIDC que deploy-pages échange, pas un secret stocké
+    environment:
+      name: github-pages
+      url: ${{ steps.deploiement.outputs.page_url }}
+    # Le `concurrency` de la racine porte déjà sur `workflow-ref` : deux pushes
+    # rapprochés sur `main` s'annulent l'un l'autre, ce qui est le comportement
+    # voulu pour un déploiement.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: web
+      - uses: actions/deploy-pages@v4
+        id: deploiement

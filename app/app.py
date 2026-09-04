@@ -35,6 +35,16 @@ STATIC = os.environ.get("CTESTER_STATIC", "/app")
 # n'existe que le temps de la bascule vers GitHub Pages, et disparaît avec
 # `_file` quand l'origine ne servira plus que des données.
 PAGE = os.environ.get("CTESTER_PAGE", "/web")
+
+# LES ORIGINES AUTORISEES A APPELER CETTE API, jamais `*` : chaque requete
+# authentifiee porte un `Authorization`, et `*` l'ouvrirait a n'importe quelle
+# page du web. Une origine absente de cette liste ne recoit AUCUN en-tete CORS
+# -- le navigateur bloque alors de lui-meme -- plutot qu'un 403 : on ne
+# transforme pas un reglage oublie en panne opaque cote serveur.
+ORIGINS = tuple(o.strip().rstrip("/") for o in os.environ.get(
+    "CTESTER_ORIGINS",
+    "https://tch009.thevhome.com,https://vianpyro.github.io").split(",")
+    if o.strip())
 KEY = os.environ.get("CTESTER_KEY", "")
 COOLDOWN = int(os.environ.get("CTESTER_COOLDOWN", "15"))
 HOURLY = int(os.environ.get("CTESTER_HOURLY_QUOTA", "40"))
@@ -834,6 +844,50 @@ def csp(body, issuer=""):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "ctester"
+
+    def end_headers(self):
+        """CORS et `Vary`, poses ici pour TOUTE reponse -- 200, 304, erreur.
+
+        Un seul endroit parce que les en-tetes partent de cinq endroits
+        (`_json`, les deux branches de `_send_file`, `do_HEAD`, `send_error`) et
+        qu'une reponse sans en-tete CORS est une panne invisible cote serveur :
+        seul le navigateur de l'etudiant la voit.
+
+        UN SEUL EN-TETE `Vary`, et il annonce les deux axes. Deux lignes `Vary`
+        separees sont legales mais mal recombinees par certains caches, et un
+        cache qui perd `Origin` sert la reponse d'une origine a une autre.
+        `Accept-Encoding` y reste meme sur les reponses non compressees : la
+        constante est juste partout, une valeur calculee serait un `if` de plus
+        sur le chemin de chaque reponse.
+
+        PAS de `Access-Control-Allow-Credentials` : il n'y a aucun cookie ici,
+        le jeton voyage en en-tete `Authorization`. L'ajouter obligerait a
+        renoncer a `*` -- ce qu'on fait deja -- sans rien apporter.
+        """
+        origine = self.headers.get("Origin", "").rstrip("/")
+        if origine and origine in ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origine)
+        self.send_header("Vary", "Accept-Encoding, Origin")
+        super().end_headers()
+
+    def do_OPTIONS(self):  # noqa: N802 -- impose par BaseHTTPRequestHandler
+        """Le preflight, pour toute route : 204 et rien d'autre.
+
+        `Max-Age` a 86400 est ce qui empeche la separation de couter un
+        aller-retour de plus par requete : sans lui, chaque PUT et chaque DELETE
+        en paierait un. DELETE est dans la liste et doit y rester -- `compte.js`
+        supprime un compte, `forum.js` un message, et l'oubli ne casserait que
+        le cross-origin, c'est-a-dire seulement la production.
+        """
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Methods",
+                         "GET, POST, PUT, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers",
+                         "Authorization, Content-Type")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     quota = Quota(COOLDOWN, HOURLY)
     # Draft and state writes are cheap -- no compiler, no container -- so they
     # get their own, far looser limiter. It exists to bound abuse, not to pace
@@ -949,7 +1003,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(304)
             self.send_header("ETag", etiquette)
             self.send_header("Cache-Control", "no-cache")
-            self.send_header("Vary", "Accept-Encoding")
             # SUR LE 304 AUSSI. Le navigateur rejoue la réponse gardée en la
             # mettant à jour avec ces en-têtes ; une CSP qui n'apparaîtrait que
             # sur le 200 disparaîtrait donc dès la deuxième visite, c'est-à-dire
@@ -964,7 +1017,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
         self.send_header("ETag", etiquette)
-        self.send_header("Vary", "Accept-Encoding")
         if politique:
             self.send_header("Content-Security-Policy", politique)
         if comprime:

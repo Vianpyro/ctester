@@ -19,10 +19,17 @@ Rien à compiler, rien à lier : `app/app.py`, `app/etat.py` et `app/politique.p
 sont bibliothèque standard + `psycopg` (et `psycopg` seulement si
 `CTESTER_DB_DSN` est là).
 
-La page est en sept fichiers, tous servis par la liste blanche de `do_GET` :
-`index.html` (le markup seul), `style.css`, `app.js` (le noyau), puis `quiz.js`,
-`compte.js`, `progres.js` et `forum.js`, que le noyau va chercher **à la
-demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
+**La page vit dans `web/`, l'API dans `app/`**, et c'est la séparation en cours
+(voir `docs/split-front_back/plan.md`) : `web/` est destiné à GitHub Pages,
+`app/` reste sur le Dell. Tant que les deux ne sont pas séparés, `app.py` sert
+encore les deux — la page depuis `CTESTER_PAGE` (`/web`), le catalogue depuis
+`CTESTER_STATIC` (`/app`). Deux variables, deux montages : confondre les deux
+fait servir un `tps.json` introuvable, ou une page introuvable.
+
+La page est en huit fichiers, tous servis par la liste blanche de `do_GET` :
+`index.html` (le markup seul), `style.css`, `config.js` (l'adresse de l'API),
+`app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js` et `forum.js`,
+que le noyau va chercher **à la demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
 `web/vendor/` (marked et DOMPurify), servies par la même liste blanche et
 chargées seulement à l'ouverture des discussions — voir `web/vendor/README.md`.
 Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
@@ -513,6 +520,52 @@ python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?
 grep -rl answer /opt/ctester/src/app/*.json /opt/ctester/src/app/quiz/ \
                 /opt/ctester/src/app/tp/     # DOIT ne rien trouver
 ```
+
+## L'adresse de l'API et CORS
+
+**`web/config.js` est le SEUL endroit où vit l'adresse de l'API**, et il décrit
+ce que chaque déploiement est vraiment, pas la cible :
+
+| Hôte | `CTESTER_API` | Pourquoi |
+|---|---|---|
+| `tch009.thevhome.com` | `""` | le Dell sert encore la page ET l'API : même origine, chemins relatifs |
+| `*.github.io` | `https://tch099.thevhome.com` | déploiement de préparation, déjà séparé |
+| tout le reste | `""` | `CTESTER_PAGE=web python3 app/app.py` |
+
+`window.API(chemin)` préfixe, et **rien d'autre** : les modules chargés à la
+demande et les deux vendor sont à côté de la page, donc `charger()` ne change
+pas. Les deux `fetch` OIDC de `compte.js` (découverte, token endpoint) portent
+des URL absolues venues de l'émetteur — **ne pas** les préfixer.
+
+`tch099` et pas `api.tch009` : le certificat universel de Cloudflare couvre
+`thevhome.com` et `*.thevhome.com`, **une seule étiquette**. Deux étiquettes
+demanderaient Advanced Certificate Manager.
+
+**CORS tient en deux méthodes, et `end_headers()` en est une.** Les en-têtes
+partent de cinq endroits (`_json`, les deux branches de `_send_file`, `do_HEAD`,
+`send_error`) : les poser dans `end_headers` est le seul moyen qu'aucune réponse
+ne les oublie, **304 compris** — sans ça CORS disparaîtrait dès la deuxième
+visite, comme la CSP avant lui.
+
+- `CTESTER_ORIGINS`, liste séparée par des virgules, **jamais `*`** : chaque
+  requête de compte porte un `Authorization`. Une origine inconnue ne reçoit
+  **aucun** en-tête et le navigateur bloque de lui-même ; pas de 403, un réglage
+  oublié ne doit pas ressembler à une panne de service.
+- **Un seul en-tête `Vary`, et il annonce les deux axes** (`Accept-Encoding,
+  Origin`). Deux lignes `Vary` séparées sont légales mais mal recombinées par
+  certains caches, et un cache qui perd `Origin` sert la réponse d'une origine à
+  une autre.
+- `do_OPTIONS` répond 204 pour toute route. **`DELETE` est dans
+  `Allow-Methods` et doit y rester** : `compte.js` supprime un compte,
+  `forum.js` un message. L'oublier ne casse que le cross-origin — donc
+  seulement la production, et seulement ces deux boutons-là.
+- **Pas de `Allow-Credentials`** : aucun cookie ici, le jeton voyage en en-tête.
+- Le préflight est mis en cache 24 h (`Max-Age`) : sans lui, chaque PUT et
+  chaque DELETE paierait un aller-retour de plus.
+
+Le tout est éprouvé dans `test_http_end_to_end` de `test_ctester.py` (origine
+connue, origine inconnue, 304, préflight) et les trois branches de `config.js`
+à la fin de `test_page.js`.
 
 ## La page — ce qui est fragile
 

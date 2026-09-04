@@ -1056,12 +1056,59 @@ def test_http_end_to_end():
         # intermédiaire servirait l'un en croyant valider l'autre.
         code, zippe = entetes_de("/app.js", {"Accept-Encoding": "gzip"})
         assert code == 200 and zippe["Content-Encoding"] == "gzip"
-        assert zippe["Vary"] == "Accept-Encoding"
+        # UN SEUL EN-TETE, LES DEUX AXES : `end_headers` le pose pour toute
+        # reponse. Deux lignes `Vary` separees se perdent dans les caches.
+        assert zippe["Vary"] == "Accept-Encoding, Origin"
         assert zippe["ETag"] != entetes_de("/app.js")[1]["ETag"]
         assert entetes_de("/app.js", {"Accept-Encoding": "gzip",
                                       "If-None-Match": zippe["ETag"]})[0] == 304
         # L'étiquette compressée ne doit PAS valider la version en clair.
         assert entetes_de("/app.js", {"If-None-Match": zippe["ETag"]})[0] == 200
+
+        # --- CORS : ce qui rend la page servie par GitHub Pages possible. ---
+        # Une origine autorisee recoit l'en-tete, une inconnue n'en recoit
+        # AUCUN. Pas de 403 : le navigateur bloque de lui-meme, et un 403 ferait
+        # passer un reglage oublie pour une panne de l'API.
+        connue = "https://tch009.thevhome.com"
+        _, avec = entetes_de("/tps.json", {"Origin": connue})
+        assert avec["Access-Control-Allow-Origin"] == connue
+        assert avec["Vary"] == "Accept-Encoding, Origin"
+        # PAS de credentials : aucun cookie ici, le jeton est en en-tete.
+        assert "Access-Control-Allow-Credentials" not in avec
+        _, sans = entetes_de("/tps.json", {"Origin": "https://mechant.example"})
+        assert "Access-Control-Allow-Origin" not in sans
+        # Le `Vary` reste la meme si l'origine est refusee : sans lui, un cache
+        # servirait a l'origine autorisee la reponse mise en cache pour l'autre.
+        assert sans["Vary"] == "Accept-Encoding, Origin"
+        # Sur un 304 AUSSI, sinon CORS disparait des la deuxieme visite.
+        code, revalide = entetes_de(
+            "/app.js", {"Origin": connue, "If-None-Match": entetes_de("/app.js")[1]["ETag"]})
+        assert code == 304 and revalide["Access-Control-Allow-Origin"] == connue
+
+        def preflight(chemin, origine):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            conn.request("OPTIONS", chemin, None, {
+                "Origin": origine, "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization"})
+            resp = conn.getresponse()
+            resp.read()
+            conn.close()
+            return resp.status, dict(resp.getheaders())
+
+        code, pre = preflight("/forum", connue)
+        assert code == 204, code
+        assert pre["Access-Control-Allow-Origin"] == connue
+        # DELETE DOIT Y ETRE : `compte.js` supprime un compte, `forum.js` un
+        # message. L'oubli ne casserait que le cross-origin, donc seulement la
+        # production, et seulement pour ces deux boutons-la.
+        for methode in ("GET", "POST", "PUT", "DELETE", "OPTIONS"):
+            assert methode in pre["Access-Control-Allow-Methods"], methode
+        assert "Authorization" in pre["Access-Control-Allow-Headers"]
+        # Sans `Max-Age`, chaque PUT et chaque DELETE paierait un aller-retour
+        # de plus : c'est ce qui empeche la separation de couter une latence.
+        assert int(pre["Access-Control-Max-Age"]) >= 3600
+        assert "Access-Control-Allow-Origin" not in preflight(
+            "/forum", "https://mechant.example")[1]
 
         # Un HEAD qui annoncerait une autre politique que le GET serait un piège
         # à revalidation.
