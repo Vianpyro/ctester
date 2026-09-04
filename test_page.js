@@ -187,6 +187,11 @@ global.URLSearchParams = URLSearchParams;
 const timers = [];
 global.setTimeout = (fn) => timers.push(fn);
 global.clearTimeout = () => {};
+// Le battement du compteur de presence pose un setInterval : capture, jamais
+// execute. L'appel immediat de `battement()` au chargement suffit a prouver
+// que la requete part et que le chiffre s'affiche.
+global.setInterval = () => 0;
+global.clearInterval = () => {};
 const fireLastTimer = () => timers[timers.length - 1]();
 
 // Stockage en carton, avec un interrupteur de panne : navigation privée, quota
@@ -329,6 +334,9 @@ global.fetch = async (url, opts) => {
     return { ok: true, status: 200, json: async () => ({
       authorization_endpoint: "https://auth.example/authorize",
       token_endpoint: "https://auth.example/token" }) };
+  }
+  if (url === "live" || String(url).startsWith("live?")) {
+    return { ok: true, status: 200, json: async () => ({ n: 3 }) };
   }
   if (url === "oidc.json") {
     return { ok: true, status: 200, json: async () => OIDC_RESPONSE };
@@ -499,6 +507,13 @@ const attendre = async () => { await sleep(); await sleep(); };
         "et aucune bibliotheque de rendu n'est telechargee sans compte");
   check(charges.some(n => n.startsWith("quiz.js?")),
         "quiz.js, lui, arrive avec le premier exercice de ce mode");
+  // LE COMPTEUR DE PRESENCE est la seule chose que l'anonyme demande au
+  // serveur, et il s'affiche pour tout le monde. `/live` ne porte pas de jeton
+  // et ne touche aucune donnee de compte -- voir le bloc anonyme plus bas.
+  check(calls.some(c => String(c.url).startsWith("live")) &&
+        /en ligne/.test(nodes.live.textContent) && nodes.live.hidden === false,
+        "le compteur de presence s'affiche, meme sans compte : "
+        + nodes.live.textContent);
   // ET UN DETAIL QUI N'ARRIVE PAS NE BLOQUE RIEN : publication en retard,
   // reseau coupe. Les NOMS de fichiers viennent du catalogue, donc on peut
   // encore coller son code et soumettre -- c'est tout ce qu'on promet ici.

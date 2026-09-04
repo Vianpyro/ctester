@@ -45,6 +45,12 @@ h1 {
   margin: 0; white-space: nowrap;
 }
 .tagline { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+#live[hidden] { display: none; }
+#live::before {
+  content: ""; display: inline-block; width: .4rem; height: .4rem;
+  margin-right: .35rem; border-radius: 999px; background: #3fb950;
+  vertical-align: baseline;
+}
 .sep { width: 1px; align-self: stretch; background: var(--line); }
 .field { display: inline-flex; align-items: center; gap: .45rem; }
 .field label, .phead {
