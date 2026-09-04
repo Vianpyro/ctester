@@ -102,7 +102,7 @@ moderateur configure (`CTESTER_FORUM_MODERATORS`). Sans moderateur, le
 signalement n'aboutirait nulle part ; on n'ouvre pas le canal « en attendant ».
 
 **Aucune identite ne traverse.** Une publication s'annonce « Vous » a son auteur,
-« Participant » aux autres, « Equipe du cours » pour un moderateur. Ces trois
+« Participant » aux autres, « Enseignant » pour un moderateur. Ces trois
 mots sont derives par le serveur a partir du `sub` ; le `sub` lui-meme ne franchit
 jamais la frontiere HTTP, et il n'y a pas de pseudonyme persistant — ce serait
 une identite, en plus petit. Deux messages du meme etudiant ne sont pas

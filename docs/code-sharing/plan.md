@@ -10,7 +10,7 @@ librement en ferait un canal de distribution de solutions ; le publier
 comparaison d'approches entre gens qui ont déjà fait le travail.
 
 Deuxième besoin, du côté du chargé de laboratoire : pouvoir déposer sa propre
-implémentation comme **référence**, sous l'étiquette « Équipe du cours » déjà
+implémentation comme **référence**, sous l'étiquette « Enseignant » déjà
 réservée par `forum_identite()`, soumise aux **mêmes** règles d'accès que
 n'importe quel partage. Une seule règle à défendre, une seule à tester.
 

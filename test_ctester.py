@@ -1572,7 +1572,7 @@ def test_csp_du_document():
 
 
 def test_forum_vue_ne_laisse_sortir_aucun_sub():
-    """« Vous », « Participant », « Equipe du cours » -- et RIEN d'autre.
+    """« Vous », « Participant », « Enseignant » -- et RIEN d'autre.
 
     CE CONTROLE EST LA FRONTIERE DE CONFIDENTIALITE DU FORUM. Un `sub` qui
     traverse, meme dans un champ que personne n'affiche, rend deux messages
@@ -1592,7 +1592,7 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
                 "masque": True, "cree_le": "2026-09-03 10:03"}]
         vu = app.forum_vue(fil, "sub-alice", False)
         assert [m["auteur"] for m in vu] == [
-            "Vous", "Participant", "Équipe du cours"], vu
+            "Vous", "Participant", "Enseignant"], vu
         assert [m["mien"] for m in vu] == [True, False, False]
         # UN MESSAGE MASQUE N'EXISTE PAS pour un etudiant ordinaire.
         assert len(vu) == 3
@@ -1613,14 +1613,15 @@ def test_forum_identite_bornes_et_visibilite():
     """Le nom choisi et le numero de groupe : ce qui est accepte, ce qui sort.
 
     LA REGLE TIENT EN UNE LIGNE : rien ne s'affiche que son porteur n'ait
-    rendu visible -- sauf le numero de groupe pour l'equipe du cours, en tout
+    rendu visible -- sauf le numero de groupe pour l'enseignant, en tout
     temps, et c'est ecrit dans le formulaire.
     """
     assert app.forum_pseudo(None) == (None, None)
     assert app.forum_pseudo("   ") == (None, None)
     assert app.forum_pseudo("  Lea   B ") == ("Lea B", None)
     assert app.forum_pseudo("Lea" + chr(10) + "B")[0] == "Lea B"   # une ligne
-    for reserve in ("Vous", "participant", "Équipe du cours", "Anonyme"):
+    for reserve in ("Vous", "participant", "Enseignant", "Équipe du cours",
+                    "Anonyme"):
         assert app.forum_pseudo(reserve)[0] is None, reserve
     assert app.forum_pseudo("x" * (app.FORUM_PSEUDO_MAX + 1))[0] is None
     # La session n'ouvre que certains groupes (CTESTER_FORUM_GROUPES) ; hors
@@ -1976,13 +1977,13 @@ def test_http_forum():
         assert [a[3] for a in journal] == ["masquer", "retablir"], journal
         assert all(a[2] == "sub-mod" for a in journal), journal
 
-        # Un message de l'equipe s'annonce comme tel -- c'est la seule etiquette
+        # Un message de l'enseignant s'annonce comme tel -- c'est la seule etiquette
         # d'identite du forum, et elle porte un ROLE, pas une personne.
         assert call("POST", "/forum",
                     {"tp": "tp2-ex3", "texte": "Pense a relire la consigne."},
                     jeton="mod")[0] == 200
         assert [m["auteur"] for m in fil("alice")[1]["messages"]] == [
-            "Vous", "Participant", "Équipe du cours"]
+            "Vous", "Participant", "Enseignant"]
 
         # --- NOM CHOISI, NUMERO DE GROUPE, ET LE DROIT DE NE RIEN DIRE -----
         # L'ANONYMAT EST L'ETAT DE DEPART. Un profil jamais posé ne rend ni nom
@@ -1994,7 +1995,8 @@ def test_http_forum():
         # LES BORNES : une etiquette de l'interface ne se choisit pas, un nom
         # tient sur une ligne courte, et le groupe doit etre dans la liste de
         # la session (ici les defauts, 4 et 6).
-        for mauvais in ({"pseudo": "Équipe du cours"}, {"pseudo": "participant"},
+        for mauvais in ({"pseudo": "Enseignant"}, {"pseudo": "Équipe du cours"},
+                        {"pseudo": "participant"},
                         {"pseudo": "x" * (app.FORUM_PSEUDO_MAX + 1)},
                         {"groupe": 0}, {"groupe": 100}, {"groupe": "sept"},
                         {"groupe": 7}):

@@ -651,9 +651,10 @@ def forum_pseudo(brut):
     un message. Vide ou absent veut dire « pas de nom », pas une erreur -- c'est
     l'état par défaut et il reste offert.
 
-    Les étiquettes de l'interface sont réservées : un « Équipe du cours » choisi
+    Les étiquettes de l'interface sont réservées : un « Enseignant » choisi
     par un étudiant ferait passer son message pour une réponse du cours, et
-    aucune couleur ne rattrape ça.
+    aucune couleur ne rattrape ça. L'ancienne étiquette « Équipe du cours »
+    reste réservée elle aussi -- rien ne doit pouvoir la reprendre.
     """
     if brut is None:
         return None, None
@@ -705,8 +706,8 @@ def forum_identite(profil, sub, auteur, moderateur_lecteur):
     """(auteur affiché, numéro de groupe affiché, le nom est-il choisi).
 
     LA SEULE PLACE OÙ UN PROFIL DEVIENT PUBLIC. Un nom ne sort que si son
-    porteur l'a rendu visible ; le numéro de groupe sort en plus pour l'équipe
-    du cours, en tout temps, parce que c'est ce qui permet de rattacher un
+    porteur l'a rendu visible ; le numéro de groupe sort en plus pour
+    l'enseignant, en tout temps, parce que c'est ce qui permet de rattacher un
     problème à un groupe sans demander de nom à personne.
     """
     profil = profil or {}
@@ -715,7 +716,7 @@ def forum_identite(profil, sub, auteur, moderateur_lecteur):
     if auteur == sub:
         nom = "Vous"
     elif is_moderator(auteur):
-        nom = "Équipe du cours"
+        nom = "Enseignant"
     else:
         nom = pseudo if choisi else "Participant"
     groupe = profil.get("groupe")
@@ -728,7 +729,7 @@ def forum_identite(profil, sub, auteur, moderateur_lecteur):
 def forum_vue(messages, sub, moderateur, profils=None):
     """Ce qu'un fil devient pour CET appelant. AUCUN `sub` ne franchit cette ligne.
 
-    « Vous » pour son auteur, « Équipe du cours » pour un modérateur, et pour
+    « Vous » pour son auteur, « Enseignant » pour un modérateur, et pour
     les autres le nom qu'ils ont CHOISI D'AFFICHER, sinon « Participant ».
     Le nom et le numéro de groupe sont saisis par l'étudiant et n'apparaissent
     que s'il les a rendus visibles -- l'anonymat reste l'état par défaut, et
@@ -1182,7 +1183,7 @@ class Handler(BaseHTTPRequestHandler):
         if sub is None:
             return None
         if not is_moderator(sub):
-            self._json(403, {"error": "réservé à l'équipe du cours"})
+            self._json(403, {"error": "réservé à l'enseignant"})
             return None
         return sub
 
@@ -1329,7 +1330,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(503, {"error": "la base ne répond pas"})
             return
         # LE `sub` NE TRAVERSE PAS ICI NON PLUS : on recopie ce qui s'affiche
-        # (le nom signalé, l'équipe, la poignée du message), jamais la colonne
+        # (le nom signalé, le groupe, la poignée du message), jamais la colonne
         # `utilisateur` qui a servi à les joindre.
         self._json(200, {"signalements": signales, "noms": [
             {"id": n["id"], "pseudo": n["pseudo"], "groupe": n["groupe"],

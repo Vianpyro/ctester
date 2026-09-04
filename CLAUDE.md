@@ -297,9 +297,15 @@ vérifié se réclame depuis n'importe quel compte. La page reçoit bien un drap
 `moderateur`, mais il ne sert qu'à décider quoi dessiner.
 
 **Aucun `sub` ne franchit la frontière HTTP.** `forum_vue()` traduit l'auteur en
-« Vous » / « Équipe du cours » / le nom que l'étudiant a **choisi d'afficher**,
+« Vous » / « Enseignant » / le nom que l'étudiant a **choisi d'afficher**,
 sinon « Participant ». Un test l'éprouve en cherchant les `sub` dans la charge
 JSON — y compris dans la vue la plus renseignée, celle d'un modérateur.
+
+**L'étiquette du staff est « Enseignant », pas « équipe ».** Le mot « équipe »
+est laissé libre pour de futures équipes d'étudiants **au sein d'un groupe** (pas
+encore décidé) — l'étiquette du personnel ne doit pas entrer en collision avec.
+L'ancienne « Équipe du cours » reste dans `_PSEUDOS_RESERVES` pour que personne
+ne puisse la reprendre.
 
 **Le formulaire d'identité vit dans le menu Compte, pas dans la vue.**
 `#identitepanneau` est le même encart flottant que la charte et le consentement,
@@ -313,7 +319,7 @@ Discussions se contente de dire où le trouver.
 est un journal en ajout seul (la dernière ligne d'un compte fait foi) : un nom
 d'affichage, un numéro de groupe, et **deux** cases de visibilité
 indépendantes. Rien n'apparaît sans que son porteur l'ait coché — une seule
-exception, écrite dans le formulaire : **l'équipe du cours voit le numéro
+exception, écrite dans le formulaire : **l'enseignant voit le numéro
 de groupe en tout temps**, jamais le nom s'il n'est pas affiché.
 
 **`CTESTER_FORUM_GROUPES` fixe la liste des groupes de la session** (défaut
@@ -322,9 +328,9 @@ refuse tout autre numéro ; vide → champ libre 1 à 99 (l'ancien comportement)
 La colonne reste `SMALLINT CHECK (1..99)` — la liste d'une session ne vit pas
 dans le schéma. Cocher sans
 avoir écrit n'affiche rien (`app.py` refuse la visibilité d'un champ vide), et
-les étiquettes de l'interface (« Vous », « Participant », « Équipe du cours »)
-sont des noms réservés : un message qui se ferait passer pour une réponse du
-cours ne se rattrape par aucune couleur.
+les étiquettes de l'interface (« Vous », « Participant », « Enseignant », et
+l'ancienne « Équipe du cours ») sont des noms réservés : un message qui se
+ferait passer pour une réponse du cours ne se rattrape par aucune couleur.
 
 **Le `preferred_username` de Rauthy PRÉ-REMPLIT, il ne synchronise pas.**
 `current_name()` lit le claim déjà rapporté par `/userinfo` (aucun appel de

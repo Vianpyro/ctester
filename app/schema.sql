@@ -211,7 +211,7 @@ CREATE TABLE IF NOT EXISTS forum_moderation (
 -- et l'historique des changements de nom est précisément ce qu'une modération
 -- veut pouvoir relire.
 --
--- `par_moderateur` marque la ligne écrite par l'équipe du cours quand elle
+-- `par_moderateur` marque la ligne écrite par l'enseignant quand il
 -- efface un nom signalé. L'étudiant peut en choisir un autre ensuite : le
 -- récidiviste est une affaire humaine, pas une machine à états.
 CREATE TABLE IF NOT EXISTS forum_profil (

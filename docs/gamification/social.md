@@ -18,7 +18,7 @@ du forum ne lisent ni n'ecrivent les trois tables de la Phase 1, et le `GRANT`
 applicatif ne leur donne aucun privilege dessus.
 
 **Identite.** « Vous » pour son auteur, « Participant » pour les autres,
-« Equipe du cours » pour un moderateur. Ces trois mots sont derives par le
+« Enseignant » pour un moderateur. Ces trois mots sont derives par le
 serveur ; le `sub` ne franchit jamais la frontiere HTTP, et il n'y a **pas de
 pseudonyme persistant** — ce serait une identite, en plus petit. Deux messages du
 meme etudiant ne sont pas recollables par le client.
