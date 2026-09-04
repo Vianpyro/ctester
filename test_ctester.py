@@ -919,8 +919,15 @@ def test_http_end_to_end():
     from http.server import ThreadingHTTPServer
 
     tmp = tempfile.mkdtemp(prefix="ctester-")
-    spool, static = os.path.join(tmp, "spool"), os.path.join(tmp, "app")
+    # DEUX REPERTOIRES, COMME EN PRODUCTION : le catalogue publie par le worker
+    # (`app/`, monte sur /app) et la page (`web/`, monte sur /web). Les monter
+    # au meme endroit rendait invisible un `_file` qui cherche une consigne
+    # dans le repertoire de la page -- un 500 sur chaque quiz et chaque
+    # consigne, en production seulement. Ca a servi une fois.
+    spool = os.path.join(tmp, "spool")
+    static, pagedir = os.path.join(tmp, "app"), os.path.join(tmp, "web")
     os.makedirs(spool)
+    os.makedirs(pagedir)
     os.makedirs(os.path.join(static, "quiz"))
     with open(os.path.join(static, "tps.json"), "w", encoding="utf-8") as fh:
         json.dump([
@@ -938,7 +945,7 @@ def test_http_end_to_end():
         with open(os.path.join(static, "tp", tp_id + ".json"), "w",
                   encoding="utf-8") as fh:
             json.dump({"statement": "consigne de " + tp_id, "files": []}, fh)
-    with open(os.path.join(static, "index.html"), "w", encoding="utf-8") as fh:
+    with open(os.path.join(pagedir, "index.html"), "w", encoding="utf-8") as fh:
         # AUCUN SCRIPT INLINE, comme la vraie page : `csp()` les refuse
         # désormais, ici comme là-bas.
         fh.write('<!doctype html><script src="config.js"></script>'
@@ -949,17 +956,15 @@ def test_http_end_to_end():
                          ("config.js", "// config"),
                          ("quiz.js", "// quiz"), ("compte.js", "// compte"),
                          ("progres.js", "// progres"), ("forum.js", "// forum")):
-        with open(os.path.join(static, nom), "w", encoding="utf-8") as fh:
+        with open(os.path.join(pagedir, nom), "w", encoding="utf-8") as fh:
             fh.write(contenu)
-    os.makedirs(os.path.join(static, "vendor"))
+    os.makedirs(os.path.join(pagedir, "vendor"))
     for chemin in app.VENDOR:
-        with open(os.path.join(static, *chemin.split("/")), "w",
+        with open(os.path.join(pagedir, *chemin.split("/")), "w",
                   encoding="utf-8") as fh:
             fh.write("// " + chemin)
 
-    # Un seul répertoire pour les deux : le catalogue et la page vivent à part
-    # dans le dépôt (`app/` et `web/`), mais ce harnais n'éprouve pas le montage.
-    app.SPOOL, app.STATIC, app.PAGE = spool, static, static
+    app.SPOOL, app.STATIC, app.PAGE = spool, static, pagedir
     app.KEY, app.QUEUE_MAX = "cle-de-test", 4
     app.Handler.quota = app.Quota(cooldown=0, hourly=100)  # testés ailleurs
     srv = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)

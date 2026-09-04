@@ -982,9 +982,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _file(self, name, ctype):
+    def _file(self, name, ctype, base):
+        """Un fichier du disque, et `base` DIT LEQUEL DES DEUX RÉPERTOIRES.
+
+        Pas de défaut, exprès : la page (`PAGE`, `/web`) et le catalogue publié
+        par le worker (`STATIC`, `/app`) vivent à part depuis que `web/` est
+        destiné à GitHub Pages, et les deux passent par ici. Un défaut ferait
+        chercher `tp/<id>.json` dans le répertoire de la page -- un 500 sur
+        chaque consigne et chaque quiz, en production seulement, parce qu'un
+        harnais qui monte les deux au même endroit ne peut pas le voir.
+        """
         try:
-            with open(os.path.join(PAGE, name), "rb") as fh:
+            with open(os.path.join(base, name), "rb") as fh:
                 body = fh.read()
         except OSError:
             self._json(500, {"error": "fichier manquant"})
@@ -1083,20 +1092,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/healthz":
             self._json(200, {"ok": True})
         elif path in ("/", "/index.html"):
-            self._file("index.html", "text/html; charset=utf-8")
+            self._file("index.html", "text/html; charset=utf-8", PAGE)
         elif path == "/style.css":
-            self._file("style.css", "text/css; charset=utf-8")
+            self._file("style.css", "text/css; charset=utf-8", PAGE)
         elif path == "/favicon.svg":
-            self._file("favicon.svg", "image/svg+xml")
+            self._file("favicon.svg", "image/svg+xml", PAGE)
         elif path in ("/config.js", "/app.js", "/quiz.js", "/compte.js",
                       "/progres.js", "/forum.js"):
             # Liste close, pas un suffixe : `.js` n'ouvre pas le répertoire.
-            self._file(path[1:], "text/javascript; charset=utf-8")
+            self._file(path[1:], "text/javascript; charset=utf-8", PAGE)
         elif path[1:] in VENDOR:
             # Les deux bibliothèques du rendu, servies depuis cette origine et
             # sous leur nom versionné. `VENDOR` est une liste close comme
             # au-dessus : `/vendor/` n'est pas un répertoire ouvert.
-            self._file(path[1:], "text/javascript; charset=utf-8")
+            self._file(path[1:], "text/javascript; charset=utf-8", PAGE)
         elif path == "/tps.json":
             # RELU À CHAQUE FOIS, pas mis en cache au démarrage : publier un
             # nouveau TP est alors `--tags tests` et rien d'autre. Une valeur
@@ -1697,7 +1706,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "pas un quiz"})
             return
         self._file(os.path.join("quiz", entry["id"] + ".json"),
-                   "application/json; charset=utf-8")
+                   "application/json; charset=utf-8", STATIC)
 
     def _detail(self, tp):
         """La consigne et les gabarits d'un exercice, publiés par le worker.
@@ -1711,7 +1720,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "inconnu"})
             return
         self._file(os.path.join("tp", entry["id"] + ".json"),
-                   "application/json; charset=utf-8")
+                   "application/json; charset=utf-8", STATIC)
 
     def _result(self, job_id):
         if not JOB_RE.match(job_id):
