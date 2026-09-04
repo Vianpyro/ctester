@@ -28,10 +28,23 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 
+# `app` EST LA v1, ET ELLE N'EST PAS MODIFIÉE. Les trois contrôles de bout en
+# bout (`test_http_*`) montent un vrai serveur sur son `Handler` et l'éprouvent
+# telle qu'elle est déployée : c'est ce qui garantit que la migration vers
+# FastAPI ne peut pas la faire régresser tant qu'elle sert les étudiants. Tout
+# le reste de ce fichier éprouve les modules extraits, ceux que la v2 utilise.
 import app        # noqa: E402
+import config     # noqa: E402
 import etat       # noqa: E402
+import headers    # noqa: E402
 import politique  # noqa: E402
 import runner     # noqa: E402
+import security   # noqa: E402
+from services import catalogue    # noqa: E402
+from services import forum        # noqa: E402
+from services import progression  # noqa: E402
+from services import quotas       # noqa: E402
+from services import spool        # noqa: E402
 
 
 def lire(chemin):
@@ -118,12 +131,12 @@ def test_parse_unity_hostile():
 
 
 def test_presence_compteur():
-    p = app.Presence()
+    p = quotas.Presence()
     assert p.touch("a", 1000) == 1
     assert p.touch("b", 1000) == 2
     assert p.touch("a", 1000) == 2          # rejouer ne double pas
     # au-delà du TTL, la fenêtre sort du total sans que personne ne l'efface
-    assert p.touch("c", 1000 + app.PRESENCE_TTL + 1) == 1
+    assert p.touch("c", 1000 + config.PRESENCE_TTL + 1) == 1
 
 
 def test_verdict_codes():
@@ -784,10 +797,10 @@ def test_projection_des_competences():
     etats = [{"exercice_id": "tp2-ex0", "statut": "valide"},
              {"exercice_id": "tp2-ex3", "statut": "essaye"}]
     pratique = [{"exercice_id": "tp6-ex1", "tentatives": 2, "reussites": 0}]
-    touches, reussis = app.exercise_facts(etats, pratique)
+    touches, reussis = progression.exercise_facts(etats, pratique)
     assert touches == {"tp2-ex0", "tp2-ex3", "tp6-ex1"}
     assert reussis == {"tp2-ex0"}
-    vue = app.skills_view(CATALOGUE_DEMO, touches, reussis)
+    vue = progression.skills_view(CATALOGUE_DEMO, touches, reussis)
     # L'ORDRE EST CELUI DU COURS, pas un tri par score : la premiere ligne est
     # la premiere competence rencontree, ce que l'etudiant reconnait.
     assert [c["id"] for c in vue] == ["variables", "arithmetic-operators", "arrays-1d"]
@@ -797,18 +810,18 @@ def test_projection_des_competences():
 
 def test_recommandation_deterministe():
     etats = [{"exercice_id": "tp2-ex0", "statut": "valide"}]
-    touches, reussis = app.exercise_facts(etats, [])
+    touches, reussis = progression.exercise_facts(etats, [])
     # Deja pratique `variables` : on repart sur l'exercice non reussi qui la
     # reprend, pas sur le premier venu.
-    assert app.recommander(CATALOGUE_DEMO, touches, reussis) == {
+    assert progression.recommander(CATALOGUE_DEMO, touches, reussis) == {
         "exercice_id": "tp2-ex3", "competence": "variables"}
     # Aucune competence en commun : le premier non reussi, dans l'ordre du cours.
-    assert app.recommander(CATALOGUE_DEMO, set(), set()) == {
+    assert progression.recommander(CATALOGUE_DEMO, set(), set()) == {
         "exercice_id": "tp2-ex0", "competence": None}
     # Tout reussi : rien a proposer, et on le dit au lieu d'inventer.
     tout = {e["id"] for e in CATALOGUE_DEMO}
-    assert app.recommander(CATALOGUE_DEMO, tout, tout) is None
-    assert app.recommander([], set(), set()) is None
+    assert progression.recommander(CATALOGUE_DEMO, tout, tout) is None
+    assert progression.recommander([], set(), set()) is None
 
 
 def test_progression_ne_publie_rien_de_secret():
@@ -819,7 +832,7 @@ def test_progression_ne_publie_rien_de_secret():
              "transactions": [{"exercice_id": "tp2-ex0", "montant": 10,
                                "motif": "premiere reussite",
                                "accorde_le": "2026-09-03"}]}
-    charge = app.progress_payload(
+    charge = progression.progress_payload(
         CATALOGUE_DEMO, faits,
         [{"exercice_id": "tp2-ex0", "statut": "valide"}], [])
     assert charge["politique"] == politique.VERSION
@@ -877,14 +890,14 @@ def test_progression_degradee_sans_base():
 
 def test_queue_position():
     jobs = [("aaa", 100.0, True), ("bbb", 101.0, False), ("ccc", 102.0, False)]
-    assert app.queue_position(jobs, "bbb") == 1   # les terminés ne comptent pas
-    assert app.queue_position(jobs, "ccc") == 2
-    assert app.queue_position(jobs, "aaa") == 0
-    assert app.queue_position(jobs, "inconnu") == 0
+    assert spool.queue_position(jobs, "bbb") == 1   # les terminés ne comptent pas
+    assert spool.queue_position(jobs, "ccc") == 2
+    assert spool.queue_position(jobs, "aaa") == 0
+    assert spool.queue_position(jobs, "inconnu") == 0
 
 
 def test_quota():
-    q = app.Quota(cooldown=15, hourly=3)
+    q = quotas.Quota(cooldown=15, hourly=3)
     now = time.time()
     assert q.check("ip", now) == 0
     wait = q.check("ip", now + 1)
@@ -900,9 +913,9 @@ def test_quota():
 
 
 def test_client_id():
-    assert app.client_id({"CF-Connecting-IP": "1.2.3.4"}, "10.0.0.1") == "1.2.3.4"
-    assert app.client_id({"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}, "10.0.0.1") == "1.2.3.4"
-    assert app.client_id({}, "10.0.0.1") == "10.0.0.1"
+    assert security.client_id({"CF-Connecting-IP": "1.2.3.4"}, "10.0.0.1") == "1.2.3.4"
+    assert security.client_id({"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}, "10.0.0.1") == "1.2.3.4"
+    assert security.client_id({}, "10.0.0.1") == "10.0.0.1"
 
 
 def test_http_end_to_end():
@@ -1572,26 +1585,26 @@ def test_forum_eteint_par_defaut():
     l'ABSENCE d'une variable -- pas par un booleen qu'on pourrait oublier
     d'ecrire.
     """
-    garde = (app.OIDC_ISSUER, app.OIDC_CLIENT_ID, app.FORUM_MODERATORS, app.etat)
+    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS, security.etat)
     try:
-        app.OIDC_ISSUER = "https://auth.exemple"
-        app.OIDC_CLIENT_ID = "ctester"
-        app.etat = type("Base", (), {"enabled": staticmethod(lambda: True)})
-        app.FORUM_MODERATORS = frozenset()
-        assert app.oidc_enabled() and not app.forum_enabled()
-        app.FORUM_MODERATORS = frozenset({"sub-mod"})
-        assert app.forum_enabled()
-        assert app.is_moderator("sub-mod") and not app.is_moderator("sub-alice")
+        config.OIDC_ISSUER = "https://auth.exemple"
+        config.OIDC_CLIENT_ID = "ctester"
+        security.etat = type("Base", (), {"enabled": staticmethod(lambda: True)})
+        config.FORUM_MODERATORS = frozenset()
+        assert security.oidc_enabled() and not forum.forum_enabled()
+        config.FORUM_MODERATORS = frozenset({"sub-mod"})
+        assert forum.forum_enabled()
+        assert security.is_moderator("sub-mod") and not security.is_moderator("sub-alice")
         # Un `sub` vide n'est pas un moderateur, meme si la liste en contient un
         # vide par accident de configuration.
-        assert not app.is_moderator("") and not app.is_moderator(None)
+        assert not security.is_moderator("") and not security.is_moderator(None)
         # La CONNEXION reste la premiere condition : un forum sans compte n'a
         # personne a qui attribuer un message ni a qui offrir la suppression.
-        app.OIDC_ISSUER = ""
-        assert not app.forum_enabled()
+        config.OIDC_ISSUER = ""
+        assert not forum.forum_enabled()
     finally:
-        (app.OIDC_ISSUER, app.OIDC_CLIENT_ID, app.FORUM_MODERATORS,
-         app.etat) = garde
+        (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS,
+         security.etat) = garde
 
 
 def test_forum_texte_borne_et_stocke_la_source():
@@ -1603,24 +1616,24 @@ def test_forum_texte_borne_et_stocke_la_source():
     assainir a l'ecriture seulement laisserait les messages deja en base hors de
     portee d'une regle resserree ensuite.
     """
-    assert app.forum_texte("  Pourquoi mon while ne s'arrete pas ?  ") == (
+    assert forum.forum_texte("  Pourquoi mon while ne s'arrete pas ?  ") == (
         "Pourquoi mon while ne s'arrete pas ?", None)
-    assert app.forum_texte("")[0] is None
-    assert app.forum_texte("   \n  ")[0] is None
-    assert app.forum_texte(None)[0] is None
-    assert app.forum_texte(42)[0] is None
-    assert app.forum_texte("x" * (app.FORUM_MAX_CHARS + 1))[0] is None
-    assert app.forum_texte("x" * app.FORUM_MAX_CHARS)[0] is not None
+    assert forum.forum_texte("")[0] is None
+    assert forum.forum_texte("   \n  ")[0] is None
+    assert forum.forum_texte(None)[0] is None
+    assert forum.forum_texte(42)[0] is None
+    assert forum.forum_texte("x" * (config.FORUM_MAX_CHARS + 1))[0] is None
+    assert forum.forum_texte("x" * config.FORUM_MAX_CHARS)[0] is not None
     # LA SOURCE PASSE INTACTE, y compris ce qui ressemble a du HTML : c'est le
     # rendu qui l'echappe, et il le fera a chaque affichage.
     hostile = "<script>alert(1)</script> et **gras**"
-    assert app.forum_texte(hostile)[0] == hostile
-    assert app.forum_texte("[doc](https://exemple.test)")[0] \
+    assert forum.forum_texte(hostile)[0] == hostile
+    assert forum.forum_texte("[doc](https://exemple.test)")[0] \
         == "[doc](https://exemple.test)"
     # Les caracteres de controle partent : ils ne servent a rien dans du
     # Markdown et compliquent une relecture humaine pour rien.
-    assert app.forum_texte("a\x00b\x07c")[0] == "abc"
-    assert app.forum_texte("ligne 1\r\nligne 2")[0] == "ligne 1\nligne 2"
+    assert forum.forum_texte("a\x00b\x07c")[0] == "abc"
+    assert forum.forum_texte("ligne 1\r\nligne 2")[0] == "ligne 1\nligne 2"
 
 
 def test_forum_bibliotheques_epinglees():
@@ -1631,9 +1644,9 @@ def test_forum_bibliotheques_epinglees():
     ne remarque que le rendu a disparu. Ici, un nom qui ne correspond plus entre
     `VENDOR`, `forum.js` et le disque fait echouer la suite tout de suite.
     """
-    assert len(app.VENDOR) == 2, app.VENDOR
+    assert len(config.VENDOR) == 2, config.VENDOR
     source = lire(os.path.join(HERE, "web", "forum.js"))
-    for chemin in app.VENDOR:
+    for chemin in config.VENDOR:
         sur_disque = os.path.join(HERE, "web", *chemin.split("/"))
         assert os.path.exists(sur_disque), chemin
         assert '"' + chemin + '"' in source, chemin
@@ -1642,7 +1655,7 @@ def test_forum_bibliotheques_epinglees():
         assert re.search(r"-\d+\.\d+\.\d+[.-]", chemin), chemin
     # `/vendor/` N'EST PAS UN REPERTOIRE OUVERT : la liste est close, comme
     # celle des `.js` de la page.
-    assert "vendor/" in app.VENDOR[0] and "vendor/" in app.VENDOR[1]
+    assert "vendor/" in config.VENDOR[0] and "vendor/" in config.VENDOR[1]
 
 
 def test_csp_du_document():
@@ -1662,15 +1675,15 @@ def test_csp_du_document():
     script inline, et `csp()` refuse d'en hacher un.
     """
     page = lire(os.path.join(HERE, "web", "index.html")).encode()
-    politique = app.csp(page, "https://auth.exemple/auth/v1")
+    politique = headers.csp(page, "https://auth.exemple/auth/v1")
     assert "default-src 'none'" in politique
     # PAS DE HACHAGE, et pas de script inline pour en avoir besoin.
     assert "sha256-" not in politique, politique
     assert "script-src 'self';" in politique, politique
-    assert b"<script" in page and not app._INLINE_SCRIPT_RE.findall(page), page
+    assert b"<script" in page and not headers._INLINE_SCRIPT_RE.findall(page), page
     # Un inline qui reviendrait doit faire du BRUIT, pas se faire hacher.
     try:
-        app.csp(b"<script>var t=1;</script>")
+        headers.csp(b"<script>var t=1;</script>")
         raise AssertionError("un <script> inline est passe sans rien dire")
     except ValueError:
         pass
@@ -1680,7 +1693,7 @@ def test_csp_du_document():
     assert "/auth/v1" not in politique, politique
     # L'API AUSSI : sans elle, la page servie par ce serveur pendant la bascule
     # ne peut joindre `tch099` et n'affiche plus un seul TP.
-    assert app.API_ORIGIN in politique.split("connect-src")[1]
+    assert config.API_ORIGIN in politique.split("connect-src")[1]
     for interdit in ("frame-ancestors 'none'", "base-uri 'none'",
                      "form-action 'none'", "img-src 'self'"):
         assert interdit in politique, interdit
@@ -1698,7 +1711,7 @@ def test_csp_du_document():
     du_meta = {d.split()[0]: " ".join(d.split()[1:])
                for d in meta.group(1).decode().split("; ")}
     du_serveur = {d.split()[0]: " ".join(d.split()[1:])
-                  for d in app.csp(page, app.OIDC_ISSUER or
+                  for d in headers.csp(page, config.OIDC_ISSUER or
                                    "https://auth.thevhome.com/auth/v1").split("; ")}
     # `frame-ancestors` EST LA SEULE PERTE du passage en <meta> : un <meta> ne
     # peut pas le porter, et le navigateur le signale en console -- une console
@@ -1717,9 +1730,9 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
     recollables au meme etudiant -- ce que ni un pseudonyme ni un identifiant
     stable ne doivent permettre en phase MVP.
     """
-    garde = app.FORUM_MODERATORS
+    garde = config.FORUM_MODERATORS
     try:
-        app.FORUM_MODERATORS = frozenset({"sub-mod"})
+        config.FORUM_MODERATORS = frozenset({"sub-mod"})
         fil = [{"id": "a" * 32, "utilisateur": "sub-alice", "texte": "moi",
                 "masque": False, "cree_le": "2026-09-03 10:00"},
                {"id": "b" * 32, "utilisateur": "sub-bob", "texte": "lui",
@@ -1728,7 +1741,7 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
                 "masque": False, "cree_le": "2026-09-03 10:02"},
                {"id": "d" * 32, "utilisateur": "sub-bob", "texte": "cache",
                 "masque": True, "cree_le": "2026-09-03 10:03"}]
-        vu = app.forum_vue(fil, "sub-alice", False)
+        vu = forum.forum_vue(fil, "sub-alice", False)
         assert [m["auteur"] for m in vu] == [
             "Vous", "Participant", "Enseignant"], vu
         assert [m["mien"] for m in vu] == [True, False, False]
@@ -1739,12 +1752,12 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
             assert interdit not in texte, interdit
         # Un moderateur, LUI, voit le masque -- sinon il ne pourrait pas le
         # retablir -- et pas davantage d'identite pour autant.
-        vu_mod = app.forum_vue(fil, "sub-mod", True)
+        vu_mod = forum.forum_vue(fil, "sub-mod", True)
         assert len(vu_mod) == 4 and vu_mod[3]["masque"] is True
         assert vu_mod[2]["auteur"] == "Vous"      # son propre message
         assert "sub-bob" not in json.dumps(vu_mod, ensure_ascii=False)
     finally:
-        app.FORUM_MODERATORS = garde
+        config.FORUM_MODERATORS = garde
 
 
 def test_forum_identite_bornes_et_visibilite():
@@ -1754,53 +1767,53 @@ def test_forum_identite_bornes_et_visibilite():
     rendu visible -- sauf le numero de groupe pour l'enseignant, en tout
     temps, et c'est ecrit dans le formulaire.
     """
-    assert app.forum_pseudo(None) == (None, None)
-    assert app.forum_pseudo("   ") == (None, None)
-    assert app.forum_pseudo("  Lea   B ") == ("Lea B", None)
-    assert app.forum_pseudo("Lea" + chr(10) + "B")[0] == "Lea B"   # une ligne
+    assert forum.forum_pseudo(None) == (None, None)
+    assert forum.forum_pseudo("   ") == (None, None)
+    assert forum.forum_pseudo("  Lea   B ") == ("Lea B", None)
+    assert forum.forum_pseudo("Lea" + chr(10) + "B")[0] == "Lea B"   # une ligne
     for reserve in ("Vous", "participant", "Enseignant", "Équipe du cours",
                     "Anonyme"):
-        assert app.forum_pseudo(reserve)[0] is None, reserve
-    assert app.forum_pseudo("x" * (app.FORUM_PSEUDO_MAX + 1))[0] is None
+        assert forum.forum_pseudo(reserve)[0] is None, reserve
+    assert forum.forum_pseudo("x" * (config.FORUM_PSEUDO_MAX + 1))[0] is None
     # La session n'ouvre que certains groupes (CTESTER_FORUM_GROUPES) ; hors
     # liste, rien ne passe -- pas même un numero valide 1..99.
-    garde_g = app.FORUM_GROUPES
+    garde_g = config.FORUM_GROUPES
     try:
-        app.FORUM_GROUPES = (4, 6)
-        assert app.forum_groupe("04") == (4, None)
+        config.FORUM_GROUPES = (4, 6)
+        assert forum.forum_groupe("04") == (4, None)
         for mauvais in (0, 100, -1, "sept", True, 7):
-            assert app.forum_groupe(mauvais)[0] is None, mauvais
-        app.FORUM_GROUPES = ()
-        assert app.forum_groupe("07") == (7, None)
+            assert forum.forum_groupe(mauvais)[0] is None, mauvais
+        config.FORUM_GROUPES = ()
+        assert forum.forum_groupe("07") == (7, None)
         for mauvais in (0, 100, -1, "sept", True):
-            assert app.forum_groupe(mauvais)[0] is None, mauvais
+            assert forum.forum_groupe(mauvais)[0] is None, mauvais
     finally:
-        app.FORUM_GROUPES = garde_g
+        config.FORUM_GROUPES = garde_g
 
-    garde = app.FORUM_MODERATORS
+    garde = config.FORUM_MODERATORS
     try:
-        app.FORUM_MODERATORS = frozenset({"sub-mod"})
+        config.FORUM_MODERATORS = frozenset({"sub-mod"})
         fil = [{"id": "a" * 32, "utilisateur": "sub-bob", "texte": "x",
                 "masque": False, "cree_le": "2026-09-03T10:00Z"}]
         cache = {"sub-bob": {"pseudo": "Bob", "groupe": 7,
                              "pseudo_public": False, "groupe_public": False}}
-        vu = app.forum_vue(fil, "sub-alice", False, cache)[0]
+        vu = forum.forum_vue(fil, "sub-alice", False, cache)[0]
         assert vu["auteur"] == "Participant" and vu["groupe"] is None
         assert vu["nom_signalable"] is False
         # Le modérateur voit le groupe SANS que le nom devienne public pour
         # autant : deux cases, deux effets.
-        vu_mod = app.forum_vue(fil, "sub-mod", True, cache)[0]
+        vu_mod = forum.forum_vue(fil, "sub-mod", True, cache)[0]
         assert vu_mod["auteur"] == "Participant" and vu_mod["groupe"] == 7
         montre = {"sub-bob": dict(cache["sub-bob"], pseudo_public=True)}
-        vu2 = app.forum_vue(fil, "sub-alice", False, montre)[0]
+        vu2 = forum.forum_vue(fil, "sub-alice", False, montre)[0]
         assert vu2["auteur"] == "Bob" and vu2["nom_signalable"] is True
         # Son propre nom reste « Vous » : on ne se signale pas soi-meme.
-        a_moi = app.forum_vue(fil, "sub-bob", False, montre)[0]
+        a_moi = forum.forum_vue(fil, "sub-bob", False, montre)[0]
         assert a_moi["auteur"] == "Vous" and a_moi["nom_signalable"] is False
         assert "sub-bob" not in json.dumps(
             [vu, vu_mod, vu2, a_moi], ensure_ascii=False)
     finally:
-        app.FORUM_MODERATORS = garde
+        config.FORUM_MODERATORS = garde
 
 
 def test_http_forum():

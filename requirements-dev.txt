@@ -1,0 +1,8 @@
+# Les dépendances DE TEST, jamais dans l'image. Le Dockerfile n'installe que
+# `requirements.txt` : deux fichiers plutôt qu'un filtre à recopier, parce que
+# le jour où le filtre se trompe, c'est httpx qui part en production.
+-r requirements.txt
+
+# `fastapi.testclient.TestClient` est une façade sur httpx : sans lui, pas de
+# `test_api.py`.
+httpx==0.28.1

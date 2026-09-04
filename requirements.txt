@@ -1,12 +1,26 @@
-# The exposed container's ONLY external dependency. Everything else under app/
-# is standard library on purpose -- nothing to install at boot, nothing to patch
-# on a CVE Friday, and the official python:3.13-slim image works as shipped.
+# Les dépendances du conteneur exposé à Internet. Chacune est un morceau de
+# code qu'on ne relit pas et qui tourne devant les étudiants : la liste reste
+# courte, et chaque ligne doit pouvoir justifier sa présence.
 #
-# It buys one thing: talking to Postgres for the optional sign-in (see
-# app/schema.sql, which also says plainly why Postgres and not sqlite3).
-# Without it installed, app/etat.py reports the feature as off and the anonymous
-# path is untouched -- so an image built without this file still serves the judge.
-#
-# Pinned, not floated. This image is rebuilt by hand and rarely; "whatever was on
-# PyPI that morning" is not something to discover in production.
-psycopg[binary]==3.3.5
+# TOUT EST ÉPINGLÉ À L'EXACT, jamais `>=`. Cette image est reconstruite à la
+# main et rarement ; « ce qui était sur PyPI ce matin-là » n'est pas une chose à
+# découvrir en production, un vendredi, pendant une séance.
+
+# Le framework HTTP. `starlette` et `pydantic` arrivent avec lui -- ils sont
+# épinglés plus bas plutôt que laissés flotter dans sa fourchette.
+fastapi===0.141.1
+pydantic===2.13.5
+starlette===1.6.0
+
+# Le serveur ASGI. PAS `uvicorn[standard]` : cet extra ajoute uvloop, httptools,
+# watchfiles et websockets. À 27 étudiants et quelques requêtes par seconde, le
+# gain de débit est invisible, et ce sont quatre dépendances de plus -- dont
+# deux avec du C -- dans le seul processus exposé à Internet. `h11` (pur Python,
+# et la seule implémentation HTTP/1.1 dont uvicorn ait besoin) suffit.
+uvicorn===0.52.4
+h11===0.16.0
+
+# La base, pour la connexion facultative. Sans `CTESTER_DB_DSN`, `etat.py`
+# rapporte la fonctionnalité comme éteinte et le parcours anonyme est intact --
+# une image construite sans cette ligne sert quand même le juge.
+psycopg[binary]===3.3.5
