@@ -413,8 +413,7 @@ function monIdentite() {
   // le numéro de groupe en tout temps. Le laisser croire l'inverse serait un
   // consentement obtenu de travers.
   if (!profil.pseudo && profil.suggestion) {
-    bloc.append(noeud("p", "aide", "Nom proposé par ta connexion — modifie-le "
-      + "si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
+    bloc.append(noeud("p", "aide", "Nom proposé par ta connexion — modifie-le si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
   }
   bloc.append(noeud("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
     + "autres. L'enseignant, lui, voit toujours ton numéro de groupe — "
@@ -496,10 +495,8 @@ function formulaire() {
   bloc.append(etiquette, zone);
 
   bloc.append(noeud("p", "aide", rendu
-    ? "Mise en forme simple : **gras**, *italique*, listes, > citation, "
-      + "`code court`. Le HTML n'est jamais interprété."
-    : "Le rendu enrichi n'a pas pu être chargé : ton message part quand même, "
-      + "et il s'affiche en texte brut."));
+    ? "Mise en forme simple : **gras**, *italique*, listes, > citation, `code court`. Le HTML n'est jamais interprété."
+    : "Le rendu enrichi n'a pas pu être chargé : ton message part quand même, et il s'affiche en texte brut."));
 
   if (rendu) {
     // L'APERÇU N'EST PAS `aria-live`. Annoncer chaque frappe à un lecteur
@@ -588,8 +585,7 @@ function leFil() {
   const bloc = noeud("div", "bloc");
   bloc.append(noeud("h3", "soustitre", "Le fil"));
   if (!fil.length) {
-    bloc.append(noeud("p", "aide", "Personne n'a encore écrit sur cet "
-      + "exercice. Une question bien posée en aide souvent plusieurs."));
+    bloc.append(noeud("p", "aide", "Personne n'a encore écrit sur cet exercice. Une question bien posée en aide souvent plusieurs."));
     return bloc;
   }
   const liste = noeud("ul", "fil");
@@ -678,11 +674,7 @@ function dessiner() {
   titre.id = "forumtitre";
   titre.tabIndex = -1;
   box.append(titre);
-  box.append(noeud("p", "aide", "Visible par les autres comptes connectés du "
-    + "cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès. "
-    + "Tu y apparais comme « Participant » tant que tu n'as pas choisi de nom "
-    + "dans Compte → Mon identité."));
-
+  box.append(noeud("p", "aide", "Visible par les autres comptes connectés du cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès. Tu y apparais comme « Participant » tant que tu n'as pas choisi de nom dans Compte → Mon identité."));
   const etat = noeud("p", "annonce", annonce);
   etat.setAttribute("aria-live", "polite");
   box.append(etat);
@@ -700,8 +692,7 @@ function dessiner() {
   const regles = noeud("div", "bloc second");
   regles.append(noeud("h3", "soustitre", "Ce qui se publie ici"));
   regles.append(listeCharte());
-  regles.append(noeud("p", "aide", "Modération humaine : rien n'est vérifié "
-    + "automatiquement. Signale plutôt que de répondre à une fuite."));
+  regles.append(noeud("p", "aide", "Modération humaine : rien n'est vérifié automatiquement. Signale plutôt que de répondre à une fuite."));
   gauche.append(regles);
 
   if (fil === null) {
