@@ -24,7 +24,7 @@ import config
 # remplace. Un inline rajouté par distraction est alors bloqué bruyamment, au
 # lieu de passer par un hachage recopié qui se périme en silence.
 _INLINE_SCRIPT_RE = re.compile(rb"<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>",
-                               re.DOTALL)
+                               re.DOTALL | re.IGNORECASE)
 
 def csp(body, issuer=""):
     """La politique de sécurité du contenu pour CE document HTML.

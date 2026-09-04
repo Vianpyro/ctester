@@ -1682,11 +1682,14 @@ def test_csp_du_document():
     assert "script-src 'self';" in politique, politique
     assert b"<script" in page and not csp._INLINE_SCRIPT_RE.findall(page), page
     # Un inline qui reviendrait doit faire du BRUIT, pas se faire hacher.
-    try:
-        csp.csp(b"<script>var t=1;</script>")
-        raise AssertionError("un <script> inline est passe sans rien dire")
-    except ValueError:
-        pass
+    # ... y compris en majuscules : un nom de balise HTML est insensible a la
+    # casse, donc la garde doit l'etre aussi, sinon `<SCRIPT>` passe.
+    for inline in (b"<script>var t=1;</script>", b"<SCRIPT>var t=1;</SCRIPT>"):
+        try:
+            csp.csp(inline)
+            raise AssertionError("un <script> inline est passe sans rien dire")
+        except ValueError:
+            pass
     # L'EMETTEUR OIDC EST DANS connect-src, en ORIGINE seulement : `compte.js`
     # y va chercher la decouverte puis le jeton.
     assert "https://auth.exemple" in politique.split("connect-src")[1]
