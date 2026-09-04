@@ -1669,7 +1669,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   // le `catch` dirait « le serveur ne repond pas » et les logs de l'origine
   // seraient vides. C'est la panne muette que ce harnais existe pour voir.
   for (const [hote, attendu] of [
-    ["tch009.thevhome.com", "https://tch099.thevhome.com/tps.json"],
+    ["tch009.thevhome.com", "tps.json"],   // le Dell sert encore les deux
     ["vianpyro.github.io", "https://tch099.thevhome.com/tps.json"],
     ["localhost", "tps.json"],
   ]) {

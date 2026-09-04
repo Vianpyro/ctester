@@ -22,7 +22,7 @@ contient reste ce que le navigateur reçoit.
 
 | Point | Décision |
 |---|---|
-| Domaines | `ctester.<domaine>` → GitHub Pages (CNAME) ; `api.ctester.<domaine>` → l'origine actuelle. CORS entre deux sous-domaines. |
+| Domaines | `tch009.thevhome.com` → GitHub Pages (CNAME) ; **`tch099.thevhome.com`** → l'origine actuelle. Le nom que les étudiants connaissent ne bouge PAS : leur `localStorage`, leur session et la `redirect_uri` de Rauthy sont conservés. `api.tch009` est écarté — le certificat universel de Cloudflare ne couvre qu'une étiquette (`*.thevhome.com`), pas deux. |
 | Catalogue (`tps.json`, `tp/*.json`, `quiz/*.json`) | Reste servi par l'API. Aucun secret ne s'approche de Pages ; `publish_catalogue()` ne change pas. |
 | Clé `?k=` | Inchangée, sur l'URL Pages. |
 | Lighthouse | Informatif d'abord (2–3 semaines), puis on fige les seuils observés en assertions bloquantes. |
@@ -37,7 +37,7 @@ web/                      # ← nouveau, ce que GitHub Pages publie
   app.js  quiz.js  compte.js  progres.js  forum.js
   config.js               # ← nouveau : résolution de l'origine API
   vendor/{marked,purify}  + README.md
-  CNAME                   # ctester.<domaine>
+  CNAME                   # tch009.thevhome.com
 app/                      # ← reste le back-end seul
   app.py  etat.py  politique.py  schema.sql
   tps.json  tp/  quiz/    # toujours générés par le worker, toujours .gitignore
@@ -65,8 +65,8 @@ l'hôte courant vers l'origine API :
 // Un seul endroit où vit l'adresse de l'API. Pas de build, pas de substitution.
 window.CTESTER_API = (() => {
   const h = location.hostname;
-  if (h === "ctester.<domaine>")      return "https://api.ctester.<domaine>";
-  if (h.endsWith(".github.io"))       return "https://api.ctester.<domaine>";
+  if (h === "tch009.thevhome.com")      return "https://tch099.thevhome.com";
+  if (h.endsWith(".github.io"))       return "https://tch099.thevhome.com";
   return "";   // dev local : app.py sert encore la page, chemins relatifs
 })();
 ```
@@ -76,7 +76,8 @@ teste » vivant, et ce qui rend la bascule réversible.
 
 ### 3. Les ~14 appels `fetch` à rebaser
 
-Ils sont tous **relatifs** aujourd'hui (`fetch("tps.json")`, pas `/tps.json`).
+Ils sont tous **relatifs** aujourd'hui (`fetch("tps.json")`, pas `/tps.json`),
+et il y en a **8**, pas 14.
 Introduire un seul helper dans `app.js`, exposé sur `window.ctester` :
 
 ```js
@@ -87,9 +88,9 @@ Sites d'appel à convertir (le motif est identique partout — préfixer par `AP
 
 | Fichier | Appels |
 |---|---|
-| `web/app.js` | `tps.json`, `tp/<id>.json`, `oidc.json`, `r/<id>`, `submit` |
+| `web/app.js` | `tps.json`, `tp/<id>.json`, `oidc.json`, `r/<id>`, `submit`, `live?id=` |
 | `web/quiz.js` | `quiz/<id>.json` |
-| `web/compte.js` | les deux helpers `getJson` / `sendJson` / `putJson` (tous les autres passent par eux) |
+| `web/compte.js` | `authFetch` seul — un point de passage, pas trois. Les deux `fetch` OIDC (découverte, token endpoint) portent des URL absolues : **ne pas** les préfixer. |
 | `web/progres.js`, `web/forum.js` | rien à toucher — ils appellent `ctester.compte.*` |
 
 `charger()` **ne change pas** : les modules et les deux vendor sont sur Pages,
@@ -99,14 +100,11 @@ Trois points à vérifier explicitement pendant l'implémentation :
 - `compte.js:111` `redirectUri = () => location.origin + location.pathname` —
   aucun changement de code, mais **l'URI doit être réenregistrée dans Rauthy**
   sur l'origine Pages, et l'ancienne retirée à la fin.
-- `sessionStorage` (`ctester.token`, `ctester.pkce`, `ctester.retour`) et
-  `localStorage` (`ctester.theme`, brouillons) sont par origine : le jour de la
-  bascule, tout le monde repart déconnecté et sans brouillon local. À annoncer,
-  ou à faire entre deux séances.
-- **`app.py` n'a pas de `do_PUT`** alors que `compte.js` envoie
-  `PUT brouillon`. À confirmer et corriger dans le même lot ; en cross-origin,
-  un PUT déclenche en plus un préflight, donc le trou deviendrait visible
-  autrement (préflight OK, puis 501).
+- ~~`sessionStorage` et `localStorage` perdus le jour de la bascule~~ :
+  **plus le cas**, l'origine de la page reste `tch009.thevhome.com`. C'est
+  l'API qui déménage. Rien à annoncer aux étudiants.
+- ~~`app.py` n'a pas de `do_PUT`~~ : **faux**, il existe (`app.py:1419`), ainsi
+  que `do_DELETE` (`app.py:1589`). Rien à corriger.
 
 ### 4. CORS dans `app.py`
 
@@ -115,7 +113,7 @@ allow-list par variable d'environnement, jamais `*` (les requêtes portent un
 `Authorization`) :
 
 - `CTESTER_ORIGINS` — liste séparée par des virgules, défaut
-  `https://ctester.<domaine>`. Une origine absente de la liste ne reçoit
+  `https://tch009.thevhome.com`. Une origine absente de la liste ne reçoit
   **aucun** en-tête CORS (le navigateur bloque de lui-même), et non pas un 403 :
   on ne transforme pas un réglage en panne opaque.
 - Une fonction `cors(origine)` près de `csp()`, appelée depuis `_json` et
@@ -123,7 +121,9 @@ allow-list par variable d'environnement, jamais `*` (les requêtes portent un
   autorisée>` et **`Vary: Origin`** (à fusionner avec le `Vary:
   Accept-Encoding` existant de `_send_file` — deux en-têtes `Vary` séparés se
   perdent dans les caches).
-- `do_OPTIONS` : 204, `Allow-Methods: GET, POST, PUT, OPTIONS`,
+- `do_OPTIONS` : 204, `Allow-Methods: GET, POST, PUT, DELETE, OPTIONS`
+  (**DELETE compris** : `compte.js` supprime un compte, `forum.js` un
+  message — l'oublier casse les deux en cross-origin, et seulement là),
   `Allow-Headers: Authorization, Content-Type`, `Max-Age: 86400` (le préflight
   ne repart alors qu'une fois par jour et par méthode — c'est ce qui empêche la
   séparation de coûter un aller-retour de plus par requête).
@@ -146,7 +146,7 @@ inutile pour la page.
 - `frame-ancestors` **ne s'applique pas** en `meta` — c'est la seule perte
   réelle. Si Cloudflare est devant Pages, la reposer par une Transform Rule
   (`X-Frame-Options: DENY`). Sinon, l'assumer et l'écrire dans `CLAUDE.md`.
-- `connect-src` doit maintenant lister `'self' https://api.ctester.<domaine>`
+- `connect-src` doit maintenant lister `'self' https://tch099.thevhome.com`
   + l'origine de l'issuer.
 - Le **hachage du script `theme-init`** ne peut plus être calculé à la volée.
   Deux options, prendre la première :
@@ -236,12 +236,16 @@ séparation elle-même** ou juste après ; à revérifier une fois en ligne :
    relire attentivement (14 sites d'appel).
 3. **CORS + `do_OPTIONS` + `do_PUT`** dans `app.py`, avec leurs tests. Toujours
    même origine en production, donc invisible.
-4. **DNS + workflows.** `api.ctester.<domaine>` chez Cloudflare vers l'origine
-   actuelle ; `ctester.<domaine>` vers Pages ; `pages.yml` et
-   `lighthouse.yml` ; `redirect_uri` ajoutée dans Rauthy ; `config.js` pointe
-   l'API. **Les deux chemins fonctionnent en parallèle** — l'ancienne URL sert
-   encore la page, la nouvelle aussi. C'est la fenêtre où l'on bascule les
-   étudiants.
+4. **DNS + workflows.** Dans NPM, `tch099.thevhome.com` est aujourd'hui un
+   **redirection host** (308 vers `tch009`, né d'une typo) : le convertir en
+   *proxy host* vers `ctester-web-1:8000`, avec son certificat Let's Encrypt
+   déjà émis. Puis `tch009.thevhome.com` en CNAME vers Pages ; `pages.yml` et
+   `lighthouse.yml`. **La `redirect_uri` de Rauthy ne bouge pas** — l'origine
+   de la page est inchangée, c'est l'API qui déménage. Reste UNE ligne à
+   changer dans `web/config.js` : `tch009` rend `""` (le Dell sert encore les
+   deux) et doit rendre `https://tch099.thevhome.com`. La branche `.github.io`
+   pointe déjà l'API : c'est elle qui permet de tout éprouver sur
+   `vianpyro.github.io/ctester` AVANT de toucher au DNS.
 5. **Nettoyage, après une séance sans incident.** Retirer de `app.py` la liste
    blanche statique, `_file`, `csp()`, la compression et l'ETag de
    `_send_file` (le catalogue JSON garde ce dont il a besoin), et
@@ -276,22 +280,22 @@ Après l'étape 4, à la main, contre les vrais domaines :
 
 ```sh
 # préflight
-curl -si -X OPTIONS https://api.ctester.<domaine>/forum \
-  -H 'Origin: https://ctester.<domaine>' \
+curl -si -X OPTIONS https://tch099.thevhome.com/forum \
+  -H 'Origin: https://tch009.thevhome.com' \
   -H 'Access-Control-Request-Method: POST' \
   -H 'Access-Control-Request-Headers: authorization'   # 204 + Allow-* + Max-Age
 
 # origine inconnue : aucun en-tête CORS
-curl -si https://api.ctester.<domaine>/tps.json -H 'Origin: https://mechant.example'
+curl -si https://tch099.thevhome.com/tps.json -H 'Origin: https://mechant.example'
 
 # Vary correct (les deux valeurs, un seul en-tête)
-curl -si https://api.ctester.<domaine>/tps.json -H 'Origin: https://ctester.<domaine>' | grep -i vary
+curl -si https://tch099.thevhome.com/tps.json -H 'Origin: https://tch009.thevhome.com' | grep -i vary
 
 # ce que Cloudflare fait vraiment devant Pages
-curl -sI -H 'Accept-Encoding: gzip, br' https://ctester.<domaine>/app.js
+curl -sI -H 'Accept-Encoding: gzip, br' https://tch009.thevhome.com/app.js
 ```
 
-Puis un parcours complet dans un navigateur neuf, sur `https://ctester.<domaine>/?k=<clé>` :
+Puis un parcours complet dans un navigateur neuf, sur `https://tch009.thevhome.com/?k=<clé>` :
 connexion OIDC (retour sur la bonne URL, `state` vérifié), une soumission qui
 donne un vrai verdict, « Mes exercices », « Mes progrès » (aucun chiffre si
 l'API tombe — pas de « 0 XP »), « Discussions » (publier, signaler, modérer),
