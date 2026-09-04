@@ -177,7 +177,10 @@ global.document = {
   createTextNode: (t) => ({ textContent: t, children: [] }),
 };
 global.window = global;
-global.location = { search: "?k=cle-de-test" };
+// UN HOTE INCONNU DE `config.js`, expres : le harnais joue le mode local,
+// celui ou `app.py` sert encore la page et ou les appels restent relatifs.
+// Les deux autres branches sont eprouvees a la fin du fichier.
+global.location = { search: "?k=cle-de-test", hostname: "ctester.example" };
 global.URLSearchParams = URLSearchParams;
 
 // Les minuteurs sont CAPTURÉS, pas exécutés. La page en pose deux sortes : le
@@ -473,6 +476,10 @@ storage["ctester.drafts"] = JSON.stringify({
   "tp6-ex1": "pas un objet de fichiers",
 });
 
+// `config.js` D'ABORD, comme en fin de <body> : il pose `window.API`, dont
+// depend chaque appel du noyau. L'oublier ferait tomber la page sur une
+// ReferenceError au premier fetch, et pas une ligne plus tot.
+new Function(lire("config.js"))();
 new Function(js)();
 
 const sleep = () => new Promise((r) => setImmediate(r));
@@ -1656,6 +1663,20 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(global.ctester.token() === null, "se deconnecter oublie le jeton");
   check(nodes.mesexos.hidden === true && nodes.connexion.hidden === false,
         "et le bandeau repropose la connexion");
+
+// L'ORIGINE DE L'API, LES TROIS BRANCHES. Un `config.js` qui rendrait "" en
+  // production enverrait chaque appel sur GitHub Pages, qui repond 404 en HTML :
+  // le `catch` dirait « le serveur ne repond pas » et les logs de l'origine
+  // seraient vides. C'est la panne muette que ce harnais existe pour voir.
+  for (const [hote, attendu] of [
+    ["tch009.thevhome.com", "https://tch099.thevhome.com/tps.json"],
+    ["vianpyro.github.io", "https://tch099.thevhome.com/tps.json"],
+    ["localhost", "tps.json"],
+  ]) {
+    global.location.hostname = hote;
+    new Function(lire("config.js"))();
+    check(global.API("tps.json") === attendu, "config.js : " + hote + " -> " + attendu);
+  }
 
   console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nla page fonctionne");
   process.exit(failures ? 1 : 0);

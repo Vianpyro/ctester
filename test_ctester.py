@@ -946,6 +946,7 @@ def test_http_end_to_end():
     # `app.js` dépasse le seuil de compression : c'est lui qui éprouve la
     # négociation gzip plus bas. Les autres restent minuscules exprès.
     for nom, contenu in (("style.css", "body{}"), ("app.js", "// " + "x" * 2000),
+                         ("config.js", "// config"),
                          ("quiz.js", "// quiz"), ("compte.js", "// compte"),
                          ("progres.js", "// progres"), ("forum.js", "// forum")):
         with open(os.path.join(static, nom), "w", encoding="utf-8") as fh:
@@ -997,6 +998,7 @@ def test_http_end_to_end():
                 == ["tp1", "tp2-ex3", "tp6-ex1"])
         assert call("GET", "/")[0] == 200
         assert call("GET", "/style.css")[0] == 200
+        assert call("GET", "/config.js")[0] == 200
         assert call("GET", "/app.js")[0] == 200
         assert call("GET", "/quiz.js")[0] == 200
         assert call("GET", "/compte.js")[0] == 200

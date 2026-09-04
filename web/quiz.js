@@ -26,7 +26,7 @@ $("quiz").addEventListener("input", () => {
 async function loadQuiz(id) {
   const box = $("quiz");
   box.textContent = "Chargement…";
-  const data = await (await fetch("quiz/" + id + ".json")).json();
+  const data = await (await fetch(API("quiz/" + id + ".json"))).json();
   const brouillon = ctester.brouillon(id) || {};
   exerciceQuiz = id;
   box.innerHTML = "";

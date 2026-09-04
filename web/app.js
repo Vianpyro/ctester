@@ -278,7 +278,7 @@ function addOption(sel, value, text) {
   sel.append(o);
 }
 
-fetch("tps.json").then(r => r.json()).then(tps => {
+fetch(API("tps.json")).then(r => r.json()).then(tps => {
   catalogue = tps;
   if (!tps.length) { show("bad", "Aucun TP n'est publié pour l'instant."); return; }
   for (const g of [...new Set(tps.map(t => t.group))]) addOption($("tp"), g, g);
@@ -453,7 +453,7 @@ const details = {};
 async function chargerDetail(id) {
   if (details[id]) return details[id];
   try {
-    const r = await fetch("tp/" + id + ".json");
+    const r = await fetch(API("tp/" + id + ".json"));
     if (!r.ok) throw new Error("HTTP " + r.status);
     const d = await r.json();
     details[id] = {
@@ -600,7 +600,7 @@ $("oublier").addEventListener("click", () => {
 // que s'il y a une session en cours, un retour de connexion, ou un clic sur
 // « Se connecter » : c'est-à-dire jamais pour l'étudiant qui passe sans compte,
 // et c'est lui le parcours par défaut.
-fetch("oidc.json").then(r => r.json()).then(async (config) => {
+fetch(API("oidc.json")).then(r => r.json()).then(async (config) => {
   if (!config || !config.issuer || !config.client_id) return;
   oidc = config;
   const jeton = sessionGet(TOKEN_KEY);
@@ -852,7 +852,7 @@ function occupe(oui) {
 }
 
 async function poll(id, tries, portee) {
-  const r = await fetch("r/" + id);
+  const r = await fetch(API("r/" + id));
   const body = await r.json().catch(() => ({state: "error"}));
   if (body.state === "done") {
     render(body, portee);
@@ -909,7 +909,7 @@ async function soumettre(portee) {
   occupe(true);
   show("wait", "Envoi…");
   try {
-    const r = await fetch("submit", {
+    const r = await fetch(API("submit"), {
       method: "POST",
       // La connexion est facultative : sans jeton, la soumission reste
       // anonyme. Avec lui, l'API peut rattacher le job au compte et enregistrer
@@ -952,7 +952,7 @@ if (!liveId) {
 }
 async function battement() {
   try {
-    const r = await fetch("live?id=" + encodeURIComponent(liveId));
+    const r = await fetch(API("live?id=" + encodeURIComponent(liveId)));
     const d = await r.json();
     if (d && typeof d.n === "number") {
       $("live").textContent =

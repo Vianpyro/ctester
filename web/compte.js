@@ -34,7 +34,12 @@ function config() {
 let states = {};
 let practice = {};
 
-const authFetch = (url, options) => fetch(url, Object.assign({}, options, {
+// LE SEUL POINT DE PASSAGE des appels authentifies, donc le seul endroit ou
+// `API()` a besoin d'etre pose : etats, pratique, brouillon, preferences,
+// progres et forum passent tous par ici. Les DEUX autres `fetch` de ce
+// fichier -- la decouverte OIDC et le token endpoint -- portent des URL
+// absolues venues de l'emetteur : les prefixer les enverrait sur l'API.
+const authFetch = (url, options) => fetch(API(url), Object.assign({}, options, {
   headers: Object.assign({}, (options && options.headers) || {},
                          { Authorization: "Bearer " + ctester.token() }),
 }));
