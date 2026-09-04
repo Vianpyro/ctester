@@ -34,6 +34,7 @@ sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 # FastAPI ne peut pas la faire régresser tant qu'elle sert les étudiants. Tout
 # le reste de ce fichier éprouve les modules extraits, ceux que la v2 utilise.
 import app        # noqa: E402
+import content_catalogue  # noqa: E402
 import config     # noqa: E402
 import csp        # noqa: E402
 import etat       # noqa: E402
@@ -85,6 +86,81 @@ QUIZ = {
          "type": "int", "answer": "-79"},
     ],
 }
+
+
+# --------------------------------------------------------------------------
+# Contenu v2 -- contrat de migration, sans toucher aux TP historiques
+# --------------------------------------------------------------------------
+
+def _write_json(path, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(value, fh)
+
+
+def test_content_v2_discovery_and_public_projection():
+    """Une collection ne définit pas l'identité, et assessment reste privé."""
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _write_json(os.path.join(root, "catalog.json"),
+                    {"schema_version": 1, "skills": ["variables"]})
+        exercise = os.path.join(root, "exercises", "surface-rectangle")
+        _write_json(os.path.join(exercise, "exercise.json"), {
+            "schema_version": 1, "id": "surface-rectangle", "title": "Surface",
+            "summary": "Calcule une surface.", "skills": ["variables"],
+            "difficulty": "foundation", "contexts": ["mechanical"],
+            "release": {"state": "scheduled", "available_from": "2026-09-18T00:00:00-04:00"},
+        })
+        os.makedirs(os.path.join(exercise, "assessment"))
+        with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("Calcule la surface.")
+        _write_json(os.path.join(exercise, "assessment", "io.json"), {
+            "cases": [{"stdin": "2\\n3\\n", "expect": [6]}],
+            "files": [{"name": "submission.c", "template": "int main(void) {}"}],
+            "note": "ne doit jamais etre publique",
+        })
+        _write_json(os.path.join(root, "collections", "tp2.json"), {
+            "schema_version": 1, "id": "tp2", "title": "TP2",
+            "items": ["surface-rectangle"], "release": {"state": "available"},
+        })
+        model = content_catalogue.discover(root)
+        public = content_catalogue.public_catalogue(model)
+        assert model["exercises"]["surface-rectangle"]["mode"] == "io"
+        assert public["collections"][0]["items"] == ["surface-rectangle"]
+        blob = json.dumps(public)
+        assert "stdin" not in blob and "expect" not in blob and "note" not in blob, blob
+        assert "template" not in blob and "statement" not in blob, blob
+    finally:
+        shutil.rmtree(root)
+
+
+def test_content_v2_rejects_conflicting_modes_and_unknown_collection_item():
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _write_json(os.path.join(root, "catalog.json"), {"schema_version": 1, "skills": []})
+        exercise = os.path.join(root, "exercises", "bad")
+        _write_json(os.path.join(exercise, "exercise.json"), {
+            "schema_version": 1, "id": "bad", "title": "Bad",
+            "release": {"state": "available"},
+        })
+        os.makedirs(os.path.join(exercise, "assessment"))
+        with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("x")
+        _write_json(os.path.join(exercise, "assessment", "io.json"), {"cases": []})
+        _write_json(os.path.join(exercise, "assessment", "quiz.json"), {"questions": []})
+        _write_json(os.path.join(root, "collections", "tp2.json"), {
+            "schema_version": 1, "id": "tp2", "title": "TP2", "items": ["missing"],
+            "release": {"state": "available"},
+        })
+        try:
+            content_catalogue.discover(root)
+        except content_catalogue.ContentValidationError as exc:
+            message = str(exc)
+            assert "plusieurs modes" in message and "exercice inconnu" in message, message
+        else:
+            raise AssertionError("contenu v2 invalide accepté")
+    finally:
+        shutil.rmtree(root)
 
 
 # --------------------------------------------------------------------------
