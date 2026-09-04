@@ -240,3 +240,37 @@ CREATE TABLE IF NOT EXISTS forum_nom_signale (
     cree_le     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, utilisateur)
 );
+
+-- --------------------------------------------------------------------------
+-- Les préférences d'affichage : le thème, et rien d'autre pour l'instant.
+--
+-- POURQUOI CETTE TABLE EXISTE ALORS QUE `localStorage` SUFFISAIT. Il suffisait
+-- sur UN appareil. Un étudiant qui travaille au labo puis chez lui repartait
+-- chaque fois du thème par défaut, et le réglage qu'il avait pris trente
+-- secondes à choisir ne le suivait pas. Le compte est déjà ce qui transporte le
+-- brouillon d'un poste à l'autre ; le thème voyage par le même chemin.
+--
+-- LE STOCKAGE LOCAL RESTE, ET IL N'EST PAS REDONDANT : c'est lui que le script
+-- du `<head>` lit avant le premier rendu. Le serveur répond bien après la
+-- première peinture -- s'il fallait l'attendre, chaque visite montrerait le
+-- flash sombre→clair que ce script existe précisément pour éviter.
+--
+-- UNE LIGNE PAR COMPTE, MISE À JOUR EN PLACE. C'est la seule table de ce
+-- schéma, avec le brouillon et l'état, qui n'est pas en ajout seul : l'ancien
+-- thème de quelqu'un n'est pas un fait à relire, et un journal ferait grossir
+-- une table à chaque clic sur un bouton fait pour être cliqué. Le GRANT
+-- correspondant (voir VHome) porte donc `UPDATE`, comme pour `brouillon_exercice`.
+--
+-- LOGGED, contrairement au brouillon : la perte du réglage ne coûterait qu'un
+-- clic, mais la table est minuscule -- une ligne par compte -- et un TRUNCATE
+-- après un arrêt sale ferait revenir tout le monde au thème par défaut le
+-- matin où on remarquerait le moins pourquoi.
+--
+-- Le CHECK est la même défense qu'ailleurs : la valeur vient d'un corps de
+-- requête, et `app.py` la valide déjà. La contrainte tient pour TOUS les
+-- chemins d'écriture, y compris un psql ouvert à minuit.
+CREATE TABLE IF NOT EXISTS preference_affichage (
+    utilisateur TEXT        NOT NULL PRIMARY KEY,
+    theme       TEXT        NOT NULL CHECK (theme IN ('light', 'dark')),
+    maj         TIMESTAMPTZ NOT NULL DEFAULT now()
+);

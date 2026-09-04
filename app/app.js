@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260903-live1";
+const ASSET_REVISION = "20260904-theme-live";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -85,14 +85,31 @@ function appliquerTheme(nom) {
   $("theme").setAttribute("aria-label", $("theme").title);
 }
 
+// LE STOCKAGE LOCAL RESTE LA MÉMOIRE DE L'APPAREIL, même quand le compte a le
+// dernier mot : c'est lui que le script du <head> lit avant le premier rendu,
+// et rien d'autre ne peut arriver assez tôt pour éviter le flash. Ce que le
+// serveur dit est donc recopié ici -- pas pour être relu par la page, mais
+// pour que la visite SUIVANTE parte déjà du bon thème.
+function retenirTheme(nom) {
+  try { localStorage.setItem(THEME_KEY, nom); } catch (e) {}
+}
+
 appliquerTheme(document.documentElement.dataset.theme === "light"
                ? "light" : "dark");
 
+const themeCourant = () =>
+  document.documentElement.dataset.theme === "light" ? "light" : "dark";
+
 $("theme").addEventListener("click", () => {
-  const suivant =
-    document.documentElement.dataset.theme === "light" ? "dark" : "light";
+  const suivant = themeCourant() === "light" ? "dark" : "light";
   appliquerTheme(suivant);
-  try { localStorage.setItem(THEME_KEY, suivant); } catch (e) {}
+  retenirTheme(suivant);
+  // ET SUR LE COMPTE, QUAND IL Y EN A UN. `compte.js` n'est chargé que pour
+  // une session en cours : l'anonyme ne déclenche aucune requête ici, et le
+  // module lui-même ne fait rien sans jeton. Rien n'est attendu -- le thème
+  // est déjà appliqué à l'écran, et un aller-retour raté ne doit pas donner
+  // l'impression que le bouton n'a pas marché.
+  if (ctester.compte) ctester.compte.enregistrerTheme(suivant);
 });
 
 function show(cls, title, extra, bar) {
@@ -612,6 +629,11 @@ Object.assign(ctester, {
   // une promesse par fichier, un échec jamais gardé, et l'appelant décide quoi
   // faire quand ça n'arrive pas -- pour le forum, retomber sur du texte brut.
   charger: charger,
+  // Le thème : le noyau le pose (le bouton est dans la barre, et il
+  // existe pour l'anonyme), `compte.js` le synchronise avec le compte.
+  appliquerTheme: appliquerTheme,
+  retenirTheme: retenirTheme,
+  themeCourant: themeCourant,
   catalogue: () => catalogue,
   token: () => token,
   oidc: () => oidc,

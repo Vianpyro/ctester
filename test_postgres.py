@@ -19,7 +19,7 @@ est la frontière HTTP, pas le SQL. Or les écritures de progression et de forum
 ne sont pas du SQL ordinaire -- une CTE modifiante qui alimente un INSERT, une
 CTE modifiante qui alimente un UPDATE, un `unnest` d'un tableau paramétré, un
 INSERT ... SELECT dont la clause `WHERE` est le contrôle d'accès, un
-`DISTINCT ON` et une jointure LATERAL pour le dernier profil, onze DELETE
+`DISTINCT ON` et une jointure LATERAL pour le dernier profil, douze DELETE
 dans une seule instruction. Ces formes compilent dans la tête et échouent en
 production ; il n'y a pas de milieu.
 
@@ -53,7 +53,7 @@ if not etat.enabled():
 TABLES = ("brouillon_exercice", "etat_exercice", "tentative_pratique",
           "evenement_progression", "transaction_xp", "succes_obtenu",
           "forum_message", "forum_signalement", "forum_moderation",
-          "forum_profil", "forum_nom_signale")
+          "forum_profil", "forum_nom_signale", "preference_affichage")
 
 ALICE, BOB = "sub-alice", "sub-bob"
 
@@ -374,13 +374,36 @@ def forum_privileges():
     print("ok   forum : seul `masque` est modifiable, le reste est en ajout seul")
 
 
+def preferences():
+    """LE THÈME : la seule écriture de ce fichier qui ÉCRASE au lieu d'ajouter.
+
+    C'est un `ON CONFLICT ... DO UPDATE` sur la clé primaire, et il demande un
+    GRANT d'UPDATE que les tables de progression n'ont pas. Le rejouer doit
+    remplacer la ligne, pas en ajouter une seconde ni lever.
+    """
+    assert etat.read_theme(ALICE) == "", "un compte neuf n'a pas de thème"
+    assert etat.write_theme(ALICE, "light")
+    assert etat.read_theme(ALICE) == "light"
+    assert etat.write_theme(ALICE, "dark")               # écrase, ne double pas
+    assert etat.read_theme(ALICE) == "dark"
+    assert compte("preference_affichage", ALICE) == 1
+    # LE CHECK DU SCHÉMA EST LA DERNIÈRE BARRIÈRE, et `write_theme` ne doit même
+    # pas l'atteindre : une valeur hors liste repart False sans toucher la base.
+    assert etat.write_theme(ALICE, "néon") is False
+    assert etat.read_theme(ALICE) == "dark"
+    # CLOISONNÉ COMME LE RESTE : le thème d'Alice n'est pas celui de Bob.
+    assert etat.write_theme(BOB, "light")
+    assert etat.read_theme(ALICE) == "dark" and etat.read_theme(BOB) == "light"
+    print("ok   le thème s'écrit, s'écrase, et reste celui de son compte")
+
+
 def suppression():
     avant = {t: compte(t, ALICE) for t in TABLES}
     assert all(avant.values()), "test inutile : il n'y a rien à effacer " + str(avant)
     assert etat.forget(ALICE)
     apres = {t: compte(t, ALICE) for t in TABLES}
     assert not any(apres.values()), apres
-    # LES ONZE DELETE SONT DANS UNE SEULE INSTRUCTION, et les CTE non
+    # LES DOUZE DELETE SONT DANS UNE SEULE INSTRUCTION, et les CTE non
     # référencées s'exécutent quand même -- c'est ce qu'on vérifie ici, pas la
     # documentation de PostgreSQL.
     assert compte("brouillon_exercice", BOB) == 1, "effacé chez le voisin !"
@@ -390,7 +413,7 @@ def suppression():
     assert compte("forum_message", BOB) == 2, "message effacé chez le voisin !"
     assert compte("forum_signalement", BOB) == 1
     assert etat.forget(ALICE)                            # rejouable
-    print("ok   « Supprimer mes données » vide les onze tables, et seulement "
+    print("ok   « Supprimer mes données » vide les douze tables, et seulement "
           "les siennes")
 
 
@@ -407,6 +430,7 @@ def main():
     forum()
     identite()
     forum_privileges()
+    preferences()
     suppression()
     etat.forget(BOB)
     print("\nle SQL tient sur un vrai PostgreSQL.")

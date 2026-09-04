@@ -257,6 +257,10 @@ const OIDC_RESPONSE = { issuer: "https://auth.example", client_id: "ctester",
 let SUBMIT_RESPONSE;
 let DECOUVERTE_CASSEE = false;
 const JETON = "jeton-de-test";
+// LE THÈME DU COMPTE, cote serveur. Une chaine vide veut dire « ce compte n'a
+// rien choisi » -- ce qui n'est pas la meme chose qu'une panne, et la page ne
+// doit pas ecraser le theme de l'appareil dans ce cas.
+let THEME_SERVEUR = "";
 const ETATS = { etats: [{ exercice_id: "tp2-ex0", statut: "valide" }] };
 const PRATIQUE = { pratique: [
   { exercice_id: "tp2-ex3", tentatives: 3, reussites: 1 }] };
@@ -354,6 +358,18 @@ global.fetch = async (url, opts) => {
     }
     return { ok: true, status: 200, json: async () => (
       url === "etats" ? ETATS : url === "pratique" ? PRATIQUE : PROGRES) };
+  }
+  if (url === "preferences") {
+    // MEME PORTE QUE LES AUTRES ROUTES DE COMPTE : le jeton fait foi.
+    const porteur = opts && opts.headers && opts.headers.Authorization;
+    if (porteur !== "Bearer " + JETON) {
+      return { ok: false, status: 401, json: async () => ({}) };
+    }
+    if (opts && opts.method === "PUT") {
+      THEME_SERVEUR = JSON.parse(opts.body).theme;
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ theme: THEME_SERVEUR }) };
   }
   if (url.startsWith("brouillon")) {
     return { ok: true, status: 200, json: async () => ({ sources: {} }) };
@@ -514,6 +530,20 @@ const attendre = async () => { await sleep(); await sleep(); };
         /en ligne/.test(nodes.live.textContent) && nodes.live.hidden === false,
         "le compteur de presence s'affiche, meme sans compte : "
         + nodes.live.textContent);
+
+  // --- LE THEME, SANS COMPTE : local, et MUET -------------------------------
+  // Le bouton existe pour tout le monde, connecte ou non. Sans session il ne
+  // doit toucher que cet appareil : une requete partie d'ici serait une requete
+  // du parcours anonyme, ce que tout ce decoupage promet de ne jamais faire.
+  const avantTheme = calls.length;
+  const themeDepart = document.documentElement.dataset.theme;
+  nodes.theme.listeners.click();
+  check(document.documentElement.dataset.theme !== themeDepart,
+        "le bouton de theme bascule l'affichage");
+  check(storage["ctester.theme"] === document.documentElement.dataset.theme,
+        "et le retient sur cet appareil, pour eviter le flash a la prochaine visite");
+  check(calls.length === avantTheme,
+        "sans compte, changer de theme n'emet AUCUNE requete");
   // ET UN DETAIL QUI N'ARRIVE PAS NE BLOQUE RIEN : publication en retard,
   // reseau coupe. Les NOMS de fichiers viennent du catalogue, donc on peut
   // encore coller son code et soumettre -- c'est tout ce qu'on promet ici.
@@ -1016,6 +1046,45 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(global.ctester.token() === JETON,
         "le contexte rend le jeton COURANT, pas celui du chargement");
   check(!!global.ctester.oidc(), "et la configuration OIDC vraiment lue");
+
+  // --- LE THEME SUIT LE COMPTE, PAS L'APPAREIL -----------------------------
+  // C'est la raison d'etre de la route : le labo puis le portable, le meme
+  // ecran. L'appareil est en sombre, le compte a choisi clair -- c'est le
+  // compte qui gagne au demarrage de la session.
+  document.documentElement.dataset.theme = "dark";
+  storage["ctester.theme"] = "dark";
+  THEME_SERVEUR = "light";
+  await global.ctester.compte.chargerTheme();
+  check(document.documentElement.dataset.theme === "light",
+        "le theme du compte est applique en ouvrant la session");
+  check(storage["ctester.theme"] === "light",
+        "et recopie localement : la PROCHAINE visite part du bon theme avant "
+        + "le premier rendu, ce que seul le stockage local peut faire");
+
+  // UN CLIC LE PUBLIE. Sans ca le reglage resterait sur cet appareil et la
+  // route ne servirait a rien.
+  calls.length = 0;
+  nodes.theme.listeners.click();
+  await attendre();
+  const envoiTheme = calls.find(c => c.url === "preferences");
+  check(!!envoiTheme && envoiTheme.opts.method === "PUT",
+        "changer de theme connecte l'ecrit sur le compte");
+  check(envoiTheme && envoiTheme.opts.headers.Authorization === "Bearer " + JETON,
+        "avec le jeton, comme toute ecriture de compte");
+  check(THEME_SERVEUR === "dark",
+        "et c'est bien le theme choisi qui arrive au serveur : " + THEME_SERVEUR);
+
+  // UN COMPTE SANS CHOIX N'EST PAS UN COMPTE EN SOMBRE. Rien n'est enregistre :
+  // on garde ce que l'appareil affiche, et on le lui envoie pour qu'il en ait
+  // un. Ecraser par un defaut ferait sauter le reglage de quelqu'un chaque
+  // fois que la base est neuve.
+  THEME_SERVEUR = "";
+  document.documentElement.dataset.theme = "light";
+  await global.ctester.compte.chargerTheme();
+  check(document.documentElement.dataset.theme === "light",
+        "un compte sans theme enregistre laisse l'appareil decider");
+  check(THEME_SERVEUR === "light",
+        "et prend son theme courant comme premier choix du compte");
 
   calls.length = 0;
   await global.ctester.compte.loadStates();

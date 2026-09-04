@@ -76,7 +76,7 @@ docker stop pg
   les écritures de progression et de forum ne sont pas du SQL ordinaire — une CTE
   modifiante qui alimente un INSERT, une CTE modifiante qui alimente un UPDATE, un
   `unnest` d'un tableau paramétré, un `INSERT ... SELECT` dont la clause `WHERE`
-  EST le contrôle d'accès, neuf DELETE dans une seule instruction — et ces formes
+  EST le contrôle d'accès, douze DELETE dans une seule instruction — et ces formes
   compilent dans la tête puis échouent en production. Il demande un vrai PostgreSQL ; **sans `CTESTER_DB_DSN` il ne fait
   rien et sort en 0**, et il n'est PAS dans la vérification Ansible parce qu'il
   écrit. Avec `CTESTER_DB_ADMIN_DSN` en plus, il rejoue exactement la
@@ -215,8 +215,9 @@ sans le corps : un HEAD qui annoncerait une autre politique serait un piège à
 revalidation.
 
 Les réponses d'API (`/r/<id>`, `/etats`, `/pratique`, `/progres`,
-`/brouillon`, `/oidc.json`, `/forum*`, `/live`) restent en `no-store`. Ce sont
-des données de compte (ou, pour `/live`, un compteur volatil), pas des fichiers.
+`/brouillon`, `/preferences`, `/oidc.json`, `/forum*`, `/live`) restent en
+`no-store`. Ce sont des données de compte (ou, pour `/live`, un compteur
+volatil), pas des fichiers.
 
 **La compression est faite ici, à partir de 1 Ko.** Reste à mesurer si
 Cloudflare ne la refaisait pas déjà en amont — `curl -sI -H 'Accept-Encoding:
@@ -405,7 +406,41 @@ des soumissions), et il ne couvre que les écritures : un quota qui empêcherait
 relire un fil empêcherait de suivre la réponse qu'on attend.
 
 **Ajouter une table de forum sans l'ajouter à `forget()` fait échouer
-`test_ctester.py`** — le contrôle lit `schema.sql` et compte onze tables.
+`test_ctester.py`** — le contrôle lit `schema.sql` et compte douze tables.
+
+## Le thème enregistré sur le compte
+
+**`localStorage` était par appareil, et c'est tout le problème qu'on répare.**
+Un étudiant qui passe du labo à son portable repartait chaque fois du thème par
+défaut. Le compte transporte déjà le brouillon d'un poste à l'autre ; le réglage
+d'affichage prend le même chemin — `preference_affichage`, une ligne par compte,
+`GET`/`PUT /preferences`.
+
+**Le stockage local RESTE, et il ne fait pas doublon.** C'est lui que le
+`<script id="theme-init">` du `<head>` lit avant le premier rendu ; le serveur,
+lui, répond toujours après la première peinture. Ce que le compte dit est donc
+recopié dans `localStorage` — pas pour être relu dans la foulée, mais pour que
+la visite SUIVANTE sur cet appareil parte déjà du bon thème, sans le flash
+sombre→clair que ce script existe pour éviter.
+
+**Un thème vide n'est pas une panne**, et `chargerTheme()` distingue les deux :
+« aucun choix enregistré » (200, `theme: ""`) prend le thème courant de
+l'appareil et l'envoie au compte, « la base ne répond pas » (503) ne touche à
+rien. Les confondre écraserait le réglage de quelqu'un à la première panne.
+
+**C'est la SEULE table du schéma, avec le brouillon et l'état, qui n'est pas en
+ajout seul** : `ON CONFLICT ... DO UPDATE`. L'ancien thème n'est pas un fait à
+relire, et un journal grossirait à chaque clic sur un bouton fait pour être
+cliqué. Côté `VHome`, son `GRANT` porte donc `UPDATE`, comme
+`brouillon_exercice` — **sans lui, l'écriture échoue en production et nulle part
+ailleurs**.
+
+**Le bouton vit dans le noyau, la synchronisation dans `compte.js`.** L'anonyme
+a le bouton et n'émet aucune requête en le cliquant (`test_page.js` le
+vérifie) : `app.js` n'appelle `ctester.compte.enregistrerTheme()` que si le
+module est là, et le module ne fait rien sans jeton. Rien n'est attendu non
+plus — le thème est déjà à l'écran, et un aller-retour raté ne doit pas donner
+l'impression que le bouton n'a pas marché.
 
 ## Mesurer avant de tourner un bouton
 
