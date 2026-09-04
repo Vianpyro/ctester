@@ -120,6 +120,16 @@ def _files(value, where, errors):
     return result
 
 
+def _public_files(path, where, errors, mode):
+    """Les gabarits sont publics, donc séparés de la configuration assessment."""
+    if mode == "quiz":
+        return []
+    data = _json(os.path.join(path, "public", "files.json"), errors)
+    if data is None:
+        return []
+    return _files(data.get("files"), where + "/public/files.json", errors)
+
+
 def _exercise(root, dirname, known_skills, errors):
     path = os.path.join(root, "exercises", dirname)
     data = _json(os.path.join(path, "exercise.json"), errors)
@@ -191,7 +201,7 @@ def _exercise(root, dirname, known_skills, errors):
         "id": exercise_id, "path": path, "title": title, "summary": data.get("summary", ""),
         "statement": statement, "mode": mode, "release": _release(data.get("release"), where, errors),
         "skills": skills, "difficulty": difficulty, "contexts": contexts,
-        "prerequisites": prerequisites, "files": _files(config.get("files"), where, errors),
+        "prerequisites": prerequisites, "files": _public_files(path, where, errors, mode),
     }
 
 
@@ -279,3 +289,17 @@ def public_catalogue(model):
                              "description": entry["description"], "items": list(entry["items"]),
                              "release": entry["release"]}
                             for entry in model["collections"].values()]}
+
+
+def public_detail(model, exercise_id):
+    """Le détail public d'un exercice, séparé du menu et de assessment.
+
+    Les gabarits sont assez volumineux pour ne pas figurer dans catalog.json,
+    mais sont publics par intention et nécessaires à l'éditeur. Un ID inconnu
+    ne se résout pas en chemin : l'appelant doit déjà l'avoir trouvé dans le
+    modèle validé.
+    """
+    entry = model["exercises"].get(exercise_id)
+    if entry is None:
+        return None
+    return {"statement": entry["statement"], "files": [dict(item) for item in entry["files"]]}

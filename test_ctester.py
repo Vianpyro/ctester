@@ -116,8 +116,10 @@ def test_content_v2_discovery_and_public_projection():
             fh.write("Calcule la surface.")
         _write_json(os.path.join(exercise, "assessment", "io.json"), {
             "cases": [{"stdin": "2\\n3\\n", "expect": [6]}],
-            "files": [{"name": "submission.c", "template": "int main(void) {}"}],
             "note": "ne doit jamais etre publique",
+        })
+        _write_json(os.path.join(exercise, "public", "files.json"), {
+            "files": [{"name": "submission.c", "template": "int main(void) {}"}],
         })
         _write_json(os.path.join(root, "collections", "tp2.json"), {
             "schema_version": 1, "id": "tp2", "title": "TP2",
@@ -125,11 +127,15 @@ def test_content_v2_discovery_and_public_projection():
         })
         model = content_catalogue.discover(root)
         public = content_catalogue.public_catalogue(model)
+        detail = content_catalogue.public_detail(model, "surface-rectangle")
         assert model["exercises"]["surface-rectangle"]["mode"] == "io"
         assert public["collections"][0]["items"] == ["surface-rectangle"]
         blob = json.dumps(public)
         assert "stdin" not in blob and "expect" not in blob and "note" not in blob, blob
         assert "template" not in blob and "statement" not in blob, blob
+        assert detail == {"statement": "Calcule la surface.",
+                          "files": [{"name": "submission.c", "template": "int main(void) {}"}]}
+        assert content_catalogue.public_detail(model, "inconnu") is None
     finally:
         shutil.rmtree(root)
 
