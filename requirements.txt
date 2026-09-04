@@ -2,25 +2,30 @@
 # code qu'on ne relit pas et qui tourne devant les étudiants : la liste reste
 # courte, et chaque ligne doit pouvoir justifier sa présence.
 #
-# TOUT EST ÉPINGLÉ À L'EXACT, jamais `>=`. Cette image est reconstruite à la
-# main et rarement ; « ce qui était sur PyPI ce matin-là » n'est pas une chose à
-# découvrir en production, un vendredi, pendant une séance.
+# TOUT EST ÉPINGLÉ À L'EXACT, jamais `>=`. Ces paquets sont posés dans le volume
+# `ctester_deps` par une tâche Ansible qui ne rejoue QUE si ce fichier change
+# (somme de contrôle) ; « ce qui était sur PyPI ce matin-là » n'est pas une chose
+# à découvrir en production, un vendredi, pendant une séance.
+#
+# PAS DE DOCKERFILE, ET C'EST VOULU. L'image officielle `python:3.13-slim` est
+# lancée telle quelle sur un code monté en lecture seule, et ces dépendances
+# vivent à côté dans un volume (`PYTHONPATH=/deps`). Rien à construire, rien à
+# republier quand une CVE tombe : `docker compose pull` suffit.
 
 # Le framework HTTP. `starlette` et `pydantic` arrivent avec lui -- ils sont
 # épinglés plus bas plutôt que laissés flotter dans sa fourchette.
-fastapi===0.141.1
-pydantic===2.13.5
-starlette===1.6.0
+fastapi==0.141.1
+pydantic==2.13.5
+starlette==1.6.0
 
 # Le serveur ASGI. PAS `uvicorn[standard]` : cet extra ajoute uvloop, httptools,
 # watchfiles et websockets. À 27 étudiants et quelques requêtes par seconde, le
 # gain de débit est invisible, et ce sont quatre dépendances de plus -- dont
 # deux avec du C -- dans le seul processus exposé à Internet. `h11` (pur Python,
 # et la seule implémentation HTTP/1.1 dont uvicorn ait besoin) suffit.
-uvicorn===0.52.4
-h11===0.16.0
+uvicorn==0.52.4
+h11==0.16.0
 
 # La base, pour la connexion facultative. Sans `CTESTER_DB_DSN`, `etat.py`
-# rapporte la fonctionnalité comme éteinte et le parcours anonyme est intact --
-# une image construite sans cette ligne sert quand même le juge.
-psycopg[binary]===3.3.5
+# rapporte la fonctionnalité comme éteinte et le parcours anonyme est intact.
+psycopg[binary]==3.3.5

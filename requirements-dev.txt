@@ -1,8 +1,14 @@
-# Les dépendances DE TEST, jamais dans l'image. Le Dockerfile n'installe que
-# `requirements.txt` : deux fichiers plutôt qu'un filtre à recopier, parce que
-# le jour où le filtre se trompe, c'est httpx qui part en production.
+# Les dépendances DE TEST, jamais dans le déploiement. Le rôle Ansible installe
+# `requirements.txt` SEUL dans le volume `ctester_deps` : deux fichiers plutôt
+# qu'un filtre à recopier, parce que le jour où le filtre se trompe, c'est le client
+# HTTP de test qui part en production.
 -r requirements.txt
 
-# `fastapi.testclient.TestClient` est une façade sur httpx : sans lui, pas de
-# `test_api.py`.
-httpx==0.28.1
+# `fastapi.testclient.TestClient` est une façade sur un client HTTP : sans lui,
+# pas de `test_api.py` ni de `test_parite.py`.
+#
+# `httpx2` ET PAS `httpx` : starlette 1.6 déprécie le second et le dit à chaque
+# exécution. Un avertissement sur chaque sortie de test est un avertissement que
+# personne ne lit plus au bout d'une semaine -- y compris le prochain, qui
+# comptera.
+httpx2==2.12.0

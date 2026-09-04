@@ -18,22 +18,12 @@ PAS `CORSMiddleware` de Starlette, et c'est délibéré :
 import gzip
 import hashlib
 import os
-import re
 
+import csp as politique_csp
 from starlette.datastructures import MutableHeaders
 from starlette.responses import JSONResponse, Response
 
 import config
-
-# AUCUN SCRIPT INLINE DANS LA PAGE, donc aucun hachage à tenir à jour. C'est ce
-# qui permet à la même politique de tenir dans un en-tête ici ET dans le
-# `<meta>` de `index.html`, que GitHub Pages sert sans pouvoir poser d'en-tête.
-# Le bootstrap du thème vit dans `web/config.js`, chargé en tête de `<head>`
-# sans `defer` : il tourne donc avant le premier rendu, comme l'inline qu'il
-# remplace. Un inline rajouté par distraction est alors bloqué bruyamment, au
-# lieu de passer par un hachage recopié qui se périme en silence.
-_INLINE_SCRIPT_RE = re.compile(rb"<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>",
-                               re.DOTALL)
 
 # Le préflight, pour toute route. `Max-Age` à 86400 est ce qui empêche la
 # séparation front/back de coûter un aller-retour de plus par requête : sans
@@ -47,50 +37,6 @@ PREFLIGHT = {
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Access-Control-Max-Age": "86400",
 }
-
-
-def csp(body, issuer=""):
-    """La politique de sécurité du contenu pour CE document HTML.
-
-    ELLE DOIT DIRE LA MÊME CHOSE QUE LE `<meta>` de `index.html`, à
-    `frame-ancestors` près : un `<meta>` ne peut pas le porter, et c'est la
-    seule perte réelle du passage à GitHub Pages (à reposer par une Transform
-    Rule Cloudflare, `X-Frame-Options: DENY`). Ici il reste, ce serveur pouvant
-    poser des en-têtes.
-
-    `style-src` garde `'unsafe-inline'` : la page pose des attributs `style`
-    calculés (la largeur d'une jauge, le rang d'une coche de verdict). Ce sont
-    des styles, pas des scripts, et les retirer demanderait de réécrire trois
-    composants pour un gain nul face à la menace visée ici.
-
-    `connect-src` doit contenir l'émetteur OIDC : `compte.js` va y chercher le
-    document de découverte puis le jeton. Sans lui, la connexion échoue en
-    silence -- et c'est le genre de panne qu'une CSP produit sans le dire. Il
-    doit aussi contenir l'API : pendant la bascule, ce serveur sert encore la
-    page alors que `config.js` appelle déjà `tch099`.
-
-    `body` N'EST PLUS LU QUE POUR REFUSER UN SCRIPT INLINE. La page n'en a plus
-    aucun ; un qui reviendrait ne serait pas haché en douce, il ferait échouer
-    `test_csp_du_document`.
-    """
-    if any(bloc.strip() for bloc in _INLINE_SCRIPT_RE.findall(body)):
-        raise ValueError(
-            "un <script> inline est apparu dans la page : `script-src 'self'` "
-            "le bloque, ici comme dans le <meta> servi par GitHub Pages. "
-            "Sortir le code dans un fichier, comme web/config.js.")
-    origines = [o for o in (config.API_ORIGIN,) if o]
-    if issuer.startswith("https://"):
-        origines.append("/".join(issuer.split("/")[:3]))
-    return "; ".join([
-        "default-src 'none'",
-        "script-src 'self'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self'",
-        " ".join(["connect-src 'self'"] + origines),
-        "base-uri 'none'",
-        "form-action 'none'",
-        "frame-ancestors 'none'",
-    ])
 
 
 class EnTetes:
@@ -198,6 +144,22 @@ async def _repondre(envoyer, code, corps, entetes=None):
     await envoyer({"type": "http.response.body", "body": corps})
 
 
+class JSON(JSONResponse):
+    """`application/json; charset=utf-8`, comme la version précédente.
+
+    Starlette rend `application/json` tout court -- correct au sens de la RFC
+    8259 (JSON est toujours de l'UTF-8), mais ce n'est pas ce que ce service a
+    toujours annoncé. Le `charset` explicite coûte quinze octets par réponse et
+    évite d'avoir à se demander, le jour d'une panne, si un intermédiaire
+    (Cloudflare, un cache, un proxy d'école) traite les deux pareil.
+
+    Posée en `default_response_class` : toutes les routes qui rendent un `dict`
+    passent par ici, sans qu'aucune n'ait à y penser.
+    """
+
+    media_type = "application/json; charset=utf-8"
+
+
 def erreur(code, message, cle="error", **extra):
     """Le corps d'erreur que la page attend : `{"error": "..."}`, et rien d'autre.
 
@@ -206,7 +168,7 @@ def erreur(code, message, cle="error", **extra):
     `{"state": ...}` ; `extra` porte `retry_after` sur un 429, dont la page se
     sert pour dire combien de temps attendre au lieu d'inviter à recliquer.
     """
-    return JSONResponse(dict({cle: message}, **extra), status_code=code)
+    return JSON(dict({cle: message}, **extra), status_code=code)
 
 
 def fichier(request, body, ctype, issuer=""):
@@ -226,7 +188,7 @@ def fichier(request, body, ctype, issuer=""):
     etiquette = '"' + hashlib.sha256(body).hexdigest()[:16]
     # LA CSP EST CALCULÉE SUR LE CORPS EN CLAIR, avant la compression : la
     # politique porte sur le document, pas sur son transport.
-    politique = csp(body, issuer) if ctype.startswith("text/html") else ""
+    politique = politique_csp.csp(body, issuer) if ctype.startswith("text/html") else ""
     # UNE ÉTIQUETTE PAR REPRÉSENTATION. Deux corps différents pour une même URL
     # -- l'original et le gzip -- ne peuvent pas partager un ETag : un cache
     # intermédiaire servirait l'un en croyant valider l'autre.

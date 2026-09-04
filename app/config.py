@@ -37,9 +37,14 @@ SPOOL = os.environ.get("CTESTER_SPOOL", "/spool")
 # Le catalogue publié par le worker (tps.json, tp/, quiz/).
 STATIC = os.environ.get("CTESTER_STATIC", "/app")
 # LA PAGE VIT AILLEURS QUE LE CATALOGUE depuis que `web/` est publié à part.
-# TEMPORAIRE : n'existe que le temps de la bascule vers GitHub Pages. Vide ou
-# absent -> le routeur de la page n'est pas monté du tout, et cette origine ne
-# répond plus que sur des données.
+# TEMPORAIRE : n'existe que le temps de la bascule vers GitHub Pages.
+#
+# POUR ÉTEINDRE LA PAGE, IL FAUT VIDER LA VARIABLE, PAS LA SUPPRIMER
+# (`CTESTER_PAGE=` dans Compose). Absente, le défaut ci-dessous reprend la main
+# et le routeur cherche `/web` dans un conteneur qui ne le monte plus : 500
+# « fichier manquant » à chaque visite au lieu du 404 attendu. Vide -> le
+# routeur n'est pas monté du tout, et cette origine ne répond plus que sur des
+# données.
 PAGE = os.environ.get("CTESTER_PAGE", "/web")
 
 # --- Frontière HTTP ---------------------------------------------------------

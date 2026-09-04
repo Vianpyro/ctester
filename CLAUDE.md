@@ -11,13 +11,97 @@ deploy keys, le service Postgres, le client Rauthy — vit dans `VHome`, sous
 `roles/ctester`. Le serveur clone ce dépôt dans `/opt/ctester/src` et suit
 `main` tout seul, à cinq minutes près.
 
-Tout se règle par variables d'environnement. Chaque script porte ses propres
-défauts (ceux du rôle Ansible) pour tourner hors déploiement ; c'est ce qui rend
-les contrôles ci-dessous exécutables sans rien installer.
+Tout se règle par variables d'environnement, et **tous** les réglages vivent
+dans `app/config.py`, avec le défaut du rôle Ansible en face de chacun. C'est ce
+qui rend les contrôles ci-dessous exécutables hors déploiement.
 
-Rien à compiler, rien à lier : `app/app.py`, `app/etat.py` et `app/politique.py`
-sont bibliothèque standard + `psycopg` (et `psycopg` seulement si
-`CTESTER_DB_DSN` est là).
+Rien à compiler, rien à lier, rien à construire : pas de Dockerfile. L'image
+officielle `python:3.13-slim` est lancée telle quelle sur un code monté en
+lecture seule, et les dépendances de `requirements.txt` (fastapi, uvicorn,
+pydantic, starlette, h11, psycopg) vivent à côté dans le volume `ctester_deps`
+(`PYTHONPATH=/deps`), posé par une tâche Ansible qui ne rejoue que si le fichier
+change. Une CVE dans l'image, c'est `docker compose pull`.
+
+## DEUX API COEXISTENT — lire ceci avant de toucher à `app/`
+
+La migration vers FastAPI est en cours et les deux versions tournent côte à côte :
+
+| | v1 | v2 |
+|---|---|---|
+| Point d'entrée | `app/app.py` (`http.server`) | `app/main.py` (FastAPI/uvicorn) |
+| Conteneur | `ctester-web-1:8000` | `ctester-web2-1:8001` |
+| Testée par | `test_ctester.py` (`test_http_*`) | `test_api.py` |
+| État | **routée par NPM**, sert les étudiants | prête, routée par rien |
+
+**`app/app.py` EST GELÉE.** Aucune correction n'y va : elle est là pour ne pas
+pouvoir régresser pendant la migration, et elle disparaît à la bascule. Toute
+modification de l'API va dans `app/routers/` et `app/services/`.
+
+**La bascule est UN CHAMP dans le proxy host NPM** (`ctester-web-1:8000` →
+`ctester-web2-1:8001`), pas une redirection HTTP et pas un préfixe `/v2` : une
+307 entre deux origines perd l'en-tête `Authorization`, et `web/config.js` n'a
+donc rien à changer. Revenir en arrière, c'est remettre l'ancien champ.
+
+**`test_parite.py` est ce qui rend la bascule vérifiable avant de la faire.** Il
+envoie 62 requêtes identiques aux deux implémentations et compare le JSON, les
+en-têtes de cache, l'ETag, le `Content-Encoding` et la CSP. Les quatre écarts
+VOULUS sont listés dans `ECARTS_ASSUMES`, avec leur raison ; tout le reste fait
+échouer le fichier. Il disparaît avec la v1.
+
+### Où vit quoi dans la v2
+
+```
+app/config.py     tous les réglages, un seul endroit
+app/csp.py        la CSP -- BIBLIOTHÈQUE STANDARD SEULEMENT, voir ci-dessous
+app/headers.py    CORS, Vary, cache, ETag/gzip -- UN middleware pour toutes les
+                  réponses, 304 et erreurs comprises
+app/deps.py       Sub / SubForum / SubModerateur, les quotas, la classe Refus
+app/security.py   jetons OIDC, current_user, client_id, is_moderator
+app/schemas.py    les corps de requête (Pydantic) -- FORME seulement
+app/routers/      une frontière HTTP par domaine, aucune règle métier
+app/services/     la logique, sans HTTP -- éprouvée par appel direct
+```
+
+Deux règles qui tiennent le reste :
+
+- **`schemas.py` ne valide que la FORME** (présence, type). Les règles du
+  domaine restent dans `services/` parce qu'elles rendent des messages écrits
+  POUR L'ÉTUDIANT, que Pydantic remplacerait par un 400 générique.
+- **Aucun modèle ne porte de champ d'identité** (`utilisateur`, `sub`, `owner`,
+  `moderateur`). Un test le vérifie en balayant `schemas.py` : la seule source
+  de `sub` est le jeton validé.
+
+Trois pièges propres à FastAPI, déjà payés :
+
+- **Pas de route `OPTIONS` attrape-tout.** `OPTIONS /{chemin:path}` fait
+  répondre **405** à tout chemin inconnu — Starlette retient sa correspondance
+  partielle et ne descend jamais au 404. Le préflight est donc traité dans le
+  middleware, avant le routeur.
+- **`/docs`, `/redoc` et `/openapi.json` sont publics par défaut.**
+  `config.DOCS` les retire : la route n'existe pas, il n'y a rien à contourner.
+  Ne jamais poser `CTESTER_DOCS=1` en production.
+- **Une erreur Pydantic répond 422 avec un corps qui recopie l'entrée.**
+  Intercepté et traduit en `400 {"error": "requête malformée"}` — un corps
+  refusé peut contenir le code de quelqu'un ou un jeton mal collé.
+
+**Ce que `test_ctester.py` importe doit rester exécutable sur le Dell sans rien
+installer.** `pull.sh` et la vérification Ansible le lancent avec le python de
+l'HÔTE — pas celui du conteneur, donc sans `PYTHONPATH=/deps`. Un import de trop
+n'y casse pas un test : il bloque le déploiement automatique toutes les cinq
+minutes sur un `ImportError`, sans que rien ne soit déployé. C'est pour ça que
+`csp()` vit dans `app/csp.py` et pas dans `headers.py`, qui importe starlette.
+`test_le_controle_de_l_hote_ne_depend_d_aucun_tiers` monte la garde.
+
+Et une non-négociable : **UN SEUL WORKER uvicorn**. Quotas, présence et cache de
+jetons sont en mémoire de processus ; deux workers doublent chaque quota en
+silence. Le lancement vit dans `app/main.py` et pas dans une ligne de commande
+Compose, pour que personne ne le recopie avec `--workers 4`.
+
+**Les endpoints sont `def`, pas `async def`.** Starlette les exécute alors dans
+son threadpool, ce qui laisse `etat.py` synchrone — ses CTE modifiantes et ses
+GRANT de colonne sont éprouvés contre un vrai Postgres par `test_postgres.py`,
+et les réécrire en SQLAlchemy async remplacerait du SQL prouvé par du SQL à
+prouver dans la seule couche où une erreur donne accès aux données d'autrui.
 
 **La page vit dans `web/`, l'API dans `app/`**, et c'est la séparation en cours
 (voir `docs/split-front_back/plan.md`) : `web/` est destiné à GitHub Pages,
@@ -40,8 +124,12 @@ le navigateur reçoit.
 Sur le contrôleur, jamais sur le Dell (les trois derniers ont besoin de gcc) :
 
 ```sh
-python3 test_ctester.py          # les défenses et la progression, sans rien installer
-npm ci                           # UNE FOIS : jsdom, pour les contrôles XSS du forum
+pip install -r requirements-dev.txt   # UNE FOIS : fastapi, uvicorn, httpx2
+npm ci                                # UNE FOIS : jsdom, contrôles XSS du forum
+
+python3 test_ctester.py          # les défenses, la progression, et la v1
+python3 test_api.py              # la v2 : frontière HTTP, bornes, valeurs extrêmes
+python3 test_parite.py           # v1 contre v2, requête par requête
 node    test_page.js             # le JS de la page, sur un DOM en carton
 python3 valider_contenu.py ../unittests
 python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
@@ -67,6 +155,26 @@ docker stop pg
   double signalement, isolement de deux comptes, l'identité choisie (bornes du
   nom et du groupe, visibilité, nom signalé puis effacé), et qu'aucun `sub` ne
   franchisse la frontière.
+- **`test_api.py`** — la frontière HTTP de la v2, et surtout **les bornes des
+  deux côtés** : la valeur qui passe et la première qui ne passe plus. Corps à
+  `MAX_CODE+4096` puis `+1`, `validate_files` pile à `MAX_CODE` puis `+1`, 500
+  réponses de quiz gardées et la 501e jetée, quota horaire N puis N+1, `QUEUE_MAX`
+  pile, gzip à 1023 puis 1024 octets, `forum_texte` à 0/1/`MAX`/`MAX+1`, groupes
+  0/1/99/100, identifiants de 31/32/33 caractères. Un contrôle qui ne vérifie
+  qu'un refus laisse passer une borne posée un cran trop serré, et c'est
+  l'étudiant qui la découvre à 23 h la veille de la remise. Il éprouve aussi
+  l'ordre des refus (forum éteint → 503 avant 401), qu'aucune route n'accepte un
+  identifiant dans son corps, et qu'une base muette rend 503 et **aucun chiffre**.
+- **`test_parite.py`** — v1 contre v2, 62 requêtes identiques dans le même ordre,
+  contre deux bases simulées identiques. La v1 tourne derrière un VRAI
+  `ThreadingHTTPServer` (pas un client de test) pour que la comparaison porte sur
+  ce qu'un navigateur reçoit. Il compare le JSON analysé — pas les octets, les
+  deux sérialiseurs n'espacent pas pareil — plus `Cache-Control`, `ETag`,
+  `Content-Type`, `Content-Encoding`, la CSP et les en-têtes CORS. Les quatre
+  écarts VOULUS sont dans `ECARTS_ASSUMES` avec leur raison, et un second
+  contrôle épingle leurs codes des deux côtés ET vérifie que l'écart existe
+  encore : le jour où il disparaît, l'entrée doit être retirée plutôt que de
+  devenir du folklore.
 - **`test_bac_a_sable.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
   les exécute avec un vrai gcc, chemins déplacés, sans Docker. C'est le seul
   contrôle qui **éprouve l'invariant de confidentialité** au lieu d'en parler :
@@ -532,7 +640,9 @@ règle par variables : `ctester_cooldown_seconds` (15), `ctester_hourly_quota`
 docker info --format '{{json .Runtimes}}'      # runsc enregistré ?
 systemctl status 'ctester-runner@*'            # les workers tournent ?
 journalctl -u 'ctester-runner@*' -n 50         # ce que dit un job en erreur
-docker logs ctester-web-1                      # l'API (silencieuse si tout va bien)
+docker logs ctester-web-1                      # la v1 (silencieuse si tout va bien)
+docker logs ctester-web2-1                     # la v2 (idem)
+docker exec ctester-web2-1 python3 -c   "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8001/healthz').read())"
 ls /opt/ctester/spool                          # la file, vide au repos
 docker exec nginx-manager-npm-1 getent hosts ctester-web-1   # NPM résout-il ?
 python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?

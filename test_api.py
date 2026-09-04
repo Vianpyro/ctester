@@ -8,7 +8,7 @@ par appel direct dans `test_ctester.py`, sans serveur.
 
     python3 test_api.py
 
-UNE dépendance de test, `httpx` (`pip install -r requirements-dev.txt`), tirée
+UNE dépendance de test, `httpx2` (`pip install -r requirements-dev.txt`), tirée
 par `TestClient`. L'APPLICATION, elle, n'a que ce que liste `requirements.txt`.
 
 CE FICHIER TESTE LES EXTRÊMES, PAS LE CHEMIN HEUREUX. Chaque borne y est
@@ -34,7 +34,7 @@ os.environ.setdefault("CTESTER_ORIGINS",
 try:
     from fastapi.testclient import TestClient
 except ImportError:  # pragma: no cover -- message, pas trace
-    sys.exit("test_api.py a besoin de httpx : pip install -r requirements-dev.txt")
+    sys.exit("test_api.py a besoin de httpx2 : pip install -r requirements-dev.txt")
 
 import config      # noqa: E402
 import deps        # noqa: E402

@@ -35,8 +35,8 @@ sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 # le reste de ce fichier éprouve les modules extraits, ceux que la v2 utilise.
 import app        # noqa: E402
 import config     # noqa: E402
+import csp        # noqa: E402
 import etat       # noqa: E402
-import headers    # noqa: E402
 import politique  # noqa: E402
 import runner     # noqa: E402
 import security   # noqa: E402
@@ -1675,15 +1675,15 @@ def test_csp_du_document():
     script inline, et `csp()` refuse d'en hacher un.
     """
     page = lire(os.path.join(HERE, "web", "index.html")).encode()
-    politique = headers.csp(page, "https://auth.exemple/auth/v1")
+    politique = csp.csp(page, "https://auth.exemple/auth/v1")
     assert "default-src 'none'" in politique
     # PAS DE HACHAGE, et pas de script inline pour en avoir besoin.
     assert "sha256-" not in politique, politique
     assert "script-src 'self';" in politique, politique
-    assert b"<script" in page and not headers._INLINE_SCRIPT_RE.findall(page), page
+    assert b"<script" in page and not csp._INLINE_SCRIPT_RE.findall(page), page
     # Un inline qui reviendrait doit faire du BRUIT, pas se faire hacher.
     try:
-        headers.csp(b"<script>var t=1;</script>")
+        csp.csp(b"<script>var t=1;</script>")
         raise AssertionError("un <script> inline est passe sans rien dire")
     except ValueError:
         pass
@@ -1711,7 +1711,7 @@ def test_csp_du_document():
     du_meta = {d.split()[0]: " ".join(d.split()[1:])
                for d in meta.group(1).decode().split("; ")}
     du_serveur = {d.split()[0]: " ".join(d.split()[1:])
-                  for d in headers.csp(page, config.OIDC_ISSUER or
+                  for d in csp.csp(page, config.OIDC_ISSUER or
                                    "https://auth.thevhome.com/auth/v1").split("; ")}
     # `frame-ancestors` EST LA SEULE PERTE du passage en <meta> : un <meta> ne
     # peut pas le porter, et le navigateur le signale en console -- une console
@@ -2280,6 +2280,30 @@ def test_http_forum():
          app.OIDC_CLIENT_ID, app.FORUM_MODERATORS,
          app.Handler.forum_quota) = garde
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
+    """CE FICHIER TOURNE SUR LE DELL, AVEC LE PYTHON DE L'HÔTE.
+
+    `pull.sh` et la vérification Ansible le lancent tous les deux hors du
+    conteneur, donc sans `PYTHONPATH=/deps` : ni fastapi, ni starlette, ni
+    pydantic, ni uvicorn. Un import de trop ici ne casse pas un test -- il
+    bloque le déploiement automatique toutes les cinq minutes, sur un
+    `ImportError`, sans que rien ne soit déployé.
+
+    C'est arrivé une fois : `csp()` vivait dans `headers.py`, qui importe
+    starlette. D'où `app/csp.py`, bibliothèque standard seulement.
+
+    `psycopg` est la seule exception tolérée -- `etat.py` le rend facultatif et
+    se déclare éteint sans lui.
+    """
+    tiers = {"starlette", "fastapi", "pydantic", "pydantic_core", "uvicorn",
+             "httpx", "httpx2", "anyio", "h11"}
+    charges = sorted(tiers & {m.split(".")[0] for m in sys.modules})
+    assert not charges, (
+        "test_ctester.py a tire " + ", ".join(charges) + " : ces paquets vivent "
+        "dans /deps, que le python de l'hote ne voit pas. Sortir ce que le "
+        "module fautif utilise dans un module sans dependance, comme app/csp.py.")
 
 
 if __name__ == "__main__":

@@ -11,9 +11,10 @@ le compteur de présence, le cache de jetons OIDC et la connexion unique
 d'`etat.py` sont de l'état EN MÉMOIRE DE PROCESSUS. Deux workers, c'est deux
 compteurs : chaque quota est doublé en silence, et le plafond de file laisse
 passer deux fois ce qu'il annonce. C'est pour ça que le lancement vit ici, dans
-`__main__`, et pas dans une ligne de commande que quelqu'un recopiera un jour
-avec `--workers 4`. Le jour où un deuxième processus est vraiment nécessaire,
-c'est Redis ou Postgres qui tient ces compteurs, pas uvicorn.
+`__main__`, et pas dans une ligne de commande de Compose que quelqu'un
+recopiera un jour avec `--workers 4`. Le jour où un deuxième processus est
+vraiment nécessaire, c'est Redis ou Postgres qui tient ces compteurs, pas
+uvicorn.
 
 LES ENDPOINTS SONT `def`, PAS `async def`, et c'est délibéré. Starlette exécute
 alors chacun dans son threadpool, ce qui laisse `etat.py` synchrone : ses CTE
@@ -47,6 +48,9 @@ def create_app():
         docs_url="/docs" if config.DOCS else None,
         redoc_url="/redoc" if config.DOCS else None,
         openapi_url="/openapi.json" if config.DOCS else None,
+        # Le `charset=utf-8` que ce service a toujours annoncé -- voir
+        # `headers.JSON`.
+        default_response_class=headers.JSON,
     )
     app.add_middleware(headers.EnTetes)
 

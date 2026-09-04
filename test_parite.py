@@ -20,6 +20,7 @@ normalisation trop large ferait passer la prochaine, qui ne serait pas voulue.
 Il DISPARAÎT avec la v1 (étape 6) : il n'a plus rien à comparer.
 """
 
+import gzip
 import json
 import os
 import re
@@ -40,7 +41,7 @@ os.environ.setdefault("CTESTER_ORIGINS",
 try:
     from fastapi.testclient import TestClient
 except ImportError:  # pragma: no cover
-    sys.exit("test_parite.py a besoin de httpx : pip install -r requirements-dev.txt")
+    sys.exit("test_parite.py a besoin de httpx2 : pip install -r requirements-dev.txt")
 
 import app        # noqa: E402  -- la v1, telle qu'elle est déployée
 import config     # noqa: E402
@@ -53,6 +54,11 @@ from test_api import CATALOGUE, BaseSimulee, _modules_avec_etat  # noqa: E402
 
 CONNUE = "https://tch009.thevhome.com"
 CLE = "cle-de-session"
+# LA VRAIE PAGE DU DÉPÔT, PAS UNE MAQUETTE. `web2` sert la page comme `web` --
+# `tch009.thevhome.com` sert les deux depuis ce Dell -- donc la bascule NPM la
+# fait passer par la v2 aussi. La comparer sur un faux `index.html` ne dirait
+# rien de la CSP, qui est calculée sur le document réel.
+PAGE = os.path.join(HERE, "web")
 JETONS = {"alice": "sub-alice", "prof": "sub-prof"}
 
 # --- Les écarts VOULUS ------------------------------------------------------
@@ -78,6 +84,13 @@ ECARTS_ASSUMES = {
         "à qui sonde s'il avait la bonne forme de requête. La v2 répond 403 "
         "dans les deux cas -- une clé absente EST une clé invalide."),
 }
+
+
+def _decomprimer(corps, entetes):
+    """`httpx` décompresse tout seul, `urllib` non. On aligne le second."""
+    if entetes.get("Content-Encoding") == "gzip" and corps:
+        return gzip.decompress(corps)
+    return corps
 
 
 def _catalogue(racine):
@@ -117,7 +130,8 @@ class Client1:
         app.current_user = lambda e: JETONS.get(
             e.get("Authorization", "").replace("Bearer ", ""))
         app.current_name = lambda e: ""
-        app.STATIC, app.SPOOL, app.PAGE = self.static, self.spool, ""
+        app.STATIC, app.SPOOL = self.static, self.spool
+        app.PAGE = PAGE
         app.KEY = CLE
         app.OIDC_ISSUER = "https://auth.exemple.com"
         app.OIDC_CLIENT_ID = "ctester"
@@ -136,15 +150,22 @@ class Client1:
         requete = urllib.request.Request(self.base_url + chemin, data=charge,
                                          method=methode)
         requete.add_header("Origin", CONNUE)
+        # LE MÊME `Accept-Encoding` DES DEUX CÔTÉS, sinon la comparaison est
+        # fausse : `urllib` n'en envoie aucun et `httpx` demande gzip, donc l'un
+        # recevrait le fichier nu et l'autre la version compressée -- deux
+        # étiquettes différentes (`-gz`) pour un comportement identique.
+        requete.add_header("Accept-Encoding", "gzip")
         if charge is not None:
             requete.add_header("Content-Type", "application/json")
         for cle, valeur in (entetes or {}).items():
             requete.add_header(cle, valeur)
         try:
             with urllib.request.urlopen(requete) as reponse:
-                return reponse.status, reponse.read(), dict(reponse.headers)
+                return (reponse.status, _decomprimer(reponse.read(),
+                                                     reponse.headers),
+                        dict(reponse.headers))
         except urllib.error.HTTPError as err:
-            return err.code, err.read(), dict(err.headers)
+            return err.code, _decomprimer(err.read(), err.headers), dict(err.headers)
 
     def fermer(self):
         self.srv.shutdown()
@@ -174,7 +195,7 @@ class Client2:
                              deps.presence)
         for m in self.modules:
             m.etat = base
-        config.STATIC, config.SPOOL, config.PAGE = self.static, self.spool, ""
+        config.STATIC, config.SPOOL, config.PAGE = self.static, self.spool, PAGE
         config.KEY = CLE
         config.OIDC_ISSUER = "https://auth.exemple.com"
         config.OIDC_CLIENT_ID = "ctester"
@@ -190,7 +211,7 @@ class Client2:
         self.client = TestClient(main.create_app())
 
     def appel(self, methode, chemin, corps=None, entetes=None):
-        tous = {"Origin": CONNUE}
+        tous = {"Origin": CONNUE, "Accept-Encoding": "gzip"}
         tous.update(entetes or {})
         r = self.client.request(methode, chemin, json=corps, headers=tous)
         return r.status_code, r.content, dict(r.headers)
@@ -328,6 +349,16 @@ def _requetes():
         ("forum profil relu", "GET", "/forum/profil", None, auth_a),
         ("forum fil avec un nom", "GET", "/forum?ex=tp2-ex3", None, auth_p),
 
+        # -- la page, servie par les deux le temps de la bascule
+        ("page /", "GET", "/", None, anon),
+        ("page /index.html", "GET", "/index.html", None, anon),
+        ("page style", "GET", "/style.css", None, anon),
+        ("page config.js", "GET", "/config.js", None, anon),
+        ("page app.js", "GET", "/app.js", None, anon),
+        ("page vendor", "GET", "/vendor/purify-3.4.14.min.js", None, anon),
+        ("page fichier hors liste", "GET", "/secret.txt", None, anon),
+        ("page HEAD /", "HEAD", "/", None, anon),
+
         # -- effacement, en dernier
         ("moi", "DELETE", "/moi", None, auth_a),
     ]
@@ -347,7 +378,9 @@ def test_parite_des_reponses():
             if c1 != c2 or normaliser(b1) != normaliser(b2):
                 ecarts.append((nom, methode, chemin, c1, b1[:300], c2, b2[:300]))
             # Les en-têtes qui comptent pour un navigateur, sur CHAQUE réponse.
-            for entete in ("access-control-allow-origin", "vary"):
+            for entete in ("access-control-allow-origin", "vary",
+                           "cache-control", "content-type", "etag",
+                           "content-encoding", "content-security-policy"):
                 v_1 = {k.lower(): v for k, v in h1.items()}.get(entete)
                 v_2 = {k.lower(): v for k, v in h2.items()}.get(entete)
                 if v_1 != v_2:
