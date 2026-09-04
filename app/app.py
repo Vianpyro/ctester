@@ -344,6 +344,32 @@ class Quota:
         return 0
 
 
+# Battement du compteur de présence : le navigateur ping toutes les 60 s, on
+# garde quelqu'un 150 s (2,5 battements) pour qu'un ping raté ne le fasse pas
+# clignoter hors du total.
+PRESENCE_TTL = int(os.environ.get("CTESTER_PRESENCE_TTL", "150"))
+
+
+class Presence:
+    """Qui a une fenêtre ouverte, à la louche : {jeton de fenêtre -> vu à}.
+
+    ponytail: en mémoire, RAZ au redémarrage, et le jeton vient du navigateur
+    donc falsifiable. C'est un compteur affiché à tout le monde, pas un
+    contrôle -- l'authentifier ou le persister le jour où le chiffre compte.
+    """
+
+    def __init__(self):
+        self.seen = {}
+
+    def touch(self, who, now):
+        """Enregistre ce battement et retourne combien de fenêtres sont vivantes."""
+        self.seen[who] = now
+        if len(self.seen) > 5000:
+            self.seen = {k: v for k, v in self.seen.items()
+                         if v > now - PRESENCE_TTL}
+        return sum(1 for v in self.seen.values() if v > now - PRESENCE_TTL)
+
+
 def scan_jobs():
     """(job_id, horodatage, terminé) pour chaque job du spool.
 
@@ -808,6 +834,9 @@ class Handler(BaseHTTPRequestHandler):
     # get their own, far looser limiter. It exists to bound abuse, not to pace
     # a student who types.
     state_quota = Quota(cooldown=1, hourly=1200)
+    # Le compteur de présence, partagé par tout le monde -- anonyme compris.
+    # Aucune base, aucun compte : un dict en mémoire derrière le verrou commun.
+    presence = Presence()
     # Le forum a le sien, compté PAR COMPTE et pas par IP, et il couvre les
     # écritures seulement -- publier et signaler. Sobre exprès : il freine une
     # rafale, il n'empêche ni de lire un fil ni de soumettre du C.
@@ -1005,6 +1034,8 @@ class Handler(BaseHTTPRequestHandler):
             self._detail(path[4:-5])
         elif path.startswith("/r/"):
             self._result(path[3:])
+        elif path == "/live":
+            self._live()
         elif path == "/oidc.json":
             # The page asks this before showing anything: an empty object means
             # "no sign-in here", and it then behaves exactly as it always did.
@@ -1038,6 +1069,21 @@ class Handler(BaseHTTPRequestHandler):
     # Every route below needs a token, and NONE of them takes a user identifier
     # from the request. `qui()` is the only source of `utilisateur`; that is
     # what stops one student from writing into another's state.
+
+    def _live(self):
+        """GET /live?id=<jeton de fenêtre> -- combien de fenêtres sont ouvertes.
+
+        Le SEUL appel que le parcours anonyme émet, et il ne touche qu'un dict
+        en mémoire : ni base, ni compte, ni jeton d'autorisation. `id` vient du
+        navigateur (tiré au hasard, gardé le temps de l'onglet) ; à défaut on
+        retombe sur l'IP, ce qui compte une école entière pour une fenêtre mais
+        n'expose rien.
+        """
+        who = (self._param("id")
+               or client_id(self.headers, self.client_address[0]))[:64]
+        with self.lock:
+            n = self.presence.touch(who, time.time())
+        self._json(200, {"n": n})
 
     def _who(self):
         """The caller's `sub`, or None after answering 401/503 itself."""

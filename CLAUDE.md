@@ -215,8 +215,9 @@ sans le corps : un HEAD qui annoncerait une autre politique serait un piège à
 revalidation.
 
 Les réponses d'API (`/r/<id>`, `/etats`, `/pratique`, `/progres`,
-`/brouillon`, `/preferences`, `/oidc.json`, `/forum*`) restent en `no-store`. Ce sont des
-données de compte, pas des fichiers.
+`/brouillon`, `/preferences`, `/oidc.json`, `/forum*`, `/live`) restent en
+`no-store`. Ce sont des données de compte (ou, pour `/live`, un compteur
+volatil), pas des fichiers.
 
 **La compression est faite ici, à partir de 1 Ko.** Reste à mesurer si
 Cloudflare ne la refaisait pas déjà en amont — `curl -sI -H 'Accept-Encoding:
@@ -233,11 +234,37 @@ le lien, et rester hors des moteurs limite le trafic sur une infra personnelle.
 Le score SEO de Lighthouse (54, « Page is blocked from indexing ») est donc le
 résultat attendu — ne pas le « corriger ».
 
+## Le compteur de présence
+
+`GET /live?id=<jeton>` → `{"n": <fenêtres ouvertes>}`, affiché discrètement dans
+le bandeau (`#live`) **pour tout le monde, anonyme compris**. C'est la SEULE
+entorse à « l'anonyme n'émet aucune requête » — assumée, le battement va vers un
+`dict` en mémoire (`Handler.presence`, une `Presence`), jamais vers la base ni
+un compte, et ne porte aucun jeton.
+
+- **Polling, pas WebSocket.** `app.py` est un `http.server` synchrone à
+  connexion Postgres unique : 200 sockets persistantes n'y ont pas leur place.
+  Un battement toutes les 60 s × 200 étudiants = ~3 req/s sur une opération de
+  dict. `ponytail:` — repasser en WebSocket le jour où « live » doit dire
+  quelque chose de plus fin qu'« à la minute ».
+- **Le jeton `id` vient du navigateur** (`crypto.randomUUID`, gardé dans
+  `sessionStorage`), donc falsifiable et non authentifié : c'est un chiffre
+  affiché, pas un contrôle. Sans `id`, `_live()` retombe sur l'IP (une école =
+  une fenêtre) plutôt que d'exposer quoi que ce soit.
+- **RAZ au redémarrage du conteneur**, comme les quotas. TTL de 150 s
+  (`CTESTER_PRESENCE_TTL`, 2,5 battements) pour qu'un ping raté ne fasse pas
+  clignoter le total.
+- **Une panne de `/live` ne se voit pas** : `battement()` avale l'erreur et
+  `#live` reste caché. Le compteur ne doit jamais gêner un exercice.
+- `test_page.js` vérifie qu'il s'affiche pour l'anonyme ; `test_ctester.py`
+  (`test_presence_compteur`) vérifie le dédoublonnage et l'expiration.
+
 ## La progression (phase 1 de la gamification)
 
 Pour les comptes connectés SEULEMENT. L'anonyme ne télécharge rien de tout ça
-et n'émet aucune requête : `test_page.js` le vérifie, c'est la raison d'être du
-découpage.
+et n'émet aucune requête — **à la seule exception du battement `/live`** (voir
+« Le compteur de présence » ci-dessous) : `test_page.js` le vérifie, c'est la
+raison d'être du découpage.
 
 **Les chiffres sont dans `app/politique.py`, et nulle part ailleurs.** Montants
 d'XP par difficulté, plafond quotidien, seuils de niveau, identifiants et
@@ -281,8 +308,8 @@ test_ctester.py` échoue.
 
 Pour les comptes connectés SEULEMENT, **et seulement si des modérateurs sont
 configurés**. L'anonyme ne télécharge rien de tout ça — ni `forum.js`, ni les
-74 Ko de bibliothèques de rendu — et n'émet aucune requête ; `test_page.js` le
-vérifie, comme pour la progression.
+74 Ko de bibliothèques de rendu — et n'émet aucune requête (hormis `/live`,
+comme partout) ; `test_page.js` le vérifie, comme pour la progression.
 
 **Il est ÉTEINT par l'absence d'une variable, pas par un booléen.**
 `CTESTER_FORUM_MODERATORS` vide → `forum_enabled()` est faux → le bouton

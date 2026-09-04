@@ -117,6 +117,15 @@ def test_parse_unity_hostile():
     assert two["total"] == 2 and two["passed"] == 0, two
 
 
+def test_presence_compteur():
+    p = app.Presence()
+    assert p.touch("a", 1000) == 1
+    assert p.touch("b", 1000) == 2
+    assert p.touch("a", 1000) == 2          # rejouer ne double pas
+    # au-delà du TTL, la fenêtre sort du total sans que personne ne l'efface
+    assert p.touch("c", 1000 + app.PRESENCE_TTL + 1) == 1
+
+
 def test_verdict_codes():
     assert runner.verdict(10, "erreur.c:3: error: ...")["status"] == "compile_error"
     assert runner.verdict(10, "x" * 99999)["gcc"] == "x" * runner.MAX_GCC_CHARS

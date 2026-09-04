@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260903-theme";
+const ASSET_REVISION = "20260904-theme-live";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -936,3 +936,30 @@ async function soumettre(portee) {
 $("go").addEventListener("click", () => soumettre(null));
 $("goex").addEventListener("click", () => soumettre(
   ctester.quiz ? ctester.quiz.page() : null));
+
+// --- Compteur de présence, pour tout le monde -----------------------------
+// Un battement toutes les 60 s vers /live, qui ne touche qu'un dict en mémoire
+// côté serveur (ni base, ni compte). C'est la SEULE requête que le parcours
+// anonyme émet. ponytail: un identifiant de fenêtre tiré au hasard et gardé le
+// temps de l'onglet -- falsifiable, mais c'est un chiffre affiché, pas un
+// verrou. Une panne du compteur ne se voit pas : il reste caché.
+let liveId = sessionGet("ctester.live");
+if (!liveId) {
+  liveId = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : String(Math.random()).slice(2) + Date.now();
+  sessionSet("ctester.live", liveId);
+}
+async function battement() {
+  try {
+    const r = await fetch("live?id=" + encodeURIComponent(liveId));
+    const d = await r.json();
+    if (d && typeof d.n === "number") {
+      $("live").textContent =
+        d.n > 1 ? d.n + " personnes en ligne" : "1 personne en ligne";
+      $("live").hidden = false;
+    }
+  } catch (e) { /* cosmétique : on ne dérange personne si /live tombe */ }
+}
+battement();
+setInterval(battement, 60000);

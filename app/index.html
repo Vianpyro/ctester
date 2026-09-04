@@ -12,12 +12,13 @@
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
   } catch (e) {}
 </script>
-<link rel="stylesheet" href="style.css?v=20260903-theme">
+<link rel="stylesheet" href="style.css?v=20260904-theme-live">
 </head>
 <body>
 <div id="top">
   <h1>TCH009</h1>
   <span class="tagline">Tester mon code</span>
+  <span id="live" class="tagline" aria-live="polite" hidden></span>
   <span class="sep"></span>
   <span class="field">
     <label for="tp">TP</label>
@@ -132,6 +133,6 @@
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
 </main>
 
-<script src="app.js?v=20260903-theme"></script>
+<script src="app.js?v=20260904-theme-live"></script>
 </body>
 </html>
