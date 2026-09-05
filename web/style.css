@@ -77,7 +77,7 @@ select, button, textarea, input {
   font: inherit; color: inherit; background: var(--card);
   border: 1px solid var(--line); border-radius: 6px; padding: .35rem .55rem;
 }
-select { max-width: 15rem; }
+/* select { max-width: 15rem; } */
 button { cursor: pointer; font-weight: 600; }
 button:hover:not(:disabled) { border-color: var(--line-2); }
 button:disabled { cursor: not-allowed; opacity: .45; }
@@ -150,7 +150,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   padding: .05rem .35rem; border: 1px solid var(--line); border-radius: 999px;
   color: var(--muted);
 }
-#excourant { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#excourant { /* max-width: 16rem; */ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .phead {
   flex: 0 0 auto; display: flex; align-items: center; gap: .6rem;
@@ -343,7 +343,7 @@ main {
 .verdict.idle { color: var(--muted); }
 .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
 .aide { font-family: var(--sans); color: var(--muted); font-size: 12.5px;
-        max-width: 46rem; margin: .5rem 0 0; }
+        /* max-width: 46rem; */ margin: .5rem 0 0; }
 .aide + .aide { margin-top: .35rem; }
 
 .ticks { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 .6rem; }
@@ -473,7 +473,7 @@ pre {
 #vueprogres[hidden] { display: none; }
 #vueprogres h2 { font-size: 1rem; margin: 0 0 .35rem; }
 #vueprogres .bloc {
-  max-width: 42rem; margin: .9rem 0 0; padding: .75rem .85rem;
+  /* max-width: 42rem; */ margin: .9rem 0 0; padding: .75rem .85rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
 }
 /* Le niveau et l'XP au SECOND PLAN, et ça se voit : encadré en pointillés,
@@ -483,7 +483,7 @@ pre {
   margin: 0 0 .45rem; font-size: 11.5px; letter-spacing: .04em;
   color: var(--muted); font-weight: 600;
 }
-#vueprogres p { margin: 0 0 .5rem; font-size: 13.5px; max-width: 40rem; }
+#vueprogres p { margin: 0 0 .5rem; font-size: 13.5px; /* max-width: 40rem; */}
 #vueprogres p:last-child { margin-bottom: 0; }
 #vueprogres .rate { color: var(--bad); font-weight: 600; }
 #vueprogres .jauge {
@@ -550,7 +550,7 @@ pre {
   margin: 0 0 .45rem; font-size: 11.5px; letter-spacing: .04em;
   color: var(--muted); font-weight: 600;
 }
-:is(#vueforum, #vuemoderation) p { margin: 0 0 .5rem; font-size: 13.5px; max-width: 40rem; }
+:is(#vueforum, #vuemoderation) p { margin: 0 0 .5rem; font-size: 13.5px; /* max-width: 40rem; */ }
 /* Le corps d'un message, lui, prend toute sa colonne : c'est le contenu
    qu'on vient lire, et il est déjà borné par la largeur de la colonne. */
 :is(#vueforum, #vuemoderation) .texte p, :is(#vueforum, #vuemoderation) .texte li, :is(#vueforum, #vuemoderation) .texte blockquote
@@ -563,12 +563,12 @@ pre {
                   margin-bottom: .3rem; }
 :is(#vueforum, #vuemoderation) select, :is(#vueforum, #vuemoderation) textarea, :is(#vueforum, #vuemoderation) input[type="text"],
 :is(#vueforum, #vuemoderation) input[type="number"] {
-  width: 100%; max-width: 40rem; font-family: var(--sans); font-size: 13.5px;
+  width: 100%; /* max-width: 40rem; */ font-family: var(--sans); font-size: 13.5px;
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
   border: 1px solid var(--line-2); border-radius: 6px;
 }
 :is(#vueforum, #vuemoderation) textarea { min-height: 5.5rem; resize: vertical; }
-:is(#vueforum, #vuemoderation) input[type="number"] { max-width: 6rem; }
+/* :is(#vueforum, #vuemoderation) input[type="number"] { max-width: 6rem; } */
 /* Une case à cocher est une case, pas un bloc : la règle `label` ci-dessus
    couperait la ligne entre la case et son texte. */
 .coche {
@@ -666,7 +666,7 @@ pre {
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
   border: 1px solid var(--line-2); border-radius: 6px;
 }
-#identitepanneau input[type="number"] { max-width: 6rem; }
+/* #identitepanneau input[type="number"] { max-width: 6rem; } */
 #identitepanneau .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
 @media (max-width: 900px) {
@@ -684,7 +684,7 @@ pre {
   #out { max-height: none; overflow: visible; }
   #consentement { position: static; width: auto; margin: .9rem; box-shadow: none; }
   #charte { position: static; width: auto; margin: .9rem; box-shadow: none; }
-  select { max-width: 10rem; }
+  /* select { max-width: 10rem; } */
 }
 
 /* --- Le canal du service, et le canal du verdict -------------------------
@@ -749,7 +749,7 @@ pre {
    typographie de titre ils écrasaient toute la zone. */
 .explique {
   font-family: var(--sans); font-size: 13.5px; line-height: 1.55;
-  color: var(--fg); max-width: 46rem; margin: .1rem 0 .6rem;
+  color: var(--fg); /* max-width: 46rem; */ margin: .1rem 0 .6rem;
 }
 
 /* L'action suivante. Détachée du reste : c'est la dernière chose lue, et la
