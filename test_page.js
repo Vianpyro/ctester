@@ -574,6 +574,14 @@ function check(cond, label) {
   console.log((cond ? "ok   " : "ÉCHEC ") + label);
   if (!cond) failures++;
 }
+
+// CHAQUE SCÉNARIO SOUMET UN CODE DIFFÉRENT, et ce n'est pas cosmétique : la
+// page ne renvoie plus au juge un code identique au précédent, elle réaffiche
+// le verdict qu'elle tient. Un harnais qui rejouerait le même texte en
+// changeant seulement la réponse du serveur éprouverait ce raccourci-là, pas
+// le rendu des verdicts qu'il vise.
+let variante = 0;
+const codeUnique = () => `int main(void){return ${++variante};}`;
 // CE QUE L'ÉTUDIANT LIT, DANS LES DEUX CANAUX. Le verdict (#out) parle de son
 // code, le bandeau (#systeme) parle du service ; les assertions ci-dessous
 // portent sur CE QU'IL EST DIT, pas sur le noeud qui le porte. En profondeur
@@ -858,7 +866,8 @@ const attendre = async () => { await sleep(); await sleep(); };
 
   // --- Le cas qui était cassé : une soumission de code ---
   await choisir("TP 2", "tp2-ex3");
-  nodes.code.value = "int main(void){return 0;}";
+  const premierCode = codeUnique();
+  nodes.code.value = premierCode;
   SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "a".repeat(32) }) };
   calls.length = 0;
   await nodes.go.listeners.click();
@@ -872,7 +881,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(!!post, "le fetch de soumission part réellement");
   if (post) {
     const sent = JSON.parse(post.opts.body);
-    check(sent.files["submission.c"] === "int main(void){return 0;}",
+    check(sent.files["submission.c"] === premierCode,
           "le code est bien dans la charge utile, sous son nom de fichier");
     check(sent.exercise_id === "tp2-ex3" && sent.key === "cle-de-test",
           "l'exercice envoyé est celui du SECOND menu, pas le TP");
@@ -1196,7 +1205,7 @@ const attendre = async () => { await sleep(); await sleep(); };
     SUBMIT_RESPONSE = { ok: true, status: 200,
                         json: async () => ({ id: "d".repeat(32) }) };
     await choisir("TP 2", "tp2-ex0");
-    nodes.code.value = "int main(void){return 0;}";
+    nodes.code.value = codeUnique();
     await nodes.go.listeners.click();
     await sleep(); await sleep(); await sleep();
     return nodes.out.children.map(afficheTout).join(" | ");
@@ -1319,7 +1328,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   POLL_RESPONSE = { state: "done", status: "ok", kind: "io", passed: 2, total: 2, cases: [] };
   SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "e".repeat(32) }) };
   await choisir("TP 2", "tp2-ex0");
-  nodes.code.value = "int main(void){return 0;}";
+  nodes.code.value = codeUnique();
   await nodes.go.listeners.click();
   await sleep(); await sleep(); await sleep();
   const apres = nodes.out.children.find(c => c.className === "suite");
@@ -1608,6 +1617,53 @@ const attendre = async () => { await sleep(); await sleep(); };
         && nodes.vueprogres.hidden === true,
         "il ouvre l'exercice recommandé et referme la vue");
 
+  // --- LE MÊME CODE NE REPART PAS AU JUGE ----------------------------------
+  // Une place de file, un cooldown et une attente pour un verdict déjà à
+  // l'écran. La page réaffiche au lieu d'envoyer -- et elle n'affirme rien au
+  // serveur en le faisant, elle décide seulement de ne pas le déranger.
+  POLL_RESPONSE = { state: "done", status: "ok", kind: "io",
+                    passed: 2, total: 2, cases: [] };
+  SUBMIT_RESPONSE = { ok: true, status: 200,
+                      json: async () => ({ id: "e".repeat(32) }) };
+  const memeCode = codeUnique();
+  nodes.code.value = memeCode;
+  await nodes.go.listeners.click();
+  await attendre(); await attendre(); await attendre();
+  check(/2 \/ 2/.test(texteQuiz(nodes.out)), "premier envoi : le verdict arrive");
+
+  calls.length = 0;
+  await nodes.go.listeners.click();
+  await attendre();
+  check(!calls.some(c => c.url.split("?")[0] === "submit"),
+        "le même code ne reprend pas de place dans la file");
+  check(/2 \/ 2/.test(texteQuiz(nodes.out)),
+        "et son verdict reste à l'écran plutôt que de disparaître");
+  check(/Même code/.test(shown()) && /Clique encore/.test(shown()),
+        "la page dit pourquoi, et comment renvoyer quand même : " + shown());
+
+  // L'ÉCHAPPATOIRE N'EST PAS OPTIONNELLE : un cas de test corrigé par le tick
+  // de cinq minutes rend le verdict gardé faux, et la page ne peut pas
+  // l'apprendre. Sans elle, c'est le bouton qui aurait l'air cassé.
+  calls.length = 0;
+  await nodes.go.listeners.click();
+  await attendre(); await attendre();
+  check(calls.some(c => c.url.split("?")[0] === "submit"),
+        "un second clic renvoie quand même au juge");
+
+  // ET CE QUE LE SERVEUR REFUSE DE GARDER, LA PAGE NE LE GARDE PAS NON PLUS.
+  // `rejouer` couvre le timeout, la panne du juge, et l'exercice dont le
+  // PROGRAMME est aléatoire -- que la page n'a aucun moyen de reconnaître.
+  POLL_RESPONSE = { state: "done", status: "ok", kind: "io", rejouer: true,
+                    passed: 1, total: 2, cases: [] };
+  nodes.code.value = codeUnique();
+  await nodes.go.listeners.click();
+  await attendre(); await attendre(); await attendre();
+  calls.length = 0;
+  await nodes.go.listeners.click();
+  await attendre(); await attendre();
+  check(calls.some(c => c.url.split("?")[0] === "submit"),
+        "un verdict marqué `rejouer` est toujours renvoyé au juge");
+
   // APRÈS UN VERDICT, la projection est redemandée AU SERVEUR. C'est lui qui
   // vient peut-être d'accorder l'XP d'une première réussite ; la page n'en
   // calcule aucune part, elle la relit.
@@ -1615,7 +1671,7 @@ const attendre = async () => { await sleep(); await sleep(); };
                     passed: 1, total: 1, cases: [] };
   SUBMIT_RESPONSE = { ok: true, status: 200,
                       json: async () => ({ id: "f".repeat(32) }) };
-  nodes.code.value = "int main(void){return 0;}";
+  nodes.code.value = codeUnique();
   calls.length = 0;
   await nodes.go.listeners.click();
   await attendre(); await attendre(); await attendre();
@@ -1640,7 +1696,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(nodes.travail.hidden === false,
         "et on revient à l'exercice comme si de rien n'était");
   calls.length = 0;
-  nodes.code.value = "int main(void){return 0;}";
+  nodes.code.value = codeUnique();
   await nodes.go.listeners.click();
   await attendre(); await attendre();
   check(calls.some(c => c.url.split("?")[0] === "submit"),
@@ -2071,7 +2127,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   await nodes.discussions.listeners.click();   // retour à l'exercice
   await attendre();
   calls.length = 0;
-  nodes.code.value = "int main(void){return 0;}";
+  nodes.code.value = codeUnique();
   await nodes.go.listeners.click();
   await attendre(); await attendre();
   check(calls.some(c => c.url.split("?")[0] === "submit"),

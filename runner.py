@@ -1140,7 +1140,7 @@ def servir_les_connus():
             continue
         if not claim(job_dir):
             continue
-        print("ctester: connu %s %s -> %s" % (exercise_id, sig[:12], job_dir),
+        print("ctester: cache servi %s %s [file]" % (exercise_id, sig[:12]),
               file=sys.stderr, flush=True)
         write_result(job_dir, dict(verdict))  # dict() : write_result y pose `state`
         servis += 1
@@ -1210,9 +1210,11 @@ def run_job(job_dir):
     connu = cache_lire(sig)
     if connu is not None:
         # LE TAUX DE SUCCÈS SE LIT DANS journalctl, qui est déjà l'outil du
-        # runbook. Pas de compteur, pas de table : `grep -c 'cache '` après une
-        # séance dit si ce cache valait la peine d'exister.
-        print("ctester: cache %s %s" % (exercise_id, sig[:12]),
+        # runbook. Pas de compteur, pas de table. LE MÊME MOT DES DEUX CÔTÉS --
+        # `grep -c 'cache servi'` compte les deux chemins, et le crochet dit
+        # lequel : [file] la passe de priorité, le cas normal ; [dépilé] un job
+        # que la boucle de jugement a pris en premier, ce qui est une course.
+        print("ctester: cache servi %s %s [dépilé]" % (exercise_id, sig[:12]),
               file=sys.stderr, flush=True)
         return connu
 
@@ -1222,6 +1224,16 @@ def run_job(job_dir):
         # la passe suivante, qui les trouve tous d'un coup -- pas d'ici, où on
         # ne verrait que ceux de CET exercice.
         cache_ecrire(sig, resultat)
+        print("ctester: cache écrit %s %s" % (exercise_id, sig[:12]),
+              file=sys.stderr, flush=True)
+    elif isinstance(resultat, dict):
+        # LA PAGE NE PEUT PAS LE DEVINER SEULE, et c'est pour ça que le serveur
+        # le dit. Elle réaffiche le verdict d'un code identique plutôt que de
+        # reprendre une place dans la file -- sauf sur ce drapeau, qu'elle ne
+        # doit jamais garder : un `timeout` dépend de la charge, et un exercice
+        # dont le PROGRAMME est aléatoire (`"cache": false`) mérite un nouveau
+        # tirage. Une seule règle, ici, plutôt que deux qui divergeraient.
+        resultat["rejouer"] = True
     return resultat
 
 

@@ -1699,6 +1699,29 @@ function occupe(oui, texte) {
 // chargement d'un exercice, et pour la même raison.
 let soumissionCourante = 0;
 
+// --- Ne pas redemander ce qu'on vient de demander -------------------------
+// Renvoyer un code identique coûte une place de file, un cooldown et une
+// attente, pour un verdict qu'on tient déjà à l'écran. La page ne l'envoie donc
+// pas : elle réaffiche.
+//
+// ELLE N'AFFIRME RIEN AU SERVEUR, et c'est la seule raison pour laquelle ce
+// raccourci est permis ici. Un hachage envoyé dans la requête, lui, CHOISIRAIT
+// quel verdict stocké on reçoit -- du code cassé plus le hachage d'une
+// soumission réussie donnerait `passed == total`, que l'API transforme en
+// « validé » et en XP. Décider de ne pas déranger le serveur ne demande aucune
+// confiance ; lui dicter sa réponse en demanderait toute.
+//
+// `rejouer` VIENT DU SERVEUR : le worker le pose sur tout verdict qu'il refuse
+// de mettre en cache lui-même -- timeout, panne du juge, et les exercices dont
+// le programme est aléatoire, que la page n'a aucun moyen de reconnaître seule.
+// La règle vit donc à un seul endroit.
+//
+// EN MÉMOIRE SEULEMENT : un rechargement de page refait juger, ce qui est le
+// bon défaut. C'est un raccourci de session, pas un cache.
+const dejaSoumis = {};    // exercice -> {cle, verdict}
+let renvoiForce = null;   // la clé qu'un second clic doit renvoyer quand même
+let enVol = null;         // {jeton, exercice, cle} de la soumission en cours
+
 // L'ETA VIENT DU SERVEUR (`eta`, en secondes) : lui seul sait ce que chaque
 // exercice coûte et ce qu'il y a devant. La page ne fait que le mettre en
 // français. Une API plus ancienne, ou un `eta` à 0, ne rend rien plutôt que
@@ -1716,6 +1739,11 @@ async function poll(id, tries, portee, jeton) {
   const body = await r.json().catch(() => ({state: "error"}));
   if (body.state === "done") {
     render(body, portee);
+    // ON NE GARDE QUE CE QUE LE SERVEUR ACCEPTE DE GARDER LUI-MÊME.
+    if (enVol && enVol.jeton === jeton && !body.rejouer
+        && body.status !== "error") {
+      dejaSoumis[enVol.exercice] = { cle: enVol.cle, verdict: body };
+    }
     // The API has just derived the exercise state from this verdict. Refresh
     // the private projections so « Mes exercices » reflects it immediately;
     // this is display state, not a client-side declaration of success.
@@ -1815,7 +1843,25 @@ async function soumettre(portee) {
       return;
     }
   }
+  // LE MÊME CODE QUE LA DERNIÈRE FOIS N'A RIEN À REDEMANDER. Aucune requête
+  // ne part, donc ni cooldown, ni place de file, ni attente.
+  const cle = JSON.stringify(body.answers || body.files);
+  const connu = dejaSoumis[tp.id];
+  if (connu && connu.cle === cle && renvoiForce !== cle) {
+    // LE SECOND CLIC RENVOIE, et cette échappatoire n'est pas optionnelle : un
+    // cas de test corrigé par le tick de cinq minutes rendrait le verdict gardé
+    // faux, et la page n'a aucun moyen de l'apprendre. Sans elle, c'est le
+    // bouton qui aurait l'air cassé.
+    renvoiForce = cle;
+    render(connu.verdict, portee);
+    systeme("Même code que ta dernière soumission — voici son verdict, sans "
+          + "reprendre de place dans la file. Clique encore pour le renvoyer "
+          + "au juge.");
+    return;
+  }
+  renvoiForce = null;
   const jeton = ++soumissionCourante;
+  enVol = { jeton: jeton, exercice: tp.id, cle: cle };
   effacerSysteme();
   occupe(true);
   verdict({ cls: "wait", titre: "Envoi…" });

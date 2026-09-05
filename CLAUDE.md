@@ -554,9 +554,59 @@ qu'un système de fichiers est.
 **Le taux de succès se lit dans `journalctl`**, pas dans un compteur :
 
 ```sh
-journalctl -u 'ctester-runner@*' -n 500 | grep -c 'ctester: cache '
-journalctl -u 'ctester-runner@*' -n 500 | grep -c 'ctester: connu '
+journalctl -u 'ctester-runner@*' -n 500 | grep 'ctester: cache '
+```
+
+Trois lignes, et c'est leur RAPPORT qui diagnostique :
+
+| ligne | ce qu'elle dit |
+|---|---|
+| `cache écrit <ex> <sig>` | un verdict vient d'entrer dans le magasin |
+| `cache servi <ex> <sig> [file]` | servi par la passe de priorité — le cas normal |
+| `cache servi <ex> <sig> [dépilé]` | servi par la boucle de jugement, une course |
+
+Des `écrit` sans aucun `servi` veut dire que **la clé change entre deux
+soumissions** : le code diffère vraiment, ou l'empreinte a bougé — et
+`runner.py` en fait partie, donc un déploiement entre les deux soumissions rend
+la première entrée inatteignable. C'est le faux négatif à connaître quand on
+teste le cache juste après avoir poussé. Aucune ligne du tout veut dire que rien
+n'est mis en cache : quiz, `"cache": false`, ou un statut exclu.
+
+**LA PAGE NE RENVOIE PAS UN CODE IDENTIQUE, et c'est le seul raccourci qu'un
+client puisse se permettre.** Si le code est identique à l'octet près à sa
+dernière soumission pour cet exercice, `soumettre()` réaffiche le verdict qu'elle
+tient : aucune requête ne part, donc ni cooldown, ni place de file, ni attente de
+sondage. **Elle n'affirme rien au serveur en le faisant** — elle décide seulement
+de ne pas le déranger. Un hachage envoyé DANS la requête, lui, choisirait quel
+verdict stocké on reçoit : du code cassé plus le hachage d'une soumission réussie
+donnerait `passed == total`, que `_enregistrer()` transforme en « validé » et en
+XP. C'est la différence entre ne pas demander et dicter la réponse.
+
+- **Le second clic renvoie quand même, et cette échappatoire n'est pas
+  optionnelle** : un cas de test corrigé par le tick de cinq minutes rend le
+  verdict gardé faux, et la page n'a aucun moyen de l'apprendre. Sans elle,
+  c'est le bouton qui aurait l'air cassé.
+- **`rejouer` vient du SERVEUR.** Le worker le pose sur tout verdict qu'il
+  refuse de mettre en cache lui-même — `timeout`, panne du juge, et les
+  exercices dont le PROGRAMME est aléatoire (`"cache": false`), que la page n'a
+  aucun moyen de reconnaître seule. La règle vit donc à un seul endroit au lieu
+  de deux qui divergeraient.
+- **En mémoire seulement** : un rechargement de page refait juger. C'est un
+  raccourci de session, pas un cache — et c'est le bon défaut.
+- Conséquence pour `test_page.js` : **chaque scénario doit soumettre un code
+  différent** (`codeUnique()`). Un harnais qui rejouerait le même texte en
+  changeant la réponse du serveur éprouverait ce raccourci-là, pas le rendu des
+  verdicts qu'il vise.
+
+**Un cache hit ne se voit pas en zéro seconde côté page**, et ce n'est pas une
+panne : `poll()` sonde `/r/<id>` toutes les 2 s et son premier sondage part avant
+que le worker (0,5 s de scrutation) ait pu répondre. Le plancher observable est
+donc ~2,5 s, ~5 s si le sondage tombe mal. La comparaison juste est avec
+`durees.json`, pas avec zéro.
+
+```sh
 ls /opt/ctester/spool/cache | wc -l
+cat /opt/ctester/spool/durees.json     # ce que coûte VRAIMENT cet exercice
 ```
 
 Éprouvé par `test_ctester.py` : le lexeur et ses pièges (le `//` d'une URL, un
