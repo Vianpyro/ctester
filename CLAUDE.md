@@ -211,9 +211,33 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
   l'exercice. `find_exercise` refuse déjà de le servir ; ce qui manquait,
   c'était de dire pourquoi et jusqu'à quand.
 
-Reste à faire : phase 6 (`VHome` : volumes, timer de contenu, permissions),
-phases 7-8 (bascule, puis retrait de `tps.json`, de `_v1()`, de `TP_RE` et du
-champ `tp`).
+### Ce que la phase 6 a branché (dans `VHome`, pas ici)
+
+- **`ctester_content_v2` est la bascule, et elle est `false`.** Le rôle rend
+  les deux variables VIDES tant qu'elle l'est : le worker et l'API lisent
+  `tpN/exN` exactement comme avant. La phase 7 est ce booléen dans
+  `group_vars`, et le rollback est de le retirer.
+- **`/opt/ctester/published` est root, `0755`, monté `:ro` sur `/published`
+  MÊME EN V1** — vide. Basculer n'ajoute donc pas un volume, donc ne recrée pas
+  un conteneur le matin du cours. Le répertoire ENTIER est monté, pas
+  `published/current` : le pointeur est un fichier pour cette raison-là.
+- **Le contenu v2 vit dans le clone de tests** (`tests/content`) : même dépôt,
+  même deploy key, et le `chmod -R` plus le `find quiz.json -o io.json` du tick
+  le couvrent déjà — les noms n'ont pas changé, seuls les chemins.
+- **`ReadWritePaths` du worker perd `src/app` en v2** au profit de
+  `published/` : le processus root n'écrit plus dans le code que le conteneur
+  web exécute.
+- **Le témoin du tick porte la DATE en troisième champ.** Sans elle, un contenu
+  figé depuis une semaine n'est jamais republié et un `scheduled` qui ouvre ce
+  matin reste fermé jusqu'au prochain commit. Une projection par jour, qui ne
+  crée rien quand le contenu n'a pas bougé.
+- **Le `grep -rl answer` du tick porte sur les deux racines**, v1 et v2 : on n'a
+  pas à se souvenir de laquelle est active le jour où l'alerte compte.
+- Le runbook des trois rollbacks (pointeur, variable, republication) est dans
+  `roles/ctester/README.md` de `VHome`.
+
+Reste à faire : phases 7-8 (bascule, puis retrait de `tps.json`, de `_v1()`, de
+`TP_RE` et du champ `tp`).
 
 ## Avant de déployer une modif de la page ou du contenu
 
