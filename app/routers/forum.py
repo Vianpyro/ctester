@@ -74,7 +74,7 @@ def fil(sub: SubForum, ex: str = Query("")):
 @router.post("/forum")
 def publier(sub: SubForum, corps: ForumMessageIn):
     """Publier dans le fil d'un exercice publié."""
-    entree = _entree(corps.tp)
+    entree = _entree(corps.exercice())
     if entree is None:
         return headers.erreur(400, "TP inconnu")
     texte, message = forum_service.forum_texte(corps.texte)

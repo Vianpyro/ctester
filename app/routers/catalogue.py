@@ -44,9 +44,9 @@ def detail(tp: str, request: Request):
     entry = catalogue.find_tp(tp)
     if entry is None:
         return headers.erreur(404, "inconnu")
-    return headers.fichier_du_disque(
-        request, config.STATIC, os.path.join("tp", entry["id"] + ".json"),
-        "application/json; charset=utf-8")
+    base, nom = catalogue.source_publiee(entry, "detail")
+    return headers.fichier_du_disque(request, base, nom,
+                                     "application/json; charset=utf-8")
 
 
 @router.get("/quiz/{tp}.json")
@@ -60,6 +60,22 @@ def quiz(tp: str, request: Request):
     entry = catalogue.find_tp(tp)
     if entry is None or entry.get("mode") != "quiz":
         return headers.erreur(404, "pas un quiz")
-    return headers.fichier_du_disque(
-        request, config.STATIC, os.path.join("quiz", entry["id"] + ".json"),
-        "application/json; charset=utf-8")
+    base, nom = catalogue.source_publiee(entry, "quiz")
+    return headers.fichier_du_disque(request, base, nom,
+                                     "application/json; charset=utf-8")
+
+
+@router.get("/catalog.json")
+def catalog(request: Request):
+    """Le catalogue v2 : collections, accès, cadenas et dates.
+
+    LA ROUTE QUE LA PAGE LIRA EN PHASE 5. Elle sert le fichier tel qu'il a été
+    publié -- une projection déjà filtrée, que ce processus ne recompose pas --
+    et répond 404 tant que le déploiement est en v1, ce qui est exactement ce
+    qu'une page qui sait retomber sur `tps.json` doit voir.
+    """
+    release = catalogue.release_dir()
+    if release is None:
+        return headers.erreur(404, "catalogue v2 absent")
+    return headers.fichier_du_disque(request, release, "catalog.json",
+                                     "application/json; charset=utf-8")

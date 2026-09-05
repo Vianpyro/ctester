@@ -42,7 +42,7 @@ def submit(corps: SoumissionIn, request: Request):
     if not config.KEY or not hmac.compare_digest(corps.key, config.KEY):
         return headers.erreur(403, "clé de session invalide ou expirée")
 
-    entree = catalogue.find_tp(corps.tp)
+    entree = catalogue.find_tp(corps.exercice())
     if entree is None:
         return headers.erreur(400, "TP inconnu")
 

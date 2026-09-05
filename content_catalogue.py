@@ -129,6 +129,36 @@ def find_exercise(model, exercise_id, now=None):
     return entry
 
 
+def load_exercise(root, exercise_id, now=None, tout=False):
+    """UN exercice résolu depuis la racine privée, sans valider tout le dépôt.
+
+    C'EST LA PORTE DU WORKER. Il tourne en root, une fois par job, et un
+    exercice cassé ailleurs dans le dépôt ne doit pas arrêter la file --
+    `discover()` valide TOUT et sert à la CI et au publisher, pas ici.
+
+    La release est réappliquée : le web l'a déjà fait, ce processus ne fait
+    confiance à personne, y compris à notre propre conteneur web. `tout=True`
+    est le mode aperçu de l'enseignant, et rien d'autre.
+    """
+    if not isinstance(exercise_id, str) or not EXERCISE_RE.match(exercise_id):
+        return None
+    path = os.path.join(root, "exercises", exercise_id)
+    errors = []
+    data = _json(os.path.join(path, "exercise.json"), errors)
+    if data is None or data.get("id") != exercise_id:
+        return None
+    if not tout and access(data.get("release"), now) != "available":
+        return None
+    assessment = os.path.join(path, "assessment")
+    mode = detect_mode(assessment)
+    if not isinstance(mode, str):
+        return None  # aucun mode, ou plusieurs : rien à exécuter
+    files = _public_files(path, "exercises/" + exercise_id, errors, mode)
+    return {"id": exercise_id, "path": assessment, "mode": mode,
+            "files": files or [{"name": "submission.c", "template": ""}],
+            "release": data.get("release")}
+
+
 def _files(value, where, errors):
     if value is None:
         return [{"name": "submission.c", "template": ""}]
@@ -326,6 +356,12 @@ def public_catalogue(model, now=None):
             public["difficulty"] = entry["difficulty"]
         if isinstance(entry["contexts"], list):
             public["contexts"] = [str(context) for context in entry["contexts"]]
+        # LES NOMS RESTENT, LES GABARITS PARTENT. `files` est la liste blanche
+        # qu'oppose l'API à une soumission (validate_files) : la vider ouvrirait
+        # un trou. Le gabarit, lui, ne sert qu'à préremplir l'éditeur et vit
+        # dans le détail, chargé à l'ouverture de l'exercice.
+        if entry["files"]:
+            public["files"] = [{"name": item["name"]} for item in entry["files"]]
         exercises.append(public)
     return {"schema_version": SCHEMA_VERSION, "skills": list(model["skills"]),
             "exercises": exercises,

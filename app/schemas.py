@@ -25,7 +25,29 @@ from pydantic import BaseModel, ConfigDict
 _CONFIG = ConfigDict(extra="ignore")
 
 
-class SoumissionIn(BaseModel):
+class _AvecExercice(BaseModel):
+    """L'exercice visé, sous SON NOM CIBLE et sous son nom historique.
+
+    `exercise_id` est le nom v2, celui qui vit déjà dans toutes les tables
+    (brouillons, états, tentatives, XP, forum). `tp` reste accepté, et le
+    restera le temps d'une fenêtre de compatibilité : la page est servie depuis
+    une autre origine et vit dans le cache d'un étudiant, donc l'API et le
+    navigateur ne se redéploient pas ensemble. Renvoyer 400 à une page d'hier
+    serait une panne pour celui qui n'a pas rechargé.
+
+    `exercise_id` PRIME quand les deux sont là -- c'est le champ qui reste.
+    """
+
+    model_config = _CONFIG
+
+    tp: str = ""
+    exercise_id: str = ""
+
+    def exercice(self):
+        return self.exercise_id or self.tp
+
+
+class SoumissionIn(_AvecExercice):
     """POST /submit -- une soumission de code, ou un quiz.
 
     `key` EST LA CLÉ DE SESSION, comparée en temps constant et AVANT tout autre
@@ -39,17 +61,15 @@ class SoumissionIn(BaseModel):
     model_config = _CONFIG
 
     key: str = ""
-    tp: str = ""
     files: dict | None = None
     answers: dict | None = None
 
 
-class BrouillonIn(BaseModel):
+class BrouillonIn(_AvecExercice):
     """PUT /brouillon et PUT /etat -- le code en cours, et son statut déclaré."""
 
     model_config = _CONFIG
 
-    tp: str = ""
     files: dict | None = None
     statut: str = ""
 
@@ -62,12 +82,11 @@ class PreferencesIn(BaseModel):
     theme: str = ""
 
 
-class ForumMessageIn(BaseModel):
+class ForumMessageIn(_AvecExercice):
     """POST /forum -- publier dans le fil d'un exercice publié."""
 
     model_config = _CONFIG
 
-    tp: str = ""
     texte: str | None = None
 
 

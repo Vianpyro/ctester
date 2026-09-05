@@ -253,7 +253,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     modules = _modules_avec_etat()
     garde_etat = [(m, m.etat) for m in modules]
     garde_config = {n: getattr(config, n) for n in
-                    ("STATIC", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
+                    ("STATIC", "PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
                      "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPES")}
     garde_secu = (security.current_user, security.current_name)
     garde_quotas = (deps.quota, deps.state_quota, deps.forum_quota, deps.presence)
@@ -261,6 +261,10 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     for m in modules:
         m.etat = faux
     config.STATIC, config.SPOOL, config.PAGE = static, spool, page
+    # V1 PAR DÉFAUT : un test qui veut la release v2 la publie et pose la
+    # variable lui-même. Sans cette remise à zéro, l'environnement de la machine
+    # qui lance les tests déciderait de ce qu'ils éprouvent.
+    config.PUBLISHED = ""
     config.KEY = "cle-de-session"
     config.OIDC_ISSUER = "https://auth.exemple.com"
     config.OIDC_CLIENT_ID = "ctester"
@@ -288,6 +292,73 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
         (deps.quota, deps.state_quota, deps.forum_quota,
          deps.presence) = garde_quotas
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _contenu_v2(racine):
+    """Une racine de contenu v2 : un exercice ouvert, un exercice programmé."""
+    def ecrire(chemin, valeur):
+        os.makedirs(os.path.dirname(chemin), exist_ok=True)
+        with open(chemin, "w", encoding="utf-8") as fh:
+            json.dump(valeur, fh)
+
+    ecrire(os.path.join(racine, "catalog.json"), {"schema_version": 1, "skills": []})
+    for identifiant, release in (("ouvert", {"state": "available"}),
+                                 ("ferme", {"state": "scheduled",
+                                            "available_from": "2099-01-01T00:00:00-05:00"})):
+        exercice = os.path.join(racine, "exercises", identifiant)
+        ecrire(os.path.join(exercice, "exercise.json"),
+               {"schema_version": 1, "id": identifiant, "title": identifiant.title(),
+                "release": release})
+        with open(os.path.join(exercice, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("Consigne.")
+        ecrire(os.path.join(exercice, "assessment", "io.json"),
+               {"cases": [{"stdin": "1\\n", "expect": [1]}]})
+        ecrire(os.path.join(exercice, "public", "files.json"),
+               {"files": [{"name": "submission.c", "template": ""}]})
+    ecrire(os.path.join(racine, "collections", "tp1.json"),
+           {"schema_version": 1, "id": "tp1", "title": "TP 1",
+            "items": ["ouvert", "ferme"], "release": {"state": "available"}})
+
+
+def test_release_v2_pilote_le_catalogue_et_ferme_le_reste():
+    """La bascule v2 : le catalogue vient de la release, et le cadenas tient.
+
+    LES DEUX MOITIÉS COMPTENT. Un exercice programmé est VISIBLE dans
+    `/catalog.json` (avec son état) et reste injoignable partout ailleurs :
+    ni consigne, ni soumission. Montrer n'est pas donner, et l'inverse --
+    le faire disparaître, comme en v1 -- ressemblait à une panne.
+    """
+    import content_catalogue
+    import publish_content
+
+    with contexte() as (c, _, tmp):
+        racine, publie = os.path.join(tmp, "content"), os.path.join(tmp, "published")
+        _contenu_v2(racine)
+        publish_content.publish(content_catalogue.discover(racine), publie)
+        config.PUBLISHED = publie
+
+        entrees = c.get("/tps.json").json()
+        assert [e["id"] for e in entrees] == ["ouvert"], entrees
+        assert entrees[0]["group"] == "TP 1", entrees
+        assert entrees[0]["files"] == [{"name": "submission.c"}], entrees
+        assert c.get("/tp/ouvert.json").json()["statement"] == "Consigne."
+        assert c.get("/tp/ferme.json").status_code == 404
+
+        catalogue_v2 = c.get("/catalog.json").json()
+        etats = {e["id"]: e["access"] for e in catalogue_v2["exercises"]}
+        assert etats == {"ouvert": "available", "ferme": "scheduled"}, etats
+        assert catalogue_v2["collections"][0]["items"] == ["ouvert", "ferme"]
+
+        # `exercise_id` est le nom cible du champ ; `tp` reste accepté.
+        corps = {"key": config.KEY, "files": {"submission.c": "int main(void){}"}}
+        assert c.post("/submit", json=dict(corps, exercise_id="ferme")).status_code == 400
+        assert c.post("/submit", json=dict(corps, exercise_id="ouvert")).status_code == 200
+        assert c.post("/submit", json=dict(corps, tp="ouvert")).status_code == 200
+
+        # ROLLBACK : vider la variable rend le déploiement v1, sans redéployer.
+        config.PUBLISHED = ""
+        assert c.get("/catalog.json").status_code == 404
+        assert [e["id"] for e in c.get("/tps.json").json()] == [e["id"] for e in CATALOGUE]
 
 
 def auth(nom):

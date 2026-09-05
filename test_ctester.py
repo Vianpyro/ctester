@@ -240,6 +240,33 @@ def test_content_v2_publication_verrouille_et_bascule():
         shutil.rmtree(dest)
 
 
+def test_worker_v2_resout_un_exercice_et_refuse_ce_qui_est_ferme():
+    """Le worker est root : il rejoue la release et relit les noms publics."""
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    garde = runner.CONTENT
+    try:
+        _contenu_v2(root, {"state": "scheduled", "available_from": "2099-01-01T00:00:00-05:00"})
+        # Un module à deux fichiers : c'est ce qui prouve que le worker LIT
+        # `public/files.json` au lieu de retomber sur submission.c par défaut.
+        _write_json(os.path.join(root, "exercises", "surface", "public", "files.json"),
+                    {"files": [{"name": "calendrier.h", "template": ""},
+                               {"name": "calendrier.c", "template": ""}]})
+        runner.CONTENT = root
+        assessment = os.path.join(root, "exercises", "surface", "assessment")
+        assert runner.tp_path("surface") == assessment
+        assert runner.tp_path("nombres") is None, "un exercice fermé reste injoignable"
+        assert runner.tp_path("../../etc/passwd") is None
+        assert runner.unity_dir() == os.path.join(root, "shared", "unity")
+        conf = runner.load_config(assessment, "io.json")
+        assert [f["name"] for f in runner.declared_files(conf, assessment)] == [
+            "calendrier.h", "calendrier.c"]
+        # Sans répertoire, le défaut historique tient : un TP v1 ne change pas.
+        assert runner.declared_files(conf) == [{"name": "submission.c", "template": ""}]
+    finally:
+        runner.CONTENT = garde
+        shutil.rmtree(root)
+
+
 def test_content_v2_projection_refuse_une_cle_privee():
     """La ceinture : un champ public ajouté demain ne publie pas un corrigé."""
     modele = {"schema_version": 1, "skills": [], "collections": {},

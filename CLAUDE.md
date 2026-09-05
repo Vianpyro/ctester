@@ -106,14 +106,20 @@ le navigateur reçoit.
 
 ## Le contenu v2 (refactor en cours)
 
-Le plan est dans `docs/refactor-content-architecture-plan.md`. La production
-lit toujours l'arborescence historique `tpN/exN` par `runner.py` ; **rien de ce
-qui suit n'est encore branché sur le service**, et c'est voulu — la phase 3 se
-termine avec une publication v2 qu'on peut comparer à la v1 avant de basculer.
+Le plan est dans `docs/refactor-content-architecture-plan.md`. **La bascule est
+DEUX VARIABLES VIDES, et c'est tout le mécanisme de rollback** : sans elles,
+worker et API lisent l'arborescence historique `tpN/exN` exactement comme
+avant, et rien de ce qui suit ne s'exécute.
+
+| Variable | Qui | Effet |
+|---|---|---|
+| `CTESTER_CONTENT` | worker | résout les exercices dans la racine v2, publie une release |
+| `CTESTER_PUBLISHED` | worker **et** web | le répertoire des releases (`current.json` + une par révision) |
 
 ```sh
-python3 validate_content.py  ../unittests/content              # phase 1
+python3 validate_content.py  ../unittests/content                 # phase 1
 python3 publish_content.py   ../unittests/content /tmp/published  # phase 3
+CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/main.py
 ```
 
 - **`content_catalogue.py`** — le modèle validé, et `find_exercise(model, id)`,
@@ -139,9 +145,45 @@ python3 publish_content.py   ../unittests/content /tmp/published  # phase 3
   reconstruisent déjà champ à champ ; ce contrôle attrape le champ qu'on leur
   ajoutera demain. `test_ctester.py` l'éprouve, comme la bascule et le rollback.
 
-Reste à faire, dans l'ordre du plan : phase 4 (l'API et le worker lisent la
-release au lieu de `tps.json`, `exercise_id` dans les corps et le spool),
-phase 5 (l'UI par collections), phase 6 (volumes et timers dans `VHome`).
+### Ce que la phase 4 a branché
+
+- **Le worker.** `tp_path()` reste LA porte ; en v2 elle passe par
+  `content_catalogue.load_exercise()`, qui rejoue la release — le web l'a déjà
+  fait, ce processus est root et ne fait confiance à personne. Elle rend
+  `exercises/<id>/assessment`, **la même forme qu'un répertoire de TP
+  historique** (configuration, `test_*.c`, `allowed_includes.txt` côte à côte),
+  donc `detect_mode`, `read_allowed`, `docker_argv` et le bac à sable ne
+  changent pas. Unity, lui, est partagé : `unity_dir()` le prend dans
+  `shared/unity`.
+- **Les gabarits sont publics, donc hors de `assessment/`** :
+  `declared_files(conf, tp_dir)` relit `public/files.json` quand la
+  configuration de correction ne déclare rien. Sans ça, tout module à deux
+  fichiers (`calendrier.h` + `calendrier.c`) retomberait sur `submission.c` et
+  ne lierait plus. Un test l'éprouve avec un module.
+- **L'API.** `load_tps()` projette le catalogue v2 dans la FORME v1
+  (`group` vient de la collection, `learning` des métadonnées) : la page ne
+  bouge pas de la phase 4, et c'est `_v1()` que la phase 5 supprimera.
+  `/tp/<id>.json` et `/quiz/<id>.json` sont servis depuis la release ;
+  `/catalog.json` sert le catalogue v2 tel quel, et répond 404 en v1 — ce
+  qu'une page qui sait retomber sur `tps.json` doit voir.
+- **`exercise_id` est le nom cible du champ, `tp` reste accepté** (`_AvecExercice`
+  dans `schemas.py`, `corps.exercice()` dans les routeurs). La page vit dans le
+  cache d'un étudiant et sera servie depuis une autre origine : l'API et le
+  navigateur ne se redéploient pas ensemble, et répondre 400 à la page d'hier
+  serait une panne. **Le spool garde `tp`** — il est consommé en quelques
+  secondes par le même déploiement, il n'a besoin d'aucune fenêtre de
+  compatibilité, et le renommer se fera d'un coup en phase 8.
+- **La publication reste au worker** : `publish_catalogue()` délègue à
+  `publish_content.publish()` quand les deux variables sont là. C'est ce qui
+  garde la republication au changement de jour — un `scheduled` dont la date
+  tombe cette nuit s'ouvre parce que le catalogue est reprojeté, pas parce
+  qu'un service redémarre. `CTESTER_APERCU` s'y traduit en une DATE (l'an 9999)
+  plutôt qu'en un second filtre : `access()` reste la seule lecture d'une release.
+
+Reste à faire : phase 5 (l'UI lit `/catalog.json`, collections repliables,
+cadenas et dates, `_v1()` supprimé), phase 6 (`VHome` : volumes, timer de
+contenu, permissions), phases 7-8 (bascule, puis retrait de `tps.json`, de
+`TP_RE` et du champ `tp`).
 
 ## Avant de déployer une modif de la page ou du contenu
 

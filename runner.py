@@ -31,8 +31,19 @@ import time
 import unicodedata
 import uuid
 
+import content_catalogue
+
 SPOOL = os.environ.get("CTESTER_SPOOL", "/opt/ctester/spool")
 TESTS = os.environ.get("CTESTER_TESTS", "/opt/ctester/tests")
+
+# CONTENU V2, ET LE DRAPEAU DE BASCULE EST L'ABSENCE DE CES DEUX VARIABLES.
+# Vides -> tout ce qui suit lit l'arborescence historique `tpN/exN` comme avant
+# et rien ne change ; renseignées -> le worker résout les exercices par
+# `content_catalogue.load_exercise()` et publie une release au lieu d'écrire
+# dans le clone de l'application. Le rollback est donc une variable à vider,
+# pas un déploiement à défaire.
+CONTENT = os.environ.get("CTESTER_CONTENT", "")
+PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "")
 APP = os.environ.get("CTESTER_APP", "/opt/ctester/app")
 BUILD_UNITY = os.environ.get("CTESTER_BUILD_UNITY", "/opt/ctester/build-unity.sh")
 BUILD_IO = os.environ.get("CTESTER_BUILD_IO", "/opt/ctester/build-io.sh")
@@ -205,7 +216,7 @@ def learning_metadata(conf):
     return out
 
 
-def declared_files(conf):
+def declared_files(conf, tp_dir=None):
     """Les fichiers que l'étudiant doit fournir, [{name, template}].
 
     Le nom est IMPOSÉ PAR L'ÉNONCÉ et pas choisi par l'étudiant : à partir du
@@ -219,6 +230,17 @@ def declared_files(conf):
     4, un programme complet dans un seul fichier.
     """
     files = conf.get("files")
+    if not files and tp_dir:
+        # CONTENU V2 : les gabarits sont PUBLICS, donc rangés à côté de la
+        # configuration de correction (`public/files.json`) et pas dedans. Le
+        # worker les relit ici -- jamais depuis le réseau, où un nom choisi par
+        # l'étudiant deviendrait un chemin.
+        try:
+            with open(os.path.join(tp_dir, os.pardir, "public", "files.json"),
+                      encoding="utf-8") as fh:
+                files = json.load(fh).get("files")
+        except (OSError, ValueError, AttributeError):
+            files = None
     if not files:
         return [{"name": "submission.c", "template": ""}]
     out = []
@@ -437,6 +459,17 @@ def publish_catalogue():
     if APERCU:
         print("ctester: APERÇU ACTIF -- les TP pas encore ouverts sont publiés",
               file=sys.stderr, flush=True)
+    if CONTENT and PUBLISHED:
+        # Import LOCAL : publish_content lit `public_quiz` ici même, et un import
+        # en tête de fichier fermerait le cycle. Il n'a lieu que sur le chemin v2.
+        import publish_content
+        model = content_catalogue.discover(CONTENT)
+        # L'aperçu est une DATE, pas un second filtre : `access()` reste la seule
+        # lecture d'une release, et se placer en l'an 9999 ouvre tout ce qui est
+        # daté sans toucher à ce qui est archivé.
+        maintenant = datetime.datetime(9999, 1, 1, tzinfo=datetime.timezone.utc) if APERCU else None
+        publish_content.publish(model, PUBLISHED, now=maintenant)
+        return list(model["exercises"].values())
     entries = catalogue()
     quiz_dir = os.path.join(APP, "quiz")
     detail_dir = os.path.join(APP, "tp")
@@ -477,7 +510,14 @@ def tp_path(tp_id):
     contient un tiret de plus. Surtout, passer par le catalogue veut dire qu'un
     exercice non publié n'est pas exécutable, ce qui est plus strict que « le
     répertoire existe ».
+
+    En v2 le répertoire rendu est `exercises/<id>/assessment` : la même forme
+    qu'un répertoire de TP historique -- configuration, `test_*.c` et
+    `allowed_includes.txt` côte à côte -- donc rien en aval ne change.
     """
+    if CONTENT:
+        entry = content_catalogue.load_exercise(CONTENT, tp_id, tout=APERCU)
+        return entry["path"] if entry else None
     for entry in catalogue():
         if entry["id"] == tp_id:
             return entry["path"]
@@ -817,6 +857,11 @@ def read_allowed(tp_dir):
         return None
 
 
+def unity_dir():
+    """Unity est PARTAGÉ par tous les exercices, donc hors de l'un d'eux."""
+    return os.path.join(CONTENT, "shared", "unity") if CONTENT else os.path.join(TESTS, "unity")
+
+
 def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
     """La ligne de commande du bac à sable.
 
@@ -870,7 +915,7 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
     else:
         argv += [
             "-v", tp_dir + ":/in/tests:ro",
-            "-v", os.path.join(TESTS, "unity") + ":/in/unity:ro",
+            "-v", unity_dir() + ":/in/unity:ro",
             "-v", BUILD_UNITY + ":/in/build.sh:ro",
         ]
     return argv + [IMAGE, "bash", "/in/build.sh"]
@@ -1025,7 +1070,7 @@ def run_job(job_dir):
     src_dir = os.path.join(job_dir, "src")
     os.makedirs(src_dir, exist_ok=True)
     code = ""
-    for declared in declared_files(conf):
+    for declared in declared_files(conf, tp_dir):
         contenu = str(sent.get(declared["name"], ""))
         code += contenu + "\n"
         with open(os.path.join(src_dir, declared["name"]), "w",
@@ -1037,7 +1082,7 @@ def run_job(job_dir):
     # fichiers déclarés s'ajoutent donc d'office à la liste blanche.
     allowed = read_allowed(tp_dir)
     if allowed is not None:
-        allowed = allowed | {f["name"] for f in declared_files(conf)}
+        allowed = allowed | {f["name"] for f in declared_files(conf, tp_dir)}
 
     bad = forbidden_includes(code, allowed)
     if bad:

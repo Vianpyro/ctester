@@ -57,7 +57,7 @@ def ecrire_brouillon(sub: Sub, corps: BrouillonIn, request: Request):
     dépendance s'exécute avant le corps, donc une requête refusée pour un TP
     inconnu consommerait le quota de quelqu'un qui n'a rien écrit.
     """
-    entree = catalogue.find_tp(corps.tp)
+    entree = catalogue.find_tp(corps.exercice())
     if entree is None:
         return headers.erreur(400, "TP inconnu")
     fichiers, message, code = catalogue.validate_files(entree, corps.files)
@@ -79,7 +79,7 @@ def ecrire_etat(sub: Sub, corps: BrouillonIn, request: Request):
     vrai statut à partir du verdict du juge. À dériver du serveur seul le jour
     où ça compte.
     """
-    entree = catalogue.find_tp(corps.tp)
+    entree = catalogue.find_tp(corps.exercice())
     if entree is None:
         return headers.erreur(400, "TP inconnu")
     fichiers, message, code = catalogue.validate_files(entree, corps.files)

@@ -47,6 +47,16 @@ STATIC = os.environ.get("CTESTER_STATIC", "/app")
 # données.
 PAGE = os.environ.get("CTESTER_PAGE", "/web")
 
+# LE CONTENU V2, ET SON DRAPEAU DE BASCULE EST CETTE VARIABLE. Vide -> tout se
+# lit sous `STATIC` comme avant (tps.json, tp/, quiz/), et rien ne change.
+# Renseignée -> l'API lit la release publiée par `publish_content.py` : un
+# pointeur `current.json` et un répertoire par révision. Le rollback est de
+# vider la variable ou de réécrire le pointeur, jamais de redéployer.
+#
+# LE POINTEUR EST RELU À CHAQUE REQUÊTE, comme tout le reste ici : republier
+# ne doit pas demander de recréer le conteneur.
+PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "")
+
 # --- Frontière HTTP ---------------------------------------------------------
 # LES ORIGINES AUTORISÉES À APPELER CETTE API, jamais `*` : chaque requête
 # authentifiée porte un `Authorization`, et `*` l'ouvrirait à n'importe quelle
