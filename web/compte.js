@@ -117,11 +117,18 @@ async function enregistrerTheme(nom) {
   await putJson("preferences", { theme: nom });
 }
 
+// LE SUCCÈS SE DIT AUSSI, PAS SEULEMENT L'ÉCHEC. « Sur ton compte » est la
+// seule chose qui réponde à « est-ce que je retrouve mon code chez moi ? », et
+// c'est la question que l'étudiant du labo se pose en partant. Avant, seul
+// l'échec parlait : le cas qui marche restait muet sur ce qu'il avait garanti.
 async function syncDraft(exerciseId, files) {
   const ok = await putJson("brouillon", { exercise_id: exerciseId, files });
-  if (!ok && exerciseId === ctester.exerciceOuvert()) {
-    ctester.showDraftStatus("brouillon gardé sur cet ordinateur, pas sur ton compte");
-  }
+  // L'EXERCICE A PU CHANGER PENDANT L'ALLER-RETOUR : n'annoncer que sur celui
+  // qui est encore à l'écran, sinon l'indicateur parle d'un autre fichier.
+  if (exerciseId !== ctester.exerciceOuvert()) return;
+  ctester.showDraftStatus(
+    ok ? "enregistré sur ton compte · " + ctester.maintenant()
+       : "enregistré sur cet appareil seulement — pas sur ton compte");
 }
 
 const base64url = (bytes) => btoa(String.fromCharCode(...bytes))

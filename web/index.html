@@ -90,6 +90,12 @@
       <div class="phead">
         <span id="edtitle"></span>
         <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
+        <span class="grow"></span>
+        <!-- L'ETAT DE SAUVEGARDE VIT ICI, au-dessus du code, et PAS dans la
+             barre d'actions : la question « est-ce que je vais perdre ca ? » se
+             pose en regardant son code, pas en regardant les boutons. Il est
+             permanent -- avant, il restait vide jusqu'a la premiere frappe. -->
+        <span id="sauvegarde" aria-live="polite"></span>
       </div>
       <div id="edwrap">
         <pre id="gutter" aria-hidden="true"></pre>

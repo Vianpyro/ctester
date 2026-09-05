@@ -278,6 +278,9 @@ const DETAILS = {
 // sont relancés dans un sous-processus à la fin de ce fichier.
 const MODE = process.env.CTESTER_MODE || "";
 if (MODE === "verrou") global.location.search = "?tp=tp10-ex1";
+// SANS CLE D'ACCES : le lien de Moodle porte `?k=`, mais un signet, une
+// adresse tapee de tete ou un lien partage entre etudiants ne l'ont pas.
+if (MODE === "sanscle") global.location.search = "";
 
 // LE CATALOGUE v2 TEL QUE `publish_content.projection()` l'écrit. Il porte
 // TOUS les exercices, ouverts ou non -- montrer n'est pas donner -- et
@@ -620,6 +623,37 @@ const attendre = async () => { await sleep(); await sleep(); };
     console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nun catalogue absent se voit");
     process.exit(failures ? 1 : 0);
   }
+  if (MODE === "sanscle") {
+    // ON LE DIT AU CHARGEMENT, PAS APRES QUE L'ETUDIANT A ECRIT SON CODE. Et on
+    // le dit en francais d'etudiant : le 403 du serveur repond « cle de session
+    // invalide ou expiree », qui ne veut rien dire et ne dit pas quoi faire.
+    check(/clé d'accès/.test(nodes.systeme.textContent),
+          "sans clé : la page le dit au chargement : " + nodes.systeme.textContent);
+    check(/Moodle/.test(nodes.systeme.textContent),
+          "sans clé : et dit OU aller la chercher");
+    check(nodes.systeme.hidden === false, "sans clé : le bandeau est visible");
+    // NON BLOQUANT : ecrire et enregistrer marchent parfaitement sans cle, et
+    // c'est ce que le message promet.
+    check(nodes.out.children.some(c => /En attente/.test(c.textContent || "")),
+          "sans clé : le verdict reste au repos, ce n'est pas une panne");
+    await choisir("TP 2", "tp2-ex0");
+    nodes.code.value = "int main(void){return 0;}";
+    nodes.code.listeners.input();
+    fireLastTimer();
+    check(!!storage["ctester.drafts"],
+          "sans clé : le brouillon s'enregistre quand même");
+    // ET ON N'ENVOIE RIEN QU'ON SAIT REFUSE.
+    calls.length = 0;
+    await nodes.go.listeners.click();
+    await sleep();
+    check(!calls.some(c => String(c.url).startsWith("submit")),
+          "sans clé : aucune soumission n'est envoyée dans le vide");
+    check(/clé d'accès/.test(nodes.systeme.textContent),
+          "sans clé : et le bouton redit quoi faire plutôt que de rester muet");
+    console.log(failures ? `\n${failures} ÉCHEC(S)`
+                         : "\nla clé manquante se dit tôt");
+    process.exit(failures ? 1 : 0);
+  }
   if (MODE === "verrou") {
     // `?tp=tp10-ex1` VISE UN EXERCICE VERROUILLÉ. Le serveur refuse déjà de le
     // servir ; ce que la page doit faire, c'est le dire -- pas rester muette,
@@ -955,9 +989,12 @@ const attendre = async () => { await sleep(); await sleep(); };
   const kept = JSON.parse(storage["ctester.drafts"] || "{}");
   check(kept["tp2-ex0"] && kept["tp2-ex0"]["submission.c"] === "int main(void){ return 0; }",
         "passé le délai de silence, le brouillon est écrit");
-  check(/^brouillon enregistré à \d\d:\d\d$/.test(nodes.brouillon.textContent),
-        "et l'indicateur donne l'heure : " + nodes.brouillon.textContent);
-  check(nodes.brouillon.className === "", "discret tant que tout va bien");
+  // L'INDICATEUR DIT OU, PAS SEULEMENT QUAND. « enregistre a 14:32 » ne repond
+  // pas a la question que l'etudiant se pose en quittant le labo, qui est
+  // « est-ce que je retrouve mon code chez moi ? ».
+  check(/^enregistré sur cet appareil · \d\d:\d\d$/.test(nodes.sauvegarde.textContent),
+        "l'indicateur dit ou le brouillon est parti : " + nodes.sauvegarde.textContent);
+  check(nodes.sauvegarde.className === "", "discret tant que tout va bien");
 
   // LE CAS QUI COMPTE VRAIMENT. Afficher « enregistré » ici ferait perdre son
   // travail à quelqu'un qui nous a crus.
@@ -965,13 +1002,49 @@ const attendre = async () => { await sleep(); await sleep(); };
   nodes.code.value = "int main(void){ return 1; }";
   nodes.code.listeners.input();
   fireLastTimer();
-  check(/NON enregistré/.test(nodes.brouillon.textContent),
-        "un stockage qui refuse d'écrire se dit : " + nodes.brouillon.textContent);
-  check(nodes.brouillon.className === "rate", "et se voit, en rouge");
+  check(/NON enregistré/.test(nodes.sauvegarde.textContent),
+        "un stockage qui refuse d'écrire se dit : " + nodes.sauvegarde.textContent);
+  check(nodes.sauvegarde.className === "rate", "et se voit, en rouge");
   check(JSON.parse(storage["ctester.drafts"])["tp2-ex0"]["submission.c"]
         === "int main(void){ return 0; }",
         "le stockage garde alors la dernière version réellement écrite");
   storageBroken = false;
+
+  // --- UN FICHIER IMPORTÉ EST DU TRAVAIL, ET IL SE PERDAIT --------------------
+  // `saveDraft` ne partait que sur l'evenement `input`, et `input` NE SE
+  // DECLENCHE PAS quand un script ecrit dans un <textarea> : le fichier importe
+  // n'existait que dans le DOM. Un rechargement l'emportait sans un mot. C'est
+  // la perte de code la plus facile a provoquer de toute la page.
+  await choisir("TP 2", "tp2-ex0");
+  nodes.file.files = [{ name: "submission.c", text: async () => "int main(void){ return 42; }" }];
+  await nodes.file.listeners.change({ target: nodes.file });
+  await sleep();
+  check(nodes.code.value === "int main(void){ return 42; }",
+        "le fichier importé arrive bien dans l'éditeur");
+  const apresImport = JSON.parse(storage["ctester.drafts"] || "{}");
+  check(apresImport["tp2-ex0"]
+        && apresImport["tp2-ex0"]["submission.c"] === "int main(void){ return 42; }",
+        "et il est ENREGISTRÉ tout de suite, sans attendre une frappe");
+
+  // L'ONGLET VISÉ EST CELUI QUI PORTE LE NOM DU FICHIER. Importer `calendrier.c`
+  // par-dessus `calendrier.h` parce que c'est l'onglet ouvert est un ecrasement
+  // silencieux, au moment ou l'etudiant regarde ailleurs.
+  await choisir("TP 6", "tp6-ex1");
+  await sleep();
+  if (nodes.tabs.children.length > 1) {
+    const noms = nodes.tabs.children.map(o => o.dataset.name);
+    const autre = noms[1];
+    nodes.tabs.children[0].listeners.click();
+    nodes.file.files = [{ name: autre, text: async () => "/* contenu du second */" }];
+    await nodes.file.listeners.change({ target: nodes.file });
+    await sleep();
+    const ecrits = JSON.parse(storage["ctester.drafts"] || "{}")["tp6-ex1"] || {};
+    check(ecrits[autre] === "/* contenu du second */",
+          "l'import atterrit dans l'onglet qui porte son nom : " + autre);
+    check(ecrits[noms[0]] !== "/* contenu du second */",
+          "et n'écrase pas l'onglet qui était simplement ouvert");
+  }
+
 
   // --- Mode quiz : pagination puis soumission complète ---
   await choisir("TP 1");
@@ -2113,7 +2186,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   // LE CATALOGUE ABSENT ET LE LIEN VERROUILLÉ, dans leur propre processus. Le catalogue
   // n'est lu qu'une fois par chargement de page : les éprouver ici voudrait
   // dire rejouer un premier chargement, ce qu'aucun `await` ne sait faire.
-  for (const mode of ["absent", "verrou"]) {
+  for (const mode of ["absent", "verrou", "sanscle"]) {
     const fils = require("child_process").spawnSync(
       process.execPath, [__filename, APP],
       { env: Object.assign({}, process.env, { CTESTER_MODE: mode }),

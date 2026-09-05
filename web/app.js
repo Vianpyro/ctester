@@ -72,7 +72,29 @@ if (authCode) {
   history.replaceState({}, "", location.pathname + previousSearch);
 }
 
-const key = new URLSearchParams(location.search).get("k") || "";
+// LA CLÉ D'ACCÈS SURVIT À UN RECHARGEMENT SANS SA QUERY. Elle arrive par le
+// lien de Moodle (`?k=…`) ; un étudiant qui tape l'adresse de tête, suit un
+// lien partagé sans la clé, ou revient par un signet, se retrouvait sans elle
+// -- et ne l'apprenait qu'après avoir écrit son code.
+//
+// `sessionStorage` ET PAS `localStorage`, délibérément : la clé meurt avec
+// l'onglet. Sur un poste de labo partagé, la laisser derrière soi la donnerait
+// au prochain étudiant qui s'assoit.
+const CLE_KEY = "ctester.cle";
+const cleDuLien = new URLSearchParams(location.search).get("k") || "";
+if (cleDuLien) sessionSet(CLE_KEY, cleDuLien);
+const key = cleDuLien || sessionGet(CLE_KEY);
+
+// ON LE DIT AU CHARGEMENT, PAS À LA PREMIÈRE SOUMISSION. Sans ça,
+// l'étudiant écrivait son exercice entier avant d'apprendre qu'il ne
+// pouvait pas le tester -- et il l'apprenait par « clé de session invalide
+// ou expirée », qui ne veut rien dire pour lui et ne dit pas quoi faire.
+// Non bloquant : écrire et enregistrer marchent parfaitement sans clé.
+if (!key) {
+  systeme("Il manque ta clé d'accès. Rouvre le lien de CTester depuis Moodle "
+        + "pour pouvoir tester ton code. Tu peux écrire en attendant : "
+        + "ton brouillon est enregistré.");
+}
 const out = $("out");
 // FOCALISABLE SANS ÊTRE DANS LA TABULATION : `amenerLeResultat()` y pose le
 // focus sur petit écran, où le verdict arrive hors de l'écran.
@@ -701,12 +723,32 @@ let currentId = null;
 let saveTimer = null;
 let loadToken = 0;
 
+// L'ÉTAT DE SAUVEGARDE, ET IL EST PERMANENT. Il restait VIDE tant que
+// l'étudiant n'avait pas tapé pendant une seconde et demie : celui qui vient
+// d'ouvrir un exercice, ou qui vient de coller son code sans le retoucher,
+// n'avait aucun moyen de savoir si son travail était à l'abri.
+//
+// ET IL DIT OÙ, pas seulement quand. « enregistré à 14:32 » ne répond pas à la
+// vraie question, qui est « est-ce que je retrouve ça sur l'autre poste ? ».
 function showDraftStatus(text, failed) {
-  $("brouillon").textContent = text;
-  $("brouillon").className = failed ? "rate" : "";
+  $("sauvegarde").textContent = text;
+  $("sauvegarde").className = failed ? "rate" : "";
+}
+
+// L'EXPORT GARDE SON PROPRE EMPLACEMENT, dans la barre d'actions, à côté de son
+// bouton. Les deux messages partageaient un slot et s'effaçaient l'un l'autre :
+// « main.c exporté » remplaçait « brouillon NON enregistré », qui était le seul
+// avertissement de perte de données de toute la page.
+function annoncerExport(texte, rate) {
+  $("brouillon").textContent = texte;
+  $("brouillon").className = rate ? "rate" : "";
 }
 
 const twoDigits = (n) => String(n).padStart(2, "0");
+const maintenant = () => {
+  const t = new Date();
+  return twoDigits(t.getHours()) + ":" + twoDigits(t.getMinutes());
+};
 
 // L'ÉCRITURE SEULE, partagée avec le quiz : lui aussi a un brouillon, de la
 // même forme `{clé: texte}`, et il n'a ni onglet ni gabarit à traverser.
@@ -714,12 +756,14 @@ function persistDrafts() {
   try {
     localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
   } catch (e) {
-    showDraftStatus("brouillon NON enregistré — garde une copie de ton code", true);
+    showDraftStatus("NON enregistré — garde une copie de ton code", true);
     return false;
   }
-  const t = new Date();
-  showDraftStatus("brouillon enregistré à "
-                + twoDigits(t.getHours()) + ":" + twoDigits(t.getMinutes()));
+  // « SUR CET APPAREIL » EST LA MOITIÉ QUI MANQUAIT. Sans compte, le travail ne
+  // suit pas d'un poste à l'autre, et c'est exactement ce qu'un étudiant du
+  // labo doit savoir AVANT de rentrer chez lui -- pas en le découvrant.
+  // `syncDraft` remplacera ce texte par « sur ton compte » si la copie passe.
+  showDraftStatus("enregistré sur cet appareil · " + maintenant());
   $("purger").hidden = false;
   return true;
 }
@@ -949,7 +993,7 @@ $("mesexos").addEventListener("click", () => {
 $("exporttp").addEventListener("click", async () => {
   if (!await activerModule("exporter", "l'export du TP")) return;
   const tp = current();
-  if (tp) await ctester.exporter.exporter(tp.group, showDraftStatus);
+  if (tp) await ctester.exporter.exporter(tp.group, annoncerExport);
 });
 // LE BOUTON N'EXISTE QUE CONNECTÉ (refreshAccount), et le fichier n'arrive
 // qu'au clic : même contrat que compte.js. Un étudiant connecté qui n'ouvre
@@ -1032,6 +1076,7 @@ Object.assign(ctester, {
   switchMode: switchMode,
   fillExercises: fillExercises,
   showDraftStatus: showDraftStatus,
+  maintenant: maintenant,
   // LE BROUILLON DU QUIZ, local seulement : `/brouillon` valide les noms de
   // fichiers déclarés par l'exercice, et un identifiant de question n'en est
   // pas un. Même magasin, même bouton « Effacer mes brouillons ».
@@ -1088,6 +1133,12 @@ function setupFiles(tp, gabarits) {
     ? tp.files : [{ name: "submission.c" }])
     .map(f => ({ name: f.name, template: modeles[f.name] || "" }));
   sources = (tp && drafts[tp.id]) || null;
+  // L'ÉTAT DE DÉPART SE DIT, LUI AUSSI. « Brouillon retrouvé » répond à la
+  // tâche « je reviens après une pause » AVANT qu'on ait à chercher si le code
+  // est bien celui qu'on avait laissé ; et sur un exercice neuf, annoncer que
+  // l'enregistrement est automatique évite de se demander où est le bouton
+  // « Enregistrer » qui n'existe pas.
+  showDraftStatus(sources ? "brouillon retrouvé" : "enregistrement automatique");
   if (!sources) {
     sources = {};
     for (const f of files) sources[f.name] = f.template || "";
@@ -1132,11 +1183,39 @@ $("tabs").addEventListener("keydown", (e) => {
   if (i >= 0) activer(noms[(i + pas + noms.length) % noms.length]);
 });
 
+// L'IMPORT PERDAIT LE FICHIER IMPORTÉ. `saveDraft` n'était appelé que sur
+// l'événement `input`, et `input` NE SE DÉCLENCHE PAS quand un script écrit
+// dans un `<textarea>` : le fichier n'existait que dans le DOM, et un
+// rechargement -- ou un onglet fermé par erreur -- l'emportait sans un mot.
+// C'est la perte de code la plus facile à provoquer de toute la page.
 $("file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   if (!f) return;
-  $("code").value = await f.text();
+  const texte = await f.text();
+  // LE FICHIER VA DANS L'ONGLET QUI PORTE SON NOM, quand il y en a un. Importer
+  // `calendrier.c` par-dessus `calendrier.h` parce que c'est l'onglet ouvert
+  // est un écrasement silencieux, au moment précis où l'étudiant regarde
+  // ailleurs -- il vient de choisir un fichier dans une boîte système.
+  const cible = Object.prototype.hasOwnProperty.call(sources, f.name)
+    ? f.name : actif;
+  if (cible !== actif) activer(cible);
+  // ON DEMANDE AVANT D'ÉCRASER DU TRAVAIL : il n'y a pas d'annulation dans cet
+  // éditeur, le code remplacé est parti pour de bon. Un onglet vide, ou resté
+  // au gabarit, ne vaut pas une question.
+  const remplace = ($("code").value || "").trim();
+  if (remplace && typeof confirm === "function"
+      && !confirm("Remplacer le contenu de « " + cible + " » par « " + f.name
+                  + " » ? Ce qui est écrit dans cet onglet sera perdu.")) {
+    e.target.value = "";
+    return;
+  }
+  $("code").value = texte;
   paint();
+  clearTimeout(saveTimer);
+  saveDraft();
+  // REMETTRE LE CHAMP À ZÉRO : sans ça, réimporter le MÊME fichier après l'avoir
+  // corrigé sur son disque ne déclenche pas `change`, et le bouton semble mort.
+  e.target.value = "";
 });
 
 function cases(items) {
@@ -1435,6 +1514,14 @@ function attendreQuota(secondes) {
 async function soumettre(portee) {
   const tp = current();
   if (!tp) { systeme("Choisis un exercice dans le menu pour commencer."); return; }
+  // ON N'ENVOIE PAS UNE SOUMISSION QU'ON SAIT REFUSÉE : le 403 du serveur dit
+  // « clé de session invalide ou expirée », ce qui n'aide personne.
+  if (!key) {
+    systeme("Il manque ta clé d'accès. Rouvre le lien de CTester depuis Moodle "
+        + "pour pouvoir tester ton code. Tu peux écrire en attendant : "
+        + "ton brouillon est enregistré.");
+    return;
+  }
   const body = {key, exercise_id: tp.id};
   if (tp.mode === "quiz") {
     if (!ctester.quiz) {
