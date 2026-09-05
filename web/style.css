@@ -97,6 +97,36 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .menupanneau button { text-align: left; }
 .menupanneau #moi { padding: 0 .2rem .2rem; }
 
+/* LE CATALOGUE : un <details> par collection dans le <details> du menu. Le
+   navigateur sait replier -- pas d'accordéon en JS, pas d'état d'ouverture
+   à tenir. Ancré à GAUCHE, contrairement au menu du compte. */
+#exliste {
+  left: 0; right: auto; min-width: 20rem;
+  max-height: min(70vh, 30rem); overflow-y: auto; gap: .15rem;
+}
+#exliste .col > summary {
+  cursor: pointer; list-style: none; user-select: none;
+  display: flex; align-items: baseline; gap: .5rem; padding: .35rem .2rem;
+  color: var(--muted); font-size: .68rem; letter-spacing: .09em;
+  text-transform: uppercase;
+}
+#exliste .col > summary::-webkit-details-marker { display: none; }
+#exliste .col > summary::before { content: "\25B8"; }
+#exliste .col[open] > summary::before { content: "\25BE"; }
+#exliste .col > summary:hover { color: var(--fg); }
+#exliste .exline {
+  display: flex; align-items: center; gap: .6rem; width: 100%;
+  padding: .3rem .55rem; font-weight: 400; font-size: 12.5px;
+  border-color: transparent;
+}
+#exliste .exline:hover:not(:disabled) { border-color: var(--line-2); }
+#exliste .exline .titre { flex: 1 1 auto; }
+#exliste .exline.on { border-color: var(--ink); color: var(--fg); font-weight: 600; }
+/* Le cadenas et sa date. Un exercice pas encore ouvert RESTE dans le menu :
+   le faire disparaître ressemblait à une panne la veille du cours. */
+#exliste .cadenas { flex: 0 0 auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+#excourant { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .phead {
   flex: 0 0 auto; display: flex; align-items: center; gap: .6rem;
   padding: .45rem .75rem; border-bottom: 1px solid var(--line);
@@ -583,8 +613,8 @@ pre {
   #consigne { overflow: visible; border-right: 0;
               border-bottom: 1px solid var(--line); }
   #consigne summary { cursor: pointer; position: static; }
-  #consigne summary::before { content: "\25B8\00a0"; }
-  #consigne[open] summary::before { content: "\25BE\00a0"; }
+  #consigne summary::before { content: "\25B8"; }
+  #consigne[open] summary::before { content: "\25BE"; }
   #droite { display: block; }
   #edwrap { height: clamp(12rem, 45vh, 26rem); }
   #out { max-height: none; overflow: visible; }

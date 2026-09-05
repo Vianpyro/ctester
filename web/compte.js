@@ -298,7 +298,6 @@ function buildList() {
       : STATE_LABELS[statut] || "à faire";
     row.append(group, title, dot);
     row.addEventListener("click", () => {
-      $("tp").value = tp.group;
       ctester.fillExercises(tp.id);
       showListView(false);
     });

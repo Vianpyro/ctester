@@ -271,6 +271,15 @@ const DETAILS = {
   "tp2-ex3": { statement: "Calcule U = R * I.", files: UN_FICHIER },
   "tp6-ex1": { statement: "", files: [{ name: "calendrier.h", template: "#define VRAI 1\n" }, { name: "calendrier.c", template: "#include \"calendrier.h\"\n" }] },
 };
+// TROIS PREMIERS CHARGEMENTS DIFFÉRENTS, DONC TROIS PROCESSUS. La page ne lit
+// le catalogue qu'une fois, au chargement : le repli v1 et le lien profond
+// verrouillé ne sont pas des états dans lesquels on peut entrer après coup. Le
+// mode par défaut ("") est celui de la production après bascule -- une release
+// v2 servie par /catalog.json ; les deux autres sont relancés dans un
+// sous-processus à la fin de ce fichier.
+const MODE = process.env.CTESTER_MODE || "";
+if (MODE === "verrou") global.location.search = "?tp=tp10-ex1";
+
 const CATALOGUE = [
   { id: "tp1", mode: "quiz", label: "TP1 : encodage binaire",
     group: "TP 1", short: "encodage binaire", files: [] },
@@ -284,6 +293,46 @@ const CATALOGUE = [
     group: "TP 6", short: "ex.1 est_bissextile",
     files: [{ name: "calendrier.h" }, { name: "calendrier.c" }] },
 ];
+
+// LE CATALOGUE v2 TEL QUE `publish_content.projection()` l'écrit. Il porte
+// TOUS les exercices, ouverts ou non -- montrer n'est pas donner -- et
+// `tp2-ex3` appartient à DEUX collections, ce que la forme v1 ne savait pas
+// dire.
+const DEMAIN = new Date(Date.now() + 30 * 86400e3).toISOString();
+const CATALOG_V2 = {
+  schema_version: 1,
+  skills: ["variables", "arithmetic-operators"],
+  exercises: [
+    { id: "tp1", title: "encodage binaire", mode: "quiz", access: "available",
+      release: { state: "available" }, skills: [], files: [] },
+    { id: "tp2-ex0", title: "ex.0 âge", mode: "io", access: "available",
+      release: { state: "available" }, skills: [], files: UN_FICHIER },
+    { id: "tp2-ex3", title: "ex.3 loi d'Ohm", mode: "io", access: "available",
+      release: { state: "available" }, files: UN_FICHIER,
+      skills: ["variables", "arithmetic-operators"],
+      contexts: ["electrical"], difficulty: "foundation" },
+    { id: "tp6-ex1", title: "ex.1 est_bissextile", mode: "unity",
+      access: "available", release: { state: "available" }, skills: [],
+      files: [{ name: "calendrier.h" }, { name: "calendrier.c" }] },
+    // PAS ENCORE OUVERT, et il figure quand même au menu : la v1 le faisait
+    // disparaître, ce qui ressemblait à une panne la veille du cours.
+    { id: "tp10-ex1", title: "ex.1 tri", mode: "io", access: "scheduled",
+      release: { state: "scheduled", available_from: DEMAIN },
+      skills: [], files: UN_FICHIER },
+  ],
+  collections: [
+    { id: "tp1", title: "TP 1", description: "", items: ["tp1"],
+      release: { state: "available" }, access: "available" },
+    { id: "tp2", title: "TP 2", description: "", items: ["tp2-ex0", "tp2-ex3"],
+      release: { state: "available" }, access: "available" },
+    { id: "tp6", title: "TP 6", description: "", items: ["tp6-ex1"],
+      release: { state: "available" }, access: "available" },
+    { id: "tp10", title: "TP 10", description: "", items: ["tp10-ex1"],
+      release: { state: "available" }, access: "available" },
+    { id: "revisions", title: "Révisions", description: "",
+      items: ["tp2-ex3"], release: { state: "available" }, access: "available" },
+  ],
+};
 
 const calls = [];
 // Un déploiement où la connexion EST configurée, ET où le forum est activé
@@ -358,6 +407,13 @@ const PROGRES = {
 };
 global.fetch = async (url, opts) => {
   calls.push({ url, opts });
+  if (url === "catalog.json") {
+    // LE ROLLBACK EST UN 404. Vider CTESTER_PUBLISHED fait disparaître la
+    // route, et la page doit alors repartir sur `tps.json` sans redéploiement.
+    return MODE === "v1"
+      ? { ok: false, status: 404, json: async () => ({ error: "absent" }) }
+      : { ok: true, status: 200, json: async () => CATALOG_V2 };
+  }
   if (url === "tps.json") {
     return { ok: true, status: 200, json: async () => CATALOGUE };
   }
@@ -538,17 +594,69 @@ const contexte = () => nodes.now.children.map(c => c.textContent).join(" | ");
 // CHANGER D'EXERCICE EST ASYNCHRONE depuis que le detail (consigne, gabarits)
 // est charge a la demande : switchMode part chercher tp/<id>.json. Tout ce qui
 // regarde l'editeur ou la consigne doit donc laisser passer les microtaches.
+const collectionsMenu = () => nodes.exliste.children;
+const titreCollection = (col) => col.children[0].children[0].textContent;
+const cadenasCollection = (col) =>
+  (col.children[0].children[1] || {}).textContent || "";
+const lignesDe = (groupe) => {
+  const col = collectionsMenu().find((c) => titreCollection(c) === groupe);
+  return col ? col.children.filter((k) => k.dataset && k.dataset.id) : [];
+};
+const libelle = (ligne) => ligne.children.map((c) => c.textContent).join(" ");
+
 async function choisir(groupe, id) {
-  nodes.tp.value = groupe;
-  nodes.tp.listeners.change();
-  if (id) { nodes.ex.value = id; nodes.ex.listeners.change(); }
+  const lignes = lignesDe(groupe);
+  const cible = id ? lignes.find((l) => l.dataset.id === id) : lignes[0];
+  if (!cible) throw new Error("aucune ligne de menu pour " + groupe + "/" + id);
+  cible.click();
   await attendre();
 }
 const attendre = async () => { await sleep(); await sleep(); };
 
 (async () => {
   await sleep(); await sleep();
-  check(calls.some(c => c.url === "tps.json"), "le catalogue est demandé au chargement");
+
+  // DEUX PREMIERS CHARGEMENTS QUI NE SONT PAS CELUI-CI. Chacun tourne dans son
+  // propre processus (voir la fin du fichier) et ne rejoue pas la suite : ce
+  // qu'on éprouve ici, c'est ce que la page fait AVANT que quiconque clique.
+  if (MODE === "v1") {
+    check(calls.some(c => c.url === "catalog.json"),
+          "v1 : le catalogue v2 est demandé d'abord");
+    check(calls.some(c => c.url === "tps.json"),
+          "v1 : un 404 fait repartir la page sur tps.json");
+    check(collectionsMenu().map(titreCollection).join(",") === "TP 1,TP 2,TP 6",
+          "v1 : le menu se reconstruit depuis les groupes de tps.json");
+    check(!collectionsMenu().some(
+            (c) => c.children.some((k) => /\ud83d\udd12/.test(k.textContent || ""))),
+          "v1 : aucun cadenas, `tps.json` ne porte ni accès ni date");
+    check(global.ctester.catalogue().length === CATALOGUE.length,
+          "v1 : les quatre exercices restent ouverts");
+    console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nle repli v1 tient");
+    process.exit(failures ? 1 : 0);
+  }
+  if (MODE === "verrou") {
+    // `?tp=tp10-ex1` VISE UN EXERCICE VERROUILLÉ. Le serveur refuse déjà de le
+    // servir ; ce que la page doit faire, c'est le dire -- pas rester muette,
+    // et pas non plus ressembler à un lien mort.
+    check(nodes.menuex.open === true,
+          "verrou : un lien profond verrouillé ouvre le menu");
+    const col = collectionsMenu().find((c) => titreCollection(c) === "TP 10");
+    check(!!col && col.open === true,
+          "verrou : et déplie la collection de l'exercice visé");
+    check(/ouvre le /.test(libelle(lignesDe("TP 10")[0])),
+          "verrou : sur son cadenas et sa date");
+    check(global.ctester.exerciceChoisi() === "tp1",
+          "verrou : l'exercice affiché reste le premier exercice ouvert");
+    check(!calls.some(c => c.url === "tp/tp10-ex1.json"),
+          "verrou : son détail n'est jamais demandé");
+    console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nle lien verrouillé tient");
+    process.exit(failures ? 1 : 0);
+  }
+
+  check(calls.some(c => c.url === "catalog.json"),
+        "le catalogue v2 est demandé au chargement");
+  check(!calls.some(c => c.url === "tps.json"),
+        "et `tps.json` ne l'est pas : le repli n'est pas un second appel");
 
   // --- LE DETAIL, CHARGE A LA DEMANDE ---
   // `tps.json` ne porte plus ni consigne ni gabarits : trois quarts de son
@@ -638,15 +746,44 @@ const attendre = async () => { await sleep(); await sleep(); };
         html.indexOf('id="go"') > html.indexOf('id="editor"'),
         "« Tester » vient après les deux volets, donc en masquer un ne l'emporte pas");
 
-  // --- Le sélecteur à deux niveaux ---
-  check(nodes.tp.children.map(o => o.value).join(",") === "TP 1,TP 2,TP 6",
-        "le premier menu liste les TP, sans doublon");
+  // --- LE MENU DU CATALOGUE : collections repliables, cadenas et dates ---
+  check(collectionsMenu().map(titreCollection).join(",")
+        === "TP 1,TP 2,TP 6,TP 10,Révisions",
+        "le menu liste les collections, dans l'ordre du catalogue");
+  check(lignesDe("TP 2").map(l => l.dataset.id).join(",") === "tp2-ex0,tp2-ex3",
+        "chaque collection porte ses exercices");
+  check(lignesDe("TP 2")[0].children[0].textContent === "ex.0 âge",
+        "et le titre de l'exercice, sans préfixe de TP");
+
+  // UN EXERCICE PAS ENCORE OUVERT RESTE AU MENU, désactivé, avec sa date. Le
+  // faire disparaître -- ce que faisait la v1 -- ressemblait à une panne du
+  // site la veille du cours.
+  const verrouille = lignesDe("TP 10")[0];
+  check(verrouille.disabled === true && !verrouille.listeners.click,
+        "un exercice verrouillé est au menu, mais ne s'ouvre pas");
+  check(/\ud83d\udd12/.test(libelle(verrouille))
+        && /ouvre le /.test(libelle(verrouille)),
+        "il porte un cadenas ET une date : « pas encore ouvert » ne suffit pas");
+  check(!global.ctester.catalogue().some(t => t.id === "tp10-ex1"),
+        "et il ne compte nulle part ailleurs : ni progression, ni export");
+
+  // UN EXERCICE PEUT ÊTRE DANS DEUX COLLECTIONS -- c'est ce qu'un parcours
+  // transversal veut dire -- sans compter deux fois pour autant.
+  check(lignesDe("Révisions").map(l => l.dataset.id).join(",") === "tp2-ex3",
+        "un exercice partagé s'affiche dans ses deux collections");
+  check(global.ctester.catalogue().filter(t => t.id === "tp2-ex3").length === 1,
+        "mais n'apparaît qu'une fois dans le catalogue des exercices ouverts");
+
   await choisir("TP 2");
-  check(nodes.ex.children.map(o => o.value).join(",") === "tp2-ex0,tp2-ex3",
-        "le second menu ne montre que les exercices du TP choisi");
-  check(nodes.ex.children[0].textContent === "ex.0 âge",
-        "le second menu n'y répète pas le préfixe « TP2 : »");
-  check(nodes.exwrap.hidden === false, "le second menu est visible quand il sert");
+  const deplie = collectionsMenu().filter(c => c.open).map(titreCollection);
+  check(deplie.join(",") === "TP 2",
+        "seule la collection où l'on travaille est dépliée");
+  check(nodes.excourant.textContent === "ex.0 âge",
+        "le bouton du menu nomme l'exercice ouvert");
+  check(lignesDe("TP 2")[0].className.includes("on")
+        && !lignesDe("TP 2")[1].className.includes("on"),
+        "et la ligne courante est marquée dans la liste");
+  check(nodes.menuex.open === false, "choisir un exercice referme le menu");
   check(/ex\.0/.test(contexte()), "la barre de contexte nomme l'exercice courant");
   check(/main\(\)/.test(contexte()), "et rappelle ce qu'on attend comme soumission");
 
@@ -676,8 +813,9 @@ const attendre = async () => { await sleep(); await sleep(); };
         "une entrée mal formée du stockage est ignorée : c'est le gabarit qui sert");
 
   await choisir("TP 1");
-  check(nodes.exwrap.hidden === true,
-        "un TP sans exercices masque le second menu au lieu d'en offrir un seul");
+  check(lignesDe("TP 1").length === 1 && !lignesDe("TP 1")[0].disabled,
+        "une collection d'un seul exercice le montre quand meme : il n'y a plus "
+        + "de second menu a masquer");
   check(/réponses à saisir/.test(contexte()), "la pastille suit le mode du TP");
   // LES TROIS MODES, et surtout unity : promettre « avec son main() » sur un
   // module envoie l'étudiant dans une erreur d'édition de liens.
@@ -793,14 +931,19 @@ const attendre = async () => { await sleep(); await sleep(); };
   await choisir("TP 2", "tp2-ex0");
   nodes.code.value = "// mon travail sur l'ex 0";
   nodes.next.listeners.click();
-  check(nodes.ex.value === "tp2-ex3", "« suivant » avance d'un exercice");
+  check(global.ctester.exerciceChoisi() === "tp2-ex3",
+        "« suivant » avance d'un exercice");
   nodes.next.listeners.click();
-  check(nodes.tp.value === "TP 6" && nodes.ex.value === "tp6-ex1",
+  check(global.ctester.exerciceChoisi() === "tp6-ex1",
         "« suivant » franchit la fin d'un TP");
-  check(nodes.next.disabled === true, "le bouton se désactive au dernier exercice");
+  // LES FLÈCHES NE MARCHENT QUE SUR CE QUI EST OUVERT : `tp10-ex1` est publié,
+  // verrouillé, et suit `tp6-ex1` dans le catalogue. Le rang de la fin, c'est
+  // le dernier exercice OUVERT, sinon « suivant » mènerait à un 404.
+  check(nodes.next.disabled === true, "le bouton se désactive au dernier exercice ouvert");
   nodes.prev.listeners.click();
   nodes.prev.listeners.click();
-  check(nodes.ex.value === "tp2-ex0", "« précédent » revient sur ses pas");
+  check(global.ctester.exerciceChoisi() === "tp2-ex0",
+        "« précédent » revient sur ses pas");
   // Le menu bouge tout de suite, l'editeur attend son detail.
   await attendre();
   // LE PIÈGE QUE LES BROUILLONS FERMENT : sans eux, ce clic aurait effacé le
@@ -1236,7 +1379,8 @@ const attendre = async () => { await sleep(); await sleep(); };
         "la recommandation est un bouton, pas un lien décoratif");
   ouvrir.listeners.click();
   await attendre();
-  check(nodes.ex.value === "tp2-ex3" && nodes.vueprogres.hidden === true,
+  check(global.ctester.exerciceChoisi() === "tp2-ex3"
+        && nodes.vueprogres.hidden === true,
         "il ouvre l'exercice recommandé et referme la vue");
 
   // APRÈS UN VERDICT, la projection est redemandée AU SERVEUR. C'est lui qui
@@ -1898,6 +2042,19 @@ const attendre = async () => { await sleep(); await sleep(); };
     global.location.hostname = hote;
     new Function(lire("config.js"))();
     check(global.API("tps.json") === attendu, "config.js : " + hote + " -> " + attendu);
+  }
+
+  // LE REPLI v1 ET LE LIEN VERROUILLÉ, dans leur propre processus. Le catalogue
+  // n'est lu qu'une fois par chargement de page : les éprouver ici voudrait
+  // dire rejouer un premier chargement, ce qu'aucun `await` ne sait faire.
+  for (const mode of ["v1", "verrou"]) {
+    const fils = require("child_process").spawnSync(
+      process.execPath, [__filename, APP],
+      { env: Object.assign({}, process.env, { CTESTER_MODE: mode }),
+        encoding: "utf8" });
+    process.stdout.write(fils.stdout || "");
+    process.stderr.write(fils.stderr || "");
+    if (fils.status !== 0) failures++;
   }
 
   console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nla page fonctionne");

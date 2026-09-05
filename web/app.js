@@ -12,7 +12,7 @@ const charges = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260904-export-main";
+const ASSET_REVISION = "20260904-catalogue-v2";
 
 // ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
 // modules ES le jour où l'état partagé est vraiment séparé.
@@ -177,7 +177,25 @@ function block(text) {
   return pre;
 }
 
+// DEUX LECTURES DU MÊME CONTENU, et c'est voulu.
+//   `collections` porte l'ARBRE DU MENU : tous les exercices, ouverts ou non,
+//     avec leur cadenas et leur date. Montrer n'est pas donner -- la v1 faisait
+//     disparaître ce qui n'était pas ouvert, ce qui ressemblait à une panne la
+//     veille du cours.
+//   `catalogue` ne porte que les exercices OUVERTS, dans la forme que « Mes
+//     exercices », l'export et les progrès lisent déjà. Un exercice verrouillé
+//     n'a rien à faire dans un décompte de progression ni dans un main.c de
+//     remise, et les garder séparés évite d'ajouter un filtre dans trois
+//     modules qui l'oublieraient chacun à leur tour.
 let catalogue = [];
+let collections = [];
+// L'IDENTIFIANT CHOISI DANS LE MENU, et la seule source de cette vérité depuis
+// que les deux <select> ont disparu. `currentId` reste autre chose : ce que
+// l'ÉDITEUR tient vraiment, posé par setupFiles une fois le remplissage revenu.
+let selection = "";
+// L'exercice d'un lien profond qu'on n'a pas pu ouvrir : sa collection est
+// dépliée quand même, pour qu'on voie le cadenas et la date plutôt que rien.
+let vedette = "";
 let oidc = null;
 let token = null;
 
@@ -248,7 +266,7 @@ function afficherVue(nom) {   // "" (l'exercice) | "liste" | "progres" | "forum"
     nom === "forum" ? "Retour à l'exercice" : "Discussions";
 }
 
-const current = () => catalogue.find(t => t.id === $("ex").value) || null;
+const current = () => catalogue.find(t => t.id === selection) || null;
 
 // CE QUE LE FORMAT DE REMISE SAIT FAIRE, ET RIEN D'AUTRE. Le `main.c` d'un seul
 // tenant repose sur `#define exercice N` pour choisir LEQUEL des `main()` est
@@ -290,42 +308,210 @@ const DIFFICULTY_LABELS = {
   advanced: "avancé",
 };
 
-function addOption(sel, value, text) {
-  const o = document.createElement("option");
-  o.value = value;
-  o.textContent = text;
-  sel.append(o);
+// CE QU'UN CADENAS DIT, et il doit dire une date : « pas encore ouvert » sans
+// « ouvre le 18 septembre » envoie l'étudiant écrire un courriel.
+function verrou(entry) {
+  if (!entry || entry.access === "available") return "";
+  if (entry.access === "archived") return "archivé";
+  const quand = new Date(entry.available_from || "");
+  return isNaN(quand.getTime())
+    ? "à venir"
+    : "ouvre le " + quand.toLocaleDateString(undefined,
+                                             { day: "numeric", month: "long" });
 }
 
-fetch(API("tps.json")).then(r => r.json()).then(tps => {
-  catalogue = tps;
-  if (!tps.length) { show("bad", "Aucun TP n'est publié pour l'instant."); return; }
-  for (const g of [...new Set(tps.map(t => t.group))]) addOption($("tp"), g, g);
-  const wanted = catalogue.find(
-    t => t.id === new URLSearchParams(location.search).get("tp"));
-  if (wanted) $("tp").value = wanted.group;
-  fillExercises(wanted && wanted.id);
-});
+// LA FORME v1, RECONSTRUITE ICI. `_v1()` fait exactement la même chose côté
+// serveur, pour les pages restées dans le cache d'un étudiant ; celle-ci garde
+// en plus l'accès et la date, que la forme v1 ne sait pas porter. Les deux
+// disparaissent ensemble avec `tps.json`.
+function entree(ex, groupe) {
+  const learning = {};
+  if (Array.isArray(ex.skills) && ex.skills.length) learning.skills = ex.skills;
+  if (Array.isArray(ex.contexts) && ex.contexts.length) learning.context = ex.contexts[0];
+  if (ex.difficulty) learning.difficulty = ex.difficulty;
+  // `label` QUALIFIÉ, `short` NU. « Mes exercices » montre déjà la collection
+  // dans sa propre colonne ; « Mes progrès » et l'export, eux, n'ont que cette
+  // chaîne -- et « ex.1 » tout seul désigne un exercice dans chacun des dix TP.
+  return {
+    id: ex.id, mode: ex.mode, short: ex.title, group: groupe,
+    label: groupe ? groupe.replace(/\s+/g, "") + " : " + ex.title : ex.title,
+    files: (ex.files || []).map(f => ({ name: f.name })),
+    learning: learning,
+    access: ex.access,
+    available_from: (ex.release || {}).available_from || "",
+  };
+}
 
-$("tp").addEventListener("change", () => fillExercises());
-$("ex").addEventListener("change", switchMode);
+function normaliser(catalog) {
+  const par = new Map();
+  for (const ex of catalog.exercises || []) {
+    if (ex && typeof ex.id === "string") par.set(ex.id, ex);
+  }
+  const arbre = [];
+  const classes = new Set();
+  for (const col of catalog.collections || []) {
+    const items = (col.items || []).filter(id => par.has(id));
+    if (!items.length) continue;
+    const titre = String(col.title || col.id || "");
+    for (const id of items) classes.add(id);
+    arbre.push({ titre: titre, access: col.access,
+                 available_from: (col.release || {}).available_from || "",
+                 items: items.map(id => entree(par.get(id), titre)) });
+  }
+  // UN EXERCICE PEUT N'ÊTRE DANS AUCUNE COLLECTION (invariant 3 du plan). Le
+  // publier doit suffire à le rendre atteignable, sinon l'oubli d'une ligne de
+  // collection le ferait disparaître sans que rien ne le signale.
+  const orphelins = [...par.keys()].filter(id => !classes.has(id));
+  if (orphelins.length) {
+    arbre.push({ titre: "Autres", access: "available", available_from: "",
+                 items: orphelins.map(id => entree(par.get(id), "Autres")) });
+  }
+  collections = arbre;
+  // UNIQUE, ET DANS L'ORDRE DES COLLECTIONS. Un exercice partagé par deux
+  // collections s'affiche deux fois dans le menu -- c'est le but d'un parcours
+  // transversal -- mais ne compte qu'une fois dans une progression et ne
+  // s'exporte qu'une fois dans un main.c.
+  const vus = new Set();
+  catalogue = [];
+  for (const col of arbre) {
+    for (const ex of col.items) {
+      if (ex.access !== "available" || vus.has(ex.id)) continue;
+      vus.add(ex.id);
+      catalogue.push(ex);
+    }
+  }
+}
+
+// LE REPLI, et il n'est pas décoratif : c'est le rollback. `tps.json` ne porte
+// ni collection ni date, donc tout y est ouvert et le menu n'a qu'un niveau.
+function normaliserV1(tps) {
+  catalogue = tps.map(t => Object.assign({ access: "available" }, t));
+  const par = new Map();
+  for (const t of catalogue) {
+    if (!par.has(t.group)) par.set(t.group, []);
+    par.get(t.group).push(t);
+  }
+  collections = [...par].map(([titre, items]) => (
+    { titre: titre, access: "available", available_from: "", items: items }));
+}
+
+function ligneMenu(ex) {
+  const ligne = document.createElement("button");
+  ligne.type = "button";
+  ligne.className = ex.id === selection ? "exline on" : "exline";
+  ligne.dataset.id = ex.id;
+  const nom = document.createElement("span");
+  nom.className = "titre";
+  nom.textContent = ex.short;
+  ligne.append(nom);
+  const note = verrou(ex);
+  if (note) {
+    // DÉSACTIVÉ, PAS CACHÉ. `find_exercise` refuse déjà de le servir côté
+    // serveur ; ce qui manquait ici, c'était de dire pourquoi et jusqu'à quand.
+    ligne.disabled = true;
+    const marque = document.createElement("span");
+    marque.className = "cadenas";
+    marque.textContent = "🔒 " + note;
+    ligne.append(marque);
+  } else {
+    ligne.addEventListener("click", () => {
+      $("menuex").open = false;
+      fillExercises(ex.id);
+    });
+  }
+  return ligne;
+}
+
+// UN <details> PAR COLLECTION, DANS LE <details> DU MENU. Le navigateur sait
+// replier : pas d'accordéon en JS, pas d'état d'ouverture à tenir ailleurs.
+function dessinerMenu() {
+  const boite = $("exliste");
+  boite.innerHTML = "";
+  for (const col of collections) {
+    const bloc = document.createElement("details");
+    bloc.className = "col";
+    // REPLIÉ SAUF CELLE OÙ L'ON TRAVAILLE : à onze collections et soixante-treize
+    // exercices, tout déplier revient à n'avoir rien rangé.
+    bloc.open = col.items.some(ex => ex.id === selection || ex.id === vedette);
+    const tete = document.createElement("summary");
+    const titre = document.createElement("span");
+    titre.textContent = col.titre;
+    tete.append(titre);
+    const note = verrou(col);
+    if (note) {
+      const marque = document.createElement("span");
+      marque.className = "cadenas";
+      marque.textContent = "🔒 " + note;
+      tete.append(marque);
+    }
+    bloc.append(tete);
+    for (const ex of col.items) bloc.append(ligneMenu(ex));
+    boite.append(bloc);
+  }
+  const ouvert = current();
+  $("excourant").textContent = ouvert ? ouvert.short : "Exercices";
+}
+
+// `/catalog.json` D'ABORD, `tps.json` EN REPLI -- et le repli EST le rollback.
+// Vider CTESTER_PUBLISHED fait répondre 404 à la première ; cette page vit dans
+// le cache des étudiants et ne se redéploie pas avec l'API, donc elle doit
+// continuer de marcher sans qu'on y touche.
+// ponytail: un aller-retour de plus (le 404) sur un déploiement v1. Il
+// disparaît avec `tps.json`, en phase 8.
+(async () => {
+  let v2 = null;
+  try {
+    const r = await fetch(API("catalog.json"));
+    if (r.ok) v2 = await r.json();
+  } catch (e) { /* réseau, ou déploiement v1 : le repli tranche */ }
+  if (v2 && Array.isArray(v2.exercises)) {
+    normaliser(v2);
+  } else {
+    try {
+      normaliserV1(await (await fetch(API("tps.json"))).json());
+    } catch (e) {
+      show("bad", "Le catalogue n'a pas pu être chargé — recharge la page.");
+      return;
+    }
+  }
+  if (!collections.length) {
+    show("bad", "Aucun TP n'est publié pour l'instant.");
+    return;
+  }
+  // UN LIEN PROFOND VERS UN EXERCICE VERROUILLÉ N'OUVRE PAS L'EXERCICE : il
+  // ouvre le menu sur son cadenas et sa date. Le partager en avance ne
+  // contourne donc rien, et ne ressemble pas non plus à un lien mort.
+  const vise = new URLSearchParams(location.search).get("tp") || "";
+  const ouvrable = catalogue.some(t => t.id === vise);
+  if (vise && !ouvrable
+      && collections.some(c => c.items.some(e => e.id === vise))) {
+    vedette = vise;
+    $("menuex").open = true;
+  }
+  fillExercises(ouvrable ? vise : (catalogue[0] || {}).id || "");
+  // TOUT EST PUBLIÉ, RIEN N'EST ENCORE OUVERT : c'est l'état normal d'un début
+  // de session, pas une panne, et le menu porte les dates -- autant l'ouvrir.
+  if (!catalogue.length) {
+    $("menuex").open = true;
+    show("idle", "Aucun exercice n'est encore ouvert — le menu donne les dates.");
+  }
+})();
 
 function aller(pas) {
-  const i = catalogue.findIndex(t => t.id === $("ex").value);
+  const i = catalogue.findIndex(t => t.id === selection);
   const cible = catalogue[i + pas];
   if (!cible) return;
-  $("tp").value = cible.group;
   fillExercises(cible.id);
 }
 $("prev").addEventListener("click", () => aller(-1));
 $("next").addEventListener("click", () => aller(1));
 
+// LE NOM RESTE, le menu a changé : `compte.js` et `progres.js` l'appellent pour
+// ouvrir un exercice depuis leur liste, et le renommer ferait trois modules à
+// éditer pour zéro comportement de plus.
 function fillExercises(preselect) {
-  const items = catalogue.filter(t => t.group === $("tp").value);
-  $("ex").innerHTML = "";
-  for (const t of items) addOption($("ex"), t.id, t.short);
-  if (preselect) $("ex").value = preselect;
-  $("exwrap").hidden = items.length <= 1;
+  if (preselect) selection = preselect;
+  dessinerMenu();
   switchMode();
 }
 
@@ -409,7 +595,7 @@ function switchMode() {
   // C'est setupFiles qui le pose, une fois l'editeur vraiment rempli.
   currentId = null;
   const quiz = tp && tp.mode === "quiz";
-  const i = catalogue.findIndex(t => t.id === $("ex").value);
+  const i = catalogue.findIndex(t => t.id === selection);
   $("prev").disabled = i <= 0;
   $("next").disabled = i < 0 || i >= catalogue.length - 1;
   $("editor").hidden = quiz;
@@ -418,7 +604,7 @@ function switchMode() {
   // L'EXPORT SUIT LE TP AFFICHÉ, PAS L'EXERCICE : le fichier de remise couvre
   // tout le laboratoire. Le bouton n'existe donc que sur un TP dont le format
   // sait faire quelque chose, et le module ne descend qu'au clic.
-  $("exporttp").hidden = !groupeExportable($("tp").value);
+  $("exporttp").hidden = !groupeExportable(tp && tp.group);
   // Hors quiz il n'y a qu'un bouton et il est primaire. En quiz, l'action
   // courante est l'exercice affiche : tester les 40 questions reste possible,
   // mais cesse d'etre ce sur quoi on tombe par defaut.
@@ -600,7 +786,8 @@ $("mesexos").addEventListener("click", () => {
 // brouillon : c'est celle qui est juste à côté du bouton.
 $("exporttp").addEventListener("click", async () => {
   if (!await activerModule("exporter", "l'export du TP")) return;
-  await ctester.exporter.exporter($("tp").value, showDraftStatus);
+  const tp = current();
+  if (tp) await ctester.exporter.exporter(tp.group, showDraftStatus);
 });
 // LE BOUTON N'EXISTE QUE CONNECTÉ (refreshAccount), et le fichier n'arrive
 // qu'au clic : même contrat que compte.js. Un étudiant connecté qui n'ouvre
@@ -689,6 +876,10 @@ Object.assign(ctester, {
     persistDrafts();
   },
   exerciceOuvert: () => currentId,
+  // CE QUE LE MENU MONTRE, quand `currentId` n'est pas encore posé : le
+  // remplissage de l'éditeur passe par le réseau, et le forum sait s'ouvrir
+  // avant qu'il ne soit revenu.
+  exerciceChoisi: () => selection,
   // L'EXPORT, VU DU NOYAU : qui a le droit à un bouton (`groupeExportable`) et
   // ce qu'il faut assembler (`exercicesExportables`). `exporter.js` et
   // `compte.js` lisent tous les deux ici -- une seule règle, un seul endroit.

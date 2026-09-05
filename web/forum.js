@@ -172,7 +172,7 @@ let champPseudo = null;
 
 function exerciceCourant() {
   const cat = ctester.catalogue();
-  const vise = exercice || ctester.exerciceOuvert() || $("ex").value;
+  const vise = exercice || ctester.exerciceOuvert() || ctester.exerciceChoisi();
   const trouve = cat.find(t => t.id === vise) || cat[0];
   return trouve ? trouve.id : "";
 }

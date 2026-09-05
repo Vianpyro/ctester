@@ -180,10 +180,40 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
   qu'un service redémarre. `CTESTER_APERCU` s'y traduit en une DATE (l'an 9999)
   plutôt qu'en un second filtre : `access()` reste la seule lecture d'une release.
 
-Reste à faire : phase 5 (l'UI lit `/catalog.json`, collections repliables,
-cadenas et dates, `_v1()` supprimé), phase 6 (`VHome` : volumes, timer de
-contenu, permissions), phases 7-8 (bascule, puis retrait de `tps.json`, de
-`TP_RE` et du champ `tp`).
+### Ce que la phase 5 a branché
+
+- **La page lit `/catalog.json`, et `tps.json` est le repli — le repli EST le
+  rollback.** Vider `CTESTER_PUBLISHED` fait répondre 404 à la première route ;
+  la page vit dans le cache des étudiants et ne se redéploie pas avec l'API,
+  donc elle doit repartir sur `tps.json` toute seule. C'est éprouvé dans un
+  processus à part (`CTESTER_MODE=v1`), parce qu'un catalogue ne se lit qu'une
+  fois par chargement de page.
+- **`_v1()` RESTE, et ne part qu'avec `tps.json` en phase 8.** C'est lui qui
+  sert ce repli aux pages déjà en cache ; le supprimer en phase 5 aurait fermé
+  la même fenêtre de compatibilité que `tp`/`exercise_id` ouvre côté corps de
+  requête.
+- **Les deux `<select>` ont disparu.** Un menu `<details>` par collection dans
+  un `<details>` de barre : le navigateur sait replier, il n'y a pas
+  d'accordéon en JS ni d'état d'ouverture à tenir. `selection` (le noyau)
+  remplace `$("ex").value` comme source de l'exercice choisi, et
+  `ctester.exerciceChoisi()` l'expose à `forum.js`.
+- **Le menu porte TOUS les exercices, `ctester.catalogue()` seulement les
+  ouverts.** Un exercice verrouillé est au menu, désactivé, avec son cadenas et
+  sa date — le faire disparaître ressemblait à une panne la veille du cours.
+  Mais il ne doit compter ni dans une progression, ni dans un `main.c` de
+  remise, et garder les deux listes séparées évite d'ajouter le même filtre
+  dans `compte.js`, `progres.js` et `exporter.js`, où il serait oublié une fois
+  sur trois.
+- **Un exercice peut appartenir à deux collections** (invariant 3) : il
+  s'affiche dans les deux, et ne compte qu'une fois. Un exercice sans
+  collection tombe dans « Autres » plutôt que de disparaître.
+- **Un lien profond verrouillé ouvre le menu sur le cadenas et la date**, pas
+  l'exercice. `find_exercise` refuse déjà de le servir ; ce qui manquait,
+  c'était de dire pourquoi et jusqu'à quand.
+
+Reste à faire : phase 6 (`VHome` : volumes, timer de contenu, permissions),
+phases 7-8 (bascule, puis retrait de `tps.json`, de `_v1()`, de `TP_RE` et du
+champ `tp`).
 
 ## Avant de déployer une modif de la page ou du contenu
 
@@ -893,10 +923,16 @@ toucher :
   de tests** (consignes pleines de `*` et de chevrons, sortie de programme
   étudiant). La coloration syntaxique échappe **après** le découpage, jamais
   avant.
-- **Le catalogue vient de `tps.json`** : `[{id, mode, label, group, short,
-  learning, files}]`, où `files` ne porte que des **noms**. Le `mode` décide de
-  tout ce que la page affiche et envoie. Le chemin serveur (`path`) est retiré
-  avant publication.
+- **Le catalogue vient de `/catalog.json`, `tps.json` est le repli.**
+  `normaliser()` en tire DEUX listes : `collections` (l'arbre du menu, tous les
+  exercices avec `access` et `available_from`) et `catalogue` (les exercices
+  ouverts, dans la forme v1 `{id, mode, label, group, short, learning, files}`
+  que « Mes exercices », « Mes progrès » et l'export lisent déjà). `files` ne
+  porte que des **noms** ; le chemin serveur (`path`) est retiré avant
+  publication. Le `mode` décide de tout ce que la page affiche et envoie.
+- **`label` est qualifié, `short` est nu.** « ex.1 » tout seul désigne un
+  exercice dans chacun des dix TP, et « Mes progrès » n'a pas de colonne de
+  collection pour lever l'ambiguïté.
 - **La consigne et les gabarits viennent de `tp/<id>.json`, à la demande.** Ils
   faisaient les trois quarts du catalogue pour 73 exercices dont un seul est
   ouvert. `chargerDetail()` les garde en mémoire, et **ne met PAS en cache le

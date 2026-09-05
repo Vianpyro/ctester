@@ -98,7 +98,6 @@ function actionSuivante(vue) {
 function ouvrir(id) {
   const tp = ctester.catalogue().find(t => t.id === id);
   if (!tp) return;
-  $("tp").value = tp.group;
   ctester.fillExercises(tp.id);
   ctester.afficherVue("");
 }
