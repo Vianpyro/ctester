@@ -236,8 +236,33 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
 - Le runbook des trois rollbacks (pointeur, variable, republication) est dans
   `roles/ctester/README.md` de `VHome`.
 
-Reste à faire : phases 7-8 (bascule, puis retrait de `tps.json`, de `_v1()`, de
-`TP_RE` et du champ `tp`).
+### Ce que la phase 7 a branché (la bascule elle-même)
+
+- **`ctester_content_v2: true` vit dans `group_vars/ctester_hosts/vars.yml`,
+  pas dans les défauts du rôle** — qui restent `false`. Le rollback est de
+  RETIRER la ligne et de reconverger, pas d'en éditer une autre.
+- **Le pré-vol qui décidait de la bascule : les 73 identifiants sont
+  IDENTIQUES en v1 et en v2.** C'est le seul écart qui aurait compté —
+  brouillons, états, XP et forum sont tous clés sur `exercice_id`, et un
+  renommage les aurait détachés sans rien casser de visible. Contrôle jetable,
+  fait une fois : la v1 disparaît en phase 8, et un golden test v1/v2
+  permanent mourrait avec elle.
+- **Ce que le même pré-vol a trouvé et qu'on assume** : `_v1()` rend le titre
+  qualifié dans `short` (« TP2 : ex.3 » là où la v1 rendait « ex.3 ») ; la
+  consigne v2 garde le saut de ligne final de `statement.md` ; `tp1`, qui est
+  un quiz, a `files: []` et une consigne de remplissage. Les trois ne touchent que le
+  repli `tps.json` ou du texte affiché, et `_v1()` part en phase 8.
+- **Le témoin de la bascule est `/catalog.json`** : 404 en v1, la release en
+  v2. C'est lui qu'un moniteur HTTP interroge, pas `/healthz` — un `/healthz`
+  vert avec un catalogue absent est précisément la panne que le repli de la
+  page rattrape en silence. Le tick, lui, écrit la révision servie dans son
+  journal.
+- **En v2 le worker ne réécrit plus `app/{tps.json,tp/,quiz/}`** : ces fichiers
+  gèlent à la bascule et servent de repli aux onglets déjà ouverts. Ils sont
+  réécrits au premier démarrage de worker après un retour en v1.
+
+Reste à faire : phase 8 (retrait de `tps.json`, de `_v1()`, de `TP_RE` et du
+champ `tp`).
 
 ## Avant de déployer une modif de la page ou du contenu
 

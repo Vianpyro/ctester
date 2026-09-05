@@ -57,6 +57,23 @@ def _children(path):
         return []
 
 
+_NATURAL_PARTS_RE = re.compile(r"(\d+)")
+
+
+def _natural_key(value):
+    """Clé stable pour les identifiants de collection lus depuis des fichiers.
+
+    Les collections sont le parcours affiché dans le menu. Un tri lexical de
+    leurs fichiers place donc ``tp10.json`` avant ``tp2.json``. Les identifiants
+    restent des identifiants stables et ne sont pas gonflés artificiellement
+    avec des zéros : leurs portions numériques sont simplement comparées comme
+    des nombres. Les portions sont typées pour qu'un identifiant commençant par
+    un chiffre reste comparable à un identifiant commençant par une lettre.
+    """
+    return tuple((1, int(part)) if part.isdigit() else (0, part.casefold())
+                 for part in _NATURAL_PARTS_RE.split(value) if part)
+
+
 def _iso_datetime(value):
     if not isinstance(value, str):
         return None
@@ -296,8 +313,9 @@ def discover(root):
         else:
             exercises[entry["id"]] = entry
     collections = {}
-    for filename in sorted(name for name in os.listdir(os.path.join(root, "collections"))
-                           if name.endswith(".json")) if os.path.isdir(os.path.join(root, "collections")) else ():
+    for filename in sorted((name for name in os.listdir(os.path.join(root, "collections"))
+                            if name.endswith(".json")), key=_natural_key) \
+            if os.path.isdir(os.path.join(root, "collections")) else ():
         data = _json(os.path.join(root, "collections", filename), errors)
         if data is None:
             continue

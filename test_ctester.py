@@ -121,11 +121,21 @@ def test_content_v2_discovery_and_public_projection():
             "schema_version": 1, "id": "tp2", "title": "TP2",
             "items": ["surface-rectangle"], "release": {"state": "available"},
         })
+        # L'ordre des fichiers ne doit pas faire remonter TP 10 avant TP 2.
+        # On garde les IDs courts et stables : le catalogue compare leurs
+        # portions numériques, plutôt que de demander des zéros de remplissage.
+        for number in (1, 9, 10):
+            _write_json(os.path.join(root, "collections", "tp%d.json" % number), {
+                "schema_version": 1, "id": "tp%d" % number, "title": "TP%d" % number,
+                "items": ["surface-rectangle"], "release": {"state": "available"},
+            })
         model = content_catalogue.discover(root)
         public = content_catalogue.public_catalogue(model)
         detail = content_catalogue.public_detail(model, "surface-rectangle")
         assert model["exercises"]["surface-rectangle"]["mode"] == "io"
         assert public["collections"][0]["items"] == ["surface-rectangle"]
+        assert [collection["id"] for collection in public["collections"]] == [
+            "tp1", "tp2", "tp9", "tp10"]
         blob = json.dumps(public)
         assert "stdin" not in blob and "expect" not in blob and "note" not in blob, blob
         assert "template" not in blob and "statement" not in blob, blob
