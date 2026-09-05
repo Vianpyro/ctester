@@ -170,7 +170,12 @@ const ETAT_ETAPE = {
   mp: { ok: "réussis",  ko: "échoués",  "": "pas atteints" },
 };
 
-function bandeEtapes(etats, note) {
+// LA BANDE S'ARRÊTE OÙ LE COMPTE PREND LE RELAIS. Quand le juge a noté, le
+// verdict affiche « 3 / 3 cas réussis » juste en dessous, en gros : une case
+// « Tests 3/3 » au-dessus ne fait que le redire. On ne passe donc que DEUX
+// étapes dans ce cas. Quand le juge n'a PAS noté, la troisième case porte au
+// contraire l'information qui manquait -- « pas atteints » -- et elle reste.
+function bandeEtapes(etats) {
   const bande = noeud("div", "etapes");
   etats.forEach((etat, i) => {
     const [nom, genre] = ETAPES[i];
@@ -178,7 +183,7 @@ function bandeEtapes(etats, note) {
     // LE MOT, PAS SEULEMENT LA COULEUR ni seulement une coche : un état qui ne
     // se voit qu'en teinte disparaît en noir et blanc comme sous un daltonisme,
     // et ne se lit pas à voix haute.
-    pas.append(noeud("b", "", nom + (i === 2 && note ? " " + note : "")));
+    pas.append(noeud("b", "", nom));
     pas.append(noeud("i", "", ETAT_ETAPE[genre][etat]));
     bande.append(pas);
   });
@@ -258,17 +263,17 @@ function bandeSuite(texte, bouton) {
   return bloc;
 }
 
-// `v` : {cls, etapes, note, titre, texte, bar, detail, suite, bouton}
+// `v` : {cls, etapes, compte, titre, texte, bar, detail, suite, bouton}
 // Seul `titre` est obligatoire.
 function verdict(v) {
   out.className = v.cls;
   out.innerHTML = "";
-  if (v.etapes) out.append(bandeEtapes(v.etapes, v.note));
+  if (v.etapes) out.append(bandeEtapes(v.etapes));
   // LE COMPTE GARDE LA GRANDE TAILLE, le titre d'un état ne l'a plus. `3 / 4`
   // se lit d'un coup d'oeil et le mérite ; « Ton code ne s'assemble pas avec
   // les tests » en 2,1 rem écrasait la zone entière. Seul le chemin `ok` pose
-  // une note, donc elle sépare exactement les deux cas.
-  out.append(noeud("div", "verdict " + v.cls + (v.note ? " compte" : ""),
+  // un compte, donc le drapeau sépare exactement les deux cas.
+  out.append(noeud("div", "verdict " + v.cls + (v.compte ? " compte" : ""),
                    v.titre));
   if (v.cls === "wait") out.append(indeterminee());
   if (v.bar) out.append(v.bar);
@@ -1272,14 +1277,15 @@ function render(r, portee) {
     const bar = r.total > 0 ? ticks(r.passed, r.total) : null;
     // LE PROGRAMME A COMPILÉ ET IL A TOURNÉ : les deux premières étapes sont
     // réussies par construction, on n'est ici que parce que le juge a pu noter.
-    const etapes = ["ok", "ok", all ? "ok" : "ko"];
-    const note = r.total > 0 ? r.passed + "/" + r.total : "";
+    // DEUX ETAPES SEULEMENT quand le juge a note : le compte affiche juste
+    // en dessous EST le resultat des tests, une troisieme case le redirait.
+    const etapes = ["ok", "ok"];
     if (all) {
       const apres = apresReussite();
-      verdict({ cls: "ok", etapes: etapes, note: note, titre: title, bar: bar,
+      verdict({ cls: "ok", etapes: etapes, compte: true, titre: title, bar: bar,
                 suite: apres.suite, bouton: apres.bouton });
     } else if (r.kind === "quiz") {
-      verdict({ cls: "bad", etapes: etapes, note: note, titre: title, bar: bar,
+      verdict({ cls: "bad", etapes: etapes, compte: true, titre: title, bar: bar,
                 suite: APRES_ECHEC.quiz,
                 detail: list(r.wrong.map(w => {
         const groupe = ctester.quiz ? ctester.quiz.groupeDe(w.id) : "";
@@ -1294,10 +1300,10 @@ function render(r, portee) {
         };
       })) });
     } else if (r.kind === "io") {
-      verdict({ cls: "bad", etapes: etapes, note: note, titre: title, bar: bar,
+      verdict({ cls: "bad", etapes: etapes, compte: true, titre: title, bar: bar,
                 detail: cases(r.cases), suite: APRES_ECHEC.io });
     } else {
-      verdict({ cls: "bad", etapes: etapes, note: note, titre: title, bar: bar,
+      verdict({ cls: "bad", etapes: etapes, compte: true, titre: title, bar: bar,
                 detail: r.failed.length ? list(r.failed) : null,
                 suite: APRES_ECHEC.unity });
     }
