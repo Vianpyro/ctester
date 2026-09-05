@@ -212,17 +212,65 @@ class BaseSimulee:
         return True
 
 
-CATALOGUE = [
-    {"id": "tp2-ex3", "mode": "io", "label": "TP2 ex.3",
-     "files": [{"name": "submission.c", "template": ""}],
-     "learning": {"skills": ["variables"], "difficulty": "foundation"}},
-    {"id": "tp5-mod", "mode": "unity", "label": "TP5 module",
-     "files": [{"name": "calendrier.h", "template": ""},
-               {"name": "calendrier.c", "template": ""}],
-     "learning": {"skills": ["structs"], "difficulty": "core"}},
-    {"id": "quiz1", "mode": "quiz", "label": "Quiz 1",
-     "learning": {"skills": ["variables"], "difficulty": "intro"}},
+# LE CONTENU DU DÉPLOIEMENT DE TEST, DANS SA FORME PRIVÉE. Le catalogue servi
+# en est TIRÉ par `publish_content`, exactement comme en production : écrire un
+# `catalog.json` à la main ici éprouverait une forme que rien ne produit.
+#
+# Un exercice par mode, parce que c'est le mode qui décide de ce que l'API
+# attend -- des fichiers, un module à deux fichiers, ou des réponses.
+CONTENU = [
+    ("tp2-ex3", "TP2 ex.3", "io", ["submission.c"], ["variables"], "foundation"),
+    ("tp5-mod", "TP5 module", "unity", ["calendrier.h", "calendrier.c"],
+     ["structs"], "intermediate"),
+    ("quiz1", "Quiz 1", "quiz", [], ["variables"], "intro"),
 ]
+
+
+def _ecrire_contenu(racine, exercices=CONTENU, release=None):
+    """Une racine de contenu privé v2, prête pour `discover()`."""
+    def ecrire(chemin, valeur):
+        os.makedirs(os.path.dirname(chemin), exist_ok=True)
+        with open(chemin, "w", encoding="utf-8") as fh:
+            json.dump(valeur, fh)
+
+    competences = sorted({c for _, _, _, _, skills, _ in exercices for c in skills})
+    ecrire(os.path.join(racine, "catalog.json"),
+           {"schema_version": 1, "skills": competences})
+    for identifiant, titre, mode, fichiers, skills, difficulte in exercices:
+        dossier = os.path.join(racine, "exercises", identifiant)
+        ecrire(os.path.join(dossier, "exercise.json"),
+               {"schema_version": 1, "id": identifiant, "title": titre,
+                "skills": skills, "difficulty": difficulte,
+                "release": release or {"state": "available"}})
+        with open(os.path.join(dossier, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("Consigne.")
+        assessment = os.path.join(dossier, "assessment")
+        if mode == "io":
+            ecrire(os.path.join(assessment, "io.json"),
+                   {"cases": [{"stdin": "1\n", "expect": [1]}]})
+        elif mode == "unity":
+            ecrire(os.path.join(assessment, "unity.json"), {})
+            with open(os.path.join(assessment, "test_x.c"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("void test_x(void) {}\n")
+        else:
+            ecrire(os.path.join(assessment, "quiz.json"),
+                   {"questions": [{"id": "q1", "type": "int", "text": "2+2 ?",
+                                   "answer": 4}]})
+        if fichiers:
+            ecrire(os.path.join(dossier, "public", "files.json"),
+                   {"files": [{"name": nom, "template": ""} for nom in fichiers]})
+
+
+def _publier(tmp, exercices=CONTENU):
+    """Publie ce contenu et pose le pointeur. Rend le répertoire des releases."""
+    import content_catalogue
+    import publish_content
+    racine = os.path.join(tmp, "content")
+    publie = os.path.join(tmp, "published")
+    _ecrire_contenu(racine, exercices)
+    publish_content.publish(content_catalogue.discover(racine), publie)
+    return publie
 
 
 @contextlib.contextmanager
@@ -235,36 +283,27 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     le bug dans le mauvais fichier.
     """
     tmp = tempfile.mkdtemp()
-    static, spool, page = (os.path.join(tmp, n) for n in ("app", "spool", "web"))
-    for chemin in (static, spool, page):
+    spool, page = (os.path.join(tmp, n) for n in ("spool", "web"))
+    for chemin in (spool, page):
         os.makedirs(chemin)
-    with open(os.path.join(static, "tps.json"), "w", encoding="utf-8") as fh:
-        json.dump(CATALOGUE, fh)
-    os.makedirs(os.path.join(static, "tp"))
-    os.makedirs(os.path.join(static, "quiz"))
-    with open(os.path.join(static, "tp", "tp2-ex3.json"), "w",
-              encoding="utf-8") as fh:
-        json.dump({"consigne": "Additionne."}, fh)
-    with open(os.path.join(static, "quiz", "quiz1.json"), "w",
-              encoding="utf-8") as fh:
-        json.dump({"questions": [{"id": "q1", "text": "2+2 ?"}]}, fh)
+    publie = _publier(tmp)
 
     faux = base if base is not None else BaseSimulee()
     modules = _modules_avec_etat()
     garde_etat = [(m, m.etat) for m in modules]
     garde_config = {n: getattr(config, n) for n in
-                    ("STATIC", "PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
+                    ("PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
                      "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPES")}
     garde_secu = (security.current_user, security.current_name)
     garde_quotas = (deps.quota, deps.state_quota, deps.forum_quota, deps.presence)
 
     for m in modules:
         m.etat = faux
-    config.STATIC, config.SPOOL, config.PAGE = static, spool, page
-    # V1 PAR DÉFAUT : un test qui veut la release v2 la publie et pose la
-    # variable lui-même. Sans cette remise à zéro, l'environnement de la machine
-    # qui lance les tests déciderait de ce qu'ils éprouvent.
-    config.PUBLISHED = ""
+    config.SPOOL, config.PAGE = spool, page
+    # LA RELEASE DE CE DÉPLOIEMENT, pas celle de la machine qui lance les tests :
+    # un `CTESTER_PUBLISHED` exporté dans un shell ne doit pas décider de ce
+    # qu'ils éprouvent.
+    config.PUBLISHED = publie
     config.KEY = "cle-de-session"
     config.OIDC_ISSUER = "https://auth.exemple.com"
     config.OIDC_CLIENT_ID = "ctester"
@@ -320,45 +359,44 @@ def _contenu_v2(racine):
             "items": ["ouvert", "ferme"], "release": {"state": "available"}})
 
 
-def test_release_v2_pilote_le_catalogue_et_ferme_le_reste():
-    """La bascule v2 : le catalogue vient de la release, et le cadenas tient.
+def test_release_pilote_le_catalogue_et_ferme_le_reste():
+    """Le catalogue vient de la release, et le cadenas tient partout.
 
     LES DEUX MOITIÉS COMPTENT. Un exercice programmé est VISIBLE dans
     `/catalog.json` (avec son état) et reste injoignable partout ailleurs :
     ni consigne, ni soumission. Montrer n'est pas donner, et l'inverse --
     le faire disparaître, comme en v1 -- ressemblait à une panne.
+
+    ET SANS RELEASE, RIEN. Depuis la phase 8 il n'y a plus de repli `tps.json` :
+    un pointeur absent est un catalogue absent, ce que la page dit au lieu
+    d'afficher un menu vide.
     """
     import content_catalogue
     import publish_content
 
     with contexte() as (c, _, tmp):
-        racine, publie = os.path.join(tmp, "content"), os.path.join(tmp, "published")
+        racine, publie = os.path.join(tmp, "v2"), os.path.join(tmp, "releases")
         _contenu_v2(racine)
         publish_content.publish(content_catalogue.discover(racine), publie)
         config.PUBLISHED = publie
 
-        entrees = c.get("/tps.json").json()
-        assert [e["id"] for e in entrees] == ["ouvert"], entrees
-        assert entrees[0]["group"] == "TP 1", entrees
-        assert entrees[0]["files"] == [{"name": "submission.c"}], entrees
+        catalog = c.get("/catalog.json").json()
+        etats = {e["id"]: e["access"] for e in catalog["exercises"]}
+        assert etats == {"ouvert": "available", "ferme": "scheduled"}, etats
+        assert catalog["collections"][0]["items"] == ["ouvert", "ferme"]
+
         assert c.get("/tp/ouvert.json").json()["statement"] == "Consigne."
         assert c.get("/tp/ferme.json").status_code == 404
 
-        catalogue_v2 = c.get("/catalog.json").json()
-        etats = {e["id"]: e["access"] for e in catalogue_v2["exercises"]}
-        assert etats == {"ouvert": "available", "ferme": "scheduled"}, etats
-        assert catalogue_v2["collections"][0]["items"] == ["ouvert", "ferme"]
-
-        # `exercise_id` est le nom cible du champ ; `tp` reste accepté.
         corps = {"key": config.KEY, "files": {"submission.c": "int main(void){}"}}
         assert c.post("/submit", json=dict(corps, exercise_id="ferme")).status_code == 400
         assert c.post("/submit", json=dict(corps, exercise_id="ouvert")).status_code == 200
-        assert c.post("/submit", json=dict(corps, tp="ouvert")).status_code == 200
 
-        # ROLLBACK : vider la variable rend le déploiement v1, sans redéployer.
+        # PLUS DE POINTEUR : le catalogue est absent, et plus rien ne se résout.
         config.PUBLISHED = ""
         assert c.get("/catalog.json").status_code == 404
-        assert [e["id"] for e in c.get("/tps.json").json()] == [e["id"] for e in CATALOGUE]
+        assert c.get("/tp/ouvert.json").status_code == 404
+        assert c.post("/submit", json=dict(corps, exercise_id="ouvert")).status_code == 400
 
 
 def auth(nom):
@@ -463,7 +501,7 @@ def test_no_store_par_defaut_sur_les_donnees():
     assert client.get("/healthz").headers.get("cache-control") == "no-store"
     assert client.get("/rien").headers.get("cache-control") == "no-store"
     with contexte() as (c, _, _tmp):
-        assert c.get("/tps.json").headers.get("cache-control") == "no-cache"
+        assert c.get("/catalog.json").headers.get("cache-control") == "no-cache"
         assert c.get("/oidc.json").headers.get("cache-control") == "no-store"
 
 
@@ -493,7 +531,7 @@ def test_borne_du_corps_des_deux_cotes():
     with contexte() as (c, _, _tmp):
         # Pile sur la borne : accepté par le middleware (le 400 qui suit vient
         # de la validation, ce qui prouve justement qu'on est allé plus loin).
-        corps = b'{"tp": "tp2-ex3", "key": "x", "bourrage": "'
+        corps = b'{"exercise_id": "tp2-ex3", "key": "x", "bourrage": "'
         corps += b"a" * (plafond - len(corps) - 2) + b'"}'
         assert len(corps) == plafond
         r = c.post("/submit", content=corps,
@@ -519,7 +557,7 @@ def test_corps_vide_ou_sans_longueur_annoncee():
         assert r.status_code == 413, (r.status_code, r.text)
 
         def flux():
-            yield b'{"tp": "tp2-ex3"}'
+            yield b'{"exercise_id": "tp2-ex3"}'
 
         r = c.post("/submit", content=flux(),
                    headers={"Content-Type": "application/json"})
@@ -552,9 +590,9 @@ def test_cle_verifiee_avant_tout_autre_travail():
     sonde quels exercices existent, sans clé.
     """
     with contexte() as (c, _, _tmp):
-        r = c.post("/submit", json={"key": "mauvaise", "tp": "nexiste-pas"})
+        r = c.post("/submit", json={"key": "mauvaise", "exercise_id": "nexiste-pas"})
         assert r.status_code == 403, (r.status_code, r.text)
-        r = c.post("/submit", json={"key": "cle-de-session", "tp": "nexiste-pas"})
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "nexiste-pas"})
         assert r.status_code == 400, (r.status_code, r.text)
 
 
@@ -566,7 +604,7 @@ def test_cle_vide_du_serveur_refuse_tout():
     """
     with contexte() as (c, _, _tmp):
         config.KEY = ""
-        r = c.post("/submit", json={"key": "", "tp": "tp2-ex3",
+        r = c.post("/submit", json={"key": "", "exercise_id": "tp2-ex3",
                                     "files": {"submission.c": "int main(){}"}})
         assert r.status_code == 403, (r.status_code, r.text)
 
@@ -581,7 +619,7 @@ def test_taille_des_fichiers_des_deux_cotes():
     """
     with contexte() as (c, _, _tmp):
         from services import catalogue
-        entree = catalogue.find_tp("tp2-ex3")
+        entree = catalogue.find_exercise("tp2-ex3")
         enveloppe = len(json.dumps({"submission.c": ""}).encode())
         pile = "a" * (config.MAX_CODE - enveloppe)
         fichiers, message, code = catalogue.validate_files(
@@ -603,7 +641,7 @@ def test_fichier_inattendu_est_refuse_pas_ignore():
     """
     with contexte() as (c, _, _tmp):
         r = c.post("/submit", json={
-            "key": "cle-de-session", "tp": "tp5-mod",
+            "key": "cle-de-session", "exercise_id": "tp5-mod",
             "files": {"calendrier.h": "x", "calendrier.c": "y",
                       "secret.c": "z"}})
         assert r.status_code == 400, (r.status_code, r.text)
@@ -617,7 +655,7 @@ def test_soumission_entierement_blanche_est_refusee():
     pour compiler du vide.
     """
     with contexte() as (c, _, _tmp):
-        r = c.post("/submit", json={"key": "cle-de-session", "tp": "tp2-ex3",
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "tp2-ex3",
                                     "files": {"submission.c": "   \n\t  "}})
         assert r.status_code == 400, (r.status_code, r.text)
         assert r.json()["error"] == "soumission vide", r.json()
@@ -632,7 +670,7 @@ def test_quiz_bornes_du_nombre_et_de_la_longueur_des_reponses():
     with contexte() as (c, _, tmp):
         reponses = {"q%d" % i: "x" for i in range(600)}
         reponses["k" * 100] = "v" * 100
-        r = c.post("/submit", json={"key": "cle-de-session", "tp": "quiz1",
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
                                     "answers": reponses})
         assert r.status_code == 200, (r.status_code, r.text)
         job = r.json()["id"]
@@ -646,31 +684,34 @@ def test_quiz_bornes_du_nombre_et_de_la_longueur_des_reponses():
 def test_quiz_sans_aucune_reponse_saisie():
     """Un quiz de 40 cases vides ne part pas dans la file."""
     with contexte() as (c, _, _tmp):
-        r = c.post("/submit", json={"key": "cle-de-session", "tp": "quiz1",
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
                                     "answers": {"q1": "  ", "q2": ""}})
         assert r.status_code == 400, (r.status_code, r.text)
-        r = c.post("/submit", json={"key": "cle-de-session", "tp": "quiz1",
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
                                     "answers": {}})
         assert r.status_code == 400, (r.status_code, r.text)
 
 
-def test_identifiant_de_tp_hors_forme():
-    """32 caractères passent la forme, 33 non -- et un chemin n'est pas un id.
+def test_identifiant_d_exercice_hors_forme():
+    """Un chemin n'est pas un identifiant, et il ne le devient jamais.
 
-    `find_tp` refuse avant même de regarder le catalogue : c'est ce qui fait que
-    `/tp/../tps.json` n'est pas un chemin à traverser mais un nom qui n'existe
-    pas.
+    `find_exercise` COMPARE À L'IDENTIFIANT DU CATALOGUE, il ne le concatène
+    pas : c'est ce qui fait que `/tp/../catalog.json` n'est pas un chemin à
+    traverser mais un nom qui n'existe pas. Le chemin lu, lui, est reconstruit
+    par `source_publiee` depuis l'entrée trouvée -- jamais depuis l'URL.
     """
     from services import catalogue
     with contexte() as (c, _, _tmp):
-        assert catalogue.find_tp("a" * 32) is None  # bien formé, mais absent
-        assert catalogue.TP_RE.match("a" * 32)
-        assert not catalogue.TP_RE.match("a" * 33)
-        assert not catalogue.TP_RE.match("")
-        for hostile in ("../tps", "tp2/../../etc", "TP2-EX3", "tp2 ex3"):
-            assert not catalogue.TP_RE.match(hostile), hostile
-        assert c.get("/tp/..%2Ftps.json").status_code == 404
+        assert catalogue.find_exercise("a" * 32) is None  # bien formé, mais absent
+        for hostile in ("../tps", "tp2/../../etc", "TP2-EX3", "tp2 ex3", ""):
+            assert catalogue.find_exercise(hostile) is None, hostile
+        assert c.get("/tp/..%2Fcatalog.json").status_code == 404
         assert c.get("/quiz/tp2-ex3.json").status_code == 404  # pas un quiz
+        # L'entrée trouvée, elle, donne un chemin sous la release et rien d'autre.
+        base, nom = catalogue.source_publiee(
+            catalogue.find_exercise("tp2-ex3"), "detail")
+        assert base == catalogue.release_dir()
+        assert nom == os.path.join("exercises", "tp2-ex3.json"), nom
 
 
 # --- Bornes des quotas et de la file ----------------------------------------
@@ -683,7 +724,7 @@ def test_quota_horaire_pile_et_un_de_trop():
     """
     with contexte() as (c, _, _tmp):
         deps.quota = quotas.Quota(cooldown=0, hourly=3)
-        charge = {"key": "cle-de-session", "tp": "tp2-ex3",
+        charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
                   "files": {"submission.c": "int main(){return 0;}"}}
         for i in range(3):
             assert c.post("/submit", json=charge).status_code == 200, i
@@ -701,17 +742,17 @@ def test_quota_ne_consomme_rien_sur_une_requete_refusee():
     with contexte(jetons={"alice": "sub-alice"}) as (c, _, _tmp):
         deps.state_quota = quotas.Quota(cooldown=0, hourly=2)
         for _ in range(5):
-            r = c.put("/brouillon", json={"tp": "inconnu", "files": {}},
+            r = c.put("/brouillon", json={"exercise_id": "inconnu", "files": {}},
                       headers=auth("alice"))
             assert r.status_code == 400, r.status_code
         # Le quota est intact : les deux écritures valides passent encore.
         for _ in range(2):
             r = c.put("/brouillon",
-                      json={"tp": "tp2-ex3", "files": {"submission.c": "x"}},
+                      json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
                       headers=auth("alice"))
             assert r.status_code == 200, (r.status_code, r.text)
         r = c.put("/brouillon",
-                  json={"tp": "tp2-ex3", "files": {"submission.c": "x"}},
+                  json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
                   headers=auth("alice"))
         assert r.status_code == 429, (r.status_code, r.text)
 
@@ -726,7 +767,7 @@ def test_file_pleine_pile_sur_le_plafond():
         garde = config.QUEUE_MAX
         try:
             config.QUEUE_MAX = 2
-            charge = {"key": "cle-de-session", "tp": "tp2-ex3",
+            charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
                       "files": {"submission.c": "int main(){}"}}
             assert c.post("/submit", json=charge).status_code == 200
             assert c.post("/submit", json=charge).status_code == 200
@@ -821,7 +862,7 @@ def test_aucune_route_n_accepte_un_identifiant_dans_le_corps():
     jetons = {"alice": "sub-alice", "bob": "sub-bob"}
     with contexte(jetons=jetons) as (c, base, _tmp):
         r = c.put("/brouillon",
-                  json={"tp": "tp2-ex3", "files": {"submission.c": "a moi"},
+                  json={"exercise_id": "tp2-ex3", "files": {"submission.c": "a moi"},
                         "utilisateur": "sub-bob", "sub": "sub-bob"},
                   headers=auth("alice"))
         assert r.status_code == 200, (r.status_code, r.text)
@@ -833,7 +874,7 @@ def test_aucun_sub_ne_franchit_la_frontiere_du_forum():
     """Y compris dans la vue la plus renseignée, celle d'un modérateur."""
     jetons = {"prof": "sub-prof", "alice": "sub-alice"}
     with contexte(jetons=jetons, moderateurs=["sub-prof"]) as (c, base, _tmp):
-        c.post("/forum", json={"tp": "tp2-ex3", "texte": "une question"},
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "texte": "une question"},
                headers=auth("alice"))
         c.post("/forum/profil",
                json={"pseudo": "Alice", "groupe": 4, "pseudo_public": True,
@@ -972,7 +1013,7 @@ def test_gzip_pile_a_la_borne_de_1024_octets():
     intermédiaire ne doit jamais servir l'une en croyant valider l'autre.
     """
     with contexte() as (c, _, _tmp):
-        # `tps.json` est court ; on éprouve la borne sur la fonction elle-même.
+        # Le catalogue est court ; on éprouve la borne sur la fonction elle-même.
         import headers as h
 
         class FausseRequete:
@@ -1024,7 +1065,7 @@ def test_page_sert_une_liste_close_pas_un_repertoire():
             fh.write("pas pour toi")
         c2 = TestClient(main.create_app())
         assert c2.get("/secret.txt").status_code == 404
-        assert c2.get("/../app/tps.json").status_code in (404, 400)
+        assert c2.get("/../app/catalog.json").status_code in (404, 400)
         assert "secret.txt" not in routeur_page.SERVIS
 
 
@@ -1040,7 +1081,7 @@ def test_page_absente_ne_monte_aucune_route_de_fichier():
         assert c2.get("/app.js").status_code == 404
         # L'API, elle, répond toujours.
         assert c2.get("/healthz").status_code == 200
-        assert c2.get("/tps.json").status_code == 200
+        assert c2.get("/catalog.json").status_code == 200
 
 
 # --- Progression : la première réussite seulement ---------------------------
@@ -1059,7 +1100,7 @@ def test_xp_accorde_une_seule_fois_par_exercice():
             os.makedirs(os.path.join(config.SPOOL, job))
             with open(os.path.join(config.SPOOL, job, "job.json"), "w",
                       encoding="utf-8") as fh:
-                json.dump({"tp": "tp2-ex3", "owner": "sub-alice"}, fh)
+                json.dump({"exercise_id": "tp2-ex3", "owner": "sub-alice"}, fh)
             with open(os.path.join(config.SPOOL, job, "result.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump(verdict, fh)
@@ -1076,7 +1117,7 @@ def test_un_echec_n_accorde_rien():
         os.makedirs(os.path.join(config.SPOOL, job))
         with open(os.path.join(config.SPOOL, job, "job.json"), "w",
                   encoding="utf-8") as fh:
-            json.dump({"tp": "tp2-ex3", "owner": "sub-alice"}, fh)
+            json.dump({"exercise_id": "tp2-ex3", "owner": "sub-alice"}, fh)
         with open(os.path.join(config.SPOOL, job, "result.json"), "w",
                   encoding="utf-8") as fh:
             json.dump({"status": "ok", "passed": 2, "total": 3}, fh)
@@ -1104,7 +1145,7 @@ def test_verdict_illisible_ne_boucle_pas():
 def test_rang_dans_la_file_et_job_disparu():
     """« En cours » n'est pas « 1er dans la file », et un job balayé rend 404."""
     with contexte() as (c, _, _tmp):
-        charge = {"key": "cle-de-session", "tp": "tp2-ex3",
+        charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
                   "files": {"submission.c": "int main(){}"}}
         premier = c.post("/submit", json=charge).json()["id"]
         second = c.post("/submit", json=charge).json()["id"]

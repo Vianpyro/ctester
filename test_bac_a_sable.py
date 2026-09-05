@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Eprouve les DEUX SCRIPTS DU BAC A SABLE avec un vrai gcc, sans Docker.
 
-    python3 test_bac_a_sable.py [chemin/vers/unittests]
+    python3 test_bac_a_sable.py [chemin/vers/unittests/content]
 
 test_ctester.py teste runner.py sur des sorties fabriquees, test_page.js teste
 la page sur un DOM en carton. Personne ne testait build-io.sh ni
@@ -26,8 +26,31 @@ import sys
 import tempfile
 
 ICI = pathlib.Path(__file__).resolve().parent
-TESTS = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
-                     else ICI.parent / "unittests").resolve()
+# LA RACINE DU CONTENU PRIVE (celle qui porte catalog.json, exercises/ et
+# shared/unity), et les corriges A COTE : depuis la phase 8 les solutions ne
+# sont plus montees sous le contenu, elles vivent dans leur propre depot.
+CONTENU = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
+                       else ICI.parent / "unittests" / "content").resolve()
+SOLUTIONS = pathlib.Path(os.environ.get("CTESTER_SOLUTIONS") or next(
+    (c for c in (CONTENU.parent / "solutions",
+                 CONTENU.parent.parent / "solutions") if c.is_dir()),
+    CONTENU.parent / "solutions")).resolve()
+UNITY = CONTENU / "shared" / "unity"
+
+
+def assessment(exercice):
+    """Le repertoire de correction d'un exercice -- la meme porte que tp_path."""
+    return CONTENU / "exercises" / exercice / "assessment"
+
+
+def corrige(exercice):
+    """Le repertoire du corrige. `tp6-ex1` d'abord, puis `tp6/ex1`."""
+    for candidat in (SOLUTIONS / exercice,
+                     SOLUTIONS.joinpath(*exercice.split("-", 1))):
+        if candidat.is_dir():
+            return candidat
+    raise SystemExit("corrige introuvable pour " + exercice
+                     + " sous " + str(SOLUTIONS))
 
 spec = importlib.util.spec_from_file_location("runner", ICI / "runner.py")
 runner = importlib.util.module_from_spec(spec)
@@ -76,15 +99,16 @@ def lancer(mode, fichiers, exercice):
 
     if mode == "io":
         (racine / "in/cases").mkdir()
-        conf = runner.json.loads((TESTS / exercice / "io.json").read_text(encoding="utf-8"))
+        conf = runner.json.loads(
+            (assessment(exercice) / "io.json").read_text(encoding="utf-8"))
         # Les noms que verdict_io attend : "01", "02"... et pas autre chose.
         for i, cas in enumerate(conf["cases"], 1):
             (racine / "in/cases" / ("%02d.in" % i)).write_text(cas["stdin"], encoding="utf-8")
         script = rendre("build-io.sh", racine)
         cases = conf["cases"]
     else:
-        shutil.copytree(TESTS / exercice, racine / "in/tests")
-        shutil.copytree(TESTS / "unity", racine / "in/unity")
+        shutil.copytree(assessment(exercice), racine / "in/tests")
+        shutil.copytree(UNITY, racine / "in/unity")
         script = rendre("build-unity.sh", racine)
         cases = None
 
@@ -125,7 +149,7 @@ int main(void)
     return 0;
 }
 """
-rc, out, cases, _ = lancer("io", {"submission.c": NEGLIGE}, "tp2/ex0")
+rc, out, cases, _ = lancer("io", {"submission.c": NEGLIGE}, "tp2-ex0")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(
     runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
@@ -141,7 +165,7 @@ check(res["passed"] == res["total"],
 
 # --- 2. scanf sans & : gcc dit precisement ce qui manque ---------------------
 SANS_ESPERLUETTE = NEGLIGE.replace('scanf("%d", &naissance)', 'scanf("%d", naissance)')
-rc, out, cases, _ = lancer("io", {"submission.c": SANS_ESPERLUETTE}, "tp2/ex0")
+rc, out, cases, _ = lancer("io", {"submission.c": SANS_ESPERLUETTE}, "tp2-ex0")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(
     runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
@@ -154,12 +178,12 @@ for ligne in texte.strip().splitlines():
         print("      " + ligne.strip()[:100])
 
 # --- 3. NON-FUITE : rien du fichier de test dans les avertissements ----------
-sol = TESTS / "solutions/tp6/ex1"
+sol = corrige("tp6-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
 # On rend le corrige volontairement bavard pour FORCER des avertissements :
 # sans avertissement, le controle passerait pour de mauvaises raisons.
 fichiers["calendrier.c"] += "\nstatic int jamais_utilisee_e2e = 42;\n"
-rc, out, cases, racine = lancer("unity", fichiers, "tp6/ex1")
+rc, out, cases, racine = lancer("unity", fichiers, "tp6-ex1")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(runner.verdict(rc, reste), av)
 test_src = (racine / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
@@ -180,11 +204,11 @@ check(len(jetons) > 5, f"le controle avait de quoi mordre ({len(jetons)} identif
 
 
 # --- 4. ASan en mode io : le rapport complet, il n'y a rien a taire ---------
-sol = TESTS / "solutions/tp2/ex0"
+sol = corrige("tp2-ex0")
 buggy = (sol / sources_c(sol)[0]).read_text(encoding="utf-8")
 DEBORDE = "    int t_e2e[3];\n    t_e2e[7] = 1;\n    return "
 buggy = buggy.replace("    return ", DEBORDE, 1)
-rc, out, cases, _ = lancer("io", {"submission.c": buggy}, "tp2/ex0")
+rc, out, cases, _ = lancer("io", {"submission.c": buggy}, "tp2-ex0")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(
     runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
@@ -200,12 +224,12 @@ for ligne in cas.get("stderr", "").splitlines():
         break
 
 # --- 5. ASan en mode unity : le FAIT, jamais le rapport ---------------------
-sol = TESTS / "solutions/tp6/ex1"
+sol = corrige("tp6-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
 nom_c = "calendrier.c"
 fichiers[nom_c] = ("static int deborde_e2e[4];\n" + fichiers[nom_c]).replace(
     "return", "deborde_e2e[9] = 1;\n    return", 1)
-rc, out, cases, racine = lancer("unity", fichiers, "tp6/ex1")
+rc, out, cases, racine = lancer("unity", fichiers, "tp6-ex1")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(runner.verdict(rc, reste), av)
 print("\n--- 5. debordement en mode unity : le fait, sans le rapport ---")

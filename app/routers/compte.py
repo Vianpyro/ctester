@@ -44,7 +44,7 @@ def lire_brouillon(sub: Sub, ex: str = Query("")):
     UN BROUILLON ABSENT N'EST PAS UNE ERREUR : c'est un étudiant qui ouvre un
     exercice pour la première fois. `sources: null` le dit sans l'habiller.
     """
-    if catalogue.find_tp(ex) is None:
+    if catalogue.find_exercise(ex) is None:
         return headers.erreur(400, "TP inconnu")
     return {"sources": etat.read_resume(sub, ex)}
 
@@ -57,7 +57,7 @@ def ecrire_brouillon(sub: Sub, corps: BrouillonIn, request: Request):
     dépendance s'exécute avant le corps, donc une requête refusée pour un TP
     inconnu consommerait le quota de quelqu'un qui n'a rien écrit.
     """
-    entree = catalogue.find_tp(corps.exercice())
+    entree = catalogue.find_exercise(corps.exercise_id)
     if entree is None:
         return headers.erreur(400, "TP inconnu")
     fichiers, message, code = catalogue.validate_files(entree, corps.files)
@@ -79,7 +79,7 @@ def ecrire_etat(sub: Sub, corps: BrouillonIn, request: Request):
     vrai statut à partir du verdict du juge. À dériver du serveur seul le jour
     où ça compte.
     """
-    entree = catalogue.find_tp(corps.exercice())
+    entree = catalogue.find_exercise(corps.exercise_id)
     if entree is None:
         return headers.erreur(400, "TP inconnu")
     fichiers, message, code = catalogue.validate_files(entree, corps.files)

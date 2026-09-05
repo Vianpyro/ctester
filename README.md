@@ -158,7 +158,8 @@ Quatre lignes de défense, dans l'ordre où elles portent :
    que dans le bac à sable — c'est le montage, et non le mode du fichier, qui
    fait cette séparation (voir « Une permission qui surprend » plus bas : ce
    répertoire est délibérément lisible par tous). Le web ne connaît que les
-   *noms* des TP, via un `tps.json` que le worker publie au démarrage.
+   *noms* des exercices, via la release que le worker projette depuis le
+   contenu privé (`/catalog.json`).
 4. **La clé de session**, qui filtre le bruit d'Internet et rien d'autre. Une
    clé partagée par 40 étudiants est publique en pratique ; elle n'est pas ce
    qui protège l'hôte.
@@ -233,11 +234,11 @@ nulle part : un champ `"mode"` serait une deuxième source de vérité.
 
 **L'IDENTIFIANT PUBLIC RESTE PLAT** : `tp6-ex1`, jamais `tp6/ex1`. Il part vers
 le navigateur, revient dans une soumission, et est ensuite joint à un chemin
-racine — y autoriser une barre oblique rouvrirait exactement la traversée de
-répertoire que `TP_RE` existe pour fermer. Le chemin réel est porté par le
-catalogue (`tp_path()`), jamais reconstruit par découpage du nom, et il est
-**retiré avant publication** vers le conteneur web : c'est un chemin serveur, il
-décrit l'arborescence des secrets et n'apprend rien au navigateur.
+racine — y autoriser une barre oblique rouvrirait une traversée de répertoire.
+C'est `EXERCISE_RE` (dans `content_catalogue.py`) qui la ferme, et le chemin
+réel est porté par le modèle validé (`tp_path()`), jamais reconstruit par
+découpage du nom. Il ne franchit jamais la frontière du web : c'est un chemin
+serveur, il décrit l'arborescence des secrets et n'apprend rien au navigateur.
 
 L'ordre du menu est **numérique à tous les niveaux** : trié comme du texte,
 `tp10` passerait avant `tp2` et `ex10` avant `ex2`. Un nom hors convention finit
@@ -274,14 +275,16 @@ Le format de chaque fichier est documenté dans le README du dépôt de tests, a
 les pièges qui comptent (la règle « toute valeur attendue dépasse 1 », le champ
 `absent`, la normalisation des réponses de quiz).
 
-**Le catalogue.** Le conteneur web ne lit pas les tests : il lit `app/tps.json`
-(id, mode, libellé, noms de fichiers), `app/tp/<tp>.json` (la consigne et les
-gabarits, chargés quand l'étudiant ouvre l'exercice) et `app/quiz/<tp>.json`
-(les questions **sans les réponses**), tous écrits par le worker au démarrage
-(`publish_catalogue()` dans `runner.py`). La consigne et les gabarits sont à
-part parce qu'ils faisaient les trois quarts du catalogue pour 73 exercices dont
-un seul est ouvert ; les **noms** de fichiers, eux, restent dans `tps.json` :
-c'est la liste blanche que l'API oppose à une soumission. C'est la frontière du service, et elle est une fonction Python
+**Le catalogue.** Le conteneur web ne lit pas les tests : il lit une *release*,
+un répertoire par révision sous `/published`, désigné par un pointeur
+`current.json`. Elle porte `catalog.json` (collections, id, mode, accès, dates,
+noms de fichiers), `exercises/<id>.json` (la consigne et les gabarits, chargés
+quand l'étudiant ouvre l'exercice) et `quiz/<id>.json` (les questions **sans les
+réponses**). Tout est projeté par le worker (`publish_catalogue()` dans
+`runner.py`, qui délègue à `publish_content.py`). La consigne et les gabarits
+sont à part parce qu'ils faisaient les trois quarts du catalogue pour 73
+exercices dont un seul est ouvert ; les **noms** de fichiers, eux, restent dans
+`catalog.json` : c'est la liste blanche que l'API oppose à une soumission. C'est la frontière du service, et elle est une fonction Python
 précisément pour que `test_ctester.py` puisse la mettre à l'épreuve à chaque
 convergence — un gabarit Jinja n'aurait été relu par personne. Il est republié
 au changement de jour, pour qu'une ouverture de minuit prenne effet sans

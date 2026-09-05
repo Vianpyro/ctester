@@ -42,7 +42,7 @@ def submit(corps: SoumissionIn, request: Request):
     if not config.KEY or not hmac.compare_digest(corps.key, config.KEY):
         return headers.erreur(403, "clé de session invalide ou expirée")
 
-    entree = catalogue.find_tp(corps.exercice())
+    entree = catalogue.find_exercise(corps.exercise_id)
     if entree is None:
         return headers.erreur(400, "TP inconnu")
 
@@ -110,7 +110,7 @@ def resultat(job_id: str):
     """
     if not JOB_RE.match(job_id):
         return headers.erreur(400, "identifiant invalide")
-    tp, owner = spool.job_metadata(job_id)
+    exercise_id, owner = spool.job_metadata(job_id)
     chemin = os.path.join(config.SPOOL, job_id, "result.json")
     try:
         with open(chemin, encoding="utf-8") as fh:
@@ -125,8 +125,8 @@ def resultat(job_id: str):
                               state="error")
 
     if resultat is not None:
-        if owner is not None and tp and isinstance(resultat, dict):
-            _enregistrer(owner, tp, job_id, resultat)
+        if owner is not None and exercise_id and isinstance(resultat, dict):
+            _enregistrer(owner, exercise_id, job_id, resultat)
         return resultat
 
     # Le `.lock` est posé par le worker qui a pris le job. Sans ce test, un job
@@ -141,10 +141,10 @@ def resultat(job_id: str):
     return headers.erreur(404, "gone", cle="state")
 
 
-def _enregistrer(owner, tp, job_id, resultat):
+def _enregistrer(owner, exercise_id, job_id, resultat):
     """Ce que le serveur retient d'un verdict, pour un compte connecté."""
-    etat.write_practice_attempt(owner, job_id, tp, resultat)
-    entree = catalogue.find_tp(tp)
+    etat.write_practice_attempt(owner, job_id, exercise_id, resultat)
+    entree = catalogue.find_exercise(exercise_id)
     if entree is None:
         return
     reussi = (resultat.get("status") == "ok"
@@ -152,7 +152,7 @@ def _enregistrer(owner, tp, job_id, resultat):
               and resultat.get("passed") == resultat.get("total"))
     # `write_state` ne fait JAMAIS reculer un `valide`. Ceci remplace la
     # transition d'état que le navigateur déclarait tout seul.
-    etat.write_state(owner, tp, "valide" if reussi else "essaye",
+    etat.write_state(owner, exercise_id, "valide" if reussi else "essaye",
                      spool.job_sources(job_id, entree))
     if reussi:
         progression.recompenser(owner, entree, job_id)

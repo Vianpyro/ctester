@@ -34,17 +34,13 @@ import uuid
 import content_catalogue
 
 SPOOL = os.environ.get("CTESTER_SPOOL", "/opt/ctester/spool")
-TESTS = os.environ.get("CTESTER_TESTS", "/opt/ctester/tests")
 
-# CONTENU V2, ET LE DRAPEAU DE BASCULE EST L'ABSENCE DE CES DEUX VARIABLES.
-# Vides -> tout ce qui suit lit l'arborescence historique `tpN/exN` comme avant
-# et rien ne change ; renseignées -> le worker résout les exercices par
-# `content_catalogue.load_exercise()` et publie une release au lieu d'écrire
-# dans le clone de l'application. Le rollback est donc une variable à vider,
-# pas un déploiement à défaire.
-CONTENT = os.environ.get("CTESTER_CONTENT", "")
-PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "")
-APP = os.environ.get("CTESTER_APP", "/opt/ctester/app")
+# LE CONTENU PRIVÉ ET SES RELEASES. Depuis la phase 8 il n'y a plus
+# d'arborescence historique `tpN/exN` : le worker résout les exercices par
+# `content_catalogue.load_exercise()` et publie une release, toujours. Le
+# rollback est un pointeur `current.json` à réécrire, pas une variable à vider.
+CONTENT = os.environ.get("CTESTER_CONTENT", "/opt/ctester/content")
+PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "/opt/ctester/published")
 BUILD_UNITY = os.environ.get("CTESTER_BUILD_UNITY", "/opt/ctester/build-unity.sh")
 BUILD_IO = os.environ.get("CTESTER_BUILD_IO", "/opt/ctester/build-io.sh")
 IMAGE = os.environ.get("CTESTER_IMAGE", "gcc:14-bookworm")
@@ -82,14 +78,14 @@ LOCK_RETRIES = int(os.environ.get("CTESTER_LOCK_RETRIES", "1"))
 # APERÇU AVANT OUVERTURE, pour la machine de l'enseignant. Mettre CTESTER_APERCU
 # à autre chose que "" ou "0" fait tomber le filtre `available_from` : le
 # catalogue publié ET tp_path voient alors tout, y compris ce qui ouvre en
-# novembre. C'est la seule façon d'éprouver un TP de bout en bout -- coller son
+# novembre. C'est la seule façon d'éprouver un exercice de bout en bout -- coller son
 # corrigé dans la vraie page et lire le vrai verdict -- avant que les étudiants
 # n'y aient accès.
 #
-# LES DEUX TOMBENT ENSEMBLE, ET C'EST LE POINT : le drapeau agit sur catalogue()
-# et pas sur l'affichage, donc un exercice visible est un exercice exécutable.
-# Ouvrir le menu sans ouvrir tp_path donnerait un TP qu'on peut choisir et pas
-# soumettre, ce qui ressemble à une panne.
+# LES DEUX TOMBENT ENSEMBLE, ET C'EST LE POINT : le drapeau devient une DATE
+# (l'an 9999) que `access()` lit à la publication comme `tp_path` la lit avant
+# d'exécuter. Ouvrir le menu sans ouvrir tp_path donnerait un exercice qu'on
+# peut choisir et pas soumettre, ce qui ressemble à une panne.
 #
 # CE N'EST PAS UN RÉGLAGE DE PRODUCTION. Le déploiement ne le définit pas, et
 # publish_catalogue() le dit dans le journal quand il est actif : un worker qui
@@ -111,7 +107,6 @@ SANDBOX_ENV = {
     if k in os.environ
 }
 
-TP_RE = re.compile(r"\A[a-z0-9_-]{1,32}\Z")
 SUMMARY_RE = re.compile(r"^(\d+) Tests (\d+) Failures (\d+) Ignored", re.M)
 FAIL_RE = re.compile(r"^[^\n:]*:\d+:([A-Za-z0-9_]{1,64}):FAIL", re.M)
 INCLUDE_RE = re.compile(r"^[ \t]*#[ \t]*include[ \t]*[<\"]([^>\"\n]+)", re.M)
@@ -169,51 +164,6 @@ def config_name(mode):
 # l'enseignant, jamais de l'étudiant. Ils sont quand même validés : une faute de
 # frappe qui produirait « ../../etc/passwd » ne doit pas devenir un chemin.
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
-
-# Metadonnees pedagogiques publiques: le contenu prive peut contenir des notes
-# d'auteur ou des secrets de generation. Cette projection est donc une liste
-# blanche, jamais une copie de la configuration.
-SKILL_RE = re.compile(r"\A[a-z][a-z0-9-]{0,47}\Z")
-LEARNING_CONTEXTS = {
-    "mechanical", "electrical", "automated-production", "aerospace",
-    "logistics", "computing", "general-engineering",
-}
-LEARNING_DIFFICULTIES = {"intro", "foundation", "intermediate", "advanced"}
-
-
-def learning_metadata(conf):
-    """Projection sure de ``conf[\"learning\"]`` pour le catalogue public.
-
-    Contrat auteur::
-
-        "learning": {"skills": ["variables"], "context": "electrical",
-                     "difficulty": "foundation"}
-
-    Les tags inconnus sont ignores: ils ne doivent ni exposer une cle privee ni
-    empecher l'etudiant de pratiquer. Le validateur de contenu les signalera
-    avant usage pour la maitrise.
-    """
-    source = conf.get("learning", {})
-    if not isinstance(source, dict):
-        return {}
-    skills = source.get("skills", [])
-    if not isinstance(skills, list):
-        skills = []
-    clean_skills = []
-    for skill in skills:
-        skill = str(skill)
-        if SKILL_RE.match(skill) and skill not in clean_skills:
-            clean_skills.append(skill)
-        if len(clean_skills) == 4:
-            break
-    out = {}
-    if clean_skills:
-        out["skills"] = clean_skills
-    if source.get("context") in LEARNING_CONTEXTS:
-        out["context"] = source["context"]
-    if source.get("difficulty") in LEARNING_DIFFICULTIES:
-        out["difficulty"] = source["difficulty"]
-    return out
 
 
 def declared_files(conf, tp_dir=None):
@@ -287,155 +237,6 @@ def public_quiz(quiz):
 
 # Le nom du répertoire porte la structure du cours : tp<N> ou tp<N>-ex<M>. C'est
 # de là que sortent le regroupement du menu et l'ordre d'affichage.
-ORDER_RE = re.compile(r"\Atp(\d+)(?:-ex(\d+))?")
-# Le libellé répète souvent « TP2 : » que le premier menu affiche déjà. On le
-# retire pour le second menu, avec repli sur le libellé entier s'il n'y est pas.
-PREFIX_RE = re.compile(r"\A\s*TP\s*\d+\s*[:—\-]\s*", re.I)
-
-
-CONFORME_RE = re.compile(r"\Atp\d", re.I)
-CHUNKS_RE = re.compile(r"(\d+)")
-BONUS_ROOT = "bonus"
-# Un bonus SITUÉ quelque part vaut mieux qu'un bonus dans un tiroir à part : la
-# note en prose ("Mini-défi de niveau TP2") ne franchissait jamais la
-# frontière du catalogue -- personne ne la lisait jamais que l'auteur. Ce champ
-# la remplace par quelque chose que le menu affiche.
-RELATED_TP_RE = re.compile(r"\Atp(\d+)\Z", re.I)
-
-
-def sort_key(name):
-    """Ordre du menu. NUMÉRIQUE, et pas seulement au premier niveau.
-
-    Trié comme du texte, `tp10` passe avant `tp2` -- invisible avec deux
-    laboratoires, et le menu part en désordre au dixième. Le même piège attend
-    un cran plus bas avec `ex10` avant `ex2`, d'où un tri naturel générique
-    plutôt qu'une expression rationnelle sur `tp<N>-ex<M>` : il découpe le nom
-    en morceaux de chiffres et de lettres, et compare les chiffres comme des
-    nombres. Il vaut donc à tous les niveaux, quel que soit le préfixe.
-
-    Les noms hors convention finissent à la fin plutôt que de s'insérer
-    n'importe où.
-    """
-    morceaux = [(1, "", int(c)) if c.isdigit() else (0, c, 0)
-                for c in CHUNKS_RE.split(name.lower()) if c]
-    return (0 if CONFORME_RE.match(name) else 1, morceaux)
-
-
-def group_of(name, conf=None):
-    """Le groupe du menu -- voir sort_key pour le tri qui s'appuie dessus.
-
-    Un bonus qui déclare `related_tp` (« tp2 ») rejoint « Bonus · TP 2 » plutôt
-    que le fourre-tout « Bonus » : c'est ce sous-groupe, pas une phrase dans le
-    JSON que personne ne lit, qui affirme le niveau auquel il correspond.
-    """
-    if name.startswith(BONUS_ROOT + "-"):
-        related = RELATED_TP_RE.match(str((conf or {}).get("related_tp", "")))
-        return "Bonus · TP " + related.group(1) if related else "Bonus"
-    match = ORDER_RE.match(name)
-    return "TP " + match.group(1) if match else "Autres"
-
-
-def sous_dossiers(chemin):
-    try:
-        return sorted((n for n in os.listdir(chemin)
-                       if os.path.isdir(os.path.join(chemin, n))), key=sort_key)
-    except OSError:
-        return []
-
-
-def entrees_brutes():
-    """(identifiant, chemin) pour chaque exercice publiable, dans l'ordre.
-
-    DEUX NIVEAUX : `tp6/ex1/unity.json`. Un dossier par TP, un sous-dossier par
-    exercice -- à 13 laboratoires de 8 exercices, une racine plate ferait 104
-    dossiers et personne ne retrouverait rien.
-
-    Un TP dont la configuration est directement à sa racine (`tp1/quiz.json`)
-    reste une entrée à lui seul : c'est le cas du quiz, qui n'a pas d'exercices.
-
-    L'IDENTIFIANT RESTE PLAT -- `tp6-ex1` et jamais `tp6/ex1`. Il voyage jusqu'au
-    navigateur, revient dans une soumission, et est ensuite joint à un chemin
-    racine : y autoriser une barre oblique rouvrirait exactement la traversée de
-    répertoire que `TP_RE` existe pour fermer. Le chemin, lui, est porté par
-    l'entrée du catalogue, donc il n'y a jamais à le reconstruire par analyse du
-    nom.
-    """
-    entrees = []
-    for tp in sous_dossiers(TESTS):
-        if not (TP_RE.match(tp) or tp == BONUS_ROOT):
-            continue  # écarte .git, unity, et tout nom qu'un TP ne peut porter
-        chemin_tp = os.path.join(TESTS, tp)
-        if detect_mode(chemin_tp):
-            entrees.append((tp, chemin_tp))
-            continue
-        for exercice in sous_dossiers(chemin_tp):
-            identifiant = tp + "-" + exercice
-            if not TP_RE.match(identifiant):
-                continue
-            chemin = os.path.join(chemin_tp, exercice)
-            if detect_mode(chemin):
-                entrees.append((identifiant, chemin))
-    return entrees
-
-
-def catalogue(tout=False):
-    """[{id, mode, label, group, short, files, path}] dans l'ordre du cours.
-
-    `path` est un chemin du SERVEUR : il sert au worker et il est retiré avant
-    publication vers le conteneur web (voir publish_catalogue).
-
-    `tout=True` ignore `available_from` et rend AUSSI les entrées pas encore
-    ouvertes. C'est pour valider_contenu.py : un exercice qui ouvre en novembre
-    doit être prouvé en septembre, sinon la date aurait pour effet de suspendre
-    la validation exactement sur ce qui n'a jamais tourné.
-    """
-    entries = []
-    for name, tp_dir in entrees_brutes():
-        mode = detect_mode(tp_dir)
-        conf, label, files = {}, name, declared_files({})
-        try:
-            conf = load_config(tp_dir, config_name(mode))
-            label = conf.get("label") or name
-            files = declared_files(conf)
-        except (OSError, ValueError):
-            pass  # fichier cassé : le nom du répertoire et un fichier par défaut
-        if (not (tout or APERCU)
-                and conf.get("available_from", "")
-                > datetime.date.today().isoformat()):
-            # PAS ENCORE OUVERT. Le filtre est ici et pas au moment d'afficher :
-            # une entrée absente du catalogue n'a ni ligne de menu, ni chemin
-            # (tp_path), ni corrigé de quiz publié. Un lien profond partagé par
-            # un étudiant en avance ne résout pas, au lieu de contourner.
-            #
-            # Comparaison de chaînes ISO : « 2025-09-18 » > « 2025-09-11 » sans
-            # parser. Une date malformée trie n'importe où mais ne lève pas, et
-            # une clé absente vaut « ouvert », ce qui est le bon défaut -- un
-            # exercice ajouté en cours de session est visible sans y penser.
-            continue
-        entries.append({
-            "id": name,
-            "path": tp_dir,
-            # La consigne, affichée au-dessus de l'éditeur. Elle existe parce que
-            # la moitié des énoncés ne donnent PAS de prototype exact (« une
-            # fonction qui renvoie le nombre de chiffres ») alors qu'un test
-            # unity appelle par nom : il faut bien imposer un contrat, et un
-            # contrat qu'on impose sans l'afficher est indevinable.
-            "statement": str(conf.get("statement", "")),
-            "mode": mode,
-            "label": label,
-            # Les noms de fichiers attendus voyagent jusqu'au navigateur : ils
-            # sont dans l'énoncé, ils ne sont pas secrets, et ce sont eux qui
-            # deviennent les onglets de l'éditeur ET la liste blanche que l'API
-            # oppose à une soumission.
-            "files": files,
-            "group": group_of(name, conf),
-            # Libellé pour le second menu, sans le « TP2 : » que le premier
-            # affiche déjà. Purement cosmétique : si le préfixe n'est pas là, on
-            # garde le libellé entier et rien n'est perdu.
-            "short": PREFIX_RE.sub("", label) or label,
-            "learning": learning_metadata(conf),
-        })
-    return entries
 
 
 def write_json(path, payload):
@@ -446,7 +247,7 @@ def write_json(path, payload):
 
 
 def publish_catalogue():
-    """Écrit ce que le conteneur web a le droit de savoir, et rien de plus.
+    """Projette le contenu privé en une release, et bascule le pointeur.
 
     Publié par LE WORKER et pas par Ansible : c'est lui qui a le droit de lire
     les tests, et surtout « le corrigé ne franchit jamais la frontière »
@@ -454,74 +255,45 @@ def publish_catalogue():
     que personne ne relit.
 
     Les N workers écrivent le même contenu au démarrage. La course est sans
-    conséquence : les écritures sont atomiques et le contenu est identique.
+    conséquence : une révision EST le hachage de son contenu, donc deux workers
+    écrivent le même répertoire et le même pointeur.
+
+    LÈVE PLUTÔT QUE DE PUBLIER À VIDE si les deux variables manquent. Depuis la
+    phase 8 il n'y a plus d'arborescence historique à lire : un worker mal
+    configuré doit s'arrêter en le disant, pas servir un catalogue vide.
     """
     if APERCU:
-        print("ctester: APERÇU ACTIF -- les TP pas encore ouverts sont publiés",
+        print("ctester: APERÇU ACTIF -- les exercices pas encore ouverts sont publiés",
               file=sys.stderr, flush=True)
-    if CONTENT and PUBLISHED:
-        # Import LOCAL : publish_content lit `public_quiz` ici même, et un import
-        # en tête de fichier fermerait le cycle. Il n'a lieu que sur le chemin v2.
-        import publish_content
-        model = content_catalogue.discover(CONTENT)
-        # L'aperçu est une DATE, pas un second filtre : `access()` reste la seule
-        # lecture d'une release, et se placer en l'an 9999 ouvre tout ce qui est
-        # daté sans toucher à ce qui est archivé.
-        maintenant = datetime.datetime(9999, 1, 1, tzinfo=datetime.timezone.utc) if APERCU else None
-        publish_content.publish(model, PUBLISHED, now=maintenant)
-        return list(model["exercises"].values())
-    entries = catalogue()
-    quiz_dir = os.path.join(APP, "quiz")
-    detail_dir = os.path.join(APP, "tp")
-    os.makedirs(quiz_dir, exist_ok=True)
-    os.makedirs(detail_dir, exist_ok=True)
-    for entry in entries:
-        # LE DÉTAIL D'UN EXERCICE, chargé quand on l'ouvre et pas avant. La
-        # consigne et les gabarits pèsent les trois quarts du catalogue pour
-        # 72 exercices dont un seul est affiché ; les laisser dans tps.json,
-        # c'est faire payer 50 Ko à chaque visite pour en montrer 700 octets.
-        write_json(os.path.join(detail_dir, entry["id"] + ".json"),
-                   {"statement": entry["statement"], "files": entry["files"]})
-        if entry["mode"] != "quiz":
-            continue
-        quiz = load_config(entry["path"], "quiz.json")
-        write_json(os.path.join(quiz_dir, entry["id"] + ".json"), public_quiz(quiz))
-    # `path` NE FRANCHIT PAS LA FRONTIÈRE. C'est un chemin du serveur : il
-    # n'apprend rien d'utile au navigateur et il décrit l'arborescence des
-    # secrets. Même discipline que public_quiz -- on reconstruit ce qui sort,
-    # on ne retire pas d'une copie.
-    #
-    # LES NOMS DE FICHIERS RESTENT, LES GABARITS PARTENT. `files` est la liste
-    # blanche qu'app.py oppose à une soumission (validate_files) : la vider
-    # ouvrirait un trou. Seul `template`, qui ne sert qu'à préremplir l'éditeur,
-    # s'en va dans le détail.
-    write_json(os.path.join(APP, "tps.json"), [
-        {k: ([{"name": f["name"]} for f in v] if k == "files" else v)
-         for k, v in e.items() if k not in ("path", "statement")}
-        for e in entries])
-    return entries
+    if not (CONTENT and PUBLISHED):
+        raise RuntimeError(
+            "CTESTER_CONTENT et CTESTER_PUBLISHED sont requis pour publier")
+    # Import LOCAL : publish_content lit `public_quiz` ici même, et un import
+    # en tête de fichier fermerait le cycle.
+    import publish_content
+    model = content_catalogue.discover(CONTENT)
+    # L'aperçu est une DATE, pas un second filtre : `access()` reste la seule
+    # lecture d'une release, et se placer en l'an 9999 ouvre tout ce qui est
+    # daté sans toucher à ce qui est archivé.
+    maintenant = datetime.datetime(9999, 1, 1, tzinfo=datetime.timezone.utc) if APERCU else None
+    publish_content.publish(model, PUBLISHED, now=maintenant)
+    return list(model["exercises"].values())
 
 
-def tp_path(tp_id):
-    """Le répertoire d'un exercice, d'après le catalogue. None s'il n'existe pas.
+def tp_path(exercise_id):
+    """Le répertoire d'assessment d'un exercice. None s'il n'existe pas.
 
-    LA SEULE FAÇON DE PASSER D'UN IDENTIFIANT À UN CHEMIN. Reconstruire
-    `tp6-ex1` en `tp6/ex1` par découpage marcherait, jusqu'au jour où un nom
-    contient un tiret de plus. Surtout, passer par le catalogue veut dire qu'un
-    exercice non publié n'est pas exécutable, ce qui est plus strict que « le
-    répertoire existe ».
+    LA SEULE FAÇON DE PASSER D'UN IDENTIFIANT À UN CHEMIN, et elle réapplique la
+    release : le web l'a déjà fait, ce processus est root et ne fait confiance à
+    personne, y compris à notre propre conteneur web.
 
-    En v2 le répertoire rendu est `exercises/<id>/assessment` : la même forme
-    qu'un répertoire de TP historique -- configuration, `test_*.c` et
-    `allowed_includes.txt` côte à côte -- donc rien en aval ne change.
+    Le répertoire rendu est `exercises/<id>/assessment` : la même forme qu'un
+    répertoire de TP historique -- configuration, `test_*.c` et
+    `allowed_includes.txt` côte à côte -- donc `detect_mode`, `read_allowed`,
+    `docker_argv` et le bac à sable n'ont jamais eu à changer.
     """
-    if CONTENT:
-        entry = content_catalogue.load_exercise(CONTENT, tp_id, tout=APERCU)
-        return entry["path"] if entry else None
-    for entry in catalogue():
-        if entry["id"] == tp_id:
-            return entry["path"]
-    return None
+    entry = content_catalogue.load_exercise(CONTENT, exercise_id, tout=APERCU)
+    return entry["path"] if entry else None
 
 
 # --------------------------------------------------------------------------
@@ -859,7 +631,7 @@ def read_allowed(tp_dir):
 
 def unity_dir():
     """Unity est PARTAGÉ par tous les exercices, donc hors de l'un d'eux."""
-    return os.path.join(CONTENT, "shared", "unity") if CONTENT else os.path.join(TESTS, "unity")
+    return os.path.join(CONTENT, "shared", "unity")
 
 
 def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
@@ -1043,13 +815,14 @@ def sandbox(job_dir, tp_dir, mode, nonce=""):
 
 def run_job(job_dir):
     with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
-        tp = str(json.load(fh).get("tp", ""))
+        exercise_id = str(json.load(fh).get("exercise_id", ""))
     # REVALIDÉ ICI, même si le web l'a déjà fait. Ce processus est root et
     # compose un chemin à partir de cette valeur : il ne fait confiance à
-    # personne, y compris à notre propre conteneur web.
-    tp_dir = tp_path(tp) if TP_RE.match(tp) else None
+    # personne, y compris à notre propre conteneur web. `load_exercise` borne
+    # l'identifiant (EXERCISE_RE) avant de le joindre, et réapplique la release.
+    tp_dir = tp_path(exercise_id)
     if tp_dir is None:
-        return {"status": "error", "message": "TP inconnu."}
+        return {"status": "error", "message": "Exercice inconnu."}
     mode = detect_mode(tp_dir)
     if mode is None:
         return {"status": "error", "message": "Ce TP n'a pas de tests publiés."}
@@ -1228,7 +1001,7 @@ def main():
     os.makedirs(SPOOL, exist_ok=True)
     try:
         published = publish_catalogue()
-        print("ctester: %d TP publiés" % len(published), file=sys.stderr,
+        print("ctester: %d exercices publiés" % len(published), file=sys.stderr,
               flush=True)
     except (OSError, ValueError) as exc:
         # Un catalogue illisible ne doit pas empêcher les jobs déjà en file
@@ -1237,8 +1010,8 @@ def main():
     jour = datetime.date.today()
     while True:
         if datetime.date.today() != jour:
-            # Le catalogue est publié UNE FOIS au démarrage : sans ça, un TP dont
-            # available_from arrive cette nuit n'apparaîtrait qu'au prochain
+            # Le catalogue est publié UNE FOIS au démarrage : sans ça, un exercice
+            # dont la date arrive cette nuit n'apparaîtrait qu'au prochain
             # redémarrage du worker. Republier au changement de jour est la seule
             # échéance qui existe -- pas de planificateur, pas de minuterie.
             jour = datetime.date.today()

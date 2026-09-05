@@ -34,8 +34,6 @@ def _entier(nom, defaut):
 
 # --- Système de fichiers ----------------------------------------------------
 SPOOL = os.environ.get("CTESTER_SPOOL", "/spool")
-# Le catalogue publié par le worker (tps.json, tp/, quiz/).
-STATIC = os.environ.get("CTESTER_STATIC", "/app")
 # LA PAGE VIT AILLEURS QUE LE CATALOGUE depuis que `web/` est publié à part.
 # TEMPORAIRE : n'existe que le temps de la bascule vers GitHub Pages.
 #
@@ -47,11 +45,11 @@ STATIC = os.environ.get("CTESTER_STATIC", "/app")
 # données.
 PAGE = os.environ.get("CTESTER_PAGE", "/web")
 
-# LE CONTENU V2, ET SON DRAPEAU DE BASCULE EST CETTE VARIABLE. Vide -> tout se
-# lit sous `STATIC` comme avant (tps.json, tp/, quiz/), et rien ne change.
-# Renseignée -> l'API lit la release publiée par `publish_content.py` : un
-# pointeur `current.json` et un répertoire par révision. Le rollback est de
-# vider la variable ou de réécrire le pointeur, jamais de redéployer.
+# LE CONTENU PUBLIÉ, ET C'EST DÉSORMAIS LA SEULE SOURCE DU CATALOGUE. Un
+# pointeur `current.json` et un répertoire par révision, écrits par
+# `publish_content.py`. Vide -> `/catalog.json` répond 404 et plus aucun
+# exercice ne se résout : depuis la phase 8 il n'y a plus de repli `tps.json`,
+# donc le rollback est de réécrire le pointeur, jamais de vider la variable.
 #
 # LE POINTEUR EST RELU À CHAQUE REQUÊTE, comme tout le reste ici : republier
 # ne doit pas demander de recréer le conteneur.

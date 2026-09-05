@@ -118,7 +118,7 @@ async function enregistrerTheme(nom) {
 }
 
 async function syncDraft(exerciseId, files) {
-  const ok = await putJson("brouillon", { tp: exerciseId, files });
+  const ok = await putJson("brouillon", { exercise_id: exerciseId, files });
   if (!ok && exerciseId === ctester.exerciceOuvert()) {
     ctester.showDraftStatus("brouillon gardé sur cet ordinateur, pas sur ton compte");
   }

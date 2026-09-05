@@ -320,10 +320,10 @@ function verrou(entry) {
                                              { day: "numeric", month: "long" });
 }
 
-// LA FORME v1, RECONSTRUITE ICI. `_v1()` fait exactement la même chose côté
-// serveur, pour les pages restées dans le cache d'un étudiant ; celle-ci garde
-// en plus l'accès et la date, que la forme v1 ne sait pas porter. Les deux
-// disparaissent ensemble avec `tps.json`.
+// LA FORME QUE LE RESTE DE LA PAGE LIT. « Mes exercices », « Mes progrès » et
+// l'export ont besoin d'une liste plate {id, mode, label, short, group, files,
+// learning} ; le catalogue, lui, est un arbre. Une seule fonction traduit, et
+// elle garde en plus l'accès et la date, qui n'existent qu'ici.
 function entree(ex, groupe) {
   const learning = {};
   if (Array.isArray(ex.skills) && ex.skills.length) learning.skills = ex.skills;
@@ -380,19 +380,6 @@ function normaliser(catalog) {
       catalogue.push(ex);
     }
   }
-}
-
-// LE REPLI, et il n'est pas décoratif : c'est le rollback. `tps.json` ne porte
-// ni collection ni date, donc tout y est ouvert et le menu n'a qu'un niveau.
-function normaliserV1(tps) {
-  catalogue = tps.map(t => Object.assign({ access: "available" }, t));
-  const par = new Map();
-  for (const t of catalogue) {
-    if (!par.has(t.group)) par.set(t.group, []);
-    par.get(t.group).push(t);
-  }
-  collections = [...par].map(([titre, items]) => (
-    { titre: titre, access: "available", available_from: "", items: items }));
 }
 
 function ligneMenu(ex) {
@@ -452,28 +439,21 @@ function dessinerMenu() {
   $("excourant").textContent = ouvert ? ouvert.short : "Exercices";
 }
 
-// `/catalog.json` D'ABORD, `tps.json` EN REPLI -- et le repli EST le rollback.
-// Vider CTESTER_PUBLISHED fait répondre 404 à la première ; cette page vit dans
-// le cache des étudiants et ne se redéploie pas avec l'API, donc elle doit
-// continuer de marcher sans qu'on y touche.
-// ponytail: un aller-retour de plus (le 404) sur un déploiement v1. Il
-// disparaît avec `tps.json`, en phase 8.
+// `/catalog.json` EST LA SEULE SOURCE depuis la phase 8. Le repli `tps.json`
+// existait pour les pages restées dans le cache d'un étudiant pendant la
+// bascule ; cette fenêtre est refermée, et le rollback est redevenu ce qu'il
+// est côté serveur : un pointeur `current.json` à réécrire.
 (async () => {
-  let v2 = null;
+  let publie = null;
   try {
     const r = await fetch(API("catalog.json"));
-    if (r.ok) v2 = await r.json();
-  } catch (e) { /* réseau, ou déploiement v1 : le repli tranche */ }
-  if (v2 && Array.isArray(v2.exercises)) {
-    normaliser(v2);
-  } else {
-    try {
-      normaliserV1(await (await fetch(API("tps.json"))).json());
-    } catch (e) {
-      show("bad", "Le catalogue n'a pas pu être chargé — recharge la page.");
-      return;
-    }
+    if (r.ok) publie = await r.json();
+  } catch (e) { /* réseau, ou rien de publié : le message ci-dessous tranche */ }
+  if (!publie || !Array.isArray(publie.exercises)) {
+    show("bad", "Le catalogue n'a pas pu être chargé — recharge la page.");
+    return;
   }
+  normaliser(publie);
   if (!collections.length) {
     show("bad", "Aucun TP n'est publié pour l'instant.");
     return;
@@ -656,8 +636,8 @@ function afficherConsigne(texte) {
 const details = {};
 
 // LE DÉTAIL D'UN EXERCICE, chargé quand on l'ouvre. La consigne et les gabarits
-// font les trois quarts du catalogue pour 72 exercices dont un seul est
-// affiché ; `tps.json` ne porte plus qu'un menu. Gardé en mémoire : revenir sur
+// feraient les trois quarts du catalogue pour 73 exercices dont un seul est
+// affiché ; `/catalog.json` ne porte qu'un menu. Gardé en mémoire : revenir sur
 // un exercice déjà vu ne redemande rien.
 async function chargerDetail(id) {
   if (details[id]) return details[id];
@@ -1125,7 +1105,7 @@ async function poll(id, tries, portee) {
 async function soumettre(portee) {
   const tp = current();
   if (!tp) { show("bad", "Choisis un TP."); return; }
-  const body = {key, tp: tp.id};
+  const body = {key, exercise_id: tp.id};
   if (tp.mode === "quiz") {
     if (!ctester.quiz) { show("bad", "Le quiz n'est pas chargé."); return; }
     body.answers = ctester.quiz.answers();

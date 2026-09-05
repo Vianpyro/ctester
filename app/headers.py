@@ -216,12 +216,12 @@ def fichier(request, body, ctype, issuer=""):
 def fichier_du_disque(request, base, nom, ctype, issuer=""):
     """Un fichier du disque, et `base` DIT LEQUEL DES DEUX RÉPERTOIRES.
 
-    Pas de défaut, exprès : la page (`config.PAGE`) et le catalogue publié par
-    le worker (`config.STATIC`) vivent à part depuis que `web/` est destiné à
+    Pas de défaut, exprès : la page (`config.PAGE`) et la release publiée par
+    le worker (`config.PUBLISHED`) vivent à part depuis que `web/` est destiné à
     GitHub Pages, et les deux passent par ici. Un défaut ferait chercher
-    `tp/<id>.json` dans le répertoire de la page -- un 500 sur chaque consigne
-    et chaque quiz, en production seulement, parce qu'un harnais qui monte les
-    deux au même endroit ne peut pas le voir.
+    `exercises/<id>.json` dans le répertoire de la page -- un 500 sur chaque
+    consigne et chaque quiz, en production seulement, parce qu'un harnais qui
+    monte les deux au même endroit ne peut pas le voir.
 
     `nom` NE VIENT JAMAIS DE L'URL telle quelle : les appelants le
     reconstruisent depuis le catalogue ou depuis une liste close. Il n'y a donc

@@ -26,25 +26,18 @@ _CONFIG = ConfigDict(extra="ignore")
 
 
 class _AvecExercice(BaseModel):
-    """L'exercice visé, sous SON NOM CIBLE et sous son nom historique.
+    """L'exercice visé, sous le nom qui vit déjà dans toutes les tables.
 
-    `exercise_id` est le nom v2, celui qui vit déjà dans toutes les tables
-    (brouillons, états, tentatives, XP, forum). `tp` reste accepté, et le
-    restera le temps d'une fenêtre de compatibilité : la page est servie depuis
-    une autre origine et vit dans le cache d'un étudiant, donc l'API et le
-    navigateur ne se redéploient pas ensemble. Renvoyer 400 à une page d'hier
-    serait une panne pour celui qui n'a pas rechargé.
-
-    `exercise_id` PRIME quand les deux sont là -- c'est le champ qui reste.
+    `exercise_id` est la seule orthographe depuis que la fenêtre de
+    compatibilité ouverte en phase 4 est refermée : `tp` a été accepté le temps
+    que les pages en cache des étudiants se rechargent, et `extra="ignore"` fait
+    qu'une page vraiment ancienne n'est pas rejetée -- elle vise simplement
+    l'exercice vide, ce que `find_exercise` refuse en 404.
     """
 
     model_config = _CONFIG
 
-    tp: str = ""
     exercise_id: str = ""
-
-    def exercice(self):
-        return self.exercise_id or self.tp
 
 
 class SoumissionIn(_AvecExercice):

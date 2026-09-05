@@ -150,7 +150,7 @@ def phase_page(mesures):
         lambda n: appel("GET", "/", etudiant=n)))
     mesures.append(en_parallele(
         Mesures("catalogue"), ETUDIANTS,
-        lambda n: appel("GET", "/tps.json", etudiant=n)))
+        lambda n: appel("GET", "/catalog.json", etudiant=n)))
 
 
 def phase_privee(mesures):
@@ -170,7 +170,7 @@ def phase_privee(mesures):
     if not TP:
         print("%-14s NON JOUE (CTESTER_CHARGE_TP vide)" % "brouillon")
         return
-    corps = {"tp": TP, "files": {}}
+    corps = {"exercise_id": TP, "files": {}}
     mesures.append(en_parallele(
         Mesures("brouillon"), ETUDIANTS,
         lambda n: appel("PUT", "/brouillon", corps, etudiant=n, jeton=True)))
@@ -192,7 +192,7 @@ def phase_soumissions(mesures):
     def soumettre(n):
         statut, duree, charge = appel(
             "POST", "/submit",
-            {"key": KEY, "tp": TP,
+            {"key": KEY, "exercise_id": TP,
              # Un corps different par etudiant: un juge qui deduplique les
              # soumissions identiques rendrait la mesure fausse et flatteuse.
              "files": {"submission.c": SOURCE % n}},

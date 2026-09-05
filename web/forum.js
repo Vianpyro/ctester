@@ -244,7 +244,7 @@ async function ecrire(chemin, methode, charge, succes, echec) {
 }
 
 async function publier(texte) {
-  const ok = await ecrire("forum", "POST", { tp: exercice, texte: texte },
+  const ok = await ecrire("forum", "POST", { exercise_id: exercice, texte: texte },
                           "Message publié.", "Message non publié");
   // VIDER APRÈS COUP, ET SEULEMENT SI C'EST PARTI. `ecrire` a déjà redessiné,
   // donc `zone` est le nouveau champ. Un refus -- message trop long, quota --

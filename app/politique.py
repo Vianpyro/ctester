@@ -23,7 +23,7 @@ POLITIQUE = {
     "version": "pilote-1",
 
     # Ce que vaut la première réussite complète d'un exercice, selon la
-    # difficulté annoncée par ses métadonnées publiques `learning`. Un exercice
+    # difficulté annoncée par le catalogue public (`difficulty`). Un exercice
     # sans difficulté déclarée prend `defaut` : ne rien donner punirait
     # l'étudiant pour une métadonnée manquante côté enseignant.
     "xp": {
@@ -78,11 +78,10 @@ VERSION = POLITIQUE["version"]
 SUCCES = {s["id"]: s for s in POLITIQUE["succes"]}
 
 
-def xp_reussite(learning):
-    """L'XP d'une première réussite, d'après les métadonnées publiques du TP."""
+def xp_reussite(entree):
+    """L'XP d'une première réussite, d'après la difficulté publique du catalogue."""
     table = POLITIQUE["xp"]
-    difficulte = (learning or {}).get("difficulty")
-    return int(table.get(difficulte, table["defaut"]))
+    return int(table.get((entree or {}).get("difficulty"), table["defaut"]))
 
 
 def plafond_quotidien():

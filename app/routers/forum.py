@@ -39,11 +39,11 @@ router = APIRouter(tags=["forum"])
 def _entree(brut):
     """L'entrée de catalogue nommée, ou None.
 
-    `find_tp` est la SEULE porte : il n'existe pas de fil pour un exercice
+    `find_exercise` est la SEULE porte : elle n'existe pas de fil pour un exercice
     absent du catalogue, donc pas de fil à créer avec un identifiant fabriqué,
     et pas de chemin à traverser.
     """
-    return catalogue.find_tp(str(brut or ""))
+    return catalogue.find_exercise(str(brut or ""))
 
 
 def _message_id(brut):
@@ -74,7 +74,7 @@ def fil(sub: SubForum, ex: str = Query("")):
 @router.post("/forum")
 def publier(sub: SubForum, corps: ForumMessageIn):
     """Publier dans le fil d'un exercice publié."""
-    entree = _entree(corps.exercice())
+    entree = _entree(corps.exercise_id)
     if entree is None:
         return headers.erreur(400, "TP inconnu")
     texte, message = forum_service.forum_texte(corps.texte)

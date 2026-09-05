@@ -13,7 +13,7 @@ la clé primaire refuse le doublon.
 
 import etat
 import politique
-from services.catalogue import load_tps
+from services.catalogue import exercices_ouverts
 
 
 # --- Progression (phase 1) --------------------------------------------------
@@ -62,7 +62,7 @@ def skills_view(entries, touched, solved):
     """
     order, table = [], {}
     for entry in entries:
-        for skill in (entry.get("learning") or {}).get("skills") or ():
+        for skill in entry.get("skills") or ():
             row = table.get(skill)
             if row is None:
                 row = table[skill] = {"id": skill, "total": 0,
@@ -79,7 +79,7 @@ def practised_skills(entries, touched):
     skills = set()
     for entry in entries:
         if entry["id"] in touched:
-            skills.update((entry.get("learning") or {}).get("skills") or ())
+            skills.update(entry.get("skills") or ())
     return skills
 
 
@@ -93,7 +93,7 @@ def recommander(entries, touched, solved):
     known = practised_skills(entries, touched)
     remaining = [e for e in entries if e["id"] not in solved]
     for entry in remaining:
-        for skill in (entry.get("learning") or {}).get("skills") or ():
+        for skill in entry.get("skills") or ():
             if skill in known:
                 return {"exercice_id": entry["id"], "competence": skill}
     if remaining:
@@ -110,7 +110,7 @@ def progression_facts(user):
     practice = etat.read_practice_summary(user)
     if states is None or practice is None:
         return None
-    entries = load_tps()
+    entries = exercices_ouverts()
     touched, solved = exercise_facts(states, practice)
     published = {e["id"] for e in entries}
     return {"reussites": len(solved & published),
@@ -131,12 +131,11 @@ def recompenser(user, entry, job_id):
     Rien ne se célèbre quand `grant_first_solve` rend None -- déjà récompensé,
     ou base muette. Les deux veulent dire « il n'y a pas de fait neuf ».
     """
-    learning = entry.get("learning") or {}
     event_id = "reussite:" + entry["id"]
     granted = etat.grant_first_solve(
-        user, entry["id"], event_id, politique.xp_reussite(learning),
+        user, entry["id"], event_id, politique.xp_reussite(entry),
         "première réussite de l'exercice", politique.VERSION,
-        {"job": job_id, "difficulte": learning.get("difficulty", "")},
+        {"job": job_id, "difficulte": entry.get("difficulty") or ""},
         politique.plafond_quotidien())
     if granted is None:
         return

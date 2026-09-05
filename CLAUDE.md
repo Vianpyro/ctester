@@ -92,8 +92,10 @@ prouver dans la seule couche où une erreur donne accès aux données d'autrui.
 (voir `docs/split-front_back/plan.md`) : `web/` est destiné à GitHub Pages,
 `app/` reste sur le Dell. Tant que les deux ne sont pas séparés, l'API sert
 encore les deux — la page depuis `CTESTER_PAGE` (`/web`), le catalogue depuis
-`CTESTER_STATIC` (`/app`). Deux variables, deux montages : confondre les deux
-fait servir un `tps.json` introuvable, ou une page introuvable.
+`CTESTER_PUBLISHED` (`/published`). Deux variables, deux montages : confondre
+les deux fait servir un catalogue introuvable, ou une page introuvable.
+`CTESTER_STATIC` a disparu avec la phase 8 : il n'y a plus rien à servir sous
+`app/`.
 
 La page est en neuf fichiers, tous servis par la liste blanche de `app/routers/page.py` :
 `index.html` (le markup seul), `style.css`, `config.js` (l'adresse de l'API),
@@ -104,17 +106,23 @@ chargées seulement à l'ouverture des discussions — voir `web/vendor/README.m
 Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
 le navigateur reçoit.
 
-## Le contenu v2 (refactor en cours)
+## Le contenu (architecture v2)
 
-Le plan est dans `docs/refactor-content-architecture-plan.md`. **La bascule est
-DEUX VARIABLES VIDES, et c'est tout le mécanisme de rollback** : sans elles,
-worker et API lisent l'arborescence historique `tpN/exN` exactement comme
-avant, et rien de ce qui suit ne s'exécute.
+Le plan est dans `docs/refactor-content-architecture-plan.md`. **Depuis la phase
+8 ce n'est plus un refactor en cours mais l'architecture : l'arborescence
+historique `tpN/exN` n'est plus lue par rien, et les deux variables ci-dessous
+sont obligatoires.** Un worker sans elles LÈVE plutôt que de publier un
+catalogue vide ; une API sans `CTESTER_PUBLISHED` répond 404 à `/catalog.json`
+et ne résout plus aucun exercice.
 
 | Variable | Qui | Effet |
 |---|---|---|
-| `CTESTER_CONTENT` | worker | résout les exercices dans la racine v2, publie une release |
+| `CTESTER_CONTENT` | worker | la racine du contenu privé (`catalog.json`, `exercises/`, `shared/unity`) |
 | `CTESTER_PUBLISHED` | worker **et** web | le répertoire des releases (`current.json` + une par révision) |
+
+**LE ROLLBACK EST LE POINTEUR, et rien d'autre.** Réécrire `current.json` sur
+une révision précédente est instantané et ne redéploie rien. Vider une variable
+n'est plus un rollback, c'est une panne.
 
 ```sh
 python3 validate_content.py  ../unittests/content                 # phase 1
@@ -160,21 +168,17 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
   configuration de correction ne déclare rien. Sans ça, tout module à deux
   fichiers (`calendrier.h` + `calendrier.c`) retomberait sur `submission.c` et
   ne lierait plus. Un test l'éprouve avec un module.
-- **L'API.** `load_tps()` projette le catalogue v2 dans la FORME v1
-  (`group` vient de la collection, `learning` des métadonnées) : la page ne
-  bouge pas de la phase 4, et c'est `_v1()` que la phase 5 supprimera.
-  `/tp/<id>.json` et `/quiz/<id>.json` sont servis depuis la release ;
-  `/catalog.json` sert le catalogue v2 tel quel, et répond 404 en v1 — ce
-  qu'une page qui sait retomber sur `tps.json` doit voir.
-- **`exercise_id` est le nom cible du champ, `tp` reste accepté** (`_AvecExercice`
-  dans `schemas.py`, `corps.exercice()` dans les routeurs). La page vit dans le
-  cache d'un étudiant et sera servie depuis une autre origine : l'API et le
-  navigateur ne se redéploient pas ensemble, et répondre 400 à la page d'hier
-  serait une panne. **Le spool garde `tp`** — il est consommé en quelques
-  secondes par le même déploiement, il n'a besoin d'aucune fenêtre de
-  compatibilité, et le renommer se fera d'un coup en phase 8.
+- **L'API.** `/tp/<id>.json` et `/quiz/<id>.json` sont servis depuis la
+  release ; `/catalog.json` la sert telle quelle. *(La projection `_v1()` qui
+  rendait la forme v1 le temps de la bascule est partie en phase 8.)*
+- **`exercise_id` est le nom du champ.** Il a été introduit ici à côté de `tp`,
+  le temps que les pages en cache des étudiants se rechargent : la page est
+  servie depuis une autre origine, l'API et le navigateur ne se redéploient pas
+  ensemble, et répondre 400 à la page d'hier aurait été une panne. *(La fenêtre
+  est refermée en phase 8 : `tp` n'est plus accepté nulle part, ni dans un corps
+  de requête, ni dans le spool.)*
 - **La publication reste au worker** : `publish_catalogue()` délègue à
-  `publish_content.publish()` quand les deux variables sont là. C'est ce qui
+  `publish_content.publish()`. C'est ce qui
   garde la republication au changement de jour — un `scheduled` dont la date
   tombe cette nuit s'ouvre parce que le catalogue est reprojeté, pas parce
   qu'un service redémarre. `CTESTER_APERCU` s'y traduit en une DATE (l'an 9999)
@@ -182,16 +186,11 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
 
 ### Ce que la phase 5 a branché
 
-- **La page lit `/catalog.json`, et `tps.json` est le repli — le repli EST le
-  rollback.** Vider `CTESTER_PUBLISHED` fait répondre 404 à la première route ;
-  la page vit dans le cache des étudiants et ne se redéploie pas avec l'API,
-  donc elle doit repartir sur `tps.json` toute seule. C'est éprouvé dans un
-  processus à part (`CTESTER_MODE=v1`), parce qu'un catalogue ne se lit qu'une
-  fois par chargement de page.
-- **`_v1()` RESTE, et ne part qu'avec `tps.json` en phase 8.** C'est lui qui
-  sert ce repli aux pages déjà en cache ; le supprimer en phase 5 aurait fermé
-  la même fenêtre de compatibilité que `tp`/`exercise_id` ouvre côté corps de
-  requête.
+- **La page lit `/catalog.json`.** `tps.json` en était le repli le temps de la
+  bascule, pour les pages restées dans le cache d'un étudiant. *(Repli retiré en
+  phase 8 ; un catalogue absent est maintenant un message, éprouvé dans un
+  processus à part — `CTESTER_MODE=absent` — parce qu'un catalogue ne se lit
+  qu'une fois par chargement de page.)*
 - **Les deux `<select>` ont disparu.** Un menu `<details>` par collection dans
   un `<details>` de barre : le navigateur sait replier, il n'y a pas
   d'accordéon en JS ni d'état d'ouverture à tenir. `selection` (le noyau)
@@ -247,22 +246,60 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
   renommage les aurait détachés sans rien casser de visible. Contrôle jetable,
   fait une fois : la v1 disparaît en phase 8, et un golden test v1/v2
   permanent mourrait avec elle.
-- **Ce que le même pré-vol a trouvé et qu'on assume** : `_v1()` rend le titre
+- **Ce que le même pré-vol a trouvé et qu'on assume** : `_v1()` rendait le titre
   qualifié dans `short` (« TP2 : ex.3 » là où la v1 rendait « ex.3 ») ; la
   consigne v2 garde le saut de ligne final de `statement.md` ; `tp1`, qui est
-  un quiz, a `files: []` et une consigne de remplissage. Les trois ne touchent que le
-  repli `tps.json` ou du texte affiché, et `_v1()` part en phase 8.
+  un quiz, a `files: []` et une consigne de remplissage. Les trois ne touchaient
+  que le repli `tps.json` ou du texte affiché, et `_v1()` est parti en phase 8.
 - **Le témoin de la bascule est `/catalog.json`** : 404 en v1, la release en
   v2. C'est lui qu'un moniteur HTTP interroge, pas `/healthz` — un `/healthz`
   vert avec un catalogue absent est précisément la panne que le repli de la
-  page rattrape en silence. Le tick, lui, écrit la révision servie dans son
+  page rattrapait en silence. Depuis la phase 8 il n'y a plus de repli : le
+  moniteur compte double. Le tick, lui, écrit la révision servie dans son
   journal.
 - **En v2 le worker ne réécrit plus `app/{tps.json,tp/,quiz/}`** : ces fichiers
-  gèlent à la bascule et servent de repli aux onglets déjà ouverts. Ils sont
-  réécrits au premier démarrage de worker après un retour en v1.
+  gelaient à la bascule et servaient de repli aux onglets déjà ouverts. La phase
+  8 les supprime.
 
-Reste à faire : phase 8 (retrait de `tps.json`, de `_v1()`, de `TP_RE` et du
-champ `tp`).
+### Ce que la phase 8 a retiré
+
+**NE PAS DÉPLOYER CE CODE AVANT QUE LA v2 NE TOURNE.** Ce dépôt s'applique tout
+seul toutes les cinq minutes ; `ctester_content_v2` ne bascule qu'à un
+`ansible-playbook`. Poser la phase 8 sur un hôte encore en v1, c'est une API qui
+n'a plus rien à servir et une page qui n'a plus de repli — panne totale, sans
+que rien de local n'ait changé.
+
+- **`tps.json`, `/tps.json`, `_v1()`, `TP_RE`, `CTESTER_STATIC`,
+  `CTESTER_TESTS`, `CTESTER_APP`** — partis. Avec eux, toute la découverte v1
+  de `runner.py` (`entrees_brutes`, `catalogue`, `group_of`, `sort_key`,
+  `learning_metadata` et les cinq expressions rationnelles `tpN/exN`) : ~340
+  lignes. `publish_catalogue()` ne publie plus qu'une release, et **lève** si
+  les deux variables manquent — un worker mal configuré doit s'arrêter en le
+  disant, pas servir un menu vide à tout le monde.
+- **La porte de l'API s'appelle `find_exercise()`**, comme celle du worker, et
+  elle n'a plus besoin de `TP_RE` : elle COMPARE à l'identifiant du catalogue au
+  lieu de le concaténer, et c'est `source_publiee()` qui reconstruit le chemin
+  depuis l'entrée trouvée. Un `..` ne matche aucune entrée ; il n'y a rien à
+  filtrer parce qu'il n'y a rien à accepter.
+- **Le catalogue publié EST la forme que l'API lit** : `skills` et `difficulty`
+  à plat, plus de bloc `learning`. `exercices_ouverts()` remplace `load_tps()`,
+  et `progression.py`/`politique.py` lisent les champs v2 directement. Une
+  traduction de moins, donc un endroit de moins où les deux formes divergent.
+- **`tp` n'est plus accepté nulle part** : ni dans un corps de requête
+  (`_AvecExercice` ne porte plus que `exercise_id`), ni dans le spool
+  (`job.json` porte `exercise_id`). `extra="ignore"` fait qu'une page vraiment
+  ancienne n'est pas rejetée — elle vise l'exercice vide, que `find_exercise`
+  refuse en 404.
+- **`valider_contenu.py` et `test_bac_a_sable.py` prennent la racine v2**
+  (`../unittests/content`) et cherchent les corrigés à CÔTÉ
+  (`CTESTER_SOLUTIONS`, défaut `<racine>/../solutions`) — le gitlink qui les
+  montait sous le contenu part avec cette phase. Les deux acceptent encore la
+  disposition `tp6/ex1` du dépôt de solutions, qui n'a pas été migré.
+- **Ce qui RESTE, exprès** : l'URL `/tp/<id>.json` (elle vit dans le cache des
+  étudiants et ne coûte rien ; elle bougera avec les liens profonds
+  `/exercise/<id>`), le paramètre `?tp=` d'un lien partagé, les noms de variables
+  `tp_dir` dans le worker (ils désignent un répertoire d'assessment), et le
+  message « TP inconnu » rendu à l'étudiant.
 
 ## Avant de déployer une modif de la page ou du contenu
 
@@ -275,8 +312,9 @@ npm ci                                # UNE FOIS : jsdom, contrôles XSS du foru
 python3 test_ctester.py          # les défenses, la progression, le forum
 python3 test_api.py              # l'API : frontière HTTP, bornes, valeurs extrêmes
 node    test_page.js             # le JS de la page, sur un DOM en carton
-python3 valider_contenu.py ../unittests
-python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
+python3 valider_contenu.py   ../unittests/content
+python3 validate_content.py  ../unittests/content   # le schéma seul, sans gcc
+python3 test_bac_a_sable.py  ../unittests/content   # les deux build.sh, vrai gcc
 ```
 
 Et avant une cohorte, une fois, avec Docker — pas à chaque modif :
@@ -350,16 +388,17 @@ docker stop pg
 Après chaque `ansible-playbook … --tags tests` :
 
 ```sh
-grep -rl answer /opt/ctester/src/app/*.json /opt/ctester/src/app/quiz/ \
-                /opt/ctester/src/app/tp/      # DOIT ne rien trouver
+grep -rl answer /opt/ctester/published/          # DOIT ne rien trouver
 ```
 
-`app/` est tout ce que le conteneur exposé peut lire ; aucun corrigé n'a le
-droit d'y être. **Le grep porte sur les fichiers PUBLIÉS, pas sur `app/` entier**
-: le code source y écrit légitimement `answers` (la fonction qui relève les
-réponses saisies, le champ `answers` d'une soumission), donc un `grep -rl answer
-app/` tout court trouve toujours quelque chose et n'apprend rien. Ce qu'on
-vérifie, c'est que la clé `answer` d'un corrigé n'a pas franchi la frontière.
+`/opt/ctester/published` est tout ce que le conteneur exposé peut lire ; aucun
+corrigé n'a le droit d'y être. **Le grep porte sur les fichiers PUBLIÉS, jamais
+sur le code** : celui-ci écrit légitimement `answers` (la fonction qui relève
+les réponses saisies, le champ `answers` d'une soumission), donc un `grep -rl
+answer src/` trouve toujours quelque chose et n'apprend rien. Ce qu'on vérifie,
+c'est que la clé `answer` d'un corrigé n'a pas franchi la frontière. Le
+répertoire porte TOUTES les révisions gardées, pas seulement la courante : une
+révision qu'on pourrait repointer doit être propre elle aussi.
 
 ## Les quatre soumissions hostiles
 
@@ -390,7 +429,7 @@ sort en erreur sans poser son témoin.
 **Ce timer ne redémarre rien, et il peut donc tourner en pleine séance.** Rien
 entre le disque et l'étudiant ne garde de copie en mémoire : `cases`,
 `tolerance` et `quiz.json` passent par `load_config()`, relu **à chaque job** ;
-`tps.json` par `load_tps()` dans `app/services/catalogue.py`, relu **à chaque requête**. Un cas de
+le catalogue par `load_catalog()` dans `app/services/catalogue.py`, relu **à chaque requête**, pointeur compris. Un cas de
 test ajouté est en service à la soumission suivante, une consigne corrigée au
 rechargement suivant. `publish_catalogue()` y est appelé dans un processus à
 part — le redémarrage du worker n'a jamais été qu'un moyen de le déclencher.
@@ -411,14 +450,15 @@ ansible-playbook playbooks/ctester.yml --tags tests --ask-vault-pass
 ### Voir un TP avant son ouverture
 
 Pour éprouver ses corrigés dans la vraie page, avec les vrais tests, avant les
-étudiants : `CTESTER_APERCU=1` fait tomber le filtre `available_from`. Il agit
-sur `catalogue()`, donc sur le menu **et** `tp_path()` en même temps — un
-exercice qu'on voit est un exercice qu'on peut soumettre.
+étudiants : `CTESTER_APERCU=1` traduit la date d'ouverture en l'an 9999. Il
+agit à la publication **et** dans `tp_path()` — un exercice qu'on voit est un
+exercice qu'on peut soumettre.
 
 ```sh
-CTESTER_APERCU=1 CTESTER_TESTS=../unittests CTESTER_APP=app \
+CTESTER_APERCU=1 CTESTER_CONTENT=../unittests/content \
+CTESTER_PUBLISHED=/tmp/published \
   python3 -c 'import runner; runner.publish_catalogue()'
-CTESTER_KEY=dev CTESTER_STATIC=app CTESTER_PAGE=web python3 app/main.py
+CTESTER_KEY=dev CTESTER_PUBLISHED=/tmp/published CTESTER_PAGE=web python3 app/main.py
 ```
 
 Pour de vrais verdicts il faut en plus un worker (Docker + gVisor) ; sans eux,
@@ -861,8 +901,8 @@ docker exec ctester-web-1 python3 -c   "import urllib.request;print(urllib.reque
 ls /opt/ctester/spool                          # la file, vide au repos
 docker exec nginx-manager-npm-1 getent hosts ctester-web-1   # NPM résout-il ?
 python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?
-grep -rl answer /opt/ctester/src/app/*.json /opt/ctester/src/app/quiz/ \
-                /opt/ctester/src/app/tp/     # DOIT ne rien trouver
+grep -rl answer /opt/ctester/published/        # DOIT ne rien trouver
+cat /opt/ctester/published/current.json        # la révision servie
 ```
 
 ## L'adresse de l'API et CORS
@@ -972,13 +1012,14 @@ toucher :
   de tests** (consignes pleines de `*` et de chevrons, sortie de programme
   étudiant). La coloration syntaxique échappe **après** le découpage, jamais
   avant.
-- **Le catalogue vient de `/catalog.json`, `tps.json` est le repli.**
+- **Le catalogue vient de `/catalog.json`, et il n'y a plus de repli.**
   `normaliser()` en tire DEUX listes : `collections` (l'arbre du menu, tous les
   exercices avec `access` et `available_from`) et `catalogue` (les exercices
-  ouverts, dans la forme v1 `{id, mode, label, group, short, learning, files}`
-  que « Mes exercices », « Mes progrès » et l'export lisent déjà). `files` ne
-  porte que des **noms** ; le chemin serveur (`path`) est retiré avant
-  publication. Le `mode` décide de tout ce que la page affiche et envoie.
+  ouverts, aplatis en `{id, mode, label, group, short, learning, files}` — la
+  forme que « Mes exercices », « Mes progrès » et l'export lisent). `files` ne
+  porte que des **noms** ; le chemin serveur ne franchit jamais la publication.
+  Le `mode` décide de tout ce que la page affiche et envoie. Un 404 sur
+  `/catalog.json` est un message, pas un menu vide.
 - **`label` est qualifié, `short` est nu.** « ex.1 » tout seul désigne un
   exercice dans chacun des dix TP, et « Mes progrès » n'a pas de colonne de
   collection pour lever l'ambiguïté.

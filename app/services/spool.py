@@ -66,11 +66,11 @@ def job_metadata(job_id):
         return "", None
     if not isinstance(data, dict):
         return "", None
-    tp = str(data.get("tp", ""))
+    exercise_id = str(data.get("exercise_id", ""))
     owner = data.get("owner")
     if not isinstance(owner, str) or not 0 < len(owner) <= 128:
         owner = None
-    return tp, owner
+    return exercise_id, owner
 
 
 def job_sources(job_id, entry):
@@ -92,7 +92,7 @@ def job_sources(job_id, entry):
     return files if message is None else {}
 
 
-def ecrire_job(tp, nom, blob, owner=None):
+def ecrire_job(exercise_id, nom, blob, owner=None):
     """Écrit le job et rend son identifiant. `job.json` EN DERNIER, par rename.
 
     Le worker ne déclenche que sur la présence de `job.json`. Sans cet ordre il
@@ -110,7 +110,7 @@ def ecrire_job(tp, nom, blob, owner=None):
         fh.write(blob)
     tmp = os.path.join(chemin, "job.json.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
-        job = {"tp": tp}
+        job = {"exercise_id": exercise_id}
         if isinstance(owner, str) and 0 < len(owner) <= 128:
             job["owner"] = owner
         json.dump(job, fh)

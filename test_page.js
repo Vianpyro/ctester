@@ -264,35 +264,20 @@ global.location.origin = "https://ctester.example";
 global.location.pathname = "/";
 
 const UN_FICHIER = [{ name: "submission.c" }];
-// LE DETAIL, SERVI A PART. `tps.json` ne porte plus que le menu et la
-// liste blanche des noms de fichiers ; consigne et gabarits vivent ici.
+// LE DETAIL, SERVI A PART. `/catalog.json` ne porte que le menu et la liste
+// blanche des noms de fichiers ; consigne et gabarits vivent ici.
 const DETAILS = {
   "tp2-ex0": { statement: "", files: UN_FICHIER },
   "tp2-ex3": { statement: "Calcule U = R * I.", files: UN_FICHIER },
   "tp6-ex1": { statement: "", files: [{ name: "calendrier.h", template: "#define VRAI 1\n" }, { name: "calendrier.c", template: "#include \"calendrier.h\"\n" }] },
 };
 // TROIS PREMIERS CHARGEMENTS DIFFÉRENTS, DONC TROIS PROCESSUS. La page ne lit
-// le catalogue qu'une fois, au chargement : le repli v1 et le lien profond
-// verrouillé ne sont pas des états dans lesquels on peut entrer après coup. Le
-// mode par défaut ("") est celui de la production après bascule -- une release
-// v2 servie par /catalog.json ; les deux autres sont relancés dans un
-// sous-processus à la fin de ce fichier.
+// le catalogue qu'une fois, au chargement : un catalogue absent et un lien
+// profond verrouillé ne sont pas des états dans lesquels on peut entrer après
+// coup. Le mode par défaut ("") est celui de la production ; les deux autres
+// sont relancés dans un sous-processus à la fin de ce fichier.
 const MODE = process.env.CTESTER_MODE || "";
 if (MODE === "verrou") global.location.search = "?tp=tp10-ex1";
-
-const CATALOGUE = [
-  { id: "tp1", mode: "quiz", label: "TP1 : encodage binaire",
-    group: "TP 1", short: "encodage binaire", files: [] },
-  { id: "tp2-ex0", mode: "io", label: "TP2 : ex.0 âge",
-    group: "TP 2", short: "ex.0 âge", files: UN_FICHIER },
-  { id: "tp2-ex3", mode: "io", label: "TP2 : ex.3 loi d'Ohm",
-    group: "TP 2", short: "ex.3 loi d'Ohm", files: UN_FICHIER,
-    learning: { skills: ["variables", "arithmetic-operators"],
-                context: "electrical", difficulty: "foundation" } },
-  { id: "tp6-ex1", mode: "unity", label: "TP6 : ex.1 est_bissextile",
-    group: "TP 6", short: "ex.1 est_bissextile",
-    files: [{ name: "calendrier.h" }, { name: "calendrier.c" }] },
-];
 
 // LE CATALOGUE v2 TEL QUE `publish_content.projection()` l'écrit. Il porte
 // TOUS les exercices, ouverts ou non -- montrer n'est pas donner -- et
@@ -408,14 +393,12 @@ const PROGRES = {
 global.fetch = async (url, opts) => {
   calls.push({ url, opts });
   if (url === "catalog.json") {
-    // LE ROLLBACK EST UN 404. Vider CTESTER_PUBLISHED fait disparaître la
-    // route, et la page doit alors repartir sur `tps.json` sans redéploiement.
-    return MODE === "v1"
-      ? { ok: false, status: 404, json: async () => ({ error: "absent" }) }
+    // RIEN DE PUBLIÉ = 404, et depuis la phase 8 il n'y a plus de repli : la
+    // page doit le DIRE plutôt que dessiner un menu vide, qui ressemblerait à
+    // un semestre qui n'a pas commencé.
+    return MODE === "absent"
+      ? { ok: false, status: 404, json: async () => ({ error: "catalogue absent" }) }
       : { ok: true, status: 200, json: async () => CATALOG_V2 };
-  }
-  if (url === "tps.json") {
-    return { ok: true, status: 200, json: async () => CATALOGUE };
   }
   if (url.startsWith("tp/")) {
     const detail = DETAILS[url.slice(3, -5)];
@@ -544,8 +527,8 @@ function forumRepond(url, opts) {
                              + " caractères)");
     }
     forumCompteur++;
-    (FORUM[corps.tp] || (FORUM[corps.tp] = [])).push({
-      id: "m" + forumCompteur, ex: corps.tp, auteur: "Vous", mien: true,
+    (FORUM[corps.exercise_id] || (FORUM[corps.exercise_id] = [])).push({
+      id: "m" + forumCompteur, ex: corps.exercise_id, auteur: "Vous", mien: true,
       masque: false, cree_le: "2026-09-03 10:0" + forumCompteur,
       texte: corps.texte });
     return rendJson({ ok: true });
@@ -619,19 +602,16 @@ const attendre = async () => { await sleep(); await sleep(); };
   // DEUX PREMIERS CHARGEMENTS QUI NE SONT PAS CELUI-CI. Chacun tourne dans son
   // propre processus (voir la fin du fichier) et ne rejoue pas la suite : ce
   // qu'on éprouve ici, c'est ce que la page fait AVANT que quiconque clique.
-  if (MODE === "v1") {
+  if (MODE === "absent") {
     check(calls.some(c => c.url === "catalog.json"),
-          "v1 : le catalogue v2 est demandé d'abord");
-    check(calls.some(c => c.url === "tps.json"),
-          "v1 : un 404 fait repartir la page sur tps.json");
-    check(collectionsMenu().map(titreCollection).join(",") === "TP 1,TP 2,TP 6",
-          "v1 : le menu se reconstruit depuis les groupes de tps.json");
-    check(!collectionsMenu().some(
-            (c) => c.children.some((k) => /\ud83d\udd12/.test(k.textContent || ""))),
-          "v1 : aucun cadenas, `tps.json` ne porte ni accès ni date");
-    check(global.ctester.catalogue().length === CATALOGUE.length,
-          "v1 : les quatre exercices restent ouverts");
-    console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nle repli v1 tient");
+          "absent : le catalogue est demandé au chargement");
+    check(!calls.some(c => String(c.url).startsWith("tp/")),
+          "absent : et rien d'autre ne part -- pas de repli à essayer");
+    check(/recharge la page/.test(shown()),
+          "absent : la page le dit : " + shown());
+    check(global.ctester.catalogue().length === 0,
+          "absent : et n'annonce aucun exercice, plutôt qu'un menu vide");
+    console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nun catalogue absent se voit");
     process.exit(failures ? 1 : 0);
   }
   if (MODE === "verrou") {
@@ -654,13 +634,13 @@ const attendre = async () => { await sleep(); await sleep(); };
   }
 
   check(calls.some(c => c.url === "catalog.json"),
-        "le catalogue v2 est demandé au chargement");
-  check(!calls.some(c => c.url === "tps.json"),
-        "et `tps.json` ne l'est pas : le repli n'est pas un second appel");
+        "le catalogue est demandé au chargement");
+  check(calls.filter(c => c.url === "catalog.json").length === 1,
+        "une seule fois : il n'y a plus de repli à essayer");
 
   // --- LE DETAIL, CHARGE A LA DEMANDE ---
-  // `tps.json` ne porte plus ni consigne ni gabarits : trois quarts de son
-  // poids pour 72 exercices dont un seul est ouvert.
+  // Le catalogue ne porte ni consigne ni gabarits : trois quarts de son poids
+  // pour 73 exercices dont un seul est ouvert.
   check(calls.some(c => c.url === "tp/tp1.json"),
         "ouvrir un exercice demande son detail, a part");
 
@@ -837,7 +817,7 @@ const attendre = async () => { await sleep(); await sleep(); };
     const sent = JSON.parse(post.opts.body);
     check(sent.files["submission.c"] === "int main(void){return 0;}",
           "le code est bien dans la charge utile, sous son nom de fichier");
-    check(sent.tp === "tp2-ex3" && sent.key === "cle-de-test",
+    check(sent.exercise_id === "tp2-ex3" && sent.key === "cle-de-test",
           "l'exercice envoyé est celui du SECOND menu, pas le TP");
     check(!("Authorization" in post.opts.headers),
           "une soumission anonyme ne porte pas de jeton");
@@ -1018,7 +998,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(!!quizPost, "le fetch part aussi en mode quiz");
   if (quizPost) {
     const sent = JSON.parse(quizPost.opts.body);
-    check(sent.tp === "tp1", "le quiz est soumis sous l'identifiant du TP");
+    check(sent.exercise_id === "tp1", "le quiz est soumis sous son identifiant d'exercice");
     // LE POINT DE LA PAGINATION : masquer une page ne doit pas perdre ses
     // réponses. La soumission ramasse les trois champs, pas la page visible.
     check(sent.answers.q1 === "00010111" && sent.answers.q3 === "0x17",
@@ -1703,7 +1683,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   await attendre(); await attendre(); await attendre();
   check(nodes.charte.hidden === true, "l'accepter la referme");
   const envoi = forumEnvois.find(e => e.url === "forum");
-  check(envoi && envoi.corps.tp === "tp2-ex3" && /boucle/.test(envoi.corps.texte),
+  check(envoi && envoi.corps.exercise_id === "tp2-ex3" && /boucle/.test(envoi.corps.texte),
         "le message part, avec l'exercice affiché");
   check(/Message publié/.test(vuDuForum()),
         "la page le confirme : " + vuDuForum().slice(0, 40));
@@ -2035,19 +2015,19 @@ const attendre = async () => { await sleep(); await sleep(); };
         "aucun script inline : `script-src 'self'` du <meta> le bloquerait");
 
   for (const [hote, attendu] of [
-    ["tch009.thevhome.com", "https://tch099.thevhome.com/tps.json"],
-    ["vianpyro.github.io", "https://tch099.thevhome.com/tps.json"],
-    ["localhost", "tps.json"],
+    ["tch009.thevhome.com", "https://tch099.thevhome.com/catalog.json"],
+    ["vianpyro.github.io", "https://tch099.thevhome.com/catalog.json"],
+    ["localhost", "catalog.json"],
   ]) {
     global.location.hostname = hote;
     new Function(lire("config.js"))();
-    check(global.API("tps.json") === attendu, "config.js : " + hote + " -> " + attendu);
+    check(global.API("catalog.json") === attendu, "config.js : " + hote + " -> " + attendu);
   }
 
-  // LE REPLI v1 ET LE LIEN VERROUILLÉ, dans leur propre processus. Le catalogue
+  // LE CATALOGUE ABSENT ET LE LIEN VERROUILLÉ, dans leur propre processus. Le catalogue
   // n'est lu qu'une fois par chargement de page : les éprouver ici voudrait
   // dire rejouer un premier chargement, ce qu'aucun `await` ne sait faire.
-  for (const mode of ["v1", "verrou"]) {
+  for (const mode of ["absent", "verrou"]) {
     const fils = require("child_process").spawnSync(
       process.execPath, [__filename, APP],
       { env: Object.assign({}, process.env, { CTESTER_MODE: mode }),

@@ -1,13 +1,14 @@
 """Le catalogue des exercices, et la liste blanche des fichiers.
 
-`find_tp()` EST LA SEULE PORTE VERS UN TP. Le mode, le nom du fichier déposé
-dans le spool, le chemin d'un quiz servi : tout part d'ici. Un TP absent du
-catalogue n'existe pas, quel que soit le contenu du disque -- c'est ce qui fait
-qu'il n'y a aucun chemin à traverser dans `/tp/<id>.json`.
+`find_exercise()` EST LA SEULE PORTE VERS UN EXERCICE. Le mode, le nom du
+fichier déposé dans le spool, le chemin d'un quiz servi : tout part d'ici. Un
+exercice absent du catalogue publié n'existe pas, quel que soit le contenu du
+disque -- et un exercice pas encore ouvert n'est pas « absent » mais « fermé »,
+ce qui est la même réponse ici et un cadenas daté dans le menu.
 
-Le catalogue lui-même est écrit par le worker (`publish_catalogue()` dans
-`runner.py`), qui retire le corrigé d'un quiz avant publication. Ce module ne
-fait que le lire.
+Le catalogue lui-même est une RELEASE écrite par le worker (`publish_content.py`,
+appelé par `publish_catalogue()` dans `runner.py`), qui reconstruit champ à champ
+ce qui sort. Ce module ne fait que la lire.
 """
 
 import json
@@ -16,7 +17,6 @@ import re
 
 import config
 
-TP_RE = re.compile(r"\A[a-z0-9_-]{1,32}\Z")
 # Le nom d'une release EST le hachage de son contenu. Validé avant d'être joint
 # à un chemin : ce fichier est écrit par le worker, mais rien qui devienne un
 # chemin ne se lit sans être vérifié.
@@ -24,7 +24,7 @@ REVISION_RE = re.compile(r"\A[0-9a-f]{8,64}\Z")
 
 
 def release_dir():
-    """Le répertoire de la publication v2 active, ou None (déploiement v1).
+    """Le répertoire de la publication active, ou None (rien de publié).
 
     RELU À CHAQUE APPEL, comme le catalogue lui-même : republier ou revenir en
     arrière est un pointeur à réécrire, pas un conteneur à recréer.
@@ -43,7 +43,7 @@ def release_dir():
 
 
 def load_catalog():
-    """Le catalogue v2 publié -- collections, accès, exercices. None en v1."""
+    """Le catalogue publié -- collections, accès, exercices. None si rien n'est publié."""
     release = release_dir()
     if release is None:
         return None
@@ -56,90 +56,43 @@ def load_catalog():
 
 
 def source_publiee(entry, quoi):
-    """(base, nom) du fichier publié pour cet exercice. Reconstruit, jamais reçu.
+    """(base, nom) du fichier publié pour cet exercice, ou (None, None).
 
-    Un seul endroit sait où vivent le détail et le quiz : la v2 les range sous
-    la release (`exercises/`, `quiz/`), la v1 sous `STATIC` (`tp/`, `quiz/`).
+    Le nom est RECONSTRUIT depuis l'identifiant du catalogue, jamais reçu : il
+    n'y a donc pas de chemin à traverser. `None` quand le pointeur a disparu
+    entre la résolution et la lecture -- un rollback en pleine requête est un
+    404, pas une trace.
     """
     release = release_dir()
-    if release is not None:
-        dossier = "exercises" if quoi == "detail" else "quiz"
-        return release, os.path.join(dossier, entry["id"] + ".json")
-    return config.STATIC, os.path.join("tp" if quoi == "detail" else "quiz",
-                                       entry["id"] + ".json")
+    if release is None:
+        return None, None
+    dossier = "exercises" if quoi == "detail" else "quiz"
+    return release, os.path.join(dossier, entry["id"] + ".json")
 
 
-def _v1(catalog):
-    """Le catalogue v2 rendu dans la FORME v1, le temps de la bascule de l'UI.
+def exercices_ouverts():
+    """Les exercices OUVERTS du catalogue publié, dans l'ordre de publication.
 
-    La page affiche encore deux menus déroulants groupe/exercice : elle reçoit
-    donc `group`, `short` et `learning` comme avant, dérivés des collections et
-    des métadonnées v2. C'est cette fonction que la phase 5 supprime, quand la
-    page lira `/catalog.json` directement.
-
-    SEULS LES EXERCICES OUVERTS EN SORTENT -- `access` est calculé à la
-    publication, et un exercice verrouillé n'a de toute façon ni détail ni quiz
-    publiés. La v1 les faisait disparaître du catalogue ; ici ils y sont, mais
-    seule la page v2 saura dessiner leur cadenas.
+    La progression ne compte que ce qui est ouvert : un exercice verrouillé ne
+    doit ni gonfler un dénominateur, ni être recommandé la veille de son
+    ouverture. C'est la même liste que `find_exercise` interroge une entrée à la
+    fois -- une seule définition de « publié et ouvert ».
     """
-    groupes = {}
-    for collection in catalog.get("collections") or ():
-        if not isinstance(collection, dict):
-            continue
-        for item in collection.get("items") or ():
-            groupes.setdefault(item, str(collection.get("title", "")))
-    entries = []
-    for exercice in catalog.get("exercises") or ():
-        if not isinstance(exercice, dict) or exercice.get("access") != "available":
-            continue
-        titre = str(exercice.get("title", ""))
-        learning = {}
-        if exercice.get("skills"):
-            learning["skills"] = list(exercice["skills"])
-        if exercice.get("contexts"):
-            learning["context"] = exercice["contexts"][0]
-        if exercice.get("difficulty"):
-            learning["difficulty"] = exercice["difficulty"]
-        entries.append({
-            "id": exercice.get("id"), "mode": exercice.get("mode"),
-            "label": titre, "short": titre,
-            "group": groupes.get(exercice.get("id"), "Autres"),
-            "files": [{"name": f["name"]} for f in exercice.get("files") or ()
-                      if isinstance(f, dict) and "name" in f],
-            "learning": learning,
-        })
-    return [e for e in entries if isinstance(e["id"], str)]
+    return [entry for entry in (load_catalog() or {}).get("exercises") or ()
+            if isinstance(entry, dict) and entry.get("access") == "available"
+            and isinstance(entry.get("id"), str)]
 
 
-def load_tps():
-    """Les TP disponibles : [{id, mode, label}], publiés par le worker.
-
-    Le web connaît le NOM, le MODE et le LIBELLÉ d'un TP, jamais son contenu --
-    le répertoire des tests n'est pas monté dans ce conteneur, et le corrigé
-    d'un quiz est retiré avant publication (publish_catalogue dans runner.py).
-    """
-    catalog = load_catalog()
-    if catalog is not None:
-        return _v1(catalog)
-    try:
-        with open(os.path.join(config.STATIC, "tps.json"), encoding="utf-8") as fh:
-            entries = json.load(fh)
-        return [e for e in entries if isinstance(e, dict) and "id" in e]
-    except (OSError, ValueError):
-        return []
-
-
-def find_tp(tp):
-    """L'entrée de catalogue de ce TP, ou None. La seule porte vers un TP.
+def find_exercise(exercise_id):
+    """L'entrée de catalogue de cet exercice OUVERT, ou None. La seule porte.
 
     Tout ce qui suit -- le mode, le nom de fichier écrit dans le spool, le
-    chemin d'un quiz servi -- part d'ici. Un TP absent du catalogue n'existe pas,
-    quel que soit le contenu du disque.
+    chemin d'un quiz servi -- part d'ici. Un exercice verrouillé figure bien au
+    catalogue (avec son cadenas et sa date), mais ne se résout pas : un lien
+    profond partagé en avance ne contourne rien, il ne résout pas.
     """
-    if not TP_RE.match(tp):
-        return None
-    for entry in load_tps():
-        if entry["id"] == tp:
+    for entry in exercices_ouverts():
+        if entry["id"] == exercise_id:
             return entry
     return None
 

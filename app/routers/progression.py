@@ -32,5 +32,5 @@ def progres(sub: Sub):
     pratique = etat.read_practice_summary(sub)
     if faits is None or etats is None or pratique is None:
         return headers.erreur(503, "la base ne répond pas")
-    return progression.progress_payload(catalogue.load_tps(), faits, etats,
-                                        pratique)
+    return progression.progress_payload(catalogue.exercices_ouverts(), faits,
+                                        etats, pratique)

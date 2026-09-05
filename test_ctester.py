@@ -277,6 +277,28 @@ def test_worker_v2_resout_un_exercice_et_refuse_ce_qui_est_ferme():
         shutil.rmtree(root)
 
 
+def test_publication_refuse_un_worker_sans_contenu():
+    """Sans les deux variables, le worker s'ARRÊTE en le disant.
+
+    Il n'y a plus d'arborescence historique à lire depuis la phase 8 : un worker
+    mal configuré qui publierait « rien » ferait disparaître le catalogue de
+    tout le monde, en silence, et le repli de la page ne le rattraperait plus.
+    Systemd doit voir un échec, pas un service vert devant un menu vide.
+    """
+    garde = (runner.CONTENT, runner.PUBLISHED)
+    try:
+        for contenu, publie in (("", ""), ("/tmp/x", ""), ("", "/tmp/y")):
+            runner.CONTENT, runner.PUBLISHED = contenu, publie
+            try:
+                runner.publish_catalogue()
+            except RuntimeError as exc:
+                assert "CTESTER_CONTENT" in str(exc), exc
+            else:
+                raise AssertionError("publication silencieuse : %r %r" % (contenu, publie))
+    finally:
+        runner.CONTENT, runner.PUBLISHED = garde
+
+
 def test_content_v2_projection_refuse_une_cle_privee():
     """La ceinture : un champ public ajouté demain ne publie pas un corrigé."""
     modele = {"schema_version": 1, "skills": [], "collections": {},
@@ -456,21 +478,6 @@ def test_public_quiz_hides_answers():
         assert "piège" not in json.dumps(runner.public_quiz(QUIZ), ensure_ascii=False)
     finally:
         del QUIZ["questions"][0]["commentaire_prof"]
-
-
-def test_learning_metadata_is_an_explicit_public_projection():
-    conf = {"learning": {
-        "skills": ["variables", "variables", "for", "bad skill", "pointers", "strings"],
-        "context": "electrical", "difficulty": "foundation",
-        "teacher_note": "never publish this",
-    }}
-    assert runner.learning_metadata(conf) == {
-        "skills": ["variables", "for", "pointers", "strings"],
-        "context": "electrical", "difficulty": "foundation",
-    }
-    assert runner.learning_metadata({"learning": {
-        "skills": "variables", "context": "secret", "difficulty": "hard"
-    }}) == {}
 
 
 # --------------------------------------------------------------------------
@@ -711,191 +718,6 @@ def test_declared_files():
         == "submission.c"
 
 
-def test_catalogue_available_from():
-    """Une date future retire l'entrée du catalogue -- menu ET exécution.
-
-    Le filtre est dans `catalogue()` justement pour que ces deux-là tombent
-    ensemble : un TP retiré du menu mais que `tp_path()` résout encore serait
-    ouvert à quiconque a gardé le lien de l'an dernier.
-    """
-    tmp = tempfile.mkdtemp(prefix="ctester-")
-    ancien = runner.TESTS
-    ancien_apercu = runner.APERCU
-    try:
-        runner.TESTS = tmp
-        # Ce test mesure le FILTRE, pas l'environnement de qui le lance : un
-        # CTESTER_APERCU exporté dans un shell ne doit pas faire passer la
-        # suite pour la mauvaise raison.
-        runner.APERCU = False
-        for tp, date in (("tp1", "2000-01-01"), ("tp2", None),
-                         ("tp3", "2999-01-01")):
-            d = os.path.join(tmp, tp, "ex1")
-            os.makedirs(d)
-            conf = {"label": tp, "cases": []}
-            if date is not None:
-                conf["available_from"] = date
-            with open(os.path.join(d, "io.json"), "w", encoding="utf-8") as fh:
-                json.dump(conf, fh)
-        ouverts = [e["id"] for e in runner.catalogue()]
-        ferme = runner.tp_path("tp3-ex1")
-    finally:
-        runner.TESTS = ancien
-        runner.APERCU = ancien_apercu
-        shutil.rmtree(tmp, ignore_errors=True)
-
-    # tp2 n'a PAS de date : l'absence de clé vaut « ouvert », sinon ajouter un
-    # exercice en cours de session le rendrait invisible sans rien dire.
-    assert ouverts == ["tp1-ex1", "tp2-ex1"], ouverts
-    assert ferme is None
-
-
-def test_catalogue_order_and_grouping():
-    """L'ordre du menu est NUMÉRIQUE, et le regroupement sort du nom du dossier.
-
-    Le tri texte est le piège : avec 13 TP, tp10 passerait avant tp2 et le menu
-    partirait en désordre au dixième laboratoire -- invisible tant qu'il n'y en
-    a que deux.
-    """
-    assert runner.group_of("tp2-ex3") == "TP 2"
-    assert runner.group_of("tp10") == "TP 10"
-    assert runner.group_of("bricolage") == "Autres"
-    assert runner.group_of("bonus-1") == "Bonus"
-    assert runner.group_of("bonus-1", {"related_tp": "tp2"}) == "Bonus · TP 2"
-    assert runner.group_of("bonus-1", {"related_tp": "n'importe quoi"}) == "Bonus"
-
-    desordre = ["tp10-ex1", "tp2-ex3", "tp1", "tp2-ex0", "tp13-ex0", "bricolage"]
-    assert sorted(desordre, key=runner.sort_key) == [
-        "tp1", "tp2-ex0", "tp2-ex3", "tp10-ex1", "tp13-ex0", "bricolage"]
-    # LE MÊME PIÈGE UN CRAN PLUS BAS : les exercices d'un TP sont triés entre
-    # eux, et ex10 ne doit pas passer avant ex2.
-    assert sorted(["ex10", "ex2", "ex1", "ex0"], key=runner.sort_key) == [
-        "ex0", "ex1", "ex2", "ex10"]
-
-    # Arborescence à DEUX NIVEAUX : un dossier par TP, un sous-dossier par
-    # exercice. Un TP dont la configuration est à sa racine (le quiz) reste une
-    # entrée à lui seul.
-    tmp = tempfile.mkdtemp(prefix="ctester-")
-    ancien = runner.TESTS
-    try:
-        runner.TESTS = tmp
-        arbre = (("solutions", "tp1", None, None),
-                 ("tp1", None, "quiz.json", "TP1 : encodage"),
-                 ("tp2", "ex0", "io.json", "TP2 : ex.0 âge"),
-                 ("tp2", "ex10", "io.json", "TP2 : ex.10 tardif"),
-                 ("tp2", "ex2", "io.json", "TP2 : ex.2 Watt"),
-                 ("tp10", "ex0", "unity.json", "TP 10 — ex.0 chaînes"))
-        for tp, exercice, conf, label in arbre:
-            d = os.path.join(tmp, tp) if exercice is None \
-                else os.path.join(tmp, tp, exercice)
-            os.makedirs(d, exist_ok=True)
-            if conf is None:
-                # Un corrigé de référence : du code, aucune configuration.
-                with open(os.path.join(d, "calendrier.c"), "w") as fh:
-                    fh.write("int f(void){return 0;}\n")
-                continue
-            with open(os.path.join(d, conf), "w", encoding="utf-8") as fh:
-                json.dump({"label": label, "questions": [], "cases": []}, fh)
-        entries = runner.catalogue()
-        chemin_ex2 = runner.tp_path("tp2-ex2")
-        introuvable = runner.tp_path("tp99-ex1")
-        publiable = [{k: v for k, v in e.items() if k != "path"} for e in entries]
-    finally:
-        runner.TESTS = ancien
-        shutil.rmtree(tmp, ignore_errors=True)
-
-    assert [e["id"] for e in entries] == [
-        "tp1", "tp2-ex0", "tp2-ex2", "tp2-ex10", "tp10-ex0"], entries
-    # L'identifiant reste PLAT : il repart vers le navigateur et revient dans une
-    # soumission, et une barre oblique dedans rouvrirait la traversée de
-    # répertoire que TP_RE ferme.
-    assert all(runner.TP_RE.match(e["id"]) for e in entries)
-    assert chemin_ex2.endswith(os.path.join("tp2", "ex2")), chemin_ex2
-    # `solutions/` NE DOIT JAMAIS DEVENIR UNE ENTRÉE. Les corrigés de référence y
-    # vivent, et une entrée de catalogue est montée dans le bac à sable : ce
-    # serait servir la solution au code de l'étudiant. Ils sont hors d'atteinte
-    # parce qu'aucun fichier de configuration ne se trouve à ces deux niveaux --
-    # ce test est là pour que ça reste vrai.
-    assert not any(e["id"].startswith("solutions") for e in entries), entries
-    assert introuvable is None
-    # Le chemin serveur ne doit pas partir vers le conteneur web.
-    assert all("path" not in e for e in publiable)
-    assert [e["group"] for e in entries] == [
-        "TP 1", "TP 2", "TP 2", "TP 2", "TP 10"]
-    # Le second menu ne répète pas ce que le premier affiche déjà. Deux formes de
-    # préfixe sont acceptées, parce que les libellés sont écrits à la main.
-    assert [e["short"] for e in entries] == [
-        "encodage", "ex.0 âge", "ex.2 Watt", "ex.10 tardif", "ex.0 chaînes"]
-    # Et un libellé sans préfixe survit entier plutôt que d'être raboté.
-    assert runner.PREFIX_RE.sub("", "Aire d'un cercle") == "Aire d'un cercle"
-
-
-def test_publish_splits_catalogue_and_details():
-    """Le catalogue publié porte le MENU ; la consigne et les gabarits, non.
-
-    La consigne et les gabarits font les trois quarts de `tps.json` pour
-    72 exercices dont un seul est ouvert : ils partent dans `tp/<id>.json`,
-    chargé quand l'étudiant ouvre l'exercice.
-
-    LES NOMS DE FICHIERS RESTENT, eux. C'est la liste blanche que
-    `validate_files` oppose à une soumission ; les sortir de `tps.json`
-    ouvrirait un trou, pas une optimisation.
-    """
-    tmp = tempfile.mkdtemp(prefix="ctester-")
-    tests, app_dir = os.path.join(tmp, "tests"), os.path.join(tmp, "app")
-    ancien_tests, ancien_app = runner.TESTS, runner.APP
-    try:
-        runner.TESTS, runner.APP = tests, app_dir
-        os.makedirs(os.path.join(tests, "tp6", "ex1"))
-        os.makedirs(app_dir)
-        with open(os.path.join(tests, "tp6", "ex1", "unity.json"), "w",
-                  encoding="utf-8") as fh:
-            json.dump({"label": "TP6 : ex.1 bissextile",
-                       "statement": "Écris est_bissextile.",
-                       "files": [{"name": "calendrier.h",
-                                  "template": "#define VRAI 1\n"},
-                                 {"name": "calendrier.c", "template": ""}]}, fh)
-        runner.publish_catalogue()
-        with open(os.path.join(app_dir, "tps.json"), encoding="utf-8") as fh:
-            publie = json.load(fh)
-        with open(os.path.join(app_dir, "tp", "tp6-ex1.json"),
-                  encoding="utf-8") as fh:
-            detail = json.load(fh)
-    finally:
-        runner.TESTS, runner.APP = ancien_tests, ancien_app
-        shutil.rmtree(tmp, ignore_errors=True)
-
-    entree = publie[0]
-    assert "statement" not in entree, entree
-    assert [f["name"] for f in entree["files"]] == ["calendrier.h", "calendrier.c"]
-    assert all("template" not in f for f in entree["files"]), entree["files"]
-    # Le menu, lui, doit rester entier : c'est tout ce que la page a au départ.
-    assert entree["label"] and entree["short"] and entree["group"]
-    assert detail["statement"] == "Écris est_bissextile."
-    assert detail["files"][0]["template"] == "#define VRAI 1\n"
-
-
-def test_bonus_catalogue_is_explicit_and_always_open():
-    tmp = tempfile.mkdtemp(prefix="ctester-")
-    ancien = runner.TESTS
-    try:
-        runner.TESTS = tmp
-        dossier = os.path.join(tmp, "bonus", "bonus-1")
-        os.makedirs(dossier)
-        with open(os.path.join(dossier, "io.json"), "w", encoding="utf-8") as fh:
-            json.dump({"label": "Bonus : Clash 1", "cases": [],
-                       "related_tp": "tp2",
-                       "learning": {"skills": ["variables"],
-                                    "context": "mechanical",
-                                    "difficulty": "foundation"}}, fh)
-        entries = runner.catalogue()
-        assert [entry["id"] for entry in entries] == ["bonus-bonus-1"]
-        assert entries[0]["group"] == "Bonus · TP 2"
-        assert runner.tp_path("bonus-bonus-1") == dossier
-    finally:
-        runner.TESTS = ancien
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
 def test_docker_argv():
     for mode in ("unity", "io"):
         argv = runner.docker_argv("/spool/abc", "/tests/tp1", "ctester-abc", mode,
@@ -995,11 +817,13 @@ def test_succes_derives_de_faits():
     assert politique.succes_atteints({"inconnu": 99}) == []
 
 
+# LA FORME DU CATALOGUE PUBLIE, celle que `exercices_ouverts()` rend :
+# `skills` et `difficulty` a plat, plus de bloc `learning`.
 CATALOGUE_DEMO = [
-    {"id": "tp2-ex0", "learning": {"skills": ["variables"], "difficulty": "intro"}},
-    {"id": "tp2-ex3", "learning": {"skills": ["variables", "arithmetic-operators"],
-                                   "difficulty": "foundation"}},
-    {"id": "tp6-ex1", "learning": {"skills": ["arrays-1d"]}},
+    {"id": "tp2-ex0", "skills": ["variables"], "difficulty": "intro"},
+    {"id": "tp2-ex3", "skills": ["variables", "arithmetic-operators"],
+     "difficulty": "foundation"},
+    {"id": "tp6-ex1", "skills": ["arrays-1d"]},
     {"id": "tp1"},                                    # sans metadonnees : legal
 ]
 
