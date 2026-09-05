@@ -458,11 +458,15 @@ pre {
 #vueprogres .quand { display: block; }
 #vueprogres .aide { font-family: var(--sans); }
 
-/* « Discussions » : même place et mêmes composants que les deux autres vues.
+/* LA MODERATION PARTAGE CETTE MISE EN FORME : memes blocs, memes cadres, meme
+   colonne. Elle a sa propre destination depuis que ses deux files ne sont plus
+   rendues au milieu du fil que les etudiants viennent lire.
+
+   « Discussions » : même place et mêmes composants que les deux autres vues.
    Rien n'y dépend de la couleur seule -- « masqué » et le nombre de
    signalements sont écrits en toutes lettres, et c'est ce texte que lit un
    lecteur d'écran. */
-#vueforum {
+:is(#vueforum, #vuemoderation) {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .9rem;
   font-family: var(--sans);
   display: grid; align-content: start;
@@ -470,46 +474,46 @@ pre {
 }
 /* L'en-tête et le message de panne traversent les deux colonnes ; le reste
    vit dans l'une ou l'autre. */
-#vueforum > h2, #vueforum > p { grid-column: 1 / -1; }
-#vueforum .colonne { min-width: 0; }
+:is(#vueforum, #vuemoderation) > h2, :is(#vueforum, #vuemoderation) > p { grid-column: 1 / -1; }
+:is(#vueforum, #vuemoderation) .colonne { min-width: 0; }
 /* 56rem = deux colonnes tiennent encore : 24rem d'un côté, le reste de
    l'autre. Plus haut, la fenêtre de 1000 px restait sur une colonne de 42rem
    et laissait un tiers de l'écran vide. */
 @media (min-width: 56rem) {
-  #vueforum { grid-template-columns: minmax(17rem, 24rem) minmax(0, 64rem); }
+  :is(#vueforum, #vuemoderation) { grid-template-columns: minmax(17rem, 24rem) minmax(0, 64rem); }
 }
-#vueforum[hidden] { display: none; }
-#vueforum h2 { font-size: 1rem; margin: 0 0 .35rem; }
+:is(#vueforum, #vuemoderation)[hidden] { display: none; }
+:is(#vueforum, #vuemoderation) h2 { font-size: 1rem; margin: 0 0 .35rem; }
 /* PAS DE LARGEUR MAXIMALE ICI : un cadre remplit sa colonne, et c'est la
-   colonne qui borne. La mesure de lecture, elle, tient sur `#vueforum p`. */
-#vueforum .bloc {
+   colonne qui borne. La mesure de lecture, elle, tient sur `:is(#vueforum, #vuemoderation) p`. */
+:is(#vueforum, #vuemoderation) .bloc {
   margin: .9rem 0 0; padding: .75rem .85rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
 }
-#vueforum .bloc.second { background: none; border-style: dashed; }
-#vueforum .soustitre {
+:is(#vueforum, #vuemoderation) .bloc.second { background: none; border-style: dashed; }
+:is(#vueforum, #vuemoderation) .soustitre {
   margin: 0 0 .45rem; font-size: .68rem; letter-spacing: .09em;
   text-transform: uppercase; color: var(--muted); font-weight: 600;
 }
-#vueforum p { margin: 0 0 .5rem; font-size: 13.5px; max-width: 40rem; }
+:is(#vueforum, #vuemoderation) p { margin: 0 0 .5rem; font-size: 13.5px; max-width: 40rem; }
 /* Le corps d'un message, lui, prend toute sa colonne : c'est le contenu
    qu'on vient lire, et il est déjà borné par la largeur de la colonne. */
-#vueforum .texte p, #vueforum .texte li, #vueforum .texte blockquote
+:is(#vueforum, #vuemoderation) .texte p, :is(#vueforum, #vuemoderation) .texte li, :is(#vueforum, #vuemoderation) .texte blockquote
   { max-width: none; }
-#vueforum p:last-child { margin-bottom: 0; }
-#vueforum .rate { color: var(--bad); font-weight: 600; }
-#vueforum .annonce:empty { display: none; }
-#vueforum .annonce { margin: .3rem 0 0; font-size: 13px; color: var(--ink); }
-#vueforum label { display: block; font-size: 12.5px; color: var(--muted);
+:is(#vueforum, #vuemoderation) p:last-child { margin-bottom: 0; }
+:is(#vueforum, #vuemoderation) .rate { color: var(--bad); font-weight: 600; }
+:is(#vueforum, #vuemoderation) .annonce:empty { display: none; }
+:is(#vueforum, #vuemoderation) .annonce { margin: .3rem 0 0; font-size: 13px; color: var(--ink); }
+:is(#vueforum, #vuemoderation) label { display: block; font-size: 12.5px; color: var(--muted);
                   margin-bottom: .3rem; }
-#vueforum select, #vueforum textarea, #vueforum input[type="text"],
-#vueforum input[type="number"] {
+:is(#vueforum, #vuemoderation) select, :is(#vueforum, #vuemoderation) textarea, :is(#vueforum, #vuemoderation) input[type="text"],
+:is(#vueforum, #vuemoderation) input[type="number"] {
   width: 100%; max-width: 40rem; font-family: var(--sans); font-size: 13.5px;
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
   border: 1px solid var(--line-2); border-radius: 6px;
 }
-#vueforum textarea { min-height: 5.5rem; resize: vertical; }
-#vueforum input[type="number"] { max-width: 6rem; }
+:is(#vueforum, #vuemoderation) textarea { min-height: 5.5rem; resize: vertical; }
+:is(#vueforum, #vuemoderation) input[type="number"] { max-width: 6rem; }
 /* Une case à cocher est une case, pas un bloc : la règle `label` ci-dessus
    couperait la ligne entre la case et son texte. */
 .coche {
@@ -518,52 +522,52 @@ pre {
 }
 .coche input { width: auto; margin: 0; }
 /* Le numéro de groupe : une pastille, à côté du nom et jamais à sa place. */
-#vueforum .groupe {
+:is(#vueforum, #vuemoderation) .groupe {
   font-size: 12px; color: var(--muted); padding: 0 .4rem;
   border: 1px solid var(--line-2); border-radius: 999px;
 }
-#vueforum button { margin-top: .5rem; }
-#vueforum .regles { margin: 0 0 .5rem; padding-left: 1.1rem; }
-#vueforum .regles li { font-size: 13px; margin-bottom: .25rem; }
-#vueforum .fil { list-style: none; margin: 0; padding: 0; }
-#vueforum .message {
+:is(#vueforum, #vuemoderation) button { margin-top: .5rem; }
+:is(#vueforum, #vuemoderation) .regles { margin: 0 0 .5rem; padding-left: 1.1rem; }
+:is(#vueforum, #vuemoderation) .regles li { font-size: 13px; margin-bottom: .25rem; }
+:is(#vueforum, #vuemoderation) .fil { list-style: none; margin: 0; padding: 0; }
+:is(#vueforum, #vuemoderation) .message {
   padding: .55rem .6rem; margin-bottom: .5rem; background: var(--card);
   border: 1px solid var(--line); border-radius: 6px;
 }
-#vueforum .qui { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline;
+:is(#vueforum, #vuemoderation) .qui { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline;
                  margin: 0 0 .3rem; }
-#vueforum .auteur { font-weight: 600; font-size: 13px; }
-#vueforum .quand { color: var(--muted); font-size: 12px;
+:is(#vueforum, #vuemoderation) .auteur { font-weight: 600; font-size: 13px; }
+:is(#vueforum, #vuemoderation) .quand { color: var(--muted); font-size: 12px;
                    font-variant-numeric: tabular-nums; }
 /* Le contour, et pas la seule couleur : un état qui ne se voit qu'en teinte
    disparaît en noir et blanc comme sous un daltonisme. */
-#vueforum .etat {
+:is(#vueforum, #vuemoderation) .etat {
   font-size: 12px; color: var(--wait); border: 1px solid var(--wait);
   border-radius: 999px; padding: 0 .4rem;
 }
 /* `pre-wrap` : quand le rendu Markdown n'a pas pu être chargé, le message
    retombe en texte brut et doit garder ses retours à la ligne. Le rendu, lui,
    produit de vrais `<p>` -- d'où le `pre-wrap` neutralisé sur eux plus bas. */
-#vueforum .texte { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
-#vueforum .row { display: flex; flex-wrap: wrap; gap: .4rem; }
+:is(#vueforum, #vuemoderation) .texte { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+:is(#vueforum, #vuemoderation) .row { display: flex; flex-wrap: wrap; gap: .4rem; }
 
 /* Le Markdown rendu, assaini. L'allow-list de forum.js est fermée : ces neuf
    sélecteurs sont donc la liste EXHAUSTIVE de ce qui peut apparaître ici. */
-#vueforum .md > * { white-space: normal; }
-#vueforum .md p { margin: 0 0 .4rem; }
-#vueforum .md p:last-child { margin-bottom: 0; }
-#vueforum .md ul, #vueforum .md ol { margin: 0 0 .4rem; padding-left: 1.2rem; }
-#vueforum .md li { font-size: 13.5px; margin-bottom: .15rem; }
-#vueforum .md blockquote {
+:is(#vueforum, #vuemoderation) .md > * { white-space: normal; }
+:is(#vueforum, #vuemoderation) .md p { margin: 0 0 .4rem; }
+:is(#vueforum, #vuemoderation) .md p:last-child { margin-bottom: 0; }
+:is(#vueforum, #vuemoderation) .md ul, :is(#vueforum, #vuemoderation) .md ol { margin: 0 0 .4rem; padding-left: 1.2rem; }
+:is(#vueforum, #vuemoderation) .md li { font-size: 13.5px; margin-bottom: .15rem; }
+:is(#vueforum, #vuemoderation) .md blockquote {
   margin: 0 0 .4rem; padding-left: .6rem; color: var(--muted);
   border-left: 2px solid var(--line-2);
 }
-#vueforum .md code {
+:is(#vueforum, #vuemoderation) .md code {
   font-family: var(--mono); font-size: 12.5px; padding: 0 .25rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
 }
-#vueforum .md a { color: var(--ink); overflow-wrap: anywhere; }
-#vueforum .apercu {
+:is(#vueforum, #vuemoderation) .md a { color: var(--ink); overflow-wrap: anywhere; }
+:is(#vueforum, #vuemoderation) .apercu {
   margin: 0; padding: .5rem .6rem; min-height: 2.2rem;
   background: var(--card); border: 1px dashed var(--line-2); border-radius: 6px;
   font-size: 13.5px;
@@ -759,3 +763,50 @@ pre {
 .gcc > pre { border-left: 3px solid var(--bad); }
 .gcc > .case { margin-top: .4rem; }
 .gcc > .case > summary { color: var(--muted); }
+
+/* --- La bande du laboratoire ---------------------------------------------
+   La navigation qu'on fait vingt fois par séance, à un clic, avec le statut.
+   Le menu global reste pour la bascule entre collections, qui est rare. */
+#bandelabo {
+  flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: .3rem;
+  padding: .4rem .75rem;
+  border-bottom: 1px solid var(--line); background: var(--bg);
+}
+#bandelabo[hidden] { display: none; }
+#bandelabo .puce {
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .25rem .6rem; font-size: 12.5px; font-weight: 400;
+  color: var(--muted); background: var(--card);
+  border: 1px solid var(--line); border-radius: 999px;
+}
+#bandelabo .puce:hover:not(:disabled) { color: var(--fg); border-color: var(--line-2); }
+/* « Vous êtes ici ». Doublé par aria-current : la couleur ne dit rien à un
+   lecteur d'écran, et le contour seul disparaît sous certains daltonismes. */
+#bandelabo .puce.on {
+  color: var(--fg); font-weight: 600;
+  border-color: var(--ink); background: var(--panel);
+}
+#bandelabo .puce .marque { font-style: normal; font-size: 11px; }
+#bandelabo .puce.valide .marque { color: var(--ok); }
+#bandelabo .puce.essaye .marque { color: var(--wait); }
+
+/* Le statut dans le menu du catalogue : la même information, là où l'on
+   choisit. Elle ne vivait que dans « Mes exercices ». */
+#exliste .exline .etat {
+  flex: 0 0 auto; font-size: 11.5px; white-space: nowrap;
+  font-family: var(--sans);
+}
+#exliste .exline .etat.valide { color: var(--ok); }
+#exliste .exline .etat.essaye { color: var(--wait); }
+
+/* Le rappel du dernier verdict, en tête d'un fil. Ouvrir les discussions
+   efface le poste de travail : on arrive ici pour parler d'un résultat qu'on
+   ne voit plus. */
+:is(#vueforum, #vuemoderation) .rappel {
+  grid-column: 1 / -1; margin: 0 0 .3rem;
+  font-size: 13px; color: var(--fg);
+}
+:is(#vueforum, #vuemoderation) .rappel .quoi { color: var(--muted); }
+/* Le bouton d'aide, dans la bande d'action suivante : discret, il ne doit pas
+   concurrencer l'action qui fait avancer l'exercice. */
+.suite .aide { margin-left: auto; }

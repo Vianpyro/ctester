@@ -86,6 +86,12 @@
   <div id="droite">
     <div id="now" class="phead" aria-live="polite"></div>
 
+    <!-- LA NAVIGATION LOCALE, celle qu'on fait vingt fois par seance : passer
+         de l'ex.2 a l'ex.3 du meme labo. Elle passait par un menu global qui
+         couvre l'ecran, pour une cible situee a un cran. Le menu reste, pour la
+         bascule entre collections -- qui, elle, est rare. -->
+    <nav id="bandelabo" aria-label="Exercices de ce laboratoire" hidden></nav>
+
     <div id="editor">
       <div class="phead">
         <span id="edtitle"></span>
@@ -136,6 +142,12 @@
 <div id="liste" hidden></div>
 <section id="vueprogres" aria-labelledby="progrestitre" hidden></section>
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
+
+<!-- LA MODERATION EST UNE DESTINATION A PART, pas un bloc de plus dans la vue
+     etudiante. Files de signalements et de noms y etaient rendues au milieu du
+     fil que les etudiants viennent lire : deux publics dans un ecran, au
+     detriment de celui pour qui la page existe. -->
+<section id="vuemoderation" aria-labelledby="moderationtitre" hidden></section>
 
 <!-- CE QUI EST ANNONCÉ, ET RIEN D'AUTRE. Une ligne courte : « Ton code ne
      compile pas », « 3 tests sur 4 ». Poser aria-live sur #out ferait lire la

@@ -1003,6 +1003,47 @@ const attendre = async () => { await sleep(); await sleep(); };
         "l'indicateur dit ou le brouillon est parti : " + nodes.sauvegarde.textContent);
   check(nodes.sauvegarde.className === "", "discret tant que tout va bien");
 
+  // --- LA BANDE DU LABORATOIRE ----------------------------------------------
+  // La navigation qu'on fait vingt fois par seance -- passer de l'ex.2 a l'ex.3
+  // du meme labo -- passait par un menu global qui couvre l'ecran, pour une
+  // cible situee a un cran.
+  await choisir("TP 2", "tp2-ex0");
+  await sleep();
+  const puces = () => nodes.bandelabo.children;
+  check(nodes.bandelabo.hidden === false, "un labo à plusieurs exercices a sa bande");
+  check(puces().length > 1, "avec une puce par exercice ouvert du labo");
+  const ici = puces().find(p => p.getAttribute("aria-current") === "true");
+  check(!!ici, "l'exercice courant est marqué par aria-current, pas par la seule couleur");
+  // L'ETIQUETTE EST COURTE : `short` porte deja le titre qualifie (« TP2 : ex.3
+  // loi d'Ohm »), et onze puces de trente caracteres remplissent trois lignes.
+  // `textContent` DIRECT : dans ce faux DOM, `append` n'agrege pas le texte
+  // des enfants -- c'est donc l'etiquette seule, et c'est ce qu'on veut ici.
+  check(/^ex\.\d+/.test(ici.textContent),
+        "l'étiquette est courte : " + ici.textContent);
+  const nomComplet = global.ctester.catalogue()
+    .find(t => t.id === global.ctester.exerciceChoisi()).short;
+  check((ici.getAttribute("title") || "").indexOf(nomComplet) === 0,
+        "le nom entier reste au survol : " + ici.getAttribute("title"));
+
+  // UN CLIC Y CHANGE D'EXERCICE, sans passer par le menu.
+  const ailleurs = puces().find(p => p.getAttribute("aria-current") !== "true");
+  ailleurs.listeners.click();
+  await sleep(); await sleep();
+  check(global.ctester.exerciceChoisi() !== "tp2-ex0",
+        "un clic sur la bande change d'exercice : " + global.ctester.exerciceChoisi());
+
+  // LE STATUT S'Y AFFICHE, ET DANS LE MENU AUSSI. Il ne vivait que dans
+  // « Mes exercices » : on ne pouvait pas savoir ce qu'on avait valide sans
+  // changer d'ecran.
+  global.ctester.poserStatuts({ "tp2-ex0": "valide" });
+  const marquee = puces().find(p => /valide/.test(p.className));
+  check(!!marquee, "un exercice validé porte sa marque dans la bande");
+  check(/validé/.test(profond(marquee)),
+        "et le MOT, pas seulement la coche : " + profond(marquee).trim());
+  const ligneMenu = lignesDe("TP 2").find(l => /validé/.test(libelle(l)));
+  check(!!ligneMenu, "et le menu du catalogue le montre aussi");
+  global.ctester.poserStatuts({});
+
   // LE CAS QUI COMPTE VRAIMENT. Afficher « enregistré » ici ferait perdre son
   // travail à quelqu'un qui nous a crus.
   storageBroken = true;
@@ -1953,7 +1994,22 @@ const attendre = async () => { await sleep(); await sleep(); };
   FORUM_MODERATEUR = true;
   await nodes.discussions.listeners.click();
   await attendre(); await attendre();
-  const vuMod = vuDuForum();
+  // LES OUTILS DE MODÉRATION NE SONT PLUS DANS LE FIL DE L'ÉTUDIANT. Ils y
+  // étaient rendus au milieu de ce que la classe vient lire : deux publics dans
+  // un écran, au détriment de celui pour qui la page existe. Il reste une porte.
+  const vuFil = vuDuForum();
+  check(!/j'ai la meme erreur/.test(vuFil),
+        "le fil ne porte plus le contenu signalé destiné au modérateur");
+  check(/Ouvrir la modération/.test(vuFil),
+        "seulement une porte vers l'écran de modération : " + vuFil.slice(0, 40));
+
+  const porte = tousLesNoeuds(nodes.vueforum)
+    .find(n => n.textContent === "Ouvrir la modération");
+  await porte.listeners.click();
+  await attendre(); await attendre();
+  check(nodes.vueforum.hidden === true && nodes.vuemoderation.hidden === false,
+        "la modération est un écran à part, pas un bloc de plus");
+  const vuMod = contenuDe(nodes.vuemoderation);
   check(/Signalements/.test(vuMod) && /1 signalement/.test(vuMod),
         "un modérateur voit la file, avec le nombre : " + vuMod.slice(0, 40));
   check(/j'ai la meme erreur/.test(vuMod),
@@ -1963,18 +2019,25 @@ const attendre = async () => { await sleep(); await sleep(); };
         + "c'est la page dont une attaque paierait le plus");
 
   forumEnvois.length = 0;
-  const masquer = tousLesNoeuds(nodes.vueforum)
+  const masquer = tousLesNoeuds(nodes.vuemoderation)
     .find(n => n.textContent === "Masquer");
   await masquer.listeners.click();
   await attendre(); await attendre();
   const action = forumEnvois.find(e => e.url === "forum/moderation");
   check(action && action.corps.action === "masquer" && action.corps.id === "m-autre",
         "« Masquer » part avec l'action et l'identifiant");
-  check(/masqué/.test(vuDuForum()),
+  check(/masqué/.test(contenuDe(nodes.vuemoderation)),
         "et l'état est écrit en toutes lettres, pas seulement en couleur");
-  const retablir = tousLesNoeuds(nodes.vueforum)
+  const retablir = tousLesNoeuds(nodes.vuemoderation)
     .find(n => n.textContent === "Rétablir");
   check(!!retablir, "un message masqué se rétablit, il ne disparaît pas");
+
+  // RETOUR AU FIL : la moderation est un ecran a part, on en sort comme des
+  // autres destinations.
+  await ctester.forum.basculerModeration();
+  await attendre(); await attendre();
+  check(nodes.vuemoderation.hidden === true && nodes.vueforum.hidden === false,
+        "on sort de la moderation vers le fil");
 
   // ET UN ÉTUDIANT ORDINAIRE NE LE VOIT PLUS DU TOUT.
   FORUM_MODERATEUR = false;

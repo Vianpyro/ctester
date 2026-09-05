@@ -208,6 +208,9 @@ function setToken(value) {
 function signOut() {
   states = {};
   practice = {};
+  // LES MARQUES PARTENT AVEC LA SESSION : laisser les coches « validé » dans le
+  // menu et la bande montrerait les progrès de quelqu'un qui vient de partir.
+  ctester.poserStatuts({});
   ctester.setToken(null);
   // La projection privée part avec la session : la laisser à l'écran
   // montrerait les progrès de quelqu'un qui vient de se déconnecter.
@@ -222,12 +225,18 @@ function signOut() {
 async function loadStates() {
   const answer = await getJson("etats");
   states = {};
-  if (!answer || !Array.isArray(answer.etats)) return;
-  for (const row of answer.etats) {
-    if (row && typeof row.exercice_id === "string") {
-      states[row.exercice_id] = row.statut;
+  if (answer && Array.isArray(answer.etats)) {
+    for (const row of answer.etats) {
+      if (row && typeof row.exercice_id === "string") {
+        states[row.exercice_id] = row.statut;
+      }
     }
   }
+  // POUSSÉ AU NOYAU, jamais tiré par lui : le menu du catalogue et la bande du
+  // laboratoire montrent le statut, et ils vivent dans app.js. Une panne de
+  // lecture rend une carte VIDE, pas un statut faux -- « à faire » sur un
+  // exercice réussi vaut mieux que l'inverse.
+  ctester.poserStatuts(states);
 }
 
 async function loadPractice() {

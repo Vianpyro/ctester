@@ -285,9 +285,40 @@ function bandeSuite(texte, bouton) {
   return bloc;
 }
 
+// L'AIDE S'OFFRE LÀ OÙ LE BESOIN NAÎT : devant un verdict qui échoue, pas dans
+// un bouton de la barre globale. Le fil est DÉJÀ par exercice (`forum.js` le
+// scope sur l'exercice courant) ; seul son point d'entrée était global, à
+// l'autre bout de l'écran, et ne se remarquait pas au moment utile.
+//
+// LES MÊMES DEUX CONDITIONS QUE LE BOUTON DE LA BARRE, et elles viennent toutes
+// deux du serveur : être connecté, et un déploiement qui a des modérateurs. Un
+// forum sans personne pour le lire ne s'ouvre pas « en attendant ».
+function boutonAide() {
+  if (!token || !(oidc && oidc.forum)) return null;
+  const b = noeud("button", "nav aide", "En parler dans les discussions");
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    if (!await activerModule("forum", "les discussions")) return;
+    await ctester.forum.basculer();
+  });
+  return b;
+}
+
+// LE DERNIER VERDICT RENDU, pour le rappeler en tête d'un fil de discussion.
+// DÉCLARÉ ICI, au-dessus de la fonction qui l'écrit : un `let` posé mille
+// lignes plus bas est une zone morte temporelle, et c'est la seule panne que
+// cette page ait connue en production.
+let dernierVerdict = null;
+
 // `v` : {cls, etapes, compte, titre, texte, bar, detail, suite, bouton}
 // Seul `titre` est obligatoire.
 function verdict(v) {
+  // RETENU POUR LES DISCUSSIONS : ouvrir un fil efface le poste de travail, et
+  // ce qu'on venait raconter avec. Seuls les vrais verdicts comptent -- ni
+  // l'attente, ni le repos.
+  if (v.cls === "ok" || v.cls === "bad") {
+    dernierVerdict = { exercice: selection, titre: v.titre };
+  }
   out.className = v.cls;
   out.innerHTML = "";
   if (v.etapes) out.append(bandeEtapes(v.etapes));
@@ -304,7 +335,14 @@ function verdict(v) {
   // écrasaient toute la zone de résultat.
   if (v.texte && v.texte !== v.titre) out.append(noeud("p", "explique", v.texte));
   if (v.detail) out.append(v.detail);
-  if (v.suite) out.append(bandeSuite(v.suite, v.bouton));
+  if (v.suite) {
+    const bande = bandeSuite(v.suite, v.bouton);
+    // SEULEMENT SUR UN ÉCHEC : on ne propose pas d'aller demander de l'aide à
+    // quelqu'un dont tout vient de passer.
+    const aide = v.cls === "bad" ? boutonAide() : null;
+    if (aide) bande.append(aide);
+    out.append(bande);
+  }
   annoncer(v.titre);
 }
 
@@ -483,11 +521,13 @@ function refreshAccount() {
 // laisserait les deux moitiés à l'écran, ou aucune.
 let vueCourante = "";
 
-function afficherVue(nom) {   // "" (l'exercice) | "liste" | "progres" | "forum"
+function afficherVue(nom) {
+  // "" (l'exercice) | "liste" | "progres" | "forum" | "moderation"
   vueCourante = nom;
   $("liste").hidden = nom !== "liste";
   $("vueprogres").hidden = nom !== "progres";
   $("vueforum").hidden = nom !== "forum";
+  $("vuemoderation").hidden = nom !== "moderation";
   $("travail").hidden = nom !== "";
   $("mesexos").textContent =
     nom === "liste" ? "Retour à l'exercice" : "Mes exercices";
@@ -496,6 +536,24 @@ function afficherVue(nom) {   // "" (l'exercice) | "liste" | "progres" | "forum"
   $("discussions").textContent =
     nom === "forum" ? "Retour à l'exercice" : "Discussions";
 }
+
+// LE STATUT D'UN EXERCICE, AU NOYAU. Il ne vivait que dans « Mes exercices » :
+// ni le menu du catalogue ni le poste de travail ne disaient « déjà validé »,
+// alors que la donnée était déjà chargée. Savoir ce qu'on a fait ne devrait pas
+// demander de changer d'écran.
+//
+// POUSSÉ PAR `compte.js`, jamais tiré : le sens reste unique, et l'anonyme --
+// qui n'a pas de statuts -- ne déclenche rien.
+let statuts = {};
+
+function poserStatuts(carte) {
+  statuts = carte || {};
+  dessinerMenu();
+  dessinerBande();
+}
+
+const STATUT_MARQUE = { valide: "✓", essaye: "•" };
+const STATUT_MOT = { valide: "validé", essaye: "essayé" };
 
 const current = () => catalogue.find(t => t.id === selection) || null;
 
@@ -622,6 +680,14 @@ function ligneMenu(ex) {
   nom.className = "titre";
   nom.textContent = ex.short;
   ligne.append(nom);
+  // LE STATUT, LA OU ON CHOISIT. Il ne vivait que dans « Mes exercices » : on
+  // ne pouvait pas savoir ce qu'on avait deja valide sans changer d'ecran.
+  const fait = statuts[ex.id];
+  if (fait) {
+    const marque = noeud("span", "etat " + fait,
+                         (STATUT_MARQUE[fait] || "") + " " + (STATUT_MOT[fait] || fait));
+    ligne.append(marque);
+  }
   const note = verrou(ex);
   if (note) {
     // DÉSACTIVÉ, PAS CACHÉ. `find_exercise` refuse déjà de le servir côté
@@ -642,6 +708,68 @@ function ligneMenu(ex) {
 
 // UN <details> PAR COLLECTION, DANS LE <details> DU MENU. Le navigateur sait
 // replier : pas d'accordéon en JS, pas d'état d'ouverture à tenir ailleurs.
+// LA BANDE DU LABORATOIRE : les exercices OUVERTS de la collection affichée,
+// avec leur statut. C'est la navigation qu'un étudiant fait vingt fois par
+// séance -- passer de l'ex.2 à l'ex.3 -- et elle demandait d'ouvrir un menu
+// qui couvre l'écran pour une cible située à un cran.
+//
+// ELLE NE REMPLACE PAS LE MENU : celui-ci reste la bascule entre collections,
+// qui est rare, et il garde les exercices verrouillés avec leur date. Deux
+// portées, deux mécanismes -- c'est la répartition global/local habituelle.
+//
+// MOINS DE DEUX EXERCICES, PAS DE BANDE : une bande d'un seul élément
+// n'aiderait à rien et prendrait une ligne à la consigne.
+// UNE ÉTIQUETTE COURTE, PARCE QU'IL Y EN A ONZE. `short` n'est pas nu malgré
+// son nom : le contenu écrit « TP5 : ex.1 celcius_to_fahrenheit » dans le titre
+// lui-même. Onze puces de trente caractères remplissent trois lignes et volent
+// à la consigne la place qu'elle réclame -- alors que le nom complet est déjà
+// affiché juste au-dessus, dans `#now`.
+//
+// On garde le numéro, qui est la façon dont l'énoncé du cours les désigne.
+function etiquetteBande(ex) {
+  const nu = (ex.short || "").replace(/^[^:]*:\s*/, "");
+  const numero = nu.match(/^ex\.?\s*(\d+)/i);
+  if (numero) return "ex." + numero[1];
+  // LES POINTS DE SUSPENSION SONT LOAD-BEARING : « convertir_en_radia »
+  // coupé net se lit comme un bug d'affichage, pas comme un raccourci.
+  return nu.length > 20 ? nu.slice(0, 19) + "…" : nu;
+}
+
+function dessinerBande() {
+  const boite = $("bandelabo");
+  boite.innerHTML = "";
+  const tp = current();
+  const voisins = tp ? catalogue.filter(t => t.group === tp.group) : [];
+  boite.hidden = voisins.length < 2;
+  if (boite.hidden) return;
+  for (const ex of voisins) {
+    const courant = ex.id === selection;
+    const statut = statuts[ex.id] || "";
+    const puce = noeud("button", "puce" + (courant ? " on" : "")
+                                 + (statut ? " " + statut : ""),
+                       etiquetteBande(ex));
+    puce.type = "button";
+    // LE NOM ENTIER RESTE ATTEIGNABLE : au survol pour la souris, et dans le
+    // texte hors écran pour un lecteur -- la puce ne dit que « ex.3 ».
+    puce.setAttribute("title", ex.short);
+    puce.append(noeud("span", "horsecran", " — " + ex.short));
+    // `aria-current` PLUTÔT QU'UNE COULEUR : c'est ce qui dit « vous êtes ici »
+    // à un lecteur d'écran, et la classe `on` ne dit rien à personne d'autre.
+    if (courant) puce.setAttribute("aria-current", "true");
+    if (statut) {
+      // LE MOT EN PLUS DU SIGNE. Une coche verte seule disparaît en noir et
+      // blanc, sous un daltonisme, et ne se lit pas à voix haute.
+      puce.append(noeud("i", "marque", STATUT_MARQUE[statut] || ""));
+      puce.setAttribute("title", ex.short + " — " + (STATUT_MOT[statut] || statut));
+      puce.append(noeud("span", "horsecran", " — " + (STATUT_MOT[statut] || statut)));
+    }
+    puce.addEventListener("click", () => {
+      if (ex.id !== selection) fillExercises(ex.id);
+    });
+    boite.append(puce);
+  }
+}
+
 function dessinerMenu() {
   const boite = $("exliste");
   boite.innerHTML = "";
@@ -725,6 +853,7 @@ $("next").addEventListener("click", () => aller(1));
 function fillExercises(preselect) {
   if (preselect) selection = preselect;
   dessinerMenu();
+  dessinerBande();
   switchMode();
 }
 
@@ -1132,6 +1261,8 @@ Object.assign(ctester, {
   fillExercises: fillExercises,
   showDraftStatus: showDraftStatus,
   maintenant: maintenant,
+  poserStatuts: poserStatuts,
+  dernierVerdict: () => dernierVerdict,
   // LE BROUILLON DU QUIZ, local seulement : `/brouillon` valide les noms de
   // fichiers déclarés par l'exercice, et un identifiant de question n'en est
   // pas un. Même magasin, même bouton « Effacer mes brouillons ».

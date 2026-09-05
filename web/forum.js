@@ -239,8 +239,17 @@ async function ecrire(chemin, methode, charge, succes, echec) {
   const ok = !!(reponse && reponse.ok);
   annonce = ok ? succes : echec + " : " + pourquoi(reponse, "refusé");
   if (ok) await charger(exercice);
-  dessiner();
+  redessiner();
   return ok;
+}
+
+// ON REDESSINE L'ECRAN QU'ON REGARDE. Depuis que la moderation est une
+// destination a part, masquer un message depuis celle-ci redessinait le FIL --
+// c'est-a-dire un ecran qui n'etait pas a l'affichage : l'action semblait
+// n'avoir eu aucun effet.
+function redessiner() {
+  if (ctester.vue() === "moderation") dessinerModeration();
+  else dessiner();
 }
 
 async function publier(texte) {
@@ -675,6 +684,18 @@ function dessiner() {
   titre.tabIndex = -1;
   box.append(titre);
   box.append(noeud("p", "aide", "Visible par les autres comptes connectés du cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès. Tu y apparais comme « Participant » tant que tu n'as pas choisi de nom dans Compte → Mon identité."));
+
+  // LE CONTEXTE QU'ON VIENT DE PERDRE. Ouvrir les discussions efface le poste
+  // de travail : on arrive ici pour parler d'un verdict qu'on ne voit plus.
+  // Le rappeler évite d'avoir à faire l'aller-retour pour le recopier -- et
+  // c'est la première chose qu'on nous demandera dans le fil.
+  const dernier = ctester.dernierVerdict();
+  if (dernier && dernier.exercice === exercice) {
+    const rappel = noeud("p", "rappel");
+    rappel.append(noeud("span", "quoi", "Ton dernier test sur cet exercice : "));
+    rappel.append(noeud("b", "", dernier.titre));
+    box.append(rappel);
+  }
   const etat = noeud("p", "annonce", annonce);
   etat.setAttribute("aria-live", "polite");
   box.append(etat);
@@ -703,7 +724,54 @@ function dessiner() {
   }
   gauche.append(formulaire());
   droite.append(leFil());
-  if (moderateur) droite.append(fileModeration(), fileNoms());
+  // LA MODÉRATION N'EST PLUS RENDUE ICI. Les deux files vivaient au milieu du
+  // fil que les étudiants viennent lire : un outil d'enseignant dans le
+  // parcours de l'apprenant. Il en reste une porte, visible du seul modérateur.
+  if (moderateur) droite.append(porteModeration());
+}
+
+function porteModeration() {
+  const bloc = noeud("div", "bloc second");
+  bloc.append(noeud("h3", "soustitre", "Modération"));
+  const combien = (signalements || []).length + (nomsSignales || []).length;
+  bloc.append(noeud("p", "", combien
+    ? combien + (combien > 1 ? " éléments signalés" : " élément signalé")
+      + " à examiner."
+    : "Rien de signalé pour l'instant."));
+  const bouton = noeud("button", "", "Ouvrir la modération");
+  bouton.type = "button";
+  bouton.addEventListener("click", () => basculerModeration());
+  bloc.append(bouton);
+  return bloc;
+}
+
+// L'ÉCRAN DE MODÉRATION, à part. Il n'a rien à faire dans le parcours d'un
+// étudiant, et l'enseignant qui l'ouvre n'a pas à traverser un fil pour y
+// arriver.
+function dessinerModeration() {
+  const box = $("vuemoderation");
+  box.innerHTML = "";
+  const entete = noeud("h2", "", "Modération");
+  entete.id = "moderationtitre";
+  entete.tabIndex = -1;
+  box.append(entete);
+  const etat = noeud("p", "annonce", annonce);
+  etat.setAttribute("aria-live", "polite");
+  box.append(etat);
+  if (!moderateur) {
+    box.append(noeud("p", "rate", "Cette page est réservée à la modération."));
+    return;
+  }
+  box.append(fileModeration(), fileNoms());
+}
+
+async function basculerModeration() {
+  if (ctester.vue() === "moderation") { await basculer(); return; }
+  await charger(exercice || exerciceCourant());
+  dessinerModeration();
+  ctester.afficherVue("moderation");
+  const entete = $("moderationtitre");
+  if (entete && entete.focus) entete.focus();
 }
 
 // --- Entrées ---------------------------------------------------------------
@@ -740,7 +808,8 @@ function oublier() {
   // LE PANNEAU D'IDENTITÉ PART AVEC LA SESSION : il porte le nom de quelqu'un,
   // et se déconnecter ne doit pas le laisser ouvert à l'écran.
   fermerIdentite();
-  if (ctester.vue() === "forum") ctester.afficherVue("");
+  const vue = ctester.vue();
+  if (vue === "forum" || vue === "moderation") ctester.afficherVue("");
 }
 
 // « MON IDENTITÉ » DU MENU COMPTE, et NULLE PART AILLEURS. C'est un réglage,
@@ -757,6 +826,7 @@ async function ouvrirIdentite() {
 
 ctester.forum = {
   basculer: basculer,
+  basculerModeration: basculerModeration,
   ouvrirIdentite: ouvrirIdentite,
   oublier: oublier,
   fil: () => fil,
