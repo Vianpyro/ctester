@@ -98,6 +98,11 @@ COOLDOWN = _entier("CTESTER_COOLDOWN", "15")
 COOLDOWN_CONNECTE = _entier("CTESTER_COOLDOWN_CONNECTE", "8")
 HOURLY = _entier("CTESTER_HOURLY_QUOTA", "40")
 QUEUE_MAX = _entier("CTESTER_QUEUE_MAX", "60")
+# SERT UNIQUEMENT À DIVISER L'ETA ANNONCÉ, jamais à lancer quoi que ce soit :
+# les workers sont des unités systemd de l'hôte, ce conteneur ne les voit pas.
+# Doit valoir `ctester_workers` du rôle Ansible (2) -- trop haut, la page promet
+# un verdict plus vite que le service ne peut le rendre.
+WORKERS = _entier("CTESTER_WORKERS", "2")
 MAX_CODE = _entier("CTESTER_MAX_CODE_BYTES", "65536")
 
 # --- Comptes (facultatif) ---------------------------------------------------

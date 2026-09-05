@@ -400,6 +400,31 @@ c'est que la clé `answer` d'un corrigé n'a pas franchi la frontière. Le
 répertoire porte TOUTES les révisions gardées, pas seulement la courante : une
 révision qu'on pourrait repointer doit être propre elle aussi.
 
+## L'attente estimée
+
+`GET /r/<id>` rend `eta` (secondes) à côté de `position`. **C'est une somme, pas
+un rang multiplié par une constante** : un quiz se corrige instantanément, un TP
+de dix cas paie dix exécutions, et deux files du même rang n'attendent pas la
+même chose.
+
+- **Le worker mesure, l'API additionne.** `runner.enregistrer_duree()` tient une
+  moyenne glissante PAR EXERCICE dans `<spool>/durees.json` (fenêtre de 20 jobs,
+  pour qu'un cas de test ajouté se voie). Les jobs rejetés avant le conteneur
+  (en-tête interdit) sont exclus : ils durent des millisecondes et tireraient la
+  moyenne vers zéro précisément parce que les étudiants se trompent souvent.
+- **Pas de table Postgres.** Le worker est root sur l'hôte et n'a pas de
+  connexion à la base ; le spool est déjà le seul canal entre lui et l'API. Le
+  fichier est effaçable, et son absence ne coûte que la première estimation.
+- **Un exercice jamais mesuré prend la moyenne des autres**, et à défaut 15 s
+  (compilation + une exécution). Jamais zéro : annoncer « tout de suite » sur une
+  file pleine est pire que de ne rien annoncer.
+- **`CTESTER_WORKERS` ne lance rien**, il divise l'ETA. Il doit suivre
+  `ctester_workers` du rôle (2), sinon la page promet un verdict plus vite que le
+  service ne le rend. Le conteneur web ne voit pas les unités systemd.
+- Éprouvé par `test_ctester.py` (la moyenne glissante) et `test_api.py`
+  (`test_eta_somme_les_durees_mesurees_et_retombe_sur_une_moyenne`, jusqu'au
+  fichier corrompu qui ne doit pas casser le sondage).
+
 ## Les quatre soumissions hostiles
 
 À repasser après toute modification du bac à sable — elles sont la seule preuve

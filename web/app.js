@@ -1699,14 +1699,14 @@ function occupe(oui, texte) {
 // chargement d'un exercice, et pour la même raison.
 let soumissionCourante = 0;
 
-// ponytail: une constante, pas une mesure. Un job coûte au plus 10 s de
-// compilation et 5 s d'exécution ; 15 s par rang SURESTIME (la page ignore
-// combien de workers tournent), et c'est le bon sens de l'erreur -- finir plus
-// tôt qu'annoncé n'agace personne. Mesurer le débit réel le jour où la file
-// dépasse la poignée de rangs.
-function attenteEstimee(position) {
-  const s = Math.max(1, position) * 15;
-  return s < 60 ? `${s} s` : `${Math.ceil(s / 60)} min`;
+// L'ETA VIENT DU SERVEUR (`eta`, en secondes) : lui seul sait ce que chaque
+// exercice coûte et ce qu'il y a devant. La page ne fait que le mettre en
+// français. Une API plus ancienne, ou un `eta` à 0, ne rend rien plutôt que
+// d'inventer un chiffre -- le rang seul reste affiché.
+function attenteEstimee(secondes) {
+  if (!(secondes > 0)) return "";
+  if (secondes < 60) return ` (environ ${Math.ceil(secondes / 5) * 5} s)`;
+  return ` (environ ${Math.ceil(secondes / 60)} min)`;
 }
 
 async function poll(id, tries, portee, jeton) {
@@ -1753,7 +1753,7 @@ async function poll(id, tries, portee, jeton) {
     titre: body.state === "running"
       ? "Test en cours…"
       : `En file d'attente — ${body.position}${body.position === 1 ? "er" : "e"}`
-        + ` (environ ${attenteEstimee(body.position)})`,
+        + attenteEstimee(body.eta),
   });
   setTimeout(() => poll(id, tries - 1, portee, jeton), 2000);
 }

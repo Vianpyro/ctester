@@ -813,9 +813,16 @@ def sandbox(job_dir, tp_dir, mode, nonce=""):
 # Traitement d'un job
 # --------------------------------------------------------------------------
 
+def job_exercice(job_dir):
+    try:
+        with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
+            return str(json.load(fh).get("exercise_id", ""))
+    except (OSError, ValueError):
+        return ""
+
+
 def run_job(job_dir):
-    with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
-        exercise_id = str(json.load(fh).get("exercise_id", ""))
+    exercise_id = job_exercice(job_dir)
     # REVALIDÉ ICI, même si le web l'a déjà fait. Ce processus est root et
     # compose un chemin à partir de cette valeur : il ne fait confiance à
     # personne, y compris à notre propre conteneur web. `load_exercise` borne
@@ -893,6 +900,56 @@ def run_job(job_dir):
 def write_result(job_dir, payload):
     payload["state"] = "done"
     write_json(os.path.join(job_dir, "result.json"), payload)
+
+
+# LES DURÉES SONT DANS LE SPOOL, PAS DANS POSTGRES. Le worker est root sur
+# l'hôte et n'a pas de connexion à la base ; le spool est déjà le seul canal
+# entre lui et l'API, et une statistique d'affichage n'est pas un fait à
+# conserver -- la perdre au balayage ne coûte que la première estimation.
+DUREES = "durees.json"
+
+# Chaque exercice a son coût : un quiz est instantané, un TP de dix cas
+# d'entrée/sortie paie dix exécutions. La moyenne est donc PAR EXERCICE, et
+# glissante sur les DUREE_FENETRE derniers jobs -- un cas de test ajouté en
+# cours de session doit se voir dans l'estimation, pas être noyé sous l'histoire.
+DUREE_FENETRE = 20
+# Un job rejeté avant le conteneur (en-tête interdit, exercice inconnu) coûte
+# quelques millisecondes et n'est pas représentatif : l'inclure tirerait la
+# moyenne vers zéro précisément parce que les étudiants se trompent souvent.
+DUREE_MIN = 0.5
+
+
+def lire_durees():
+    try:
+        with open(os.path.join(SPOOL, DUREES), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def enregistrer_duree(exercise_id, secondes):
+    """Moyenne glissante par exercice : {id: [moyenne, n]}.
+
+    ponytail: lecture-modification-écriture sans verrou. `write_json` renomme,
+    donc le fichier n'est jamais à moitié écrit ; deux workers qui finissent à
+    la même milliseconde perdent un échantillon sur les vingt de la fenêtre.
+    Un verrou pour ça coûterait plus cher que l'erreur qu'il évite.
+    """
+    if not exercise_id or secondes < DUREE_MIN:
+        return
+    durees = lire_durees()
+    ancien = durees.get(exercise_id)
+    if isinstance(ancien, list) and len(ancien) == 2:
+        moyenne, n = float(ancien[0]), min(int(ancien[1]), DUREE_FENETRE)
+    else:
+        moyenne, n = 0.0, 0
+    n += 1
+    durees[exercise_id] = [round(moyenne + (secondes - moyenne) / n, 2), n]
+    try:
+        write_json(os.path.join(SPOOL, DUREES), durees)
+    except OSError:
+        pass  # une estimation perdue n'est pas une panne de juge
 
 
 def claim(job_dir):
@@ -1028,8 +1085,10 @@ def main():
                 if not (reclaim(job_dir, time.time()) and claim(job_dir)):
                     continue
             worked = True
+            debut = time.time()
             try:
                 write_result(job_dir, run_job(job_dir))
+                enregistrer_duree(job_exercice(job_dir), time.time() - debut)
             except Exception as exc:  # noqa: BLE001 -- un job ne tue pas le worker
                 print("ctester: %s: %s" % (job_dir, exc), file=sys.stderr,
                       flush=True)

@@ -1294,6 +1294,52 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
         "module fautif utilise dans un module sans dependance, comme app/csp.py.")
 
 
+def test_duree_moyenne_glissante_par_exercice():
+    """Ce que le worker mesure, et ce qu'il refuse de mesurer.
+
+    La moyenne est PAR EXERCICE (un quiz ne coûte pas ce que coûte un TP de dix
+    cas) et GLISSANTE : un cas de test ajouté en cours de session doit se voir
+    dans l'estimation au bout de quelques jobs, pas être noyé sous l'histoire
+    du semestre.
+    """
+    spool = tempfile.mkdtemp(prefix="ctester-spool-")
+    garde = runner.SPOOL
+    try:
+        runner.SPOOL = spool
+
+        # Un job rejeté avant le conteneur (en-tête interdit) dure quelques
+        # millisecondes. L'inclure tirerait la moyenne vers zéro PRÉCISÉMENT
+        # parce que les étudiants se trompent souvent.
+        runner.enregistrer_duree("tp2-ex3", 0.01)
+        runner.enregistrer_duree("", 9.0)
+        assert runner.lire_durees() == {}
+
+        runner.enregistrer_duree("tp2-ex3", 4.0)
+        runner.enregistrer_duree("tp2-ex3", 6.0)
+        assert runner.lire_durees()["tp2-ex3"] == [5.0, 2]
+        # Un autre exercice ne contamine pas le premier.
+        runner.enregistrer_duree("tp1", 1.0)
+        assert runner.lire_durees()["tp2-ex3"][0] == 5.0
+
+        # La fenêtre : après elle, chaque mesure pèse un vingtième et le poids
+        # ne s'écrase plus. Sans le plafond, la moyenne du semestre gèlerait.
+        for _ in range(60):
+            runner.enregistrer_duree("tp1", 20.0)
+        moyenne, n = runner.lire_durees()["tp1"]
+        assert n == runner.DUREE_FENETRE + 1, n
+        assert 19.0 < moyenne <= 20.0, moyenne
+
+        # Un fichier corrompu repart de zéro plutôt que de faire échouer un job.
+        with open(os.path.join(spool, runner.DUREES), "w", encoding="utf-8") as fh:
+            fh.write("{ pas du json")
+        assert runner.lire_durees() == {}
+        runner.enregistrer_duree("tp1", 3.0)
+        assert runner.lire_durees() == {"tp1": [3.0, 1]}
+    finally:
+        runner.SPOOL = garde
+        shutil.rmtree(spool, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:

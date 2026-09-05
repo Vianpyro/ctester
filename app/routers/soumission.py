@@ -138,9 +138,11 @@ def resultat(job_id: str):
     # verdict -- exact au sens du rang, faux au sens de ce qui se passe.
     if os.path.exists(os.path.join(config.SPOOL, job_id, ".lock")):
         return {"state": "running"}
-    rang = spool.queue_position(spool.scan_jobs(), job_id)
+    jobs = spool.scan_jobs()
+    rang = spool.queue_position(jobs, job_id)
     if rang:
-        return {"state": "queued", "position": rang}
+        return {"state": "queued", "position": rang,
+                "eta": spool.eta_secondes(jobs, job_id)}
     # Balayé par le worker (dix minutes) ou n'a jamais existé.
     return headers.erreur(404, "gone", cle="state")
 

@@ -12,6 +12,7 @@ l'étudiant qui n'y est pour rien.
 """
 
 import json
+import math
 import os
 import uuid
 
@@ -50,6 +51,55 @@ def queue_position(jobs, job_id):
         if name == job_id:
             return rank
     return 0
+
+
+# Écrit par le worker (`runner.enregistrer_duree`), lu ici : {id: [moyenne, n]}.
+# Absent tant qu'aucun job n'a tourné, et effaçable sans rien casser -- l'ETA
+# retombe alors sur DUREE_INCONNUE.
+DUREES = "durees.json"
+# Ce que coûte un job dont on n'a encore rien mesuré, quand aucun autre
+# exercice n'a de moyenne non plus. Volontairement pessimiste : compilation
+# (10 s) plus une exécution (5 s). Annoncer plus court que le réel est la seule
+# erreur qui se remarque.
+DUREE_INCONNUE = 15.0
+
+
+def durees_moyennes():
+    try:
+        with open(os.path.join(config.SPOOL, DUREES), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: float(v[0]) for k, v in data.items()
+            if isinstance(v, list) and len(v) == 2
+            and isinstance(v[0], (int, float)) and v[0] > 0}
+
+
+def eta_secondes(jobs, job_id):
+    """Secondes avant le verdict : la somme des jobs DEVANT, plus le sien.
+
+    Pas un rang multiplié par une constante : un quiz se corrige instantanément
+    et un TP de dix cas paie dix exécutions, donc deux files du même rang
+    n'attendent pas la même chose. Un exercice jamais mesuré prend la moyenne
+    des autres, et à défaut DUREE_INCONNUE.
+    """
+    devant = sorted((stamp, name) for name, stamp, done in jobs if not done)
+    moyennes = durees_moyennes()
+    defaut = (sum(moyennes.values()) / len(moyennes)) if moyennes else DUREE_INCONNUE
+    total = 0.0
+    for _, name in devant:
+        exercise_id, _owner = job_metadata(name)
+        total += moyennes.get(exercise_id, defaut)
+        if name == job_id:
+            break
+    else:
+        return 0
+    # Les workers dépilent en parallèle. `CTESTER_WORKERS` doit refléter le
+    # nombre d'unités `ctester-runner@` actives : trop haut, on promet plus vite
+    # que le service ne peut tenir.
+    return int(math.ceil(total / max(1, config.WORKERS)))
 
 
 def job_metadata(job_id):

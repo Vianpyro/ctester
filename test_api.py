@@ -1205,13 +1205,63 @@ def test_rang_dans_la_file_et_job_disparu():
                   "files": {"submission.c": "int main(){}"}}
         premier = c.post("/submit", json=charge).json()["id"]
         second = c.post("/submit", json=charge).json()["id"]
-        assert c.get("/r/" + premier).json() == {"state": "queued", "position": 1}
-        assert c.get("/r/" + second).json() == {"state": "queued", "position": 2}
+        for job, rang in ((premier, 1), (second, 2)):
+            corps = c.get("/r/" + job).json()
+            assert corps["state"] == "queued" and corps["position"] == rang, corps
         # Le worker prend le premier : il n'est plus « 1er dans la file ».
         open(os.path.join(config.SPOOL, premier, ".lock"), "w").close()
         assert c.get("/r/" + premier).json() == {"state": "running"}
         r = c.get("/r/" + "a" * 32)
         assert r.status_code == 404 and r.json() == {"state": "gone"}, r.text
+
+
+def test_eta_somme_les_durees_mesurees_et_retombe_sur_une_moyenne():
+    """L'ETA est la SOMME des jobs devant, pas un rang fois une constante.
+
+    Un quiz se corrige instantanément, un TP de dix cas paie dix exécutions :
+    deux files du même rang n'attendent pas la même chose. Ce que le worker a
+    mesuré (`durees.json`) prime ; un exercice jamais vu prend la moyenne des
+    autres, et sans aucune mesure la constante pessimiste.
+    """
+    with contexte() as (c, _, _tmp):
+        garde = config.WORKERS
+        try:
+            config.WORKERS = 1  # sinon l'ETA est divisé, et le calcul illisible
+            charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
+                      "files": {"submission.c": "int main(){}"}}
+            premier = c.post("/submit", json=charge).json()["id"]
+            second = c.post("/submit", json=charge).json()["id"]
+
+            # 1. Aucune mesure : la constante pessimiste, une fois par job devant.
+            assert c.get("/r/" + premier).json()["eta"] == 15
+            assert c.get("/r/" + second).json()["eta"] == 30
+
+            # 2. Avec une mesure, c'est ELLE qui compte, pour les deux jobs.
+            with open(os.path.join(config.SPOOL, "durees.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"tp2-ex3": [4.0, 20]}, fh)
+            assert c.get("/r/" + premier).json()["eta"] == 4
+            assert c.get("/r/" + second).json()["eta"] == 8
+
+            # 3. Un exercice non mesuré prend la moyenne des autres, JAMAIS zéro :
+            #    annoncer « tout de suite » sur une file pleine est pire que rien.
+            with open(os.path.join(config.SPOOL, "durees.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"tp1": [2.0, 20], "tp6-ex1": [10.0, 20]}, fh)
+            assert c.get("/r/" + premier).json()["eta"] == 6
+
+            # 4. Deux workers dépilent deux fois plus vite.
+            config.WORKERS = 2
+            assert c.get("/r/" + second).json()["eta"] == 6
+
+            # 5. Un fichier de durées corrompu ne casse pas le sondage.
+            with open(os.path.join(config.SPOOL, "durees.json"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("{ pas du json")
+            r = c.get("/r/" + premier)
+            assert r.status_code == 200 and r.json()["eta"] > 0, r.text
+        finally:
+            config.WORKERS = garde
 
 
 if __name__ == "__main__":
