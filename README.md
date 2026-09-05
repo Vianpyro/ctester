@@ -14,12 +14,12 @@ dépôt-ci dans `/opt/ctester/src` et suit `main` tout seul, à cinq minutes pr�
 runbook, pièges de compilation déjà payés — voir [`CLAUDE.md`](CLAUDE.md).
 
 ```
-app/app.py        l'API, dans le conteneur exposé (uid 65534)
+app/main.py       l'API (FastAPI), dans le conteneur exposé (uid 65534)
 web/index.html    la page : le markup seul, une centaine de lignes
 web/style.css     sa feuille de style
 web/app.js        son script : editeur, verdict, soumission
-app/quiz.js       le mode quiz, chargé quand un exercice de ce mode s'ouvre
-app/compte.js     OIDC et « Mes exercices », chargés seulement si on se connecte
+web/quiz.js       le mode quiz, chargé quand un exercice de ce mode s'ouvre
+web/compte.js     OIDC et « Mes exercices », chargés seulement si on se connecte
 app/progres.js    « Mes progrès », chargé seulement quand on l'ouvre
 app/politique.py  les chiffres de la progression : XP, niveaux, succès (PROVISOIRES)
 app/etat.py       la persistance des comptes -- facultative, voir plus bas
@@ -30,8 +30,8 @@ build-unity.sh    ce qui tourne DANS le bac à sable, mode tests unitaires
 build-io.sh       idem, mode programme complet (entrée/sortie)
 ```
 
-Sans `CTESTER_DB_DSN`, la persistance ne démarre pas : `app.py` reste ce qu'il
-était, l'image n'a besoin d'aucune dépendance, et la page ne propose même pas de
+Sans `CTESTER_DB_DSN`, la persistance ne démarre pas : l'API reste ce qu'elle
+était, `psycopg` n'est jamais chargé, et la page ne propose même pas de
 se connecter. Tout se règle par variables d'environnement — l'unité systemd du
 rôle les fournit, et chaque script porte ses propres défauts pour tourner hors
 déploiement.
@@ -281,7 +281,7 @@ gabarits, chargés quand l'étudiant ouvre l'exercice) et `app/quiz/<tp>.json`
 (`publish_catalogue()` dans `runner.py`). La consigne et les gabarits sont à
 part parce qu'ils faisaient les trois quarts du catalogue pour 73 exercices dont
 un seul est ouvert ; les **noms** de fichiers, eux, restent dans `tps.json` :
-c'est la liste blanche qu'`app.py` oppose à une soumission. C'est la frontière du service, et elle est une fonction Python
+c'est la liste blanche que l'API oppose à une soumission. C'est la frontière du service, et elle est une fonction Python
 précisément pour que `test_ctester.py` puisse la mettre à l'épreuve à chaque
 convergence — un gabarit Jinja n'aurait été relu par personne. Il est republié
 au changement de jour, pour qu'une ouverture de minuit prenne effet sans

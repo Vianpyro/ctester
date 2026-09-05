@@ -22,33 +22,18 @@ pydantic, starlette, h11, psycopg) vivent à côté dans le volume `ctester_deps
 (`PYTHONPATH=/deps`), posé par une tâche Ansible qui ne rejoue que si le fichier
 change. Une CVE dans l'image, c'est `docker compose pull`.
 
-## DEUX API COEXISTENT — lire ceci avant de toucher à `app/`
+## L'API — un seul point d'entrée
 
-La migration vers FastAPI est en cours et les deux versions tournent côte à côte :
+`app/main.py` (FastAPI/uvicorn), servi par `ctester-web-1:8000`, éprouvé par
+`test_api.py`. **Aucune règle métier dans `app/routers/`** : la frontière HTTP
+d'un côté, `app/services/` de l'autre.
 
-| | v1 | v2 |
-|---|---|---|
-| Point d'entrée | `app/app.py` (`http.server`) | `app/main.py` (FastAPI/uvicorn) |
-| Conteneur | `ctester-web-1:8000` | `ctester-web2-1:8001` |
-| Testée par | `test_ctester.py` (`test_http_*`) | `test_api.py` |
-| État | **routée par NPM**, sert les étudiants | prête, routée par rien |
+La v1 `http.server` (`app/app.py`), son harnais de parité (`test_parite.py`) et
+les trois `test_http_*` de `test_ctester.py` ont été supprimés le 2026-09-04,
+après une semaine de v2 routée par NPM. Ils sont dans l'historique git ; le
+commit de suppression est le point de retour si quelque chose se découvre tard.
 
-**`app/app.py` EST GELÉE.** Aucune correction n'y va : elle est là pour ne pas
-pouvoir régresser pendant la migration, et elle disparaît à la bascule. Toute
-modification de l'API va dans `app/routers/` et `app/services/`.
-
-**La bascule est UN CHAMP dans le proxy host NPM** (`ctester-web-1:8000` →
-`ctester-web2-1:8001`), pas une redirection HTTP et pas un préfixe `/v2` : une
-307 entre deux origines perd l'en-tête `Authorization`, et `web/config.js` n'a
-donc rien à changer. Revenir en arrière, c'est remettre l'ancien champ.
-
-**`test_parite.py` est ce qui rend la bascule vérifiable avant de la faire.** Il
-envoie 62 requêtes identiques aux deux implémentations et compare le JSON, les
-en-têtes de cache, l'ETag, le `Content-Encoding` et la CSP. Les quatre écarts
-VOULUS sont listés dans `ECARTS_ASSUMES`, avec leur raison ; tout le reste fait
-échouer le fichier. Il disparaît avec la v1.
-
-### Où vit quoi dans la v2
+### Où vit quoi
 
 ```
 app/config.py     tous les réglages, un seul endroit
@@ -105,12 +90,12 @@ prouver dans la seule couche où une erreur donne accès aux données d'autrui.
 
 **La page vit dans `web/`, l'API dans `app/`**, et c'est la séparation en cours
 (voir `docs/split-front_back/plan.md`) : `web/` est destiné à GitHub Pages,
-`app/` reste sur le Dell. Tant que les deux ne sont pas séparés, `app.py` sert
+`app/` reste sur le Dell. Tant que les deux ne sont pas séparés, l'API sert
 encore les deux — la page depuis `CTESTER_PAGE` (`/web`), le catalogue depuis
 `CTESTER_STATIC` (`/app`). Deux variables, deux montages : confondre les deux
 fait servir un `tps.json` introuvable, ou une page introuvable.
 
-La page est en neuf fichiers, tous servis par la liste blanche de `do_GET` :
+La page est en neuf fichiers, tous servis par la liste blanche de `app/routers/page.py` :
 `index.html` (le markup seul), `style.css`, `config.js` (l'adresse de l'API),
 `app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js`, `forum.js` et
 `exporter.js`, que le noyau va chercher **à la demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
@@ -127,9 +112,8 @@ Sur le contrôleur, jamais sur le Dell (les trois derniers ont besoin de gcc) :
 pip install -r requirements-dev.txt   # UNE FOIS : fastapi, uvicorn, httpx2
 npm ci                                # UNE FOIS : jsdom, contrôles XSS du forum
 
-python3 test_ctester.py          # les défenses, la progression, et la v1
-python3 test_api.py              # la v2 : frontière HTTP, bornes, valeurs extrêmes
-python3 test_parite.py           # v1 contre v2, requête par requête
+python3 test_ctester.py          # les défenses, la progression, le forum
+python3 test_api.py              # l'API : frontière HTTP, bornes, valeurs extrêmes
 node    test_page.js             # le JS de la page, sur un DOM en carton
 python3 valider_contenu.py ../unittests
 python3 test_bac_a_sable.py      # les deux build.sh, vrai gcc, sans Docker
@@ -155,7 +139,7 @@ docker stop pg
   double signalement, isolement de deux comptes, l'identité choisie (bornes du
   nom et du groupe, visibilité, nom signalé puis effacé), et qu'aucun `sub` ne
   franchisse la frontière.
-- **`test_api.py`** — la frontière HTTP de la v2, et surtout **les bornes des
+- **`test_api.py`** — la frontière HTTP de l'API, et surtout **les bornes des
   deux côtés** : la valeur qui passe et la première qui ne passe plus. Corps à
   `MAX_CODE+4096` puis `+1`, `validate_files` pile à `MAX_CODE` puis `+1`, 500
   réponses de quiz gardées et la 501e jetée, quota horaire N puis N+1, `QUEUE_MAX`
@@ -165,16 +149,6 @@ docker stop pg
   l'étudiant qui la découvre à 23 h la veille de la remise. Il éprouve aussi
   l'ordre des refus (forum éteint → 503 avant 401), qu'aucune route n'accepte un
   identifiant dans son corps, et qu'une base muette rend 503 et **aucun chiffre**.
-- **`test_parite.py`** — v1 contre v2, 62 requêtes identiques dans le même ordre,
-  contre deux bases simulées identiques. La v1 tourne derrière un VRAI
-  `ThreadingHTTPServer` (pas un client de test) pour que la comparaison porte sur
-  ce qu'un navigateur reçoit. Il compare le JSON analysé — pas les octets, les
-  deux sérialiseurs n'espacent pas pareil — plus `Cache-Control`, `ETag`,
-  `Content-Type`, `Content-Encoding`, la CSP et les en-têtes CORS. Les quatre
-  écarts VOULUS sont dans `ECARTS_ASSUMES` avec leur raison, et un second
-  contrôle épingle leurs codes des deux côtés ET vérifie que l'écart existe
-  encore : le jour où il disparaît, l'entrée doit être retirée plutôt que de
-  devenir du folklore.
 - **`test_bac_a_sable.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
   les exécute avec un vrai gcc, chemins déplacés, sans Docker. C'est le seul
   contrôle qui **éprouve l'invariant de confidentialité** au lieu d'en parler :
@@ -256,7 +230,7 @@ sort en erreur sans poser son témoin.
 **Ce timer ne redémarre rien, et il peut donc tourner en pleine séance.** Rien
 entre le disque et l'étudiant ne garde de copie en mémoire : `cases`,
 `tolerance` et `quiz.json` passent par `load_config()`, relu **à chaque job** ;
-`tps.json` par `load_tps()` dans `app.py`, relu **à chaque requête**. Un cas de
+`tps.json` par `load_tps()` dans `app/services/catalogue.py`, relu **à chaque requête**. Un cas de
 test ajouté est en service à la soumission suivante, une consigne corrigée au
 rechargement suivant. `publish_catalogue()` y est appelé dans un processus à
 part — le redémarrage du worker n'a jamais été qu'un moyen de le déclencher.
@@ -284,7 +258,7 @@ exercice qu'on voit est un exercice qu'on peut soumettre.
 ```sh
 CTESTER_APERCU=1 CTESTER_TESTS=../unittests CTESTER_APP=app \
   python3 -c 'import runner; runner.publish_catalogue()'
-CTESTER_KEY=dev CTESTER_STATIC=app CTESTER_PAGE=web python3 app/app.py
+CTESTER_KEY=dev CTESTER_STATIC=app CTESTER_PAGE=web python3 app/main.py
 ```
 
 Pour de vrais verdicts il faut en plus un worker (Docker + gVisor) ; sans eux,
@@ -342,7 +316,7 @@ avec lui, le bouton Retour refaisait toute la page. Lighthouse le signalait.
 L'ETag est un SHA-256 tronqué du corps, **calculé par représentation** : la
 version gzip porte un suffixe `-gz`. Deux corps différents pour une même URL ne
 peuvent pas partager une étiquette — un cache intermédiaire servirait l'un en
-croyant valider l'autre. `do_HEAD` sur `/` passe par le même code que `do_GET`,
+croyant valider l'autre. Un `HEAD` sur `/` passe par le même code qu'un `GET`,
 sans le corps : un HEAD qui annoncerait une autre politique serait un piège à
 revalidation.
 
@@ -374,8 +348,8 @@ entorse à « l'anonyme n'émet aucune requête » — assumée, le battement va
 `dict` en mémoire (`Handler.presence`, une `Presence`), jamais vers la base ni
 un compte, et ne porte aucun jeton.
 
-- **Polling, pas WebSocket.** `app.py` est un `http.server` synchrone à
-  connexion Postgres unique : 200 sockets persistantes n'y ont pas leur place.
+- **Polling, pas WebSocket.** Un seul worker uvicorn devant une connexion
+  Postgres unique : 200 sockets persistantes n'y ont pas leur place.
   Un battement toutes les 60 s × 200 étudiants = ~3 req/s sur une opération de
   dict. `ponytail:` — repasser en WebSocket le jour où « live » doit dire
   quelque chose de plus fin qu'« à la minute ».
@@ -403,7 +377,7 @@ d'XP par difficulté, plafond quotidien, seuils de niveau, identifiants et
 libellés de succès, plus la `version` qui les date. Piloter le semestre, c'est
 éditer ce fichier et redémarrer le conteneur `web` — aucune migration, aucun
 changement de logique. Un test refuse qu'un montant réapparaisse en dur dans
-`app.py` : sans lui, la politique deviendrait décorative.
+le service : sans lui, la politique deviendrait décorative.
 
 **Ce qui produit de la valeur, c'est le SERVEUR en lisant le verdict**, dans
 `_result()` — jamais le navigateur. Une seule règle : la **première** réussite
@@ -482,11 +456,11 @@ exception, écrite dans le formulaire : **l'enseignant voit le numéro
 de groupe en tout temps**, jamais le nom s'il n'est pas affiché.
 
 **`CTESTER_FORUM_GROUPES` fixe la liste des groupes de la session** (défaut
-`4,6`). Non vide → le formulaire est une liste déroulante fermée et `app.py`
+`4,6`). Non vide → le formulaire est une liste déroulante fermée et le service
 refuse tout autre numéro ; vide → champ libre 1 à 99 (l'ancien comportement).
 La colonne reste `SMALLINT CHECK (1..99)` — la liste d'une session ne vit pas
 dans le schéma. Cocher sans
-avoir écrit n'affiche rien (`app.py` refuse la visibilité d'un champ vide), et
+avoir écrit n'affiche rien (le service refuse la visibilité d'un champ vide), et
 les étiquettes de l'interface (« Vous », « Participant », « Enseignant », et
 l'ancienne « Équipe du cours ») sont des noms réservés : un message qui se
 ferait passer pour une réponse du cours ne se rattrape par aucune couleur.
@@ -602,11 +576,9 @@ garde un brouillon PAR exercice ; sans ce bouton, l'étudiant recolle huit
 fichiers à la main la veille de la remise, et c'est là qu'il en perd un.
 
 **Tout se passe dans la page, et c'est délibéré.** `exporter.js` lit les
-brouillons et fabrique le texte ; aucune route n'a été ajoutée, donc rien à
-tenir en parité entre la v1 et la v2, et le bouton marchera pareil avant et
-après la bascule. La seule chose que le serveur a gagnée, c'est `exporter.js`
-dans la liste blanche des fichiers servis — **des deux côtés** (`app/app.py` et
-`app/routers/page.py`), sinon le module tombe en 404 sur celui qui l'a oublié.
+brouillons et fabrique le texte ; aucune route n'a été ajoutée. La seule chose
+que le serveur a gagnée, c'est `exporter.js` dans la liste blanche des fichiers
+servis (`app/routers/page.py`) — un module absent de cette liste tombe en 404.
 
 **Seulement les TP « io », et au moins deux exercices.** `#define exercice N` ne
 choisit un `main()` que là où il y en a plusieurs : un exercice « unity » est un
@@ -724,9 +696,8 @@ journalctl -u 'ctester-runner@*' -n 50         # ce que dit un job en erreur
 journalctl -u ctester-tests -n 30              # le dernier tick de tests
 journalctl -u ctester-pull  -n 30              # le dernier tick d'application
 cat /opt/ctester/.tests-deployed               # les révisions de tests publiées
-docker logs ctester-web-1                      # la v1 (silencieuse si tout va bien)
-docker logs ctester-web2-1                     # la v2 (idem)
-docker exec ctester-web2-1 python3 -c   "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8001/healthz').read())"
+docker logs ctester-web-1                      # l'API (silencieuse si tout va bien)
+docker exec ctester-web-1 python3 -c   "import urllib.request;print(urllib.request.urlopen('http://127.0.0.1:8000/healthz').read())"
 ls /opt/ctester/spool                          # la file, vide au repos
 docker exec nginx-manager-npm-1 getent hosts ctester-web-1   # NPM résout-il ?
 python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?
@@ -743,7 +714,7 @@ ce que chaque déploiement est vraiment, pas la cible :
 |---|---|---|
 | `tch009.thevhome.com` | `""` | le Dell sert encore la page ET l'API : même origine, chemins relatifs |
 | `*.github.io` | `https://tch099.thevhome.com` | déploiement de préparation, déjà séparé |
-| tout le reste | `""` | `CTESTER_PAGE=web python3 app/app.py` |
+| tout le reste | `""` | `CTESTER_PAGE=web python3 app/main.py` |
 
 `window.API(chemin)` préfixe, et **rien d'autre** : les modules chargés à la
 demande et les deux vendor sont à côté de la page, donc `charger()` ne change
@@ -754,11 +725,10 @@ des URL absolues venues de l'émetteur — **ne pas** les préfixer.
 `thevhome.com` et `*.thevhome.com`, **une seule étiquette**. Deux étiquettes
 demanderaient Advanced Certificate Manager.
 
-**CORS tient en deux méthodes, et `end_headers()` en est une.** Les en-têtes
-partent de cinq endroits (`_json`, les deux branches de `_send_file`, `do_HEAD`,
-`send_error`) : les poser dans `end_headers` est le seul moyen qu'aucune réponse
-ne les oublie, **304 compris** — sans ça CORS disparaîtrait dès la deuxième
-visite, comme la CSP avant lui.
+**CORS tient dans UN middleware, `app/headers.py`.** Les réponses partent de
+partout (JSON, fichiers, 304, erreurs, préflight) : les poser à un seul endroit,
+après le routeur, est le seul moyen qu'aucune ne les oublie — **304 compris**,
+sans quoi CORS disparaîtrait dès la deuxième visite, comme la CSP avant lui.
 
 - `CTESTER_ORIGINS`, liste séparée par des virgules, **jamais `*`** : chaque
   requête de compte porte un `Authorization`. Une origine inconnue ne reçoit
@@ -768,7 +738,7 @@ visite, comme la CSP avant lui.
   Origin`). Deux lignes `Vary` séparées sont légales mais mal recombinées par
   certains caches, et un cache qui perd `Origin` sert la réponse d'une origine à
   une autre.
-- `do_OPTIONS` répond 204 pour toute route. **`DELETE` est dans
+- Le préflight répond 204 pour toute route, depuis le middleware. **`DELETE` est dans
   `Allow-Methods` et doit y rester** : `compte.js` supprime un compte,
   `forum.js` un message. L'oublier ne casse que le cross-origin — donc
   seulement la production, et seulement ces deux boutons-là.
@@ -776,9 +746,10 @@ visite, comme la CSP avant lui.
 - Le préflight est mis en cache 24 h (`Max-Age`) : sans lui, chaque PUT et
   chaque DELETE paierait un aller-retour de plus.
 
-Le tout est éprouvé dans `test_http_end_to_end` de `test_ctester.py` (origine
-connue, origine inconnue, 304, préflight) et les trois branches de `config.js`
-à la fin de `test_page.js`.
+Le tout est éprouvé dans `test_api.py` (`test_cors_origine_connue_et_inconnue`,
+`test_un_seul_vary_annoncant_les_deux_axes`,
+`test_preflight_sur_toute_route_meme_inconnue`, `test_304_garde_la_csp_et_le_cache`)
+et les trois branches de `config.js` à la fin de `test_page.js`.
 
 ## La page — ce qui est fragile
 
@@ -906,7 +877,7 @@ toucher :
 
 Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
 
-- **`app.py`** — cache de jetons : flush complet quand plein, pas de LRU (c'est
+- **`app/security.py`** — cache de jetons : flush complet quand plein, pas de LRU (c'est
   un économiseur d'aller-retour, pas un magasin de sessions). `client_id`
   falsifiable si on tape l'origine sans passer par Cloudflare : régulateur de
   charge, pas contrôle d'accès — la clé de session est le contrôle d'accès.
