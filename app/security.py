@@ -188,7 +188,7 @@ def _ask_userinfo(token):
     return sub, nom or ""
 
 
-def client_id(headers, peer):
+def client_id(headers, peer, poste=None):
     """Qui compte comme « un étudiant » pour les quotas.
 
     CF-Connecting-IP d'abord : Cloudflare l'ÉCRASE toujours, donc un client ne
@@ -209,11 +209,26 @@ def client_id(headers, peer):
         return "u:" + sub[:62]
     cf = headers.get("CF-Connecting-IP")
     if cf:
-        return cf.strip()[:64]
-    xff = headers.get("X-Forwarded-For")
-    if xff:
-        return xff.split(",")[0].strip()[:64]
-    return peer
+        adresse = cf.strip()[:64]
+    else:
+        xff = headers.get("X-Forwarded-For")
+        adresse = xff.split(",")[0].strip()[:64] if xff else peer
+    # L'ANONYME EST COMPTÉ PAR POSTE, PAS PAR SALLE. Aux premiers labos personne
+    # n'est encore connecté : 27 postes sortent par une seule IP NATée, et le
+    # compteur d'IP les fait tous attendre à cause d'un seul. Le jeton vient du
+    # navigateur (localStorage), donc il ne prouve rien -- mais l'IP seule ne
+    # prouvait rien non plus dès qu'on tape l'origine.
+    #
+    # L'IP RESTE DANS LA CLÉ : un jeton rejoué ne peut pas emprunter le
+    # compteur d'un autre réseau, et un poste sans jeton retombe exactement sur
+    # l'ancien comportement.
+    #
+    # ponytail: rejouable en vidant son localStorage. C'est un régulateur de
+    # charge, et `QUEUE_MAX` borne déjà le pire cas ; un plafond par IP
+    # par-dessus le jour où quelqu'un en fait un jeu.
+    if poste:
+        return (adresse + "/" + str(poste))[:128]
+    return adresse
 
 
 def is_moderator(sub):

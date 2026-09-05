@@ -72,9 +72,14 @@ def submit(corps: SoumissionIn, request: Request):
             return headers.erreur(400, "soumission vide")
         nom, blob = "files.json", json.dumps(fichiers).encode()
 
-    qui = security.client_id(request.headers, deps.pair_tcp(request))
+    # `poste` est un jeton de navigateur, PAS une identité : il ne sert qu'à
+    # séparer deux anonymes derrière une même IP NATée. Tronqué, jamais refusé
+    # -- un jeton bizarre doit coûter son propre compteur, pas un 400.
+    sub = security.current_user(request.headers)
+    qui = security.client_id(request.headers, deps.pair_tcp(request),
+                             poste=request.query_params.get("poste", "")[:64])
     with deps.verrou:
-        attente = deps.quota.check(qui, time.time())
+        attente = (deps.quota_connecte if sub else deps.quota).check(qui, time.time())
         if attente:
             return headers.erreur(
                 429, f"trop de soumissions -- réessaie dans {attente} s",
@@ -89,8 +94,7 @@ def submit(corps: SoumissionIn, request: Request):
         #
         # Le compte est FACULTATIF : un étudiant connecté obtient une tentative
         # rattachée à son compte, tous les autres gardent le parcours anonyme.
-        job_id = spool.ecrire_job(entree["id"], nom, blob,
-                                  security.current_user(request.headers))
+        job_id = spool.ecrire_job(entree["id"], nom, blob, sub)
     return {"id": job_id}
 
 

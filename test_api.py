@@ -295,7 +295,8 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
                     ("PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
                      "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPES")}
     garde_secu = (security.current_user, security.current_name)
-    garde_quotas = (deps.quota, deps.state_quota, deps.forum_quota, deps.presence)
+    garde_quotas = (deps.quota, deps.quota_connecte, deps.state_quota,
+                    deps.forum_quota, deps.presence)
 
     for m in modules:
         m.etat = faux
@@ -316,6 +317,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     # Des quotas neufs et larges : ces contrôles éprouvent des bornes précises,
     # et ceux qui éprouvent un quota posent le leur.
     deps.quota = quotas.Quota(cooldown=0, hourly=100000)
+    deps.quota_connecte = quotas.Quota(cooldown=0, hourly=100000)
     deps.state_quota = quotas.Quota(cooldown=0, hourly=100000)
     deps.forum_quota = quotas.Quota(cooldown=0, hourly=100000)
     deps.presence = quotas.Presence()
@@ -328,7 +330,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
         for nom, valeur in garde_config.items():
             setattr(config, nom, valeur)
         security.current_user, security.current_name = garde_secu
-        (deps.quota, deps.state_quota, deps.forum_quota,
+        (deps.quota, deps.quota_connecte, deps.state_quota, deps.forum_quota,
          deps.presence) = garde_quotas
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -742,6 +744,7 @@ def test_quota_par_compte_pas_par_ip_derriere_un_nat():
     """
     with contexte(jetons={"alice": "sub-alice", "bob": "sub-bob"}) as (c, _, _tmp):
         deps.quota = quotas.Quota(cooldown=0, hourly=1)
+        deps.quota_connecte = quotas.Quota(cooldown=0, hourly=1)
         charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
                   "files": {"submission.c": "int main(){return 0;}"}}
         nat = {"CF-Connecting-IP": "10.0.0.1"}
@@ -753,6 +756,37 @@ def test_quota_par_compte_pas_par_ip_derriere_un_nat():
         assert r.status_code == 429, r.status_code
         # L'anonyme de la même salle garde son compteur d'IP, intact.
         assert c.post("/submit", json=charge, headers=nat).status_code == 200
+
+
+def test_quota_anonyme_par_poste_et_cadran_plus_court_connecte():
+    """Aux premiers labos personne n'est connecté, et la salle partage une IP.
+
+    Deux postes anonymes derrière la MÊME IP ont chacun leur compteur ; sans
+    jeton de poste, on retombe sur l'ancien comportement (l'IP seule). Et un
+    compte attend moins entre deux soumissions -- son étiquette de quota est
+    plus juste, donc moins facile à rejouer.
+    """
+    with contexte(jetons={"alice": "sub-alice"}) as (c, _, _tmp):
+        deps.quota = quotas.Quota(cooldown=30, hourly=100)
+        deps.quota_connecte = quotas.Quota(cooldown=0, hourly=100)
+        charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
+                  "files": {"submission.c": "int main(){return 0;}"}}
+        nat = {"CF-Connecting-IP": "10.0.0.1"}
+        for poste in ("p1", "p2"):
+            r = c.post("/submit?poste=" + poste, json=charge, headers=nat)
+            assert r.status_code == 200, (poste, r.status_code, r.text)
+        # Chaque poste épuise le sien, et seulement le sien.
+        assert c.post("/submit?poste=p1", json=charge, headers=nat).status_code == 429
+        assert c.post("/submit?poste=p3", json=charge, headers=nat).status_code == 200
+        # Sans jeton : le compteur d'IP, comme avant. Deux d'affilée, la
+        # seconde attend.
+        assert c.post("/submit", json=charge, headers=nat).status_code == 200
+        assert c.post("/submit", json=charge, headers=nat).status_code == 429
+        # Le compte a son propre cadran, et le poste ne le concerne pas.
+        for _ in range(3):
+            r = c.post("/submit?poste=p1", json=charge,
+                       headers={**auth("alice"), **nat})
+            assert r.status_code == 200, (r.status_code, r.text)
 
 
 def test_quota_ne_consomme_rien_sur_une_requete_refusee():

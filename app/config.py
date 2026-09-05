@@ -91,6 +91,11 @@ DOCS = os.environ.get("CTESTER_DOCS", "") == "1"
 # --- Soumissions ------------------------------------------------------------
 KEY = os.environ.get("CTESTER_KEY", "")
 COOLDOWN = _entier("CTESTER_COOLDOWN", "15")
+# CONNECTÉ, C'EST MOINS D'ATTENTE, et ce n'est pas une faveur : un compte est
+# une étiquette de quota juste (voir `client_id`), là où l'anonyme est compté
+# par poste déclaré, donc plus facilement rejoué. Le cadran plus serré paie
+# cette incertitude ; il n'ouvre aucune porte, le plafond horaire est le même.
+COOLDOWN_CONNECTE = _entier("CTESTER_COOLDOWN_CONNECTE", "8")
 HOURLY = _entier("CTESTER_HOURLY_QUOTA", "40")
 QUEUE_MAX = _entier("CTESTER_QUEUE_MAX", "60")
 MAX_CODE = _entier("CTESTER_MAX_CODE_BYTES", "65536")

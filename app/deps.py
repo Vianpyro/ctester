@@ -34,6 +34,13 @@ verrou = Lock()
 # Le quota des SOUMISSIONS : une compilation coûte un cœur au Dell.
 quota = quotas.Quota(config.COOLDOWN, config.HOURLY)
 
+# LE MÊME PLAFOND HORAIRE, UN CADRAN PLUS COURT. Un compte identifie un
+# étudiant ; l'anonyme est compté par poste déclaré par son navigateur, donc
+# rejouable en ouvrant un profil neuf. Deux compteurs séparés, jamais un seul
+# avec un `if` : le quota horaire d'un étudiant ne doit pas changer selon
+# qu'il s'est connecté au milieu d'une séance.
+quota_connecte = quotas.Quota(config.COOLDOWN_CONNECTE, config.HOURLY)
+
 # Écrire un brouillon ou un thème ne compile rien -- pas de conteneur, pas de
 # gcc -- donc son propre plafond, bien plus lâche. Il existe pour borner un
 # abus, pas pour cadencer un étudiant qui tape.

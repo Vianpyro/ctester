@@ -461,7 +461,7 @@ global.fetch = async (url, opts) => {
              json: async () => ({ sources: BROUILLONS_SERVEUR[ex] || {} }) };
   }
   if (String(url).startsWith("forum")) return forumRepond(url, opts);
-  if (url === "submit") return SUBMIT_RESPONSE;
+  if (url.split("?")[0] === "submit") return SUBMIT_RESPONSE;
   return { ok: true, status: 200, json: async () => POLL_RESPONSE };
 };
 
@@ -811,7 +811,11 @@ const attendre = async () => { await sleep(); await sleep(); };
   await nodes.go.listeners.click();
   await sleep(); await sleep();
 
-  const post = calls.find(c => c.url === "submit");
+  const post = calls.find(c => c.url.split("?")[0] === "submit");
+  // Le jeton de poste sépare deux anonymes derrière une même IP NATée : sans
+  // lui, le premier labo (personne n'est connecté) partage un seul quota.
+  check(/[?&]poste=[^&]+/.test(post.url),
+        "la soumission porte son jeton de poste", post.url);
   check(!!post, "le fetch de soumission part réellement");
   if (post) {
     const sent = JSON.parse(post.opts.body);
@@ -897,7 +901,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   calls.length = 0;
   await nodes.go.listeners.click();
   await sleep(); await sleep();
-  const modulePost = calls.find(c => c.url === "submit");
+  const modulePost = calls.find(c => c.url.split("?")[0] === "submit");
   check(!!modulePost, "le module part en une seule soumission");
   if (modulePost) {
     const sent = JSON.parse(modulePost.opts.body);
@@ -994,7 +998,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   calls.length = 0;
   await nodes.go.listeners.click();
   await sleep(); await sleep();
-  const quizPost = calls.find(c => c.url === "submit");
+  const quizPost = calls.find(c => c.url.split("?")[0] === "submit");
   check(!!quizPost, "le fetch part aussi en mode quiz");
   if (quizPost) {
     const sent = JSON.parse(quizPost.opts.body);
@@ -1398,7 +1402,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   nodes.code.value = "int main(void){return 0;}";
   await nodes.go.listeners.click();
   await attendre(); await attendre();
-  check(calls.some(c => c.url === "submit"),
+  check(calls.some(c => c.url.split("?")[0] === "submit"),
         "et l'exercice reste soumettable pendant ce temps-là");
   PROGRES_CASSE = false;
 
@@ -1807,7 +1811,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   nodes.code.value = "int main(void){return 0;}";
   await nodes.go.listeners.click();
   await attendre(); await attendre();
-  check(calls.some(c => c.url === "submit"),
+  check(calls.some(c => c.url.split("?")[0] === "submit"),
         "et l'exercice reste soumettable pendant ce temps-là");
   FORUM_CASSE = false;
 

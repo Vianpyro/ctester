@@ -211,6 +211,24 @@ function sessionDrop(name) {
   try { sessionStorage.removeItem(name); } catch (e) {}
 }
 
+// L'IDENTIFIANT DE POSTE, pour que le quota anonyme ne soit pas celui de toute
+// la salle : aux premiers labos, 27 postes sortent par une seule IP NATée. Il
+// est dans `localStorage` et PAS dans `sessionStorage` comme celui de /live --
+// deux onglets sont bien deux fenêtres ouvertes, mais un seul étudiant. Il ne
+// prouve rien et ne voyage que vers /submit.
+function posteId() {
+  try {
+    let v = localStorage.getItem("ctester.poste");
+    if (!v) {
+      v = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : String(Math.random()).slice(2);
+      localStorage.setItem("ctester.poste", v);
+    }
+    return v;
+  } catch (e) { return ""; }
+}
+
 // LE JETON EST AU NOYAU parce que la soumission en a besoin, et qu'une
 // soumission part bien avant que « Mes exercices » n'existe.
 function setToken(value) {
@@ -1122,7 +1140,7 @@ async function soumettre(portee) {
   occupe(true);
   show("wait", "Envoi…");
   try {
-    const r = await fetch(API("submit"), {
+    const r = await fetch(API("submit?poste=" + encodeURIComponent(posteId())), {
       method: "POST",
       // La connexion est facultative : sans jeton, la soumission reste
       // anonyme. Avec lui, l'API peut rattacher le job au compte et enregistrer
