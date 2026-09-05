@@ -72,6 +72,11 @@
 
 
 <main>
+<!-- LE CANAL DE L'ÉTAT DU SERVICE, jamais celui du code de l'étudiant. Réseau,
+     quota, file pleine, clé de session, module manquant : tout ce dont il n'est
+     pas responsable passe ici, et jamais dans #out. -->
+<div id="systeme" hidden></div>
+
 <div id="travail">
   <details id="consigne" open>
     <summary class="phead">Consigne</summary>
@@ -125,6 +130,12 @@
 <div id="liste" hidden></div>
 <section id="vueprogres" aria-labelledby="progrestitre" hidden></section>
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
+
+<!-- CE QUI EST ANNONCÉ, ET RIEN D'AUTRE. Une ligne courte : « Ton code ne
+     compile pas », « 3 tests sur 4 ». Poser aria-live sur #out ferait lire la
+     sortie du compilateur en entier. Hors écran, jamais hidden : un élément
+     masqué n'est pas annoncé. -->
+<div id="annonce" role="status" class="horsecran"></div>
 </main>
 
 <script src="app.js?v=20260904-catalogue-v2"></script>

@@ -571,7 +571,13 @@ function check(cond, label) {
   console.log((cond ? "ok   " : "ÉCHEC ") + label);
   if (!cond) failures++;
 }
-const shown = () => nodes.out.children.map(c => c.textContent).join(" ");
+// CE QUE L'ÉTUDIANT LIT, DANS LES DEUX CANAUX. Le verdict (#out) parle de son
+// code, le bandeau (#systeme) parle du service ; les assertions ci-dessous
+// portent sur CE QU'IL EST DIT, pas sur le noeud qui le porte. En profondeur
+// depuis que le verdict a des sous-blocs (étapes, explication, action suivante).
+const profond = (n) => (n.textContent || "") + " "
+  + (n.children || []).map(profond).join(" ");
+const shown = () => profond(nodes.out) + " " + profond(nodes.systeme);
 const contexte = () => nodes.now.children.map(c => c.textContent).join(" | ");
 
 // CHANGER D'EXERCICE EST ASYNCHRONE depuis que le detail (consigne, gabarits)
@@ -607,7 +613,7 @@ const attendre = async () => { await sleep(); await sleep(); };
           "absent : le catalogue est demandé au chargement");
     check(!calls.some(c => String(c.url).startsWith("tp/")),
           "absent : et rien d'autre ne part -- pas de repli à essayer");
-    check(/recharge la page/.test(shown()),
+    check(/[Rr]echarge la page/.test(shown()),
           "absent : la page le dit : " + shown());
     check(global.ctester.catalogue().length === 0,
           "absent : et n'annonce aucun exercice, plutôt qu'un menu vide");
@@ -1091,6 +1097,82 @@ const attendre = async () => { await sleep(); await sleep(); };
                        wrong: [{ id: "q1", label: "23", given: "10111",
                                  hint: "l'enonce demande 8 bits" }] });
   check(/tu as répondu « 10111 »/.test(quiz), "le quiz rappelle la reponse saisie");
+
+  // --- LES TROIS ÉTAPES, ET SURTOUT CELLE QUI N'A PAS ÉTÉ ATTEINTE ---------
+  // Un débutant ne distingue pas compilation, exécution et logique -- c'est
+  // ecrit dans le persona. Le serveur, lui, sait toujours laquelle a casse, et
+  // la page jetait cette information : tout arrivait comme une seule ligne
+  // rouge. Ce qui est eprouve ici, c'est que chaque etat NOMME son etape, dit
+  // ce qui n'a PAS tourne, et finit par une action.
+  const compile = await verdictAffiche({ status: "compile_error",
+                    message: "Ton fichier ne compile pas.",
+                    gcc: "sub.c:4:12: error: expected ';'" });
+  check(/Compilation.*échouée/s.test(compile),
+        "une erreur de compilation nomme l'etape qui a casse");
+  check(/Exécution.*pas atteinte/s.test(compile),
+        "et dit que le programme n'a PAS tourne : " + compile.slice(0, 60));
+  check(/expected/.test(compile), "la sortie du compilateur reste montree");
+  check(/PREMIÈRE erreur/.test(compile),
+        "et l'action suivante vise la premiere erreur, pas la derniere");
+
+  const lien = await verdictAffiche({ status: "link_error",
+                  message: "Ton code compile, mais l'édition de liens a échoué." });
+  check(/ne s'assemble pas avec les tests/.test(lien),
+        "l'echec d'assemblage a son propre titre, court");
+  check(/édition de liens/.test(lien),
+        "et l'explication du serveur est reprise telle quelle, en corps de texte");
+  // L'ACTION AJOUTE, ELLE NE REPETE PAS : le message du serveur dit deja QUOI
+  // verifier, l'action dit COMMENT s'y prendre.
+  check(/caractère par caractère/.test(lien),
+        "et l'action suivante dit comment s'y prendre, pas ce que le serveur a deja dit");
+
+  const boucle = await verdictAffiche({ status: "timeout",
+                    message: "Le programme a été interrompu." });
+  check(/Compilation.*réussie/s.test(boucle),
+        "un timeout dit que la compilation, elle, a REUSSI");
+  check(/Exécution.*échouée/s.test(boucle), "et que c'est l'execution qui a casse");
+  check(/ne s'est pas arrêté/.test(boucle), "en langage d'etudiant, pas de systeme");
+
+  const memoire = await verdictAffiche({ status: "memory_error", message: "Débordement." });
+  check(/Exécution.*échouée/s.test(memoire) && /Tests.*pas atteints/s.test(memoire),
+        "un debordement memoire n'a pas atteint les tests");
+
+  const inclus = await verdictAffiche({ status: "forbidden_include",
+                    message: "unistd.h n'est pas autorisé." });
+  check(/Compilation.*échouée/s.test(inclus) && /Retire cette ligne/.test(inclus),
+        "un include interdit est refuse avant tout, et dit quoi faire");
+
+  // UNE PANNE DU JUGE N'EST PAS UN VERDICT. `error` couvre deux choses tres
+  // differentes cote serveur, et celle-ci ne parle pas du code de l'etudiant :
+  // elle n'a rien a faire dans l'emplacement du verdict.
+  nodes.systeme.textContent = "";
+  const interne = await verdictAffiche({ status: "error",
+                    message: "Erreur interne du juge. Réessaie." });
+  check(!/Erreur interne/.test(interne),
+        "une panne du juge ne s'affiche pas comme un verdict : " + interne.slice(0, 50));
+  check(/Erreur interne/.test(nodes.systeme.textContent),
+        "elle part dans le bandeau du service, avec ce qui n'est pas perdu");
+
+  // --- UNE RÉUSSITE MÈNE QUELQUE PART ---------------------------------------
+  // Le moment ou l'etudiant est le plus disponible etait precisement celui ou
+  // la page ne lui proposait rien.
+  POLL_RESPONSE = { state: "done", status: "ok", kind: "io", passed: 2, total: 2, cases: [] };
+  SUBMIT_RESPONSE = { ok: true, status: 200, json: async () => ({ id: "e".repeat(32) }) };
+  await choisir("TP 2", "tp2-ex0");
+  nodes.code.value = "int main(void){return 0;}";
+  await nodes.go.listeners.click();
+  await sleep(); await sleep(); await sleep();
+  const apres = nodes.out.children.find(c => c.className === "suite");
+  check(!!apres, "une reussite complete propose une action suivante");
+  const bouton = apres && apres.children.find(c => /Ouvrir/.test(c.textContent || ""));
+  check(!!bouton,
+        "et c'est un BOUTON, pas une phrase : " + (apres ? afficheTout(apres) : ""));
+  if (bouton) {
+    bouton.listeners.click();
+    await sleep(); await sleep();
+    check(nodes.excourant.textContent !== "tp2-ex0",
+          "qui ouvre vraiment l'exercice suivant : " + nodes.excourant.textContent);
+  }
 
   // --- Tab indente, mais Echap+Tab laisse sortir ---
   await choisir("TP 2", "tp2-ex0");

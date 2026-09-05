@@ -280,10 +280,15 @@ main {
 #out.ok { border-left-color: var(--ok); }
 #out.bad { border-left-color: var(--bad); }
 #out.wait { border-left-color: var(--wait); }
+/* LE COMPTE GARDE LES 2,1 REM, le titre d'un état ne les a plus : « 3 / 4 »
+   se lit d'un coup d'oeil et le mérite, une phrase de quarante caractères non. */
 .verdict {
-  font-size: 2.1rem; font-weight: 700; line-height: 1.1;
+  font-size: 1.5rem; font-weight: 700; line-height: 1.2;
+  letter-spacing: -.01em; margin-bottom: .45rem;
+}
+.verdict.compte {
+  font-size: 2.1rem; line-height: 1.1;
   font-variant-numeric: tabular-nums; letter-spacing: -.02em;
-  margin-bottom: .45rem;
 }
 .verdict.idle, .verdict.wait {
   font-size: .95rem; font-weight: 400; letter-spacing: .02em;
@@ -622,3 +627,84 @@ pre {
   #charte { position: static; width: auto; margin: .9rem; box-shadow: none; }
   select { max-width: 10rem; }
 }
+
+/* --- Le canal du service, et le canal du verdict -------------------------
+   DEUX RÉGIONS, DEUX APPARENCES, ET C'EST TOUT LE POINT. Le bandeau système
+   parle du SERVICE (réseau, quota, file, clé de session) ; #out parle du CODE
+   de l'étudiant. Avant, les deux étaient le même rouge de 2,1 rem au même
+   endroit -- et un débutant en concluait qu'il avait cassé quelque chose. */
+#systeme {
+  flex: 0 0 auto;
+  padding: .55rem .95rem;
+  font-family: var(--sans); font-size: 13px;
+  color: var(--fg); background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--wait);
+}
+#systeme[hidden] { display: none; }
+/* Une panne reste NEUTRE, pas alarmante : elle n'accuse personne, et surtout
+   pas celui qui la lit. Le rouge est réservé au verdict. */
+#systeme.panne { border-left-color: var(--bad); }
+#systeme::before { content: "\26A0\00a0\00a0"; color: var(--wait); }
+#systeme.panne::before { color: var(--bad); }
+
+/* Annoncé, jamais affiché. `hidden` ne conviendrait pas : un élément masqué
+   n'est pas lu par un lecteur d'écran. */
+.horsecran {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip-path: inset(50%); overflow: hidden; white-space: nowrap;
+}
+
+/* --- La bande d'étapes ---------------------------------------------------
+   Compilation -> Exécution -> Tests. L'étape NON ATTEINTE compte autant que
+   celle qui a échoué : c'est elle qui répond à « est-ce que mon programme a
+   seulement tourné ? ». */
+.etapes {
+  display: flex; flex-wrap: wrap; gap: .3rem;
+  margin: 0 0 .7rem;
+}
+.etapes .pas {
+  display: flex; flex-direction: column; gap: .1rem;
+  padding: .3rem .6rem;
+  border: 1px solid var(--line); border-radius: 6px;
+  border-left-width: 3px; border-left-color: var(--line-2);
+}
+.etapes b { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.etapes i {
+  font-style: normal; font-size: 11.5px; color: var(--muted);
+  font-family: var(--sans);
+}
+/* LE MOT ET LE SIGNE, jamais la seule couleur : l'état survit au noir et
+   blanc, au daltonisme, et se lit à voix haute. */
+.etapes .ok { border-left-color: var(--ok); }
+.etapes .ok b { color: var(--fg); }
+.etapes .ok b::after { content: "\00a0\2713"; color: var(--ok); }
+.etapes .ko { border-left-color: var(--bad); }
+.etapes .ko b { color: var(--fg); }
+.etapes .ko b::after { content: "\00a0\2717"; color: var(--bad); }
+.etapes .vide { opacity: .55; }
+
+/* L'explication : en CORPS DE TEXTE. C'est la moitié du correctif -- les
+   messages de link_error et memory_error font deux cents caractères, et en
+   typographie de titre ils écrasaient toute la zone. */
+.explique {
+  font-family: var(--sans); font-size: 13.5px; line-height: 1.55;
+  color: var(--fg); max-width: 46rem; margin: .1rem 0 .6rem;
+}
+
+/* L'action suivante. Détachée du reste : c'est la dernière chose lue, et la
+   seule qui dise quoi faire. */
+.suite {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem;
+  margin: 1rem 0 0; padding: .55rem .7rem;
+  font-family: var(--sans); font-size: 13px;
+  background: var(--card); border: 1px solid var(--line);
+  border-left: 3px solid var(--ink); border-radius: 6px;
+}
+.suite > span::before { content: "\2192\00a0"; color: var(--ink); }
+
+/* Un bouton qui travaille le DIT. Il reste focalisable -- voir `occupe()` :
+   le désactiver faisait tomber le focus sur <body> à chaque soumission. */
+#go.occupe, #goex.occupe { cursor: progress; opacity: .75; }
+#go[aria-disabled="true"], #goex[aria-disabled="true"] { pointer-events: none; }

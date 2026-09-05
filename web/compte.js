@@ -7,7 +7,7 @@
 // n'est jamais importé par app.js, il s'y déclare.
 (function (ctester) {
 const $ = ctester.$;
-const show = ctester.show;
+const systeme = ctester.systeme;
 const sessionGet = ctester.sessionGet;
 const sessionSet = ctester.sessionSet;
 const sessionDrop = ctester.sessionDrop;
@@ -187,7 +187,8 @@ async function finishSignIn() {
   let granted = null;
   try { granted = await answer.json(); } catch (e) { granted = null; }
   if (!answer.ok || !granted || !granted.access_token) {
-    show("bad", "La connexion a échoué. Tu peux continuer sans compte.");
+    systeme("La connexion a échoué. Tu peux continuer sans compte : la page "
+          + "fonctionne exactement pareil.", true);
     return;
   }
   setToken(granted.access_token);
@@ -357,9 +358,8 @@ async function oublier() {
   // la confirmation de suppression était effacée dans la milliseconde et
   // l'étudiant ne voyait jamais que sa demande avait abouti.
   if (ok) signOut();
-  show(ok ? "ok" : "bad",
-       ok ? "Tes données ont été supprimées du serveur."
-          : "Suppression impossible pour l'instant : réessaie plus tard.");
+  systeme(ok ? "Tes données ont été supprimées du serveur."
+             : "Suppression impossible pour l'instant : réessaie plus tard.", !ok);
 }
 
 // Le noyau a deja lu oidc.json et repere une session (ou un retour de

@@ -44,16 +44,16 @@ async function activerModule(nom, quoi) {
   try {
     await charger(nom + ".js");
   } catch (e) {
-    show("bad", "Impossible de charger " + quoi + ". Vérifie ta connexion, "
-              + "puis recharge la page.");
+    systeme("Impossible de charger " + quoi + ". Vérifie ta connexion, "
+          + "puis recharge la page.", true);
     return false;
   }
   if (!ctester[nom]) {
     // Le fichier est arrivé mais ne s'est pas déclaré : version en cache d'un
     // ancien déploiement, coupure en plein transfert. Se taire ici rendrait le
     // bouton inerte sans un mot.
-    show("bad", "Impossible d'utiliser " + quoi
-              + " : le fichier est arrivé incomplet. Recharge la page.");
+    systeme("Impossible d'utiliser " + quoi
+          + " : le fichier est arrivé incomplet. Recharge la page.", true);
     return false;
   }
   return true;
@@ -74,6 +74,9 @@ if (authCode) {
 
 const key = new URLSearchParams(location.search).get("k") || "";
 const out = $("out");
+// FOCALISABLE SANS ÊTRE DANS LA TABULATION : `amenerLeResultat()` y pose le
+// focus sur petit écran, où le verdict arrive hors de l'écran.
+out.tabIndex = -1;
 
 const THEME_KEY = "ctester.theme";
 
@@ -112,33 +115,182 @@ $("theme").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.enregistrerTheme(suivant);
 });
 
-function show(cls, title, extra, bar) {
-  out.className = cls;
-  out.innerHTML = "";
-  const h = document.createElement("div");
-  h.className = "verdict " + cls;
-  h.textContent = title;
-  out.append(h);
-  if (cls === "wait") out.append(indeterminee());
-  if (bar) out.append(bar);
-  if (extra) out.append(extra);
-  if (cls === "idle") {
-    out.append(aide("Choisis ton TP, puis colle ton fichier .c ou saisis tes "
-                  + "réponses selon l'exercice. Les résultats ne sont pas une "
-                  + "note."));
-  }
-  if (cls !== "wait") {
-    out.append(aide("Un exercice à la fois. Les tests utilisés ici sont un "
-                  + "sous-ensemble : ils t'aident à trouver tes erreurs, ils ne "
-                  + "remplacent pas la correction."));
-  }
+// --- DEUX CANAUX, ET IL NE FAUT PLUS JAMAIS LES CONFONDRE ------------------
+//
+// LE VERDICT PARLE DU CODE DE L'ÉTUDIANT. LE BANDEAU SYSTÈME PARLE DU SERVICE.
+// Un seul `show("bad")` rouge servait aux deux : « ton fichier ne compile pas »
+// et « le serveur est injoignable » s'affichaient à l'identique, au même
+// endroit, dans la même typographie de titre. Un débutant en conclut qu'il a
+// cassé quelque chose -- une attribution d'erreur fausse, dans exactement les
+// situations où il n'y est pour rien.
+//
+// Sur les dix-sept messages rouges d'avant, QUATRE seulement étaient un verdict.
+// Ne pas refondre ces deux fonctions en une seule.
+
+function noeud(balise, classe, texte) {
+  const n = document.createElement(balise);
+  if (classe) n.className = classe;
+  if (texte !== undefined) n.textContent = texte;
+  return n;
 }
 
-function aide(texte) {
-  const p = document.createElement("p");
-  p.className = "aide";
-  p.textContent = texte;
-  return p;
+// CE QUI EST ANNONCÉ AUX LECTEURS D'ÉCRAN, ET RIEN D'AUTRE : une ligne courte.
+// `#out` n'a délibérément PAS d'aria-live -- il porte la sortie du compilateur,
+// et l'annoncer en entier serait pire que le silence.
+function annoncer(texte) {
+  $("annonce").textContent = texte;
+}
+
+// --- Le canal du service ---------------------------------------------------
+// Réseau, quota, file pleine, clé de session, module manquant, connexion : tout
+// ce dont l'étudiant n'est pas responsable. Ton neutre, jamais l'emplacement du
+// verdict, et toujours une phrase qui dit ce qui N'EST PAS perdu.
+function systeme(texte, panne) {
+  const boite = $("systeme");
+  boite.textContent = texte || "";
+  boite.className = panne ? "panne" : "";
+  boite.hidden = !texte;
+  if (texte) annoncer(texte);
+}
+
+const effacerSysteme = () => systeme("");
+
+// --- Le canal du verdict ---------------------------------------------------
+
+// LES TROIS ÉTAPES QU'UN DÉBUTANT DOIT APPRENDRE À DISTINGUER. Le persona ne
+// sépare pas compilation, exécution et logique ; le serveur, lui, sait toujours
+// laquelle a cassé, et la page jetait cette information. Nommer l'étape NON
+// ATTEINTE est ce qui répond à « est-ce que mon programme a seulement tourné ? ».
+// L'ACCORD SUIT L'ÉTAPE. « Tests pas atteinte » est du charabia, et cette page
+// s'adresse à des étudiants en français : les deux premières étapes sont
+// féminines singulier, la troisième masculin pluriel.
+const ETAPES = [["Compilation", "f"], ["Exécution", "f"], ["Tests", "mp"]];
+const ETAT_ETAPE = {
+  f:  { ok: "réussie",  ko: "échouée",  "": "pas atteinte" },
+  mp: { ok: "réussis",  ko: "échoués",  "": "pas atteints" },
+};
+
+function bandeEtapes(etats, note) {
+  const bande = noeud("div", "etapes");
+  etats.forEach((etat, i) => {
+    const [nom, genre] = ETAPES[i];
+    const pas = noeud("span", "pas " + (etat || "vide"));
+    // LE MOT, PAS SEULEMENT LA COULEUR ni seulement une coche : un état qui ne
+    // se voit qu'en teinte disparaît en noir et blanc comme sous un daltonisme,
+    // et ne se lit pas à voix haute.
+    pas.append(noeud("b", "", nom + (i === 2 && note ? " " + note : "")));
+    pas.append(noeud("i", "", ETAT_ETAPE[genre][etat]));
+    bande.append(pas);
+  });
+  return bande;
+}
+
+// CE QUE CHAQUE ÉTAT VEUT DIRE POUR L'ÉTUDIANT : où ça a cassé, comment le dire
+// en une ligne, et quoi faire ensuite. Tout est dérivé de ce que `/r/<id>`
+// renvoie DÉJÀ -- aucun changement serveur n'a été nécessaire.
+//
+//   `etapes` : "ok" réussie, "ko" échouée, "" pas atteinte.
+//   `titre`  : COURT. C'est lui qui porte la couleur et lui qui est annoncé.
+//   `suite`  : l'action suivante. Toujours exactement une.
+//
+// L'EXPLICATION N'EST PAS ICI : c'est `message`, écrit par le serveur pour
+// l'étudiant. La recopier ferait deux endroits à corriger, dont un se
+// périmerait en silence. Quand le titre ci-dessous EST le message du serveur,
+// `verdict()` ne le répète pas.
+const ETATS = {
+  forbidden_include: {
+    etapes: ["ko", "", ""],
+    titre: "Un #include n'est pas autorisé",
+    suite: "Retire cette ligne, puis relance le test.",
+  },
+  compile_error: {
+    etapes: ["ko", "", ""],
+    titre: "Ton fichier ne compile pas.",
+    suite: "Corrige la PREMIÈRE erreur : les suivantes en découlent souvent.",
+  },
+  compile_timeout: {
+    etapes: ["ko", "", ""],
+    titre: "La compilation a été trop longue",
+    suite: "Réessaie. Si ça recommence, préviens ton enseignant.",
+  },
+  // « Compilation échouée » plutôt qu'une quatrième étape « Assemblage » : gcc
+  // fait les deux en une seule commande dans le cours, et ajouter un concept
+  // pour un seul état coûterait plus qu'il ne rapporte. Le message du serveur
+  // dit la nuance, et le titre ci-dessous la dit aussi.
+  link_error: {
+    etapes: ["ko", "", ""],
+    titre: "Ton code ne s'assemble pas avec les tests",
+    // L’ACTION AJOUTE, ELLE NE RÉPÈTE PAS. Le message du serveur dit déjà quoi
+    // vérifier ; ce qui manque à un débutant, c’est COMMENT s’y prendre.
+    suite: "Compare ta signature avec celle de l’énoncé, caractère par caractère.",
+  },
+  memory_error: {
+    etapes: ["ok", "ko", ""],
+    titre: "Ton programme sort de la mémoire qu'il a réservée",
+    suite: "Revois tes conditions de boucle (< et non <=) et la taille que tu "
+         + "réserves.",
+  },
+  timeout: {
+    etapes: ["ok", "ko", ""],
+    titre: "Ton programme ne s'est pas arrêté",
+    suite: "Vérifie tes conditions de boucle et le nombre de valeurs que tu lis.",
+  },
+  error: {
+    etapes: ["ok", "ko", ""],
+    titre: "Ton programme s'est arrêté avant la fin",
+    suite: "Plantage probable : indice hors des bornes, pointeur invalide, ou "
+         + "chaîne sans son terminateur.",
+  },
+};
+
+// L'ACTION SUIVANTE, ET IL EN FAUT UNE PARTOUT -- succès compris. Le moment où
+// l'étudiant est le plus disponible était précisément celui où la page ne lui
+// proposait rien.
+function bandeSuite(texte, bouton) {
+  const bloc = noeud("div", "suite");
+  bloc.append(noeud("span", "", texte));
+  if (bouton) {
+    const b = noeud("button", "nav", bouton.libelle);
+    b.type = "button";
+    b.addEventListener("click", bouton.faire);
+    bloc.append(b);
+  }
+  return bloc;
+}
+
+// `v` : {cls, etapes, note, titre, texte, bar, detail, suite, bouton}
+// Seul `titre` est obligatoire.
+function verdict(v) {
+  out.className = v.cls;
+  out.innerHTML = "";
+  if (v.etapes) out.append(bandeEtapes(v.etapes, v.note));
+  // LE COMPTE GARDE LA GRANDE TAILLE, le titre d'un état ne l'a plus. `3 / 4`
+  // se lit d'un coup d'oeil et le mérite ; « Ton code ne s'assemble pas avec
+  // les tests » en 2,1 rem écrasait la zone entière. Seul le chemin `ok` pose
+  // une note, donc elle sépare exactement les deux cas.
+  out.append(noeud("div", "verdict " + v.cls + (v.note ? " compte" : ""),
+                   v.titre));
+  if (v.cls === "wait") out.append(indeterminee());
+  if (v.bar) out.append(v.bar);
+  // EN CORPS DE TEXTE, PLUS JAMAIS EN 2,1 REM. Les messages de `link_error` et
+  // de `memory_error` font deux cents caractères : en typographie de titre, ils
+  // écrasaient toute la zone de résultat.
+  if (v.texte && v.texte !== v.titre) out.append(noeud("p", "explique", v.texte));
+  if (v.detail) out.append(v.detail);
+  if (v.suite) out.append(bandeSuite(v.suite, v.bouton));
+  annoncer(v.titre);
+}
+
+// L'ÉTAT DE REPOS. Pas d'étapes -- rien n'a encore tourné, et une bande de
+// trois « pas atteinte » avant la première soumission annoncerait un échec.
+function repos() {
+  verdict({
+    cls: "idle",
+    titre: "En attente d'une soumission.",
+    texte: "Écris ton code, puis clique sur « Tester ». Les résultats ne sont "
+         + "pas une note : ces tests t'aident à trouver tes erreurs, ils ne "
+         + "remplacent pas la correction.",
+  });
 }
 
 function indeterminee() {
@@ -468,12 +620,13 @@ function dessinerMenu() {
     if (r.ok) publie = await r.json();
   } catch (e) { /* réseau, ou rien de publié : le message ci-dessous tranche */ }
   if (!publie || !Array.isArray(publie.exercises)) {
-    show("bad", "Le catalogue n'a pas pu être chargé — recharge la page.");
+    systeme("La liste des exercices n'a pas pu être chargée. Recharge la "
+          + "page ; si ça recommence, préviens ton enseignant.", true);
     return;
   }
   normaliser(publie);
   if (!collections.length) {
-    show("bad", "Aucun TP n'est publié pour l'instant.");
+    systeme("Aucun exercice n'est publié pour l'instant.");
     return;
   }
   // UN LIEN PROFOND VERS UN EXERCICE VERROUILLÉ N'OUVRE PAS L'EXERCICE : il
@@ -491,7 +644,8 @@ function dessinerMenu() {
   // de session, pas une panne, et le menu porte les dates -- autant l'ouvrir.
   if (!catalogue.length) {
     $("menuex").open = true;
-    show("idle", "Aucun exercice n'est encore ouvert — le menu donne les dates.");
+    verdict({ cls: "idle", titre: "Aucun exercice n'est encore ouvert.",
+              texte: "Le menu « Exercices » donne la date d'ouverture de chacun." });
   }
 })();
 
@@ -607,8 +761,13 @@ function switchMode() {
   // courante est l'exercice affiche : tester les 40 questions reste possible,
   // mais cesse d'etre ce sur quoi on tombe par defaut.
   $("goex").hidden = !quiz;
-  $("go").className = quiz ? "secondaire" : "";
-  $("go").textContent = quiz ? "Tester tout le quiz" : "Tester";
+  // LE LIBELLÉ DE REPOS PASSE PAR `occupe()`, qui est aussi celui qui le
+  // remplace par « Test en cours… ». Deux endroits qui écrivent le même bouton
+  // finiraient par se contredire -- typiquement, changer d'exercice pendant un
+  // test remettrait « Tester » sur un bouton encore occupé.
+  goSecondaire = quiz;
+  libelleGo = quiz ? "Tester tout le quiz" : "Tester";
+  occupe(occupation);
 
   $("now").innerHTML = "";
   if (tp) {
@@ -635,7 +794,7 @@ function switchMode() {
   }
 
   afficherConsigne(null);
-  show("idle", "En attente d'une soumission.");
+  repos();
   preparer(tp, quiz, ++loadToken);
 }
 
@@ -766,8 +925,8 @@ $("consentok").addEventListener("click", async () => {
   try {
     await ctester.compte.startSignIn();
   } catch (e) {
-    show("bad", "La connexion n'a pas pu démarrer : " + e.message
-              + ". Tu peux continuer sans compte.");
+    systeme("La connexion n'a pas pu démarrer : " + e.message
+          + ". Tu peux continuer sans compte : tout fonctionne pareil.", true);
   }
 });
 // Un <details> ne se referme pas tout seul quand on clique dedans.
@@ -829,7 +988,11 @@ fetch(API("oidc.json")).then(r => r.json()).then(async (config) => {
 
 Object.assign(ctester, {
   $: $,
-  show: show,
+  // `systeme` ET PAS `show` : le canal du service. Les deux seuls appels des
+  // modules -- une connexion qui échoue, une suppression de compte confirmée --
+  // parlent du service, jamais du code de l'étudiant. Le verdict, lui, n'a
+  // aucune raison d'être écrit depuis un module.
+  systeme: systeme,
   sessionGet: sessionGet,
   sessionSet: sessionSet,
   sessionDrop: sessionDrop,
@@ -1043,19 +1206,82 @@ function restreindre(r, portee) {
   });
 }
 
+// L'EXERCICE OUVERT SUIVANT, pour l'action qui suit une réussite. `catalogue`
+// ne porte que les exercices ouverts : il n'y a donc pas de cadenas à éviter.
+function suivantOuvrable() {
+  const i = catalogue.findIndex(t => t.id === selection);
+  return i >= 0 ? catalogue[i + 1] || null : null;
+}
+
+// CE QU'ON PROPOSE APRÈS UNE RÉUSSITE COMPLÈTE. Un bouton, pas une phrase :
+// c'est le seul moment de la boucle où l'étudiant n'a plus rien à corriger, et
+// la page ne lui offrait rien.
+function apresReussite() {
+  const apres = suivantOuvrable();
+  if (!apres) {
+    return { suite: "C'est le dernier exercice ouvert pour l'instant." };
+  }
+  return {
+    suite: "Tu peux passer à la suite.",
+    bouton: { libelle: "Ouvrir « " + apres.short + " »",
+              faire: () => fillExercises(apres.id) },
+  };
+}
+
+// CE QU'ON DIT APRÈS UN ÉCHEC DE TESTS, par mode. Le juge a exécuté le
+// programme : ce qui reste à faire n'est plus de le faire tourner, c'est de
+// lire ce qu'il a produit.
+const APRES_ECHEC = {
+  io: "Ouvre le cas qui échoue : il montre ce que ton programme a reçu et ce "
+    + "qu'il a affiché.",
+  unity: "Le nom de chaque vérification décrit le cas qu'elle teste.",
+  quiz: "Corrige les réponses ci-dessus, puis relance le test.",
+};
+
 function render(r, portee) {
+  // UN VERDICT EFFACE LE BANDEAU SYSTÈME. Laisser « le serveur est injoignable »
+  // au-dessus d'un résultat qui vient d'arriver dirait deux choses opposées.
+  effacerSysteme();
   if (r.status !== "ok") {
-    show("bad", r.message, r.status === "compile_error" ? block(r.gcc || "") : null);
+    // UNE PANNE DU JUGE N'EST PAS UN VERDICT. `error` couvre deux choses très
+    // différentes côté serveur : un programme étudiant qui plante (des étapes à
+    // montrer) et une erreur interne (« Erreur interne du juge », « Le juge a
+    // été interrompu »), qui ne parle pas du code et n'a rien à faire ici.
+    if (r.status === "error" && /juge/.test(r.message || "")) {
+      systeme(r.message + " Ton code est enregistré.", true);
+      // ET ON REPART DU REPOS : sans ça, le verdict restait figé sur « Envoi… »
+      // pendant que le bandeau annonçait une panne -- deux écrans qui disent
+      // deux choses différentes au même moment.
+      repos();
+      return;
+    }
+    const etat = ETATS[r.status] || ETATS.error;
+    verdict({
+      cls: "bad",
+      etapes: etat.etapes,
+      titre: etat.titre,
+      texte: r.message || "",
+      detail: r.status === "compile_error" ? block(r.gcc || "") : null,
+      suite: etat.suite,
+    });
   } else {
     const cadre = portee && r.kind === "quiz" ? " — " + portee.titre : "";
     if (portee && r.kind === "quiz") r = restreindre(r, portee);
     const all = r.passed === r.total;
     const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}${cadre}`;
     const bar = r.total > 0 ? ticks(r.passed, r.total) : null;
+    // LE PROGRAMME A COMPILÉ ET IL A TOURNÉ : les deux premières étapes sont
+    // réussies par construction, on n'est ici que parce que le juge a pu noter.
+    const etapes = ["ok", "ok", all ? "ok" : "ko"];
+    const note = r.total > 0 ? r.passed + "/" + r.total : "";
     if (all) {
-      show("ok", title, null, bar);
+      const apres = apresReussite();
+      verdict({ cls: "ok", etapes: etapes, note: note, titre: title, bar: bar,
+                suite: apres.suite, bouton: apres.bouton });
     } else if (r.kind === "quiz") {
-      show("bad", title, list(r.wrong.map(w => {
+      verdict({ cls: "bad", etapes: etapes, note: note, titre: title, bar: bar,
+                suite: APRES_ECHEC.quiz,
+                detail: list(r.wrong.map(w => {
         const groupe = ctester.quiz ? ctester.quiz.groupeDe(w.id) : "";
         const ex = groupe.match(/Exercice\s*\d+/i);
         const vide = !(w.given && w.given.trim());
@@ -1066,24 +1292,71 @@ function render(r, portee) {
               + (w.hint ? " — " + w.hint : ""),
           cls: vide ? "rien" : "",
         };
-      })), bar);
+      })) });
     } else if (r.kind === "io") {
-      show("bad", title, cases(r.cases), bar);
+      verdict({ cls: "bad", etapes: etapes, note: note, titre: title, bar: bar,
+                detail: cases(r.cases), suite: APRES_ECHEC.io });
     } else {
-      show("bad", title, r.failed.length ? list(r.failed) : null, bar);
+      verdict({ cls: "bad", etapes: etapes, note: note, titre: title, bar: bar,
+                detail: r.failed.length ? list(r.failed) : null,
+                suite: APRES_ECHEC.unity });
     }
   }
   if (r.warnings) out.append(avertissements(r.warnings));
+  amenerLeResultat();
 }
 
-// Les DEUX boutons se bloquent ensemble : ils envoient la meme soumission.
-function occupe(oui) {
-  $("go").disabled = oui;
-  $("goex").disabled = oui;
+// SUR PETIT ÉCRAN, LE RÉSULTAT EST SOUS L'ÉDITEUR ET HORS DE L'ÉCRAN : cliquer
+// « Tester » n'y produisait visiblement RIEN. On l'y amène et on y pose le
+// focus. Sur grand écran il est déjà dans la grille, à côté de l'éditeur, et
+// voler le focus en pleine correction serait pire que le mal.
+function amenerLeResultat() {
+  const etroit = typeof matchMedia === "function"
+              && matchMedia("(max-width: 900px)").matches;
+  if (!etroit) return;
+  if (out.scrollIntoView) out.scrollIntoView({ block: "start", behavior: "smooth" });
+  if (out.focus) out.focus();
 }
 
-async function poll(id, tries, portee) {
+// PAS `disabled`, ET C'EST DÉLIBÉRÉ. Désactiver le bouton qui a le focus le
+// fait tomber sur <body> : au clavier, il fallait re-tabuler toute la page
+// après CHAQUE soumission. Et un bouton grisé sans un mot se lit « cassé »
+// plutôt que « en cours ». Il reste donc focalisable, et il DIT ce qu'il fait.
+//
+// IL RESTE AUSSI CLIQUABLE, et ce n'est pas un oubli : un sondage qui n'aboutit
+// jamais -- file bloquée, réseau qui tombe entre deux battements -- laissait
+// l'étudiant devant un bouton mort, sans un mot et sans issue. Recliquer est
+// une intention sans ambiguïté : le nouveau test REMPLACE l'ancien, dont le
+// verdict ne l'intéresse plus. Le vrai garde-fou contre le martèlement est le
+// quota du serveur (8 s connecté, 15 s sinon), et il est déjà là.
+let occupation = false;
+let libelleGo = "Tester";
+let goSecondaire = false;
+
+function occupe(oui, texte) {
+  occupation = oui;
+  const dire = texte || "Test en cours…";
+  $("go").textContent = oui ? dire : libelleGo;
+  $("goex").textContent = oui ? dire : "Tester l'exercice";
+  for (const id of ["go", "goex"]) {
+    // `aria-busy` seulement quand ça TRAVAILLE : pendant un compte à rebours de
+    // quota, rien ne tourne, et l'annoncer occupé serait faux.
+    $(id).setAttribute("aria-busy", oui && !texte ? "true" : "false");
+  }
+  $("go").className = (goSecondaire ? "secondaire" : "") + (oui ? " occupe" : "");
+  $("goex").className = oui ? "occupe" : "";
+}
+
+// LE SONDAGE PÉRIMÉ SE TAIT. Sans ce jeton, le verdict d'un test abandonné
+// écraserait celui du test qu'on vient de lancer -- et il arriverait EN
+// DERNIER, donc c'est lui qu'on lirait. Même mécanique que `loadToken` pour le
+// chargement d'un exercice, et pour la même raison.
+let soumissionCourante = 0;
+
+async function poll(id, tries, portee, jeton) {
+  if (jeton !== soumissionCourante) return;
   const r = await fetch(API("r/" + id));
+  if (jeton !== soumissionCourante) return;
   const body = await r.json().catch(() => ({state: "error"}));
   if (body.state === "done") {
     render(body, portee);
@@ -1109,36 +1382,78 @@ async function poll(id, tries, portee) {
     return;
   }
   if (r.status === 404 || tries <= 0) {
-    show("bad", "Résultat perdu. Relance les tests.");
+    // PERDRE UN VERDICT EST UNE PANNE DE SERVICE, pas un jugement sur le code.
+    systeme("Le résultat de ce test s'est perdu. Ton code est enregistré — "
+          + "relance simplement le test.", true);
     occupe(false);
     return;
   }
-  show("wait", body.state === "running"
-       ? "Compilation en cours…"
-       : `En file d'attente — ${body.position}${body.position === 1 ? "er" : "e"}`);
-  setTimeout(() => poll(id, tries - 1, portee), 2000);
+  // « COMPILATION EN COURS » ÉTAIT FAUX LA MOITIÉ DU TEMPS : `running` couvre
+  // la compilation, l'exécution ET les tests -- le worker ne rapporte pas de
+  // sous-état. Annoncer une étape qu'on ne connaît pas forme précisément le
+  // modèle mental erroné chez celui qui en a le moins.
+  verdict({
+    cls: "wait",
+    titre: body.state === "running"
+      ? "Test en cours…"
+      : `En file d'attente — ${body.position}${body.position === 1 ? "er" : "e"}`,
+  });
+  setTimeout(() => poll(id, tries - 1, portee, jeton), 2000);
+}
+
+// LE QUOTA N'EST PAS UN REFUS DU CODE. L'API renvoie déjà `retry_after` ; la
+// page l'ignorait et affichait le message brut en rouge, à l'emplacement du
+// verdict -- « mon code a été refusé ». On le met dans le canal du service, on
+// décompte sur le bouton, et on rouvre tout seul : recliquer ne servait qu'à
+// s'agacer.
+let rebours = null;
+
+function attendreQuota(secondes) {
+  clearTimeout(rebours);
+  let reste = Math.max(1, Math.round(secondes));
+  (function tic() {
+    if (reste <= 0) {
+      occupe(false);
+      effacerSysteme();
+      return;
+    }
+    occupe(true, "Nouveau test dans " + reste + " s");
+    systeme("Tu as lancé plusieurs tests coup sur coup. Le prochain part dans "
+          + reste + " s — ton code est enregistré, tu peux continuer à l'écrire.");
+    reste--;
+    rebours = setTimeout(tic, 1000);
+  })();
 }
 
 // `portee` : les identifiants de l'exercice affiche, ou null pour tout le TP.
 async function soumettre(portee) {
   const tp = current();
-  if (!tp) { show("bad", "Choisis un TP."); return; }
+  if (!tp) { systeme("Choisis un exercice dans le menu pour commencer."); return; }
   const body = {key, exercise_id: tp.id};
   if (tp.mode === "quiz") {
-    if (!ctester.quiz) { show("bad", "Le quiz n'est pas chargé."); return; }
+    if (!ctester.quiz) {
+      systeme("Le quiz n'a pas pu être chargé. Recharge la page.", true);
+      return;
+    }
     body.answers = ctester.quiz.answers();
+    // RIEN À TESTER N'EST PAS UN ÉCHEC. En rouge, en 2,1 rem, à l'emplacement
+    // du verdict, ça grondait quelqu'un qui venait juste d'ouvrir l'exercice et
+    // cliquait pour voir ce que fait le bouton.
     if (!Object.values(body.answers).some(v => v.trim())) {
-      show("bad", "Aucune réponse saisie."); return;
+      systeme("Saisis au moins une réponse avant de tester."); return;
     }
   } else {
     sources[actif] = $("code").value;
     body.files = sources;
     if (!Object.values(sources).some(v => v.trim())) {
-      show("bad", "Il n'y a rien à tester."); return;
+      systeme("Il n'y a encore rien à tester : écris ou colle ton code d'abord.");
+      return;
     }
   }
+  const jeton = ++soumissionCourante;
+  effacerSysteme();
   occupe(true);
-  show("wait", "Envoi…");
+  verdict({ cls: "wait", titre: "Envoi…" });
   try {
     const r = await fetch(API("submit?poste=" + encodeURIComponent(posteId())), {
       method: "POST",
@@ -1151,22 +1466,40 @@ async function soumettre(portee) {
     });
     let out = null;
     try { out = await r.json(); } catch (parseError) { out = null; }
+    // LE QUOTA A SON PROPRE CHEMIN : `retry_after` était envoyé par l'API et
+    // jeté par la page depuis toujours.
+    if (r.status === 429 && out && out.retry_after) {
+      // La soumission n'est jamais partie : le verdict repart du repos plutôt
+      // que de rester sur « Envoi… », qui serait faux.
+      repos();
+      attendreQuota(out.retry_after);
+      return;
+    }
     if (!r.ok || !out) {
-      show("bad", (out && out.error) ||
-                  `Le serveur a répondu ${r.status} sans JSON exploitable.`);
+      systeme((out && out.error)
+              || `Le serveur a répondu ${r.status} et n'a pas pris ta `
+                 + `soumission. Ton code est enregistré — réessaie dans un instant.`,
+              true);
       occupe(false);
       return;
     }
-    poll(out.id, 150, portee);
+    poll(out.id, 150, portee, jeton);
   } catch (e) {
-    show("bad", "Le serveur est injoignable : " + e.message);
+    systeme("Le serveur ne répond pas. Ton code est enregistré sur cet "
+          + "appareil ; réessaie dans un instant.", true);
     occupe(false);
   }
 }
 
+// LE CLIC EST IGNORÉ PENDANT UN TEST, et c'est ce qui remplace `disabled` :
+// voir `occupe()`. Le bouton reste focalisable, donc la tabulation ne repart
+// pas du haut de la page à chaque soumission.
+// LA PROMESSE EST RENDUE, et ce n'est pas cosmétique : le harnais attend le
+// clic pour savoir que la soumission est partie. Un garde en corps de bloc
+// rendrait `undefined`, et tout ce qui suit s'exécuterait avant le fetch.
 $("go").addEventListener("click", () => soumettre(null));
-$("goex").addEventListener("click", () => soumettre(
-  ctester.quiz ? ctester.quiz.page() : null));
+$("goex").addEventListener("click", () =>
+  soumettre(ctester.quiz ? ctester.quiz.page() : null));
 
 // --- Compteur de présence, pour tout le monde -----------------------------
 // Un battement toutes les 60 s vers /live, qui ne touche qu'un dict en mémoire
