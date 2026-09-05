@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ctester -- le worker de l'hôte. Fichier géré par Ansible : éditer le rôle.
+"""ctester -- le worker de l'hôte, lancé depuis le clone git.
 
 Tourne en root sur le Dell, en N instances (ctester-runner@1..N), et fait les
 seules choses que le conteneur web n'a pas le droit de faire : lancer Docker, et
@@ -21,6 +21,7 @@ configuration qu'il faudrait tenir synchronisé avec la réalité :
 """
 
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -810,6 +811,210 @@ def sandbox(job_dir, tp_dir, mode, nonce=""):
 
 
 # --------------------------------------------------------------------------
+# Cache de verdicts -- LA FILE NE PAIE PAS DEUX FOIS LE MÊME CODE
+# --------------------------------------------------------------------------
+#
+# Pendant un TP, beaucoup de jobs recompilent un code déjà jugé : le même
+# étudiant qui resoumet, le gabarit non modifié, le copier-coller. Un verdict
+# déjà calculé est rendu ici en quelques millisecondes, donc la file se vide au
+# lieu de se remplir. Le job passe toujours par le spool -- `/submit`, les
+# quotas et QUEUE_MAX ne changent pas, et le conteneur web ne gagne aucune
+# surface.
+#
+# LE CACHE VIT DANS LE WORKER, ET C'EST STRUCTUREL. La révision publiée
+# (`publish_content.revision()`) ne hache que la PROJECTION PUBLIQUE : corriger
+# un `test_*.c` ou un `case` de io.json ne la change pas. Une clé fondée dessus
+# servirait l'ancien verdict après une correction de test. Seul ce processus
+# monte CTESTER_CONTENT et peut empreindre `assessment/` lui-même.
+#
+# LA NORMALISATION NE TOUCHE QUE LA CLÉ, jamais la valeur ni ce qui est
+# compilé : le juge écrit toujours les octets exacts de l'étudiant dans `src/`.
+# Un bogue de `normaliser_c()` ne peut donc produire qu'un mauvais hit de cache
+# -- jamais une compilation faussée, jamais un code d'étudiant mutilé.
+#
+# CTESTER_CACHE_MAX=0 l'éteint sans redéployer : c'est le rollback.
+
+CACHE_DIR = "cache"
+CACHE_MAX = int(os.environ.get("CTESTER_CACHE_MAX", "5000"))
+
+# CE QUI NE SE MET JAMAIS EN CACHE, parce que ce n'est pas une fonction du
+# code. Les trois plafonds (JOB_TIMEOUT, COMPILE_TIMEOUT, RUN_TIMEOUT) sont du
+# temps mural sous gVisor : un code limite passe ou échoue selon la charge du
+# Dell. Geler un ÉCHEC de malchance enfermerait l'étudiant, qui ne pourrait
+# plus jamais passer. `error` est une panne du juge, pas un verdict.
+JAMAIS_EN_CACHE = frozenset(("timeout", "compile_timeout", "error"))
+
+
+# UN LEXEUR C, PAS UN FORMATEUR ET PAS UN PARSEUR. clang-format ne retire pas
+# les commentaires et garde les lignes vides : il ne peut pas rendre la même
+# clé pour un code espacé autrement. Un AST demanderait un vrai parseur C sur
+# une entrée hostile, et n'ajouterait au flux de jetons que l'insensibilité aux
+# parenthèses redondantes -- deux étudiants indépendants diffèrent de toute
+# façon par leurs identifiants.
+#
+# L'ORDRE DES ALTERNATIVES EST LA CORRECTION : chaîne et caractère AVANT le
+# reste, sans quoi le `//` de `printf("http://x")` couperait la ligne en
+# commentaire et deux programmes distincts pourraient partager une clé.
+_LEX = re.compile(r"""
+      (?P<bloc>/\*.*?\*/)
+    | (?P<ligne>//(?:[^\n\\]|\\.)*)
+    | (?P<chaine>"(?:[^"\\\n]|\\.)*")
+    | (?P<car>'(?:[^'\\\n]|\\.)*')
+    | (?P<mot>[A-Za-z_][A-Za-z0-9_]*|\.?[0-9](?:[A-Za-z0-9_.]|[eEpP][-+])*)
+    | (?P<blanc>\s+)
+    | (?P<autre>.)
+""", re.S | re.X)
+
+_CARACTERE_DE_MOT = re.compile(r"[A-Za-z0-9_]")
+
+
+def normaliser_c(source):
+    """Le code réduit à ses jetons : même clé quel que soit l'habillage.
+
+    Commentaires retirés, indentation et lignes vides sans effet. Un espace
+    n'est gardé que là où il SÉPARE deux jetons (`int x` ne doit pas devenir
+    `intx`), et un commentaire compte comme un tel séparateur.
+
+    LES DIRECTIVES GARDENT LEUR FIN DE LIGNE : sans elle, `#define A 1` et
+    `#define B 2` fusionneraient en une seule ligne, et deux programmes
+    distincts pourraient se retrouver sur la même clé.
+    """
+    out = []
+    espace = False     # un blanc ou un commentaire attend d'être peut-être émis
+    directive = False  # on est dans une ligne `#...`
+    debut = True       # rien d'émis encore sur cette ligne source
+    for m in _LEX.finditer(source):
+        genre, texte = m.lastgroup, m.group()
+        if genre in ("bloc", "ligne", "blanc"):
+            if genre == "blanc" and "\n" in texte and directive:
+                out.append("\n")
+                espace, directive = False, False
+            else:
+                espace = True
+            if "\n" in texte:
+                debut = True
+            continue
+        if (espace and out
+                and _CARACTERE_DE_MOT.match(out[-1][-1])
+                and _CARACTERE_DE_MOT.match(texte[0])):
+            out.append(" ")
+        if texte == "#" and debut:
+            directive = True
+        out.append(texte)
+        espace, debut = False, False
+    return "".join(out)
+
+
+def _hacher_octets(condensat, blob):
+    """Longueur PUIS contenu : sans le préfixe, `ab` + `c` et `a` + `bc`
+    donneraient le même condensat, et deux jeux de fichiers distincts
+    pourraient partager une clé."""
+    condensat.update(str(len(blob)).encode("ascii") + b":")
+    condensat.update(blob)
+
+
+def _hacher_fichier(condensat, chemin):
+    try:
+        with open(chemin, "rb") as fh:
+            _hacher_octets(condensat, fh.read())
+    except OSError:
+        condensat.update(b"absent:")
+
+
+def _hacher_arbre(condensat, racine):
+    for dossier, sous, fichiers in os.walk(racine):
+        sous.sort()  # l'ordre de os.walk n'est pas garanti, la clé doit l'être
+        for nom in sorted(fichiers):
+            chemin = os.path.join(dossier, nom)
+            rel = os.path.relpath(chemin, racine).replace(os.sep, "/")
+            _hacher_octets(condensat, rel.encode("utf-8"))
+            _hacher_fichier(condensat, chemin)
+
+
+def empreinte_juge(exercise_id, tp_dir, mode):
+    """Tout ce qui décide du verdict SAUF le code de l'étudiant.
+
+    C'est ce qui rend l'invalidation automatique : un `test_*.c` corrigé par le
+    tick de cinq minutes change l'empreinte, donc la clé, donc le verdict est
+    recalculé sans que personne n'ait à vider quoi que ce soit.
+
+    `runner.py` s'y hache LUI-MÊME : `verdict_io`, `parse_unity` et la
+    tolérance par défaut vivent ici, et une version de cache à incrémenter à la
+    main serait oubliée exactement le jour où elle compte.
+    """
+    condensat = hashlib.sha256()
+    _hacher_octets(condensat, ("%s|%s" % (exercise_id, mode)).encode("utf-8"))
+    _hacher_arbre(condensat, tp_dir)
+    if mode == "unity":
+        # Unity est PARTAGÉ : monter sa version change tous les verdicts.
+        _hacher_arbre(condensat, unity_dir())
+    # Les gabarits sont publics donc HORS de assessment/, et ils décident des
+    # noms écrits sur disque (`declared_files`).
+    _hacher_fichier(condensat,
+                    os.path.join(tp_dir, os.pardir, "public", "files.json"))
+    _hacher_fichier(condensat, BUILD_UNITY if mode == "unity" else BUILD_IO)
+    _hacher_fichier(condensat, os.path.abspath(__file__))
+    _hacher_octets(condensat, IMAGE.encode("utf-8"))
+    _hacher_octets(condensat,
+                   json.dumps(SANDBOX_ENV, sort_keys=True).encode("utf-8"))
+    return condensat
+
+
+def signature(exercise_id, tp_dir, mode, conf, sent):
+    """La clé de cache : l'empreinte du juge, plus le code normalisé."""
+    condensat = empreinte_juge(exercise_id, tp_dir, mode)
+    for declared in declared_files(conf, tp_dir):
+        nom = declared["name"]
+        _hacher_octets(condensat, nom.encode("utf-8"))
+        _hacher_octets(condensat,
+                       normaliser_c(str(sent.get(nom, ""))).encode("utf-8"))
+    return condensat.hexdigest()
+
+
+def cache_lire(sig):
+    if CACHE_MAX <= 0:
+        return None
+    try:
+        with open(os.path.join(SPOOL, CACHE_DIR, sig + ".json"),
+                  encoding="utf-8") as fh:
+            verdict = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return verdict if isinstance(verdict, dict) else None
+
+
+def cache_ecrire(sig, verdict):
+    """ponytail: purge complète quand plein, pas de LRU -- même raccourci et
+    même raison que le cache de jetons de `app/security.py`. C'est un
+    économiseur de CPU, pas un magasin : tout reperdre coûte une compilation
+    par soumission distincte, ce que le service faisait avant que ce cache
+    n'existe. Une éviction par ancienneté le jour où le taux de succès chute
+    après chaque purge, ce qui demande plus de CACHE_MAX soumissions
+    DISTINCTES entre deux corrections de test."""
+    if CACHE_MAX <= 0:
+        return
+    dossier = os.path.join(SPOOL, CACHE_DIR)
+    try:
+        os.makedirs(dossier, exist_ok=True)
+        if len(os.listdir(dossier)) >= CACHE_MAX:
+            shutil.rmtree(dossier, ignore_errors=True)
+            os.makedirs(dossier, exist_ok=True)
+        write_json(os.path.join(dossier, sig + ".json"), verdict)
+    except OSError:
+        pass  # un cache qui n'écrit pas n'est pas une panne de juge
+
+
+def cachable(conf, verdict):
+    """`"cache": false` dans io.json / unity.json pour un exercice dont le
+    PROGRAMME est aléatoire (tp4-ex1 tire des dés, tp4-ex2 est un test
+    statistique sur un million de lancers) : sans ça, un échec de malchance
+    serait gelé et l'étudiant ne pourrait plus jamais passer."""
+    return (bool(conf.get("cache", True))
+            and isinstance(verdict, dict)
+            and verdict.get("status") not in JAMAIS_EN_CACHE)
+
+
+# --------------------------------------------------------------------------
 # Traitement d'un job
 # --------------------------------------------------------------------------
 
@@ -822,6 +1027,11 @@ def job_exercice(job_dir):
 
 
 def run_job(job_dir):
+    """Le verdict d'un job. Sert le cache quand il l'a, juge sinon.
+
+    LE QUIZ N'EST PAS MIS EN CACHE : il ne dépense aucun conteneur, `grade_quiz`
+    rend en quelques millisecondes, et une clé de plus n'économiserait rien.
+    """
     exercise_id = job_exercice(job_dir)
     # REVALIDÉ ICI, même si le web l'a déjà fait. Ce processus est root et
     # compose un chemin à partir de cette valeur : il ne fait confiance à
@@ -840,13 +1050,35 @@ def run_job(job_dir):
         return grade_quiz(load_config(tp_dir, "quiz.json"), answers)
 
     conf = load_config(tp_dir, config_name(mode))
+    with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
+        sent = json.load(fh)
 
+    sig = signature(exercise_id, tp_dir, mode, conf, sent)
+    connu = cache_lire(sig)
+    if connu is not None:
+        # LE TAUX DE SUCCÈS SE LIT DANS journalctl, qui est déjà l'outil du
+        # runbook. Pas de compteur, pas de table : `grep -c 'cache '` après une
+        # séance dit si ce cache valait la peine d'exister.
+        print("ctester: cache %s %s" % (exercise_id, sig[:12]),
+              file=sys.stderr, flush=True)
+        return connu
+
+    resultat = _juger(job_dir, tp_dir, mode, conf, sent)
+    if cachable(conf, resultat):
+        cache_ecrire(sig, resultat)
+    return resultat
+
+
+def _juger(job_dir, tp_dir, mode, conf, sent):
+    """La compilation et l'exécution elles-mêmes, sans cache ni catalogue."""
     # Les fichiers sont écrits ICI, sous les noms DÉCLARÉS par la configuration
     # des tests -- jamais sous ceux que la soumission propose. Le web a déjà
     # refusé les autres, mais ce processus est root et ne délègue pas cette
     # vérification : ce qui n'est pas déclaré n'est pas écrit.
-    with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
-        sent = json.load(fh)
+    #
+    # ET CE SONT LES OCTETS EXACTS DE L'ÉTUDIANT : `normaliser_c()` ne sert
+    # qu'à fabriquer une clé de cache, jamais ce qui est compilé, sans quoi un
+    # bogue de lexeur deviendrait une erreur de compilation fantôme.
     src_dir = os.path.join(job_dir, "src")
     os.makedirs(src_dir, exist_ok=True)
     code = ""
@@ -1047,6 +1279,11 @@ def sweep(now):
     après LOCK_RETRIES, ou un répertoire que le web a écrit à moitié.
     """
     for entry in os.scandir(SPOOL):
+        # LE CACHE N'EST PAS UN JOB. Sans cette ligne, dix minutes de calme --
+        # une pause, une soirée -- le videraient, et il ne servirait plus que
+        # pendant une rafale au lieu de tenir toute une séance.
+        if entry.name == CACHE_DIR:
+            continue
         try:
             if entry.is_dir() and entry.stat().st_mtime < now - SWEEP_AFTER:
                 shutil.rmtree(entry.path, ignore_errors=True)

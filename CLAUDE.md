@@ -425,6 +425,89 @@ même chose.
   (`test_eta_somme_les_durees_mesurees_et_retombe_sur_une_moyenne`, jusqu'au
   fichier corrompu qui ne doit pas casser le sondage).
 
+## Le cache de verdicts
+
+Pendant un TP, beaucoup de jobs recompilent un code déjà jugé : le même étudiant
+qui resoumet, le gabarit non modifié, le copier-coller. `run_job()` sert alors le
+verdict en quelques millisecondes au lieu de dépenser un conteneur, et la file se
+vide au lieu de se remplir.
+
+**Il vit dans le worker, et c'est structurel.** La révision publiée
+(`publish_content.revision()`) ne hache que la PROJECTION PUBLIQUE : corriger un
+`test_*.c` ou un `case` de `io.json` ne la change pas. Une clé fondée dessus
+servirait l'ancien verdict après une correction de test. Seul le worker monte
+`CTESTER_CONTENT` et peut empreindre `assessment/` lui-même — l'API n'a jamais le
+droit de lire les tests, donc elle ne peut pas tenir ce cache.
+
+**Le job passe toujours par le spool.** `/submit`, les quotas, `QUEUE_MAX` et le
+sondage `/r/<id>` sont inchangés : le conteneur exposé à Internet ne gagne aucune
+surface. Un hit se résout si vite que le rang cesse d'être un problème, ce qui
+était tout l'objectif.
+
+**Ce que voit `empreinte_juge()`, en plus du code** : tout `assessment/`,
+`shared/unity` en mode unity, `public/files.json` (il décide des noms écrits sur
+disque), le `build-*.sh` du mode, `IMAGE`, `SANDBOX_ENV`, et **`runner.py`
+lui-même** — `verdict_io`, `parse_unity` et la tolérance par défaut vivent
+dedans, et une version de cache à incrémenter à la main serait oubliée
+exactement le jour où elle compte. L'invalidation est donc automatique : le tick
+de cinq minutes corrige un test, l'empreinte change, le verdict est recalculé.
+
+**`normaliser_c()` ne touche QUE la clé, jamais ce qui est compilé.** C'est un
+lexeur C : commentaires retirés, indentation et lignes vides sans effet, un
+espace gardé seulement là où il sépare deux jetons (`int x` ne doit pas devenir
+`intx`). `_juger()` continue d'écrire les octets exacts de l'étudiant dans
+`src/`. Un bogue du lexeur ne peut donc produire qu'un mauvais hit — jamais une
+compilation faussée ni un code d'étudiant mutilé. Les directives gardent leur fin
+de ligne, sans quoi deux `#define` fusionneraient et deux sources distinctes
+partageraient une clé.
+
+**Ni clang-format ni AST, et ce n'est pas de la paresse** : clang-format ne
+retire pas les commentaires et garde les lignes vides — il ne peut pas livrer ce
+qu'on demande — et un AST voudrait dire un parseur C sur une entrée hostile pour
+n'ajouter que l'insensibilité aux parenthèses redondantes, alors que deux
+étudiants indépendants diffèrent de toute façon par leurs identifiants. Rien non
+plus côté page : le hachage est calculé ici, donc un client qui n'envoie rien de
+normalisé obtient déjà la même clé. Y retirer les commentaires décalerait les
+numéros de ligne de gcc et appauvrirait les sources gardées dans `etat_exercice`,
+pour un gain nul.
+
+**CE QUI N'ENTRE JAMAIS DANS LE CACHE.** `timeout`, `compile_timeout` et `error`
+ne sont pas des fonctions du code : les trois plafonds sont du temps mural sous
+gVisor, et un code limite passe ou échoue selon la charge du Dell. Geler un ÉCHEC
+de malchance enfermerait l'étudiant dans un verdict qu'il ne pourrait plus jamais
+faire changer.
+
+**`"cache": false` dans `io.json` / `unity.json` pour un exercice dont le
+PROGRAMME est aléatoire.** `tp4-ex1` tire des dés (`in_range`), `tp4-ex2` est un
+test statistique sur un million de lancers (`tolerance: 0.02`) : les deux le
+portent. **Un futur exercice aléatoire doit le porter aussi** — l'oublier gèlerait
+un échec de malchance, et c'est le seul dégât que ce cache puisse faire.
+
+**L'ETA ne compte pas les hits, exprès.** Un job servi par le cache dure moins
+que `DUREE_MIN`, donc `enregistrer_duree()` l'ignore et la moyenne reste celle
+d'une vraie compilation. On ne sait pas à l'avance si un job en file sera un hit :
+annoncer plus court que le réel est la seule erreur d'estimation qui se remarque.
+
+**Le magasin est `<spool>/cache/<sig>.json`, et `sweep()` l'épargne** — sans
+cette ligne, dix minutes de calme le videraient et il ne servirait plus que
+pendant une rafale. Plein (`CTESTER_CACHE_MAX`, 5000), il est **purgé
+entièrement**, comme le cache de jetons de `app/security.py` : tout reperdre
+coûte une compilation par soumission distincte, ce que le service faisait avant.
+`CTESTER_CACHE_MAX=0` l'éteint sans redéployer, et c'est le rollback.
+
+**Le taux de succès se lit dans `journalctl`**, pas dans un compteur :
+
+```sh
+journalctl -u 'ctester-runner@*' -n 500 | grep -c 'ctester: cache '
+ls /opt/ctester/spool/cache | wc -l
+```
+
+Éprouvé par `test_ctester.py` : le lexeur et ses pièges (le `//` d'une URL, un
+guillemet en littéral, une apostrophe française dans un commentaire), le fait
+qu'un cas de test ajouté change la signature, la politique d'exclusion, la purge,
+et surtout `test_run_job_sert_le_cache_sans_recompiler` — deux soumissions du
+même code ne dépensent qu'un conteneur.
+
 ## Les quatre soumissions hostiles
 
 À repasser après toute modification du bac à sable — elles sont la seule preuve
@@ -928,6 +1011,7 @@ docker exec nginx-manager-npm-1 getent hosts ctester-web-1   # NPM résout-il ?
 python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?
 grep -rl answer /opt/ctester/published/        # DOIT ne rien trouver
 cat /opt/ctester/published/current.json        # la révision servie
+ls /opt/ctester/spool/cache | wc -l            # le cache de verdicts
 ```
 
 ## L'adresse de l'API et CORS
@@ -1124,6 +1208,12 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   peut pas tenir un verrou plus longtemps que le job qu'il exécute), **une seule
   fois**, sinon un job qui tue son worker à tous les coups arrêterait la file
   entière en tuant chaque worker à son tour.
+- **`runner.py`** — cache de verdicts : purge complète quand plein, pas de LRU
+  ni d'éviction par ancienneté (même raccourci que le cache de jetons). Tout
+  reperdre coûte une compilation par soumission distincte, ce que le service
+  faisait avant qu'il existe. Une éviction plus fine le jour où le taux de
+  succès chute après chaque purge, ce qui demande plus de `CACHE_MAX`
+  soumissions DISTINCTES entre deux corrections de test.
 - **`etat.py` / `schema.sql`** — progression : trois tables de faits, **aucune
   table de projection**. Le solde est un `sum()` sur quelques dizaines de lignes
   par étudiant ; matérialiser créerait un second endroit où la vérité peut

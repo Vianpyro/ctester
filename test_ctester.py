@@ -1340,6 +1340,249 @@ def test_duree_moyenne_glissante_par_exercice():
         shutil.rmtree(spool, ignore_errors=True)
 
 
+def test_normalisation_ignore_l_habillage_mais_pas_le_code():
+    """Deux fois le même code doit donner la même clé, quelle que soit sa mise
+    en page. C'EST TOUT L'INTÉRÊT DU CACHE : un étudiant qui resoumet après
+    avoir reformaté, ou qui a ajouté trois lignes vides, ne doit pas repayer une
+    compilation. Mais deux programmes DIFFÉRENTS ne doivent jamais se
+    rencontrer -- un faux positif ici sert le verdict de quelqu'un d'autre."""
+    n = runner.normaliser_c
+    espace = ("// mon programme\n#include <stdio.h>\n\n\n"
+              "int main(void) {\n\n"
+              "    /* la boucle */\n"
+              "    for (int i = 0; i < 3; i++)\n"
+              "        printf(\"%d\\n\", i);\n\n"
+              "    return 0;\n}\n")
+    serre = ("#include <stdio.h>\n"
+             "int main(void){for(int i=0;i<3;i++)printf(\"%d\\n\",i);return 0;}")
+    assert n(espace) == n(serre), (n(espace), n(serre))
+
+    # Les blancs SÉPARATEURS restent : sans eux `int x` deviendrait `intx`,
+    # c'est-à-dire un autre programme sous la même clé.
+    assert n("int x;") == "int x;"
+    assert n("intx;") == "intx;"
+    assert n("int x;") != n("intx;")
+    # Un commentaire sépare deux jetons, exactement comme un espace.
+    assert n("int/*c*/x;") == n("int x;")
+
+    # Ce qui change le sens change la clé.
+    assert n("int x = 1;") != n("int x = 2;")
+    assert n("int a;") != n("int b;")
+
+    # LES DIRECTIVES GARDENT LEUR FIN DE LIGNE. Sans elle deux #define
+    # fusionneraient, et deux sources distinctes partageraient une clé.
+    assert n("#define A 1\n#define B 2") != n("#define A 1 #define B 2")
+
+
+def test_normalisation_ne_confond_pas_une_chaine_avec_un_commentaire():
+    """Le piège classique du lexeur C, et ici il n'est pas cosmétique : avaler
+    la fin d'une ligne comme un commentaire ferait disparaître du code de la
+    clé, donc rapprocherait deux programmes différents."""
+    n = runner.normaliser_c
+    # Le `//` d'une URL est dans une chaîne, pas un commentaire.
+    assert n('puts("http://a"); int x;') != n('puts("http://b"); int x;')
+    assert 'http://a' in n('puts("http://a");')
+    # Un `/*` dans une chaîne n'ouvre pas de bloc.
+    assert n('puts("/*"); int x;').endswith("int x;")
+    # Un guillemet en littéral de caractère ne démarre pas une chaîne.
+    assert n("char c = '\"'; int x;").endswith("int x;")
+    # Un guillemet échappé ne ferme pas la chaîne.
+    assert n('char *s = "a\\"b//c"; int z;').endswith("int z;")
+    # Une apostrophe dans un commentaire n'ouvre pas de littéral (le contenu
+    # des exercices est en français, ce cas arrive à chaque énoncé commenté).
+    assert n("int x; // n'oublie pas\nint y;") == n("int x;int y;")
+
+
+def test_signature_suit_le_juge_autant_que_le_code():
+    """LA RÉVISION PUBLIÉE NE SUFFIT PAS comme clé, et c'est pour ça que ce
+    cache vit dans le worker : `publish_content.revision()` ne hache que la
+    projection publique, donc corriger un cas de test ne la change pas. La
+    signature doit voir ce changement, sinon le tick de cinq minutes corrigerait
+    un test et le cache continuerait de servir l'ancien verdict."""
+    racine = tempfile.mkdtemp()
+    try:
+        tp_dir = os.path.join(racine, "exercises", "tp2-ex1", "assessment")
+        os.makedirs(tp_dir)
+        io_json = os.path.join(tp_dir, "io.json")
+        with open(io_json, "w", encoding="utf-8") as fh:
+            json.dump({"cases": [{"stdin": "", "expect": [1]}]}, fh)
+        conf = {"cases": [{"stdin": "", "expect": [1]}]}
+        code = {"submission.c": "int main(void){return 0;}"}
+
+        base = runner.signature("tp2-ex1", tp_dir, "io", conf, code)
+        # Rejouée sur le même état, elle ne bouge pas.
+        assert runner.signature("tp2-ex1", tp_dir, "io", conf, code) == base
+
+        # Le même code sur un autre exercice n'est pas le même verdict.
+        assert runner.signature("tp2-ex2", tp_dir, "io", conf, code) != base
+
+        # Un cas de test ajouté -- ce que fait le tick de cinq minutes.
+        with open(io_json, "w", encoding="utf-8") as fh:
+            json.dump({"cases": [{"stdin": "", "expect": [1]},
+                                 {"stdin": "2", "expect": [2]}]}, fh)
+        assert runner.signature("tp2-ex1", tp_dir, "io", conf, code) != base
+
+        # Un fichier de test ajouté au répertoire compte aussi.
+        apres = runner.signature("tp2-ex1", tp_dir, "io", conf, code)
+        with open(os.path.join(tp_dir, "test_ajoute.c"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("void test_x(void){}")
+        assert runner.signature("tp2-ex1", tp_dir, "io", conf, code) != apres
+
+        # Et le code, évidemment -- mais pas sa mise en page.
+        stable = runner.signature("tp2-ex1", tp_dir, "io", conf, code)
+        aere = {"submission.c": "int main(void)\n{\n\n    return 0;\n}\n"}
+        assert runner.signature("tp2-ex1", tp_dir, "io", conf, aere) == stable
+        autre = {"submission.c": "int main(void){return 1;}"}
+        assert runner.signature("tp2-ex1", tp_dir, "io", conf, autre) != stable
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_cache_de_verdicts():
+    """Ce qui entre dans le magasin, ce qui n'y entre jamais, et ce que
+    `run_job` en fait. LE CAS QUI COMPTE EST L'EXCLUSION : geler un `timeout`
+    ou l'échec d'un exercice aléatoire enfermerait un étudiant dans un verdict
+    qu'il ne pourrait plus jamais faire changer."""
+    ok = {"status": "ok", "kind": "io", "total": 3, "passed": 3}
+    rate = {"status": "ok", "kind": "io", "total": 3, "passed": 1}
+    # Ni le temps mural, ni une panne du juge : ce ne sont pas des fonctions
+    # du code soumis.
+    assert not runner.cachable({}, {"status": "timeout"})
+    assert not runner.cachable({}, {"status": "compile_timeout"})
+    assert not runner.cachable({}, {"status": "error", "message": "x"})
+    # Une erreur de compilation, elle, est une pure fonction du code -- et
+    # c'est le verdict le plus souvent répété pendant un TP.
+    assert runner.cachable({}, {"status": "compile_error", "gcc": "..."})
+    assert runner.cachable({}, ok)
+    assert runner.cachable({}, rate)
+    # `"cache": false` -- tp4-ex1 tire des dés, tp4-ex2 est un test statistique.
+    assert not runner.cachable({"cache": False}, ok)
+    assert not runner.cachable({"cache": False}, rate)
+
+    spool = tempfile.mkdtemp()
+    garde_spool, garde_max = runner.SPOOL, runner.CACHE_MAX
+    try:
+        runner.SPOOL = spool
+        runner.cache_ecrire("a" * 64, ok)
+        assert runner.cache_lire("a" * 64) == ok
+        assert runner.cache_lire("b" * 64) is None
+
+        # CTESTER_CACHE_MAX=0 l'éteint : le rollback ne demande pas de déployer.
+        runner.CACHE_MAX = 0
+        assert runner.cache_lire("a" * 64) is None
+        runner.cache_ecrire("c" * 64, ok)
+        runner.CACHE_MAX = garde_max
+        assert runner.cache_lire("c" * 64) is None
+
+        # ponytail: purge complète quand plein. Ce qui compte est la BORNE --
+        # un magasin sans elle remplit le disque du Dell en un semestre.
+        runner.CACHE_MAX = 2
+        runner.cache_ecrire("d" * 64, ok)
+        runner.cache_ecrire("e" * 64, ok)
+        assert runner.cache_lire("d" * 64) is None, "la purge n'a pas eu lieu"
+        assert runner.cache_lire("e" * 64) == ok
+        runner.CACHE_MAX = garde_max
+
+        # Un fichier corrompu est un défaut de cache, jamais une panne de juge.
+        os.makedirs(os.path.join(spool, runner.CACHE_DIR), exist_ok=True)
+        with open(os.path.join(spool, runner.CACHE_DIR, "f" * 64 + ".json"),
+                  "w", encoding="utf-8") as fh:
+            fh.write("{ pas du json")
+        assert runner.cache_lire("f" * 64) is None
+
+        # sweep() ÉPARGNE LE CACHE. Sans ça, une pause de dix minutes le
+        # viderait et il ne servirait plus que pendant une rafale.
+        runner.cache_ecrire("g" * 64, ok)
+        vieux = os.path.join(spool, "0" * 32)
+        os.mkdir(vieux)
+        with open(os.path.join(vieux, "job.json"), "w", encoding="utf-8") as fh:
+            json.dump({"exercise_id": "tp1"}, fh)
+        os.utime(vieux, (0, 0))
+        runner.sweep(time.time())
+        assert not os.path.exists(vieux), "sweep n'a pas balayé un vieux job"
+        assert runner.cache_lire("g" * 64) == ok, "sweep a effacé le cache"
+    finally:
+        runner.SPOOL, runner.CACHE_MAX = garde_spool, garde_max
+        shutil.rmtree(spool, ignore_errors=True)
+
+
+def test_run_job_sert_le_cache_sans_recompiler():
+    """Le contrôle de bout en bout : deux soumissions du même code ne doivent
+    dépenser QU'UN conteneur. C'est la seule raison d'être de tout ce qui
+    précède, et c'est ce que le juge économise pendant un TP."""
+    racine = tempfile.mkdtemp()
+    garde_spool, garde_tp = runner.SPOOL, runner.tp_path
+    garde_juger, garde_max = runner._juger, runner.CACHE_MAX
+    try:
+        spool = os.path.join(racine, "spool")
+        os.makedirs(spool)
+        runner.SPOOL = spool
+        runner.CACHE_MAX = 100
+
+        tp_dir = os.path.join(racine, "exercises", "tp2-ex1", "assessment")
+        os.makedirs(tp_dir)
+        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
+            json.dump({"cases": [{"stdin": "", "expect": [1]}]}, fh)
+        runner.tp_path = lambda exercise_id: tp_dir
+
+        appels = []
+
+        def juger_faux(job_dir, tp_dir_, mode, conf, sent):
+            appels.append(mode)
+            return {"status": "ok", "kind": "io", "total": 1, "passed": 1}
+
+        runner._juger = juger_faux
+
+        numero = [0]
+
+        def soumettre(source):
+            numero[0] += 1
+            job_dir = os.path.join(spool, "%032x" % numero[0])
+            os.mkdir(job_dir)
+            with open(os.path.join(job_dir, "job.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"exercise_id": "tp2-ex1"}, fh)
+            with open(os.path.join(job_dir, "files.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"submission.c": source}, fh)
+            return runner.run_job(job_dir)
+
+        premier = soumettre("int main(void){return 0;}")
+        assert premier["status"] == "ok"
+        assert len(appels) == 1, appels
+
+        # Le même code, autrement présenté : servi par le cache.
+        second = soumettre("// essai 2\nint main(void)\n{\n\n    return 0;\n}\n")
+        assert second == premier
+        assert len(appels) == 1, "le juge a recompilé un code déjà jugé"
+
+        # Un autre code : recompilé.
+        soumettre("int main(void){return 1;}")
+        assert len(appels) == 2, appels
+
+        # UN CAS DE TEST CORRIGÉ INVALIDE LE CACHE. C'est le tick de cinq
+        # minutes, et sans ça il servirait un verdict rendu par l'ancien test.
+        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
+            json.dump({"cases": [{"stdin": "", "expect": [1]},
+                                 {"stdin": "", "expect": [2]}]}, fh)
+        soumettre("int main(void){return 0;}")
+        assert len(appels) == 3, "un test corrigé n'a pas invalidé le cache"
+
+        # Un verdict exclu n'est jamais gardé : deux `timeout` de suite
+        # dépensent deux conteneurs, et c'est voulu.
+        runner._juger = lambda *a: {"status": "timeout", "message": "trop long"}
+        soumettre("while(1);")
+        soumettre("while(1);")
+        assert runner.cache_lire(
+            runner.signature("tp2-ex1", tp_dir, "io",
+                             {"cases": []}, {"submission.c": "while(1);"})) is None
+    finally:
+        runner.SPOOL, runner.tp_path = garde_spool, garde_tp
+        runner._juger, runner.CACHE_MAX = garde_juger, garde_max
+        shutil.rmtree(racine, ignore_errors=True)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in tests:
