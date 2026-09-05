@@ -1572,6 +1572,8 @@ def test_une_rafale_du_meme_code_ne_paie_qu_une_compilation():
         runner.claim(pris)
 
         runner.write_result(premier, runner.run_job(premier))
+        # La passe de priorité, celle que `main()` fait avant toute compilation.
+        assert runner.servir_les_connus() == 3
 
         assert len(appels) == 1, appels
         for job_dir in pareils:
@@ -1589,6 +1591,24 @@ def test_une_rafale_du_meme_code_ne_paie_qu_une_compilation():
         restants = set(runner.pending_jobs())
         assert restants == {autre, ailleurs, pris}, restants
 
+        # LE MÉMO DE SIGNATURE NE SURVIT PAS À UNE CORRECTION DE TEST. Un job
+        # est immuable une fois posé, mais l'empreinte du juge ne l'est pas :
+        # sans cette invalidation, un doublon en attente recevrait le verdict
+        # rendu par l'ANCIEN test, et le tick de cinq minutes ne servirait plus
+        # à rien pour lui.
+        tardif = deposer(gabarit)
+        assert runner.servir_les_connus() == 1
+        assert fini(tardif)
+        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
+            json.dump({"cases": [{"stdin": "", "expect": [1]},
+                                 {"stdin": "", "expect": [2]}]}, fh)
+        apres_correction = deposer(gabarit)
+        assert runner.servir_les_connus() == 0, "verdict servi sous l'ancien test"
+        assert not fini(apres_correction)
+
+        # Le mémo ne garde que ce qui est encore en file.
+        assert set(runner._SIGS) <= set(runner.pending_jobs())
+
         # UN VERDICT QU'ON NE MET PAS EN CACHE N'EST JAMAIS DIFFUSÉ : le
         # `timeout` d'un seul ne doit pas devenir celui de tout le monde.
         runner._juger = lambda *a: {"status": "timeout", "message": "trop long"}
@@ -1596,7 +1616,15 @@ def test_une_rafale_du_meme_code_ne_paie_qu_une_compilation():
         runner.claim(lent)
         jumeau = deposer("while (1) ;")
         runner.write_result(lent, runner.run_job(lent))
+        runner.servir_les_connus()
         assert not fini(jumeau), "un timeout a été diffusé à un autre étudiant"
+
+        # LA PASSE NE COMPILE JAMAIS : elle sert ce qui est connu, et laisse le
+        # reste à la file. Sinon elle doublerait la boucle de jugement, sans
+        # verrou de rang ni mesure de durée.
+        runner._juger = lambda *a: (_ for _ in ()).throw(
+            AssertionError("servir_les_connus a jugé"))
+        runner.servir_les_connus()
     finally:
         runner.SPOOL, runner.tp_path = garde_spool, garde_tp
         runner._juger, runner.CACHE_MAX = garde_juger, garde_max

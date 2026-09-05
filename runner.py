@@ -1019,47 +1019,94 @@ def cachable(conf, verdict):
             and verdict.get("status") not in JAMAIS_EN_CACHE)
 
 
-def resoudre_doublons(sig, verdict, exercise_id, tp_dir, mode, conf, empreinte):
-    """Rend le même verdict à tous les jobs EN ATTENTE qui portent ce code.
+# La signature d'un job en attente, calculée une fois. Un job est immuable dès
+# que `job.json` est posé -- mais l'empreinte du juge, elle, ne l'est pas : un
+# test corrigé pendant que le job attend doit changer sa clé. Le mémo porte donc
+# les deux, et se réduit à chaque passe aux jobs encore en file.
+_SIGS = {}
 
-    LA RAFALE EST LE CAS QUI COMPTE, et le cache seul ne la couvre pas : vingt
-    étudiants qui soumettent le gabarit non modifié dans la même minute ne se
-    voient pas les uns les autres, parce qu'aucun n'a FINI quand les autres sont
-    dépilés. Celui qui finit le premier libère donc les autres ici, au lieu de
-    les laisser payer chacun leur compilation puis découvrir le cache un par un.
 
-    `claim()` FERME LA COURSE, et c'est le même verrou que partout ailleurs : un
-    job qu'un autre worker vient de prendre n'est pas touché, et un job pris ici
-    garde son `.lock` comme après un jugement normal -- `pending_jobs()` l'écarte
-    désormais sur son `result.json`, et `sweep()` l'efface à l'heure dite.
+def _sig_du_job(job_dir, exercise_id, tp_dir, mode, conf, empreinte):
+    marque = empreinte.hexdigest()
+    connu = _SIGS.get(job_dir)
+    if connu is not None and connu[0] == marque:
+        return connu[1]
+    try:
+        with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
+            sent = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(sent, dict):
+        return None
+    sig = signature(exercise_id, tp_dir, mode, conf, sent, empreinte)
+    _SIGS[job_dir] = (marque, sig)
+    return sig
 
-    Le verdict est PARTAGÉ, l'attribution ne l'est pas : chaque job garde son
+
+def servir_les_connus():
+    """Rend D'ABORD tous les verdicts déjà connus, avant d'en compiler un seul.
+
+    LE FIFO EST CE QUI COÛTE, pas le hachage. Sans cette passe, un doublon au
+    rang 42 attend derrière quarante et une compilations -- cinq minutes -- un
+    verdict qui est déjà sur le disque, et il occupe pendant tout ce temps une
+    place que `QUEUE_MAX` compte. Elle coûte une signature par job en attente,
+    moins d'une milliseconde, contre les quinze secondes qu'elle évite.
+
+    C'EST AUSSI CE QUI COUVRE LA RAFALE. Vingt étudiants qui soumettent le
+    gabarit non modifié dans la même minute ne se voient pas les uns les autres
+    -- aucun n'a fini quand les autres sont dépilés. Dès que le premier a fini,
+    la passe suivante les libère tous d'un coup.
+
+    `claim()` FERME LA COURSE, et c'est le verrou de partout ailleurs : un job
+    qu'un autre worker vient de prendre n'est pas touché, c'est lui qui
+    répondra. Un job pris ici garde son `.lock` comme après un jugement normal.
+
+    Le verdict est partagé, L'ATTRIBUTION NE L'EST PAS : chaque job garde son
     propre `owner` dans son `job.json`, et rien de ce que le worker écrit n'est
     spécifique à un compte.
-
-    ponytail: seuls les jobs DÉJÀ EN FILE sont libérés. Un doublon soumis
-    pendant la compilation et dépilé avant qu'elle finisse recompile quand même.
-    Le couvrir demanderait un marqueur « en vol » à reprendre quand son worker
-    meurt -- un second mécanisme de verrou périmé pour la portion la plus étroite
-    de la rafale.
     """
+    connus, vivants, servis = {}, set(), 0
     for job_dir in pending_jobs():
-        if job_exercice(job_dir) != exercise_id:
+        vivants.add(job_dir)
+        exercise_id = job_exercice(job_dir)
+        contexte = connus.get(exercise_id)
+        if contexte is None:
+            contexte = connus[exercise_id] = _contexte(exercise_id)
+        if contexte is False:
             continue
-        try:
-            with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
-                sent = json.load(fh)
-        except (OSError, ValueError):
+        tp_dir, mode, conf, empreinte = contexte
+        sig = _sig_du_job(job_dir, exercise_id, tp_dir, mode, conf, empreinte)
+        if sig is None:
             continue
-        if not isinstance(sent, dict):
-            continue
-        if signature(exercise_id, tp_dir, mode, conf, sent, empreinte) != sig:
+        verdict = cache_lire(sig)
+        if verdict is None:
             continue
         if not claim(job_dir):
-            continue  # pris par un autre worker : c'est lui qui répondra
-        print("ctester: doublon %s %s -> %s" % (exercise_id, sig[:12], job_dir),
+            continue
+        print("ctester: connu %s %s -> %s" % (exercise_id, sig[:12], job_dir),
               file=sys.stderr, flush=True)
         write_result(job_dir, dict(verdict))  # dict() : write_result y pose `state`
+        servis += 1
+    for parti in set(_SIGS) - vivants:
+        del _SIGS[parti]
+    return servis
+
+
+def _contexte(exercise_id):
+    """(tp_dir, mode, conf, empreinte) pour cet exercice, ou False s'il n'y a
+    rien à servir depuis le cache -- exercice fermé, mode absent, ou quiz, qui
+    ne dépense aucun conteneur et n'a donc rien à économiser."""
+    tp_dir = tp_path(exercise_id)
+    if tp_dir is None:
+        return False
+    mode = detect_mode(tp_dir)
+    if mode is None or mode == "quiz":
+        return False
+    try:
+        conf = load_config(tp_dir, config_name(mode))
+    except (OSError, ValueError):
+        return False
+    return tp_dir, mode, conf, empreinte_juge(exercise_id, tp_dir, mode)
 
 
 # --------------------------------------------------------------------------
@@ -1114,11 +1161,10 @@ def run_job(job_dir):
 
     resultat = _juger(job_dir, tp_dir, mode, conf, sent)
     if cachable(conf, resultat):
+        # Les doublons déjà en file sont libérés par `servir_les_connus()` à
+        # la passe suivante, qui les trouve tous d'un coup -- pas d'ici, où on
+        # ne verrait que ceux de CET exercice.
         cache_ecrire(sig, resultat)
-        # Le cache seul ne couvre pas la RAFALE : les doublons déjà en file
-        # n'ont pas attendu qu'on finisse. On les libère maintenant.
-        resoudre_doublons(sig, resultat, exercise_id, tp_dir, mode, conf,
-                          empreinte)
     return resultat
 
 
@@ -1366,7 +1412,10 @@ def main():
                 publish_catalogue()
             except (OSError, ValueError) as exc:
                 print("ctester: catalogue: %s" % exc, file=sys.stderr, flush=True)
-        worked = False
+        # LES VERDICTS DÉJÀ CONNUS PASSENT DEVANT. Sans cette ligne, un
+        # doublon au rang 42 attend derrière quarante et une compilations un
+        # résultat déjà écrit, et occupe pendant ce temps une place de file.
+        worked = bool(servir_les_connus())
         for job_dir in pending_jobs():
             if not claim(job_dir):
                 # Verrou tenu. Par un worker vivant -- on passe -- ou par un
@@ -1386,6 +1435,11 @@ def main():
                     "status": "error",
                     "message": "Erreur interne du juge. Réessaie.",
                 })
+            # UNE COMPILATION PAR PASSE, puis on repasse par les verdicts
+            # connus : celle-ci vient de peupler le cache, et vingt doublons
+            # attendent peut-être ce qu'elle vient d'écrire. Sans ce `break`,
+            # ils attendraient la fin de toute la file.
+            break
         sweep(time.time())
         if not worked:
             # ponytail: sondage à 0,5 s. Une unité systemd .path le jour où
