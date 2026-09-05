@@ -569,8 +569,11 @@ const current = () => catalogue.find(t => t.id === selection) || null;
 // décide si le bouton existe, et il faut le savoir AVANT d'aller chercher le
 // module. Un second exemplaire dans le module dériverait du premier en silence.
 const EXPORT_MINIMUM = 2;
+// LES VÉRIFICATIONS N'Y SONT PAS : elles ne font pas partie de la remise, et
+// une vérification io s'y glisserait avec son propre `#if exercice == N` au
+// milieu des exercices du TP.
 const exercicesExportables = (groupe) =>
-  catalogue.filter(t => t.group === groupe && t.mode === "io");
+  catalogue.filter(t => t.group === groupe && t.mode === "io" && !t.verification);
 const groupeExportable = (groupe) =>
   exercicesExportables(groupe).length >= EXPORT_MINIMUM;
 
@@ -621,6 +624,8 @@ function entree(ex, groupe) {
   // chaîne -- et « ex.1 » tout seul désigne un exercice dans chacun des dix TP.
   return {
     id: ex.id, mode: ex.mode, short: ex.title, group: groupe,
+    // Absent du catalogue publié quand il est faux -- d'où le `!!`.
+    verification: !!ex.verification,
     label: groupe ? groupe.replace(/\s+/g, "") + " : " + ex.title : ex.title,
     files: (ex.files || []).map(f => ({ name: f.name })),
     learning: learning,
@@ -680,6 +685,12 @@ function ligneMenu(ex) {
   ligne.append(nom);
   // LE STATUT, LA OU ON CHOISIT. Il ne vivait que dans « Mes exercices » : on
   // ne pouvait pas savoir ce qu'on avait deja valide sans changer d'ecran.
+  // MARQUÉE, ET EN TOUTES LETTRES. Une vérification doit être reconnaissable
+  // AVANT d'être ouverte : c'est ce qui la distingue d'un exercice de pratique
+  // (docs/gamification/mastery.md), et une couleur seule ne le dirait pas.
+  if (ex.verification) {
+    ligne.append(noeud("span", "verif", "vérification"));
+  }
   const fait = statuts[ex.id];
   if (fait) {
     const marque = noeud("span", "etat " + fait,

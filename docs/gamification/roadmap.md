@@ -36,9 +36,43 @@ par compte) et la longueur maximale (1200 caracteres) sont des valeurs non
 observees. Le forum depend entierement d'une moderation humaine : sa charge reelle
 a 27 etudiants n'est pas connue, et c'est le critere de sortie a surveiller.
 
-## Phase 2 — maitrise verifiee (valeur educative prioritaire)
+## Phase 2 — maitrise verifiee (livree)
 
-Ajouter variantes de verification, evidence, projection de maitrise provisoire, recommandations et vue de preparation aux examens. Pre-requis: politique d'aide, accommodation, contenu revise pour transfert, scripts de test secrets, pilote et validation pedagogique. Ne pas annoncer une prediction de note.
+Objectif: dire a un compte connecte ce qu'il sait REFAIRE, et non plus seulement
+ce qu'il a soumis. Exclut: tout chiffre de maitrise, toute prediction de note.
+
+**Ce qui est en place.** Un drapeau `verification` dans le catalogue v2,
+independant du mode, valide et projete par `content_catalogue.py`; l'evidence
+ecrite cote serveur a la lecture du verdict -- reussie OU NON -- dans le journal
+en ajout seul deja existant (`evenement_progression`, type
+`VerificationEvaluated`), idempotente par `verification:<exercice>:<job>` et
+**sans aucun XP**; des bandes qualitatives par competence, derivees a chaque
+`GET /progres` par couverture et sans le moindre seuil; une section « Maitrise
+verifiee » dans `web/progres.js`, chargee au clic et seulement connectee, avec
+sa legende; trois verifications de contenu pour les deux TP ouverts. Les
+contrats, l'idempotence et le fait qu'une pratique ne fasse bouger AUCUNE bande
+sont dans `test_ctester.py` et `test_api.py`; le SQL dans `test_postgres.py`,
+rejoue avec le role applicatif et ses seuls GRANT. Voir [D-010](decisions.md).
+
+**AUCUNE MIGRATION, et c'est le coeur de la decision.** Pas de table nouvelle,
+donc rien a ajouter dans `forget()`, rien a accorder dans `VHome`, et le compte
+de douze tables du schema est inchange. Le rollback est de retirer
+`verification: true` du contenu.
+
+**Ce que ce lot ne fait PAS.** Ni variantes parametrees a graine serveur (la
+projection publique interdit `seed` et `cases`, et c'est une propriete qu'on
+garde), ni defi chronometre, ni distinction competences
+principales/secondaires, ni vue de preparation aux examens, ni score de
+maitrise. Il n'ecrit pas d'evenement `MasteryChanged` : la maitrise est derivee,
+un evenement pour une valeur derivee serait un second endroit ou la verite peut
+diverger.
+
+**Ce qui reste ouvert.** Les formats admis sont tranches PROVISOIREMENT par
+D-010 sur trois activites : leur validation pedagogique et les accommodations
+n'ont pas ete faites, et le critere de sortie est une session pilote. Le
+contenu ne couvre que `tp1` et `tp2` -- une competence sans verification n'a pas
+de bande, exprès. La question « quel modele, seuils et recence » reste ouverte
+et ne bloque plus, faute d'affichage chiffre.
 
 ## Phase 3 — profil et accomplissements
 

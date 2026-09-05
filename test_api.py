@@ -84,6 +84,7 @@ class BaseSimulee:
         self.messages, self.profils = [], {}
         self.pratique, self.jobs = {}, set()
         self.evenements, self.xp, self.succes = {}, {}, {}
+        self.faits = []          # le journal, dans l'ordre d'écriture
 
     # -- comptes
     def read_resume(self, user, ex):
@@ -136,11 +137,28 @@ class BaseSimulee:
         if (user, event_id) in self.evenements:
             return None
         self.evenements[(user, event_id)] = payload
+        self.faits.append({"utilisateur": user, "type": "ExerciceReussi",
+                           "exercice_id": ex, "charge": payload})
         deja = sum(t["montant"] for (u, _), t in self.xp.items() if u == user)
         self.xp[(user, event_id)] = {
             "exercice_id": ex, "montant": max(min(amount, daily_cap - deja), 0),
             "motif": motif, "accorde_le": "2026-09-04"}
         return self.xp[(user, event_id)]["montant"]
+
+    def record_event(self, user, event_id, kind, ex, policy, payload):
+        # Même clé, même refus que `grant_first_solve` : un sondage rejoué
+        # n'ajoute pas une évidence de plus.
+        if (user, event_id) in self.evenements:
+            return None
+        self.evenements[(user, event_id)] = payload
+        self.faits.append({"utilisateur": user, "type": kind,
+                           "exercice_id": ex, "charge": payload})
+        return event_id
+
+    def read_events(self, user, kind, limit=500):
+        return [{"exercice_id": fait["exercice_id"], "charge": fait["charge"]}
+                for fait in reversed(self.faits)
+                if fait["utilisateur"] == user and fait["type"] == kind][:limit]
 
     def unlock(self, user, ids, event_id, policy):
         for succes_id in ids:
@@ -223,6 +241,11 @@ CONTENU = [
     ("tp5-mod", "TP5 module", "unity", ["calendrier.h", "calendrier.c"],
      ["structs"], "intermediate"),
     ("quiz1", "Quiz 1", "quiz", [], ["variables"], "intro"),
+    # UNE VÉRIFICATION, marquée par son identifiant dans ce harnais seulement
+    # (voir `_ecrire_contenu`). Elle est ici pour que TOUTE la suite traverse
+    # la branche : un catalogue de test sans vérification laisserait la phase 2
+    # éprouvée uniquement par les trois tests qui la visent.
+    ("verif-tp2", "Vérification TP2", "quiz", [], ["variables"], "foundation"),
 ]
 
 
@@ -241,6 +264,7 @@ def _ecrire_contenu(racine, exercices=CONTENU, release=None):
         ecrire(os.path.join(dossier, "exercise.json"),
                {"schema_version": 1, "id": identifiant, "title": titre,
                 "skills": skills, "difficulty": difficulte,
+                "verification": identifiant.startswith("verif-"),
                 "release": release or {"state": "available"}})
         with open(os.path.join(dossier, "statement.md"), "w", encoding="utf-8") as fh:
             fh.write("Consigne.")
@@ -1180,6 +1204,70 @@ def test_un_echec_n_accorde_rien():
         assert c.get("/r/" + job).status_code == 200
         assert not base.xp, base.xp
         assert base.etats[("sub-alice", "tp2-ex3")] == "essaye", base.etats
+
+
+# --- Maîtrise vérifiée : l'autre domaine ------------------------------------
+
+def _verdict(exercise_id, job, resultat):
+    """Un job jugé, tel que le worker le laisse dans le spool."""
+    os.makedirs(os.path.join(config.SPOOL, job))
+    for nom, valeur in (("job.json", {"exercise_id": exercise_id,
+                                      "owner": "sub-alice"}),
+                        ("result.json", resultat)):
+        with open(os.path.join(config.SPOOL, job, nom), "w",
+                  encoding="utf-8") as fh:
+            json.dump(valeur, fh)
+
+
+def test_une_verification_laisse_une_evidence_et_aucun_xp():
+    """Deux domaines : la vérification mesure, l'XP compte de l'activité.
+
+    CE QUI EST VÉRIFIÉ ICI : qu'une vérification réussie ne verse RIEN au solde
+    -- sans quoi elle serait farmable et l'XP se confondrait avec une note --
+    et qu'un sondage rejoué n'ajoute pas une évidence de plus.
+    """
+    with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
+        _verdict("verif-tp2", "a" * 32, {"status": "ok", "passed": 3, "total": 3})
+        assert c.get("/r/" + "a" * 32).status_code == 200
+        assert c.get("/r/" + "a" * 32).status_code == 200
+        assert not base.xp, base.xp
+        evidences = [f for f in base.faits if f["type"] == "VerificationEvaluated"]
+        assert len(evidences) == 1, base.faits
+        assert evidences[0]["charge"]["reussi"] is True
+        # La charge ne porte QUE de quoi remonter au job : ni code, ni verdict.
+        assert set(evidences[0]["charge"]) == {"job", "reussi"}
+
+        vue = c.get("/progres", headers=auth("alice")).json()
+        assert vue["xp"] == 0, vue
+        assert {c_["id"]: c_["bande"] for c_ in vue["maitrise"]["competences"]} == {
+            "variables": "verifie"}
+        # Elle ne compte pas non plus comme un exercice de pratique.
+        assert vue["exercices"]["total"] == len(CONTENU) - 1, vue["exercices"]
+        assert [s["id"] for s in vue["succes"]] == ["premiere-verification"]
+
+
+def test_une_verification_ratee_se_lit_a_consolider():
+    """Sans la trace d'un échec, « à consolider » n'existerait pas.
+
+    Une compétence tentée sans succès serait alors indistinguable d'une
+    compétence jamais abordée, et l'étudiant ne saurait pas où revenir.
+    """
+    with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
+        _verdict("verif-tp2", "b" * 32, {"status": "ok", "passed": 1, "total": 3})
+        assert c.get("/r/" + "b" * 32).status_code == 200
+        vue = c.get("/progres", headers=auth("alice")).json()
+        assert [c_["bande"] for c_ in vue["maitrise"]["competences"]] == ["a-consolider"]
+        assert not base.xp and not vue["succes"], (base.xp, vue["succes"])
+
+
+def test_les_evidences_muettes_repondent_503():
+    """Une bande « pas encore vérifié » ne doit jamais être le zéro d'une panne."""
+    base = BaseSimulee()
+    base.read_events = lambda *a, **k: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base) as (c, _, _tmp):
+        r = c.get("/progres", headers=auth("alice"))
+        assert r.status_code == 503, (r.status_code, r.text)
+        assert "maitrise" not in r.text and "xp" not in r.text, r.text
 
 
 def test_verdict_illisible_ne_boucle_pas():

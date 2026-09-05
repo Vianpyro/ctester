@@ -143,6 +143,13 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 /* Le cadenas et sa date. Un exercice pas encore ouvert RESTE dans le menu :
    le faire disparaître ressemblait à une panne la veille du cours. */
 #exliste .cadenas { flex: 0 0 auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* L'etiquette d'une verification. EN TOUTES LETTRES, comme le cadenas : une
+   couleur seule ne dit pas a un daltonien qu'il ne s'agit pas de pratique. */
+#exliste .verif {
+  flex: 0 0 auto; font-size: 11px; letter-spacing: .02em; white-space: nowrap;
+  padding: .05rem .35rem; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted);
+}
 #excourant { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .phead {
@@ -478,10 +485,18 @@ pre {
   display: block; color: var(--muted); font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
-#vueprogres .succes { margin: 0; }
-#vueprogres .succes dt { font-size: 13.5px; font-weight: 600; margin-top: .6rem; }
-#vueprogres .succes dt:first-child { margin-top: 0; }
-#vueprogres .succes dd { margin: 0; font-size: 12.5px; color: var(--muted); }
+/* La bande d'une competence : UN MOT, pas une couleur. Les quatre partagent la
+   meme forme -- ce qui les distingue se lit, et se lit a voix haute. */
+#vueprogres .bande {
+  display: inline-block; font-size: 11.5px; letter-spacing: .02em;
+  padding: .05rem .4rem; border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted);
+}
+#vueprogres .bande.verifie { color: var(--ok); border-color: var(--ok); }
+#vueprogres .succes, #vueprogres .bandes { margin: 0; }
+#vueprogres .bandes dt, #vueprogres .succes dt { font-size: 13.5px; font-weight: 600; margin-top: .6rem; }
+#vueprogres .bandes dt:first-child, #vueprogres .succes dt:first-child { margin-top: 0; }
+#vueprogres .bandes dd, #vueprogres .succes dd { margin: 0; font-size: 12.5px; color: var(--muted); }
 #vueprogres .quand { display: block; }
 #vueprogres .aide { font-family: var(--sans); }
 

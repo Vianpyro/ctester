@@ -2,7 +2,8 @@
 """ctester -- la politique de gamification : des CHIFFRES, pas de la logique.
 
 TOUT CE QUI SE RÈGLE VIT DANS `POLITIQUE`, en haut, et rien d'autre dans ce
-dépôt ne contient un montant d'XP, un seuil de niveau ou un libellé de succès.
+dépôt ne contient un montant d'XP, un seuil de niveau, un libellé de succès
+ni un libellé de bande de maîtrise.
 C'est la raison d'être du fichier : piloter la première session veut dire
 changer ces nombres, et il ne doit jamais falloir relire `app.py` pour le
 faire. Les fonctions en dessous ne font que LIRE cette table.
@@ -67,7 +68,38 @@ POLITIQUE = {
         {"id": "trois-competences", "sur": "competences", "seuil": 3,
          "titre": "Trois compétences pratiquées",
          "description": "Ta pratique touche trois compétences différentes."},
+        {"id": "premiere-verification", "sur": "verifications", "seuil": 1,
+         "titre": "Première vérification réussie",
+         "description": "Tu as réussi une activité de vérification, pas seulement "
+                        "un exercice de pratique."},
     ],
+
+    # LA MAÎTRISE VÉRIFIÉE : DES LIBELLÉS, ET AUCUN SEUIL.
+    #
+    # La bande d'une compétence se lit par COUVERTURE -- combien de ses
+    # vérifications ouvertes sont réussies, sur combien il en existe -- et pas
+    # par un score. Il n'y a donc rien à calibrer ici : ajouter une vérification
+    # au contenu rend « vérifié » plus exigeant tout seul, sans qu'un nombre
+    # bouge. C'est délibéré : docs/gamification/mastery.md dit que seuils, poids
+    # de récence et dégradation sont à valider sur des données qu'on n'a pas.
+    #
+    # ponytail: bandes par couverture, sans seuil ni récence. Le jour où une
+    # cohorte a été observée, un « seuil_preuves » et un poids de récence se
+    # posent ICI, et `bande_maitrise()` est la seule fonction à relire.
+    "maitrise": {
+        "bandes": [
+            {"id": "verifie", "titre": "Vérifié",
+             "description": "Toutes les vérifications ouvertes de cette compétence "
+                            "sont réussies. C'est une capacité démontrée, pas une note."},
+            {"id": "en-progression", "titre": "En progression",
+             "description": "Au moins une vérification réussie ; il en reste à faire."},
+            {"id": "a-consolider", "titre": "À consolider",
+             "description": "Tu as tenté une vérification sans la réussir. "
+                            "Pratique encore, puis réessaie -- rien n'est retiré."},
+            {"id": "non-verifie", "titre": "Pas encore vérifié",
+             "description": "Aucune vérification tentée pour cette compétence."},
+        ],
+    },
 }
 
 VERSION = POLITIQUE["version"]
@@ -76,6 +108,9 @@ VERSION = POLITIQUE["version"]
 # et la version dans la base. Un identifiant stocké dont la définition a disparu
 # n'est pas une erreur -- il ne s'affiche simplement plus.
 SUCCES = {s["id"]: s for s in POLITIQUE["succes"]}
+
+# Idem pour les bandes de maîtrise : la définition est ici, le fait en base.
+BANDES = {b["id"]: b for b in POLITIQUE["maitrise"]["bandes"]}
 
 
 def xp_reussite(entree):
@@ -120,3 +155,24 @@ def succes_atteints(faits):
     """
     return [s["id"] for s in POLITIQUE["succes"]
             if int((faits or {}).get(s["sur"], 0)) >= s["seuil"]]
+
+
+def bande_maitrise(reussies, tentees, total):
+    """La bande d'une compétence, d'après la COUVERTURE de ses vérifications.
+
+    `total` est le nombre de vérifications OUVERTES qui portent cette
+    compétence, `tentees` celles dont l'étudiant a un verdict, `reussies` celles
+    dont la dernière tentative est passée. Aucun seuil : « vérifié » veut dire
+    « toutes », ce qui se durcit tout seul quand le contenu s'étoffe.
+
+    Une bande basse ne retire rien -- ni XP, ni succès, ni note. Elle
+    recommande de pratiquer, et c'est tout ce qu'elle a le droit de faire.
+    """
+    reussies, tentees, total = int(reussies), int(tentees), int(total)
+    if tentees <= 0 or total <= 0:
+        return "non-verifie"
+    if reussies >= total:
+        return "verifie"
+    if reussies >= 1:
+        return "en-progression"
+    return "a-consolider"

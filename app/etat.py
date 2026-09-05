@@ -243,6 +243,65 @@ def grant_first_solve(user, exercise_id, event_id, amount, motif,
     return int(rows[0][0]) if rows else None
 
 
+def record_event(user, event_id, kind, exercise_id, policy, payload):
+    """Un fait de progression SANS XP : une ligne de journal, rien d'autre.
+
+    C'est ce qu'écrit une vérification (phase 2). Pas de CTE, pas de plafond,
+    aucune lecture : `evenement_progression` est déjà le journal en ajout seul,
+    et une évidence de maîtrise n'est rien de plus qu'un fait daté. Aucune table
+    nouvelle, donc aucun GRANT à ajouter et rien à retirer de plus dans
+    `forget()` -- l'INSERT y est déjà accordé.
+
+    L'IDEMPOTENCE EST DANS LA CLÉ, comme pour `grant_first_solve` : deux
+    sondages du même verdict portent le même `event_id` et n'écrivent qu'une
+    fois. Une NOUVELLE tentative porte un identifiant de job différent, donc
+    laisse sa propre ligne : les réessais restent historiques.
+
+    Rend l'identifiant écrit, ou None -- déjà connu, ou base muette. Comme pour
+    `grant_first_solve`, les deux se traitent pareil chez l'appelant : il n'y a
+    pas de fait neuf, donc rien à recalculer. C'est ce qui évite de rejouer
+    trois lectures à chaque sondage de `/r/<id>`.
+    """
+    rows = _query(
+        "INSERT INTO evenement_progression"
+        "  (utilisateur, evenement_id, type, exercice_id, politique, charge) "
+        "VALUES (%s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (utilisateur, evenement_id) DO NOTHING "
+        "RETURNING evenement_id",
+        (user, event_id, kind, exercise_id, policy, json.dumps(payload)),
+        read=True)
+    return rows[0][0] if rows else None
+
+
+def read_events(user, kind, limit=500):
+    """Les faits d'un type, du plus récent au plus ancien. None si base muette.
+
+    [{"exercice_id": str|None, "charge": dict}] -- la date sert à ordonner et ne
+    sort pas : la maîtrise se lit en bandes, pas en historique horodaté, et
+    l'heure exacte d'une tentative n'a pas à voyager (privacy.md).
+
+    BORNÉ comme `read_progress` : c'est une lecture d'affichage. `evenement_id`
+    départage deux faits de la même seconde, sans quoi « la dernière tentative »
+    dépendrait de l'ordre de retour du planificateur.
+    """
+    rows = _query(
+        "SELECT exercice_id, charge FROM evenement_progression"
+        " WHERE utilisateur = %s AND type = %s"
+        " ORDER BY cree_le DESC, evenement_id DESC LIMIT %s",
+        (user, kind, max(int(limit), 1)), read=True)
+    if rows is None:
+        return None
+    faits = []
+    for exercise_id, charge in rows:
+        try:
+            charge = json.loads(charge) if isinstance(charge, str) else charge
+        except ValueError:
+            charge = None
+        faits.append({"exercice_id": exercise_id,
+                      "charge": charge if isinstance(charge, dict) else {}})
+    return faits
+
+
 def unlock(user, achievement_ids, event_id, policy):
     """Ajoute les succès manquants. Rejouer la même liste ne crée rien de plus."""
     if not achievement_ids:

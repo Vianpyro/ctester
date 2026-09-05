@@ -262,6 +262,15 @@ def _exercise(root, dirname, known_skills, errors):
     difficulty = data.get("difficulty")
     if difficulty is not None and difficulty not in DIFFICULTIES:
         errors.append("%s: difficulty invalide" % where)
+    # UNE VÉRIFICATION EST UN EXERCICE ORDINAIRE, MARQUÉ. Le drapeau ne dépend
+    # pas du mode : un quiz de lecture de code et un débogage io sont tous deux
+    # des vérifications valables (docs/gamification/mastery.md). Ce qu'il change
+    # est en aval -- pas d'XP, pas de comptage dans la pratique, et une évidence
+    # de maîtrise à chaque verdict.
+    verification = data.get("verification", False)
+    if not isinstance(verification, bool):
+        errors.append("%s: verification doit être un booléen" % where)
+        verification = False
     contexts = data.get("contexts", [])
     if not isinstance(contexts, list) or any(not isinstance(context, str) or not context
                                               for context in contexts):
@@ -280,6 +289,7 @@ def _exercise(root, dirname, known_skills, errors):
         "id": exercise_id, "path": path, "title": title, "summary": data.get("summary", ""),
         "statement": statement, "mode": mode, "release": _release(data.get("release"), where, errors),
         "skills": skills, "difficulty": difficulty, "contexts": contexts,
+        "verification": verification,
         "prerequisites": prerequisites, "files": _public_files(path, where, errors, mode),
         # La configuration de correction reste DANS LE MODÈLE PRIVÉ : le worker
         # et le publisher la lisent ici plutôt que de reconstruire un chemin.
@@ -372,6 +382,10 @@ def public_catalogue(model, now=None):
             public["summary"] = entry["summary"]
         if entry["difficulty"] is not None:
             public["difficulty"] = entry["difficulty"]
+        # Absent quand c'est faux : le catalogue est relu à chaque requête, et
+        # une clé par exercice qui ne dit rien est 73 clés qui ne disent rien.
+        if entry.get("verification"):
+            public["verification"] = True
         if isinstance(entry["contexts"], list):
             public["contexts"] = [str(context) for context in entry["contexts"]]
         # LES NOMS RESTENT, LES GABARITS PARTENT. `files` est la liste blanche

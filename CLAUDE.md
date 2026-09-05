@@ -816,7 +816,8 @@ changer la politique ne demande pas de migration — seules les transactions dé
 **« Pratiquée » n'est pas « maîtrisée »**, et l'interface doit continuer de le
 dire. Le juge est en libre service : une réussite prouve qu'on a soumis quelque
 chose qui passe, pas qu'on saurait le refaire seul. La vérification indépendante
-est la phase 2 (`docs/gamification/mastery.md`), elle n'existe pas encore.
+est la phase 2, livrée à côté et JAMAIS mélangée à ces compteurs-ci : voir « La
+maîtrise vérifiée » plus bas.
 
 Trois tables s'ajoutent au schéma : `evenement_progression` (le journal),
 `transaction_xp` et `succes_obtenu`, toutes en ajout seul. Côté `VHome`, elles
@@ -824,6 +825,71 @@ ont leur propre `GRANT` **sans UPDATE** : l'API n'en a pas besoin, et c'est
 Postgres qui tient alors la propriété d'ajout seul. Ajouter une table sans
 l'ajouter au `GRANT` la rend muette ; sans l'ajouter à `forget()`, `python3
 test_ctester.py` échoue.
+
+## La maîtrise vérifiée (phase 2 de la gamification)
+
+Pour les comptes connectés SEULEMENT, comme la progression. Une **vérification**
+est une activité distincte de la pratique : elle dit ce qu'un étudiant sait
+refaire, là où l'XP ne compte que ce qu'il a soumis. Le contrat complet est dans
+`docs/gamification/mastery.md`, la décision dans `D-010`.
+
+**AUCUNE TABLE NOUVELLE, donc rien à changer dans `VHome`.** Une évidence est
+une ligne d'`evenement_progression` — le journal en ajout seul existe déjà, son
+`type` est libre et sa `charge` est du JSON. Le GRANT `SELECT, INSERT, DELETE`
+posé en phase 1 suffit, `forget()` les efface déjà, et le schéma porte toujours
+douze tables. `test_postgres.py` le rejoue avec le rôle applicatif et ses seuls
+droits : c'est là que se vérifie qu'aucun privilège n'a été ajouté en douce.
+
+**Une vérification est un exercice ORDINAIRE, marqué.** `"verification": true`
+dans son `exercise.json`, **quel que soit son mode** — un quiz de lecture de
+code et un débogage `io` sont l'un et l'autre des vérifications valables. Rien
+du juge, du bac à sable ni de la publication ne change. Les trois premières
+(`verif-tp1`, `verif-tp2`, `verif-tp2-debogage`) vivent dans la collection
+`verifications`, et le corrigé de la seule qui en demande un est dans le dépôt
+de solutions sous `verif/tp2-debogage/`.
+
+**ELLE N'ACCORDE AUCUN XP, et c'est le seul `if` que ça coûte** — dans
+`_enregistrer()` de `app/routers/soumission.py`. L'XP compte de l'activité, la
+maîtrise mesure une capacité ; les mélanger rendrait la vérification farmable et
+l'XP indistinguable d'une note. L'état et la tentative de pratique, eux,
+s'écrivent dans les deux cas : l'étudiant doit voir qu'il a fait l'activité, et
+garder son brouillon.
+
+**L'ÉVIDENCE S'ÉCRIT AUSSI QUAND C'EST RATÉ.** Sans la trace d'un échec, la
+bande « à consolider » n'existerait pas et une compétence tentée sans succès
+serait indistinguable d'une compétence jamais abordée. L'identifiant est
+`verification:<exercice>:<job>` : un sondage rejoué n'écrit rien, un RÉESSAI est
+un autre job donc un autre fait — les tentatives restent historiques.
+
+**LES BANDES SONT UNE COUVERTURE, PAS UN SCORE, et il n'y a AUCUN SEUIL
+nulle part.** Pour une compétence, on lit la dernière tentative de chacune de
+ses vérifications ouvertes : toutes réussies → « vérifié », au moins une → « en
+progression », tentée sans succès → « à consolider », rien de tenté → « pas
+encore vérifié ». Ajouter une vérification à une compétence rend « vérifié »
+plus exigeant tout seul. C'est ce qui permet de livrer la phase 2 sans trancher
+la question ouverte des seuils : elle n'était requise qu'avant un affichage
+chiffré, et il n'y en a pas. `politique.py` ne porte que les libellés.
+
+**Une compétence sans vérification n'a pas de bande**, et ne s'affiche pas :
+lui reprocher « pas encore vérifié » serait lui reprocher une lacune du contenu.
+
+**UNE VÉRIFICATION NE COMPTE DANS AUCUN COMPTEUR DE PRATIQUE**, et le filtre est
+posé UNE fois, dans `exercices_pratique()` de `app/services/progression.py`.
+Sans lui, elle gonflerait « exercices publiés », les compétences pratiquées, la
+recommandation et le `main.c` de remise — quatre endroits, dont trois où
+personne ne l'aurait vu. Côté page, `exercicesExportables()` porte le même
+filtre : `test_page.js` échoue si on le retire, et le main.c exporté gagne un
+`#if exercice == N` que l'énoncé ne prévoit pas.
+
+**Un succès ne se retire pas, une bande si.** `verifications_reussies()` compte
+les vérifications réussies AU MOINS UNE FOIS (monotone, pour
+`premiere-verification`), `dernieres_tentatives()` ne garde que la dernière
+(pour la bande). Confondre les deux ferait disparaître un succès sur un réessai
+raté.
+
+`GET /progres` fait maintenant SIX allers-retours SQL derrière le verrou unique
+d'`etat.py` — le seuil de refonte reste un p95 au-dessus d'une seconde, que
+`charge.py` signale.
 
 ## Le forum d'entraide (hors phases, entre 1 et 2)
 

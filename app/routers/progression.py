@@ -9,7 +9,7 @@ UNE PROJECTION ABSENTE N'EST PAS UN ZÉRO. Base en panne : 503 et aucun chiffre.
 Annoncer « 0 XP » pendant une panne, c'est dire à quelqu'un que son travail a
 disparu.
 
-ponytail: cinq allers-retours SQL sérialisés derrière le verrou unique
+ponytail: six allers-retours SQL sérialisés derrière le verrou unique
 d'`etat.py`. Les regrouper en une lecture est faisable et pas fait -- à 27
 étudiants la file derrière ce verrou est vide, et une requête groupée est plus
 dure à relire. Le seuil est un p95 de cette route au-dessus d'une seconde, que
@@ -30,7 +30,10 @@ def progres(sub: Sub):
     faits = etat.read_progress(sub)
     etats = etat.read_states(sub)
     pratique = etat.read_practice_summary(sub)
-    if faits is None or etats is None or pratique is None:
+    # Les évidences de maîtrise, traitées comme le reste : muette -> 503, jamais
+    # une bande « pas encore vérifié » qui serait le zéro déguisé d'une panne.
+    evidences = etat.read_events(sub, progression.VERIFICATION)
+    if faits is None or etats is None or pratique is None or evidences is None:
         return headers.erreur(503, "la base ne répond pas")
     return progression.progress_payload(catalogue.exercices_ouverts(), faits,
-                                        etats, pratique)
+                                        etats, pratique, evidences)

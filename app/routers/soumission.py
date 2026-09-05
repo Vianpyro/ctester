@@ -106,7 +106,8 @@ def resultat(job_id: str):
     navigateur. La première réussite complète d'un exercice publié accorde de
     l'XP ; un échec ne rapporte rien, et refaire le même exercice non plus,
     parce que l'identifiant d'événement `reussite:<exercice>` a une clé primaire
-    qui refuse le doublon.
+    qui refuse le doublon. Un exercice de VÉRIFICATION passe par l'autre porte :
+    une évidence de maîtrise, réussie ou non, et pas un sou d'XP.
 
     UNE PANNE DE BASE NE DOIT JAMAIS CACHER UN VERDICT ni arrêter le cœur
     anonyme de ctester : les écritures ci-dessous sont tentées, et le sondage
@@ -160,5 +161,12 @@ def _enregistrer(owner, exercise_id, job_id, resultat):
     # transition d'état que le navigateur déclarait tout seul.
     etat.write_state(owner, exercise_id, "valide" if reussi else "essaye",
                      spool.job_sources(job_id, entree))
-    if reussi:
+    # DEUX DOMAINES, JAMAIS LES DEUX À LA FOIS. Une vérification produit une
+    # évidence de maîtrise -- réussie ou non -- et AUCUN XP ; un exercice de
+    # pratique fait l'inverse. L'état et la tentative ci-dessus valent pour les
+    # deux : l'étudiant doit voir qu'il a fait l'activité, et garder son
+    # brouillon.
+    if entree.get("verification"):
+        progression.enregistrer_verification(owner, entree, job_id, reussi)
+    elif reussi:
         progression.recompenser(owner, entree, job_id)

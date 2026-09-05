@@ -196,6 +196,41 @@ def succes_et_lecture():
     print("ok   succès sans doublon, et lecture des faits (dates au jour)")
 
 
+def evidences_de_maitrise():
+    """L'autre écriture du journal : un fait SANS XP, et sa relecture typée.
+
+    Aucune table nouvelle -- c'est `evenement_progression` qui porte les deux.
+    Ce contrôle est donc aussi la preuve que le GRANT existant suffit : si la
+    phase 2 avait eu besoin d'un droit de plus, il échouerait ici.
+    """
+    ecrit = etat.record_event(ALICE, "verification:verif-tp2:job-v1",
+                              "VerificationEvaluated", "verif-tp2", "pilote-1",
+                              {"job": "job-v1", "reussi": False})
+    assert ecrit == "verification:verif-tp2:job-v1", ecrit
+    # Rejouer le même sondage n'écrit rien : même clé, même refus.
+    assert etat.record_event(ALICE, "verification:verif-tp2:job-v1",
+                             "VerificationEvaluated", "verif-tp2", "pilote-1",
+                             {"job": "job-v1", "reussi": True}) is None
+    # Un RÉESSAI, lui, est un autre job donc un autre fait : les tentatives
+    # restent historiques.
+    assert etat.record_event(ALICE, "verification:verif-tp2:job-v2",
+                             "VerificationEvaluated", "verif-tp2", "pilote-1",
+                             {"job": "job-v2", "reussi": True})
+
+    faits = etat.read_events(ALICE, "VerificationEvaluated")
+    # LE PLUS RÉCENT D'ABORD : c'est la dernière tentative qui fait la bande.
+    assert [f["charge"]["job"] for f in faits] == ["job-v2", "job-v1"], faits
+    assert faits[0]["charge"]["reussi"] is True
+    assert faits[0]["exercice_id"] == "verif-tp2"
+    # LE FILTRE PAR TYPE EST RÉEL : les réussites de pratique du même compte
+    # sont dans la même table et ne doivent pas remonter ici.
+    assert compte("evenement_progression", ALICE) > len(faits)
+    assert etat.read_events(ALICE, "ExerciceReussi")
+    # Et rien de tout ça n'a touché au solde.
+    assert etat.read_progress(ALICE)["xp"] == 20
+    print("ok   évidence de maîtrise : même journal, aucun XP, aucun GRANT de plus")
+
+
 def cloisonnement():
     """CE QUI COMPTE VRAIMENT : personne ne voit ni n'efface chez le voisin."""
     assert etat.write_draft(BOB, "tp2-ex3", {"submission.c": "// bob"})
@@ -318,6 +353,12 @@ def identite():
     auteur = etat.forum_auteur(message)
     assert signales[0]["pseudo"] == etat.forum_profils([auteur])[auteur]["pseudo"]
     assert signales[0]["signalements"] == 1
+    # ALICE SIGNALE À SON TOUR, sur un autre message. Sans cette ligne elle
+    # n'a AUCUNE ligne dans `forum_nom_signale`, et la précondition de
+    # `suppression()` (« il y a quelque chose à effacer dans les douze
+    # tables ») ne tient pas -- c'est-à-dire que la table la plus récemment
+    # ajoutée est la seule dont l'effacement n'est pas éprouvé.
+    assert etat.forum_nom_signaler("b" * 32, ALICE) == [("b" * 32,)]
     print("ok   identité : journal, dernière ligne, bornes du schéma, "
           "nom signalé")
 
@@ -426,6 +467,7 @@ def main():
     tentatives()
     attributions()
     succes_et_lecture()
+    evidences_de_maitrise()
     cloisonnement()
     forum()
     identite()

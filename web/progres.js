@@ -137,6 +137,61 @@ function pratique(vue) {
   return bloc;
 }
 
+// --- La maîtrise vérifiée --------------------------------------------------
+// LA SECTION EST NOUVELLE, elle ne requalifie pas « Ta pratique ». Les deux
+// disent des choses différentes et doivent continuer de le dire : le juge est
+// en libre service, donc une réussite prouve qu'on a soumis quelque chose qui
+// passe ; une vérification est une activité à part, faite pour ça.
+//
+// RIEN NE SE CALCULE ICI non plus : les bandes arrivent du serveur, légende
+// comprise. Une page qui déciderait elle-même de ce que « vérifié » veut dire
+// serait une page où on se le décerne depuis la console.
+function maitrise(vue) {
+  const bloc = noeud("div", "bloc");
+  bloc.append(titre("Maîtrise vérifiée"));
+  const projection = vue.maitrise || {};
+  const lignes = projection.competences || [];
+  const bandes = projection.bandes || [];
+  if (!lignes.length) {
+    bloc.append(noeud("p", "aide",
+      "Aucune vérification n'est ouverte pour l'instant. Ce sont les activités "
+      + "marquées « vérification » dans le menu des exercices."));
+    return bloc;
+  }
+  const definition = {};
+  for (const b of bandes) definition[b.id] = b;
+  const liste = noeud("ul", "competences");
+  for (const c of lignes) {
+    const item = document.createElement("li");
+    item.append(noeud("span", "nom", ctester.skillLabel(c.id)));
+    const mot = definition[c.bande] || { titre: c.bande };
+    item.append(noeud("span", "bande " + c.bande, mot.titre));
+    // LE COMPTE EN TOUTES LETTRES, à côté du mot : « vérifié » sur une seule
+    // preuve et « vérifié » sur quatre ne valent pas la même chose, et
+    // l'étudiant a le droit de savoir laquelle il lit.
+    item.append(noeud("span", "chiffres",
+      c.reussies + " vérification" + (c.reussies > 1 ? "s" : "") + " réussie"
+      + (c.reussies > 1 ? "s" : "") + " sur " + c.total
+      + (c.tentees ? ", " + c.tentees + " tentée" + (c.tentees > 1 ? "s" : "")
+                   : ", aucune tentée")));
+    item.append(jauge(c.reussies, c.total));
+    liste.append(item);
+  }
+  bloc.append(liste);
+  // La légende, une fois : les quatre mots ci-dessus ne s'expliquent pas seuls.
+  const legende = noeud("dl", "bandes");
+  for (const b of bandes) {
+    legende.append(noeud("dt", "", b.titre));
+    legende.append(noeud("dd", "", b.description));
+  }
+  bloc.append(legende);
+  bloc.append(noeud("p", "aide",
+    "Une vérification ne rapporte aucun XP : elle dit ce que tu sais refaire, "
+    + "pas combien tu as travaillé. Une bande basse ne retire rien et n'est "
+    + "pas une note — elle indique où revenir pratiquer."));
+  return bloc;
+}
+
 function niveau(vue) {
   // AU SECOND PLAN, et la phrase qui suit n'est pas décorative : c'est la
   // seule chose qui empêche un compteur d'activité de se lire comme une note.
@@ -271,7 +326,9 @@ function dessiner() {
     box.append(noeud("p", "rate", erreur), listeExercices());
     return;
   }
-  box.append(actionSuivante(projection), listeExercices(),
+  // LA MAÎTRISE AVANT LA PRATIQUE : c'est le sujet neuf, et celui qui répond à
+  // « est-ce que je saurais le refaire ». L'XP reste en dernier, au second plan.
+  box.append(actionSuivante(projection), listeExercices(), maitrise(projection),
              pratique(projection), niveau(projection), succes(projection));
 }
 

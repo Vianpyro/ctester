@@ -299,6 +299,12 @@ const CATALOG_V2 = {
       release: { state: "available" }, files: UN_FICHIER,
       skills: ["variables", "arithmetic-operators"],
       contexts: ["electrical"], difficulty: "foundation" },
+    // UNE VÉRIFICATION, dans le TP qu'elle vérifie. Elle est en mode « io »
+    // exprès : c'est le seul mode exportable, donc le seul où l'oubli du
+    // filtre se verrait dans un main.c de remise.
+    { id: "verif-tp2", title: "vérification du TP 2", mode: "io",
+      access: "available", release: { state: "available" }, verification: true,
+      skills: ["variables"], files: UN_FICHIER },
     { id: "tp6-ex1", title: "ex.1 est_bissextile", mode: "unity",
       access: "available", release: { state: "available" }, skills: [],
       files: [{ name: "calendrier.h" }, { name: "calendrier.c" }] },
@@ -311,7 +317,8 @@ const CATALOG_V2 = {
   collections: [
     { id: "tp1", title: "TP 1", description: "", items: ["tp1"],
       release: { state: "available" }, access: "available" },
-    { id: "tp2", title: "TP 2", description: "", items: ["tp2-ex0", "tp2-ex3"],
+    { id: "tp2", title: "TP 2", description: "",
+      items: ["tp2-ex0", "tp2-ex3", "verif-tp2"],
       release: { state: "available" }, access: "available" },
     { id: "tp6", title: "TP 6", description: "", items: ["tp6-ex1"],
       release: { state: "available" }, access: "available" },
@@ -389,6 +396,19 @@ const PROGRES = {
   succes: [{ id: "premiere-reussite", titre: "Premier exercice réussi",
              description: "Tu as fait passer tous les tests d'un exercice.",
              obtenu_le: "2026-09-01" }],
+  maitrise: {
+    bandes: [
+      { id: "verifie", titre: "Vérifié", description: "Toutes réussies." },
+      { id: "en-progression", titre: "En progression", description: "Il en reste." },
+      { id: "a-consolider", titre: "À consolider", description: "Reviens pratiquer." },
+      { id: "non-verifie", titre: "Pas encore vérifié", description: "Rien de tenté." },
+    ],
+    competences: [
+      { id: "variables", total: 2, tentees: 1, reussies: 1, bande: "en-progression" },
+      { id: "<img src=x onerror=alert(1)>", total: 1, tentees: 0, reussies: 0,
+        bande: "non-verifie" },
+    ],
+  },
   suivant: { exercice_id: "tp2-ex3", competence: "variables" },
   transactions: [{ exercice_id: "tp2-ex0", montant: 15,
                    motif: "première réussite", accorde_le: "2026-09-01" }],
@@ -785,8 +805,17 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(collectionsMenu().map(titreCollection).join(",")
         === "TP 1,TP 2,TP 6,TP 10,Révisions",
         "le menu liste les collections, dans l'ordre du catalogue");
-  check(lignesDe("TP 2").map(l => l.dataset.id).join(",") === "tp2-ex0,tp2-ex3",
+  check(lignesDe("TP 2").map(l => l.dataset.id).join(",")
+        === "tp2-ex0,tp2-ex3,verif-tp2",
         "chaque collection porte ses exercices");
+  // MARQUÉE AU MENU, ET EN TOUTES LETTRES. Une vérification doit être
+  // reconnaissable AVANT d'être ouverte : elle ne se pratique pas, elle se
+  // passe. Une couleur seule ne le dirait pas.
+  const etiquettes = lignesDe("TP 2")
+    .map(l => l.children.map(c => c.textContent || "").join(" "));
+  check(/vérification/.test(etiquettes[2]) && !/vérification/.test(etiquettes[0]),
+        "et une vérification est étiquetée, les exercices de pratique non : "
+        + etiquettes.join(" // "));
   check(lignesDe("TP 2")[0].children[0].textContent === "ex.0 âge",
         "et le titre de l'exercice, sans préfixe de TP");
 
@@ -980,12 +1009,17 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(global.ctester.exerciceChoisi() === "tp2-ex3",
         "« suivant » avance d'un exercice");
   nodes.next.listeners.click();
+  check(global.ctester.exerciceChoisi() === "verif-tp2",
+        "« suivant » passe par la vérification du TP, elle est au menu comme "
+        + "le reste");
+  nodes.next.listeners.click();
   check(global.ctester.exerciceChoisi() === "tp6-ex1",
         "« suivant » franchit la fin d'un TP");
   // LES FLÈCHES NE MARCHENT QUE SUR CE QUI EST OUVERT : `tp10-ex1` est publié,
   // verrouillé, et suit `tp6-ex1` dans le catalogue. Le rang de la fin, c'est
   // le dernier exercice OUVERT, sinon « suivant » mènerait à un 404.
   check(nodes.next.disabled === true, "le bouton se désactive au dernier exercice ouvert");
+  nodes.prev.listeners.click();
   nodes.prev.listeners.click();
   nodes.prev.listeners.click();
   check(global.ctester.exerciceChoisi() === "tp2-ex0",
@@ -1580,6 +1614,20 @@ const attendre = async () => { await sleep(); await sleep(); };
         "l'XP dit ce qu'il n'est pas, à l'écran");
   check(/Ce n'est pas une maîtrise vérifiée/.test(vu),
         "et « pratiquée » ne se présente jamais comme une maîtrise");
+
+  // LA MAÎTRISE EST UNE SECTION DE PLUS, pas une requalification de la
+  // pratique : les deux doivent coexister, et la neuve passer devant.
+  check(vu.indexOf("Maîtrise vérifiée") >= 0 &&
+        vu.indexOf("Maîtrise vérifiée") < vu.indexOf("Ce que tu as pratiqué"),
+        "« Maîtrise vérifiée » vient avant « Ce que tu as pratiqué »");
+  check(/En progression/.test(vu) && /1 vérification réussie sur 2, 1 tentée/.test(vu),
+        "la bande arrive du serveur, avec son compte en toutes lettres : " + vu);
+  // LA LÉGENDE EXPLIQUE LES QUATRE MOTS. Sans elle, « à consolider » se lit
+  // comme un reproche plutôt que comme une indication d'où revenir.
+  check(/Pas encore vérifié/.test(vu) && /Reviens pratiquer/.test(vu),
+        "et la légende des bandes est affichée, pas seulement celle utilisée");
+  check(/ne rapporte aucun XP/.test(vu) && /pas une note/.test(vu),
+        "la vue dit ce qu'une vérification n'est pas, comme l'XP le fait");
   check(/Premier exercice réussi/.test(vu) &&
         /fait passer tous les tests/.test(vu) && /obtenu le 2026-09-01/.test(vu),
         "un succès porte titre, description ET date -- pas une couleur seule");
@@ -2204,6 +2252,11 @@ const attendre = async () => { await sleep(); await sleep(); };
   // labo et exporte depuis la maison, et c'est lui qui doit faire descendre le
   // brouillon du compte un peu plus bas.
   global.ctester.enregistrerBrouillon("tp2-ex0", {});
+  // ET LA VÉRIFICATION DU MÊME TP, AVEC DU CODE. Elle ne fait pas partie de la
+  // remise : si elle entrait dans le main.c, elle y ajouterait un `#if
+  // exercice == N` que l'énoncé ne prévoit pas, et décalerait la numérotation.
+  global.ctester.enregistrerBrouillon("verif-tp2",
+                                      { "submission.c": "int verification(void);" });
 
   // SANS COMPTE, ET C'EST LE POINT : les brouillons de cet appareil suffisent.
   // L'export est la seule chose du parcours anonyme qui produise un fichier, et
@@ -2223,6 +2276,8 @@ const attendre = async () => { await sleep(); await sleep(); };
         + "de l'etudiant en cp1252");
   check(/#define _CRT_SECURE_NO_WARNINGS/.test(seul.texte),
         "l'en-tete pose _CRT_SECURE_NO_WARNINGS, comme le fichier du cours");
+  check(!/verification\(void\)/.test(seul.texte),
+        "la vérification du TP n'entre PAS dans le main.c de remise");
   check(/\n#define exercice 3\n/.test(seul.texte),
         "et `#define exercice` designe le PREMIER exercice qui a du code : un "
         + "fichier qui s'ouvre sur un bloc vide ne compile pas");

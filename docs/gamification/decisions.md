@@ -195,3 +195,51 @@ volontaire de l'epinglage.
 **Alternatives:** pistes par programme fixes (rejetee).
 
 **Consequences:** revue d'equivalence de variantes et preferences reversibles.
+
+## D-010 — La maitrise est DERIVEE, pas stockee
+
+**Statut:** Accepted (phase 2 livree).
+
+**Decision:** une verification est un exercice ordinaire du catalogue portant
+`verification: true`, quel que soit son mode. Son verdict -- reussi OU NON --
+ecrit une evidence dans `evenement_progression` (type `VerificationEvaluated`,
+identifiant `verification:<exercice>:<job>`), et n'accorde AUCUN XP. La bande
+d'une competence est recalculee a chaque `GET /progres` par COUVERTURE : toutes
+les verifications ouvertes de la competence reussies = « verifie », au moins une
+= « en progression », tentee sans succes = « a consolider », rien de tente =
+« pas encore verifie ». Aucun seuil, aucun poids de recence, aucune degradation.
+
+**Raison:** trois choses tombent d'un coup. (1) `evenement_progression` EST deja
+un journal en ajout seul avec un `type` libre et une charge JSON : une table
+`mastery_evidence` aurait ajoute une ligne a `forget()`, un GRANT dans `VHome`,
+et une table au compte de `test_suppression_couvre_toutes_les_tables`, pour
+stocker exactement la meme chose. `domain-model.md` dit deja que le
+`MasteryRecord` est derive et recalculable. (2) [mastery.md](mastery.md) demande
+un modele hybride D dont les seuils et la recence sont « a valider par donnees ;
+ne pas les choisir maintenant » -- une bande par couverture n'a AUCUN nombre a
+choisir, et se durcit toute seule quand le contenu s'etoffe. (3) Ne rien afficher
+de chiffre laisse la question ouverte « quel modele, seuils et recence » ouverte
+sans qu'elle bloque : elle etait requise « avant affichage chiffre ».
+
+Pas d'XP parce que l'XP compte de l'ACTIVITE ([D-007](#)) et la verification
+mesure une CAPACITE. Les melanger rendrait la verification farmable et l'XP
+indistinguable d'une note (invariants 1 et 4).
+
+**Alternatives:** une table `mastery_evidence` dediee (rejetee : voir 1) ; un
+score numerique de maitrise (rejetee : bloquee par une question ouverte, et un
+chiffre non calibre se lit comme une note) ; un evenement `MasteryChanged`
+(rejetee : un evenement pour une valeur derivee cree un second endroit ou la
+verite peut diverger) ; des variantes parametrees a graine serveur (rejetee pour
+maintenant : `publish_content.py` interdit `seed` et `cases` en projection, et
+c'est une propriete qu'on garde) ; un defi chronometre (rejetee : imposerait de
+definir une alternative accessible avant publication, [open-questions.md](open-questions.md)).
+
+**Consequences:** AUCUNE migration, AUCUN changement dans `VHome` -- le GRANT
+`SELECT, INSERT, DELETE ON evenement_progression` existant suffit, et
+`test_postgres.py` le rejoue avec le role applicatif et ses seuls droits.
+`GET /progres` passe a six allers-retours SQL. Une verification ne compte dans
+aucun compteur de pratique (denominateur, competences pratiquees,
+recommandation, export `main.c`) : le filtre est pose une seule fois dans
+`exercices_pratique()`. Le rollback est de retirer `verification: true` du
+contenu : les evidences restent en base, plus rien ne les lit.
+

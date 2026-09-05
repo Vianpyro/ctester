@@ -153,6 +153,55 @@ def test_content_v2_discovery_and_public_projection():
         shutil.rmtree(root)
 
 
+def _contenu_avec_verification(root, valeur):
+    """Un contenu minimal d'un exercice, dont le drapeau `verification` varie."""
+    _write_json(os.path.join(root, "catalog.json"),
+                {"schema_version": 1, "skills": ["variables"]})
+    exercise = os.path.join(root, "exercises", "verif-tp2")
+    donnees = {"schema_version": 1, "id": "verif-tp2", "title": "Vérification",
+               "skills": ["variables"], "release": {"state": "available"}}
+    if valeur is not None:
+        donnees["verification"] = valeur
+    _write_json(os.path.join(exercise, "exercise.json"), donnees)
+    with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
+        fh.write("Lis ce code.")
+    _write_json(os.path.join(exercise, "assessment", "quiz.json"),
+                {"questions": [{"id": "q1", "label": "?", "answer": "42"}]})
+
+
+def test_content_v2_marque_une_verification():
+    """Le drapeau traverse la publication, et il ne depend pas du mode.
+
+    CE QUI EST VERIFIE ICI : qu'une verification soit un exercice ORDINAIRE
+    marque -- meme validation, meme projection, meme frontiere -- et que le
+    drapeau soit absent quand il est faux, plutot qu'une cle par exercice qui
+    ne dit rien.
+    """
+    for valeur, attendu in ((True, True), (False, None), (None, None)):
+        root = tempfile.mkdtemp(prefix="ctester-content-")
+        try:
+            _contenu_avec_verification(root, valeur)
+            public = content_catalogue.public_catalogue(content_catalogue.discover(root))
+            assert public["exercises"][0].get("verification") is attendu, valeur
+            # La ceinture ne bronche pas : rien de assessment ne sort.
+            assert "answer" not in json.dumps(public)
+        finally:
+            shutil.rmtree(root)
+    # Un drapeau qui n'est pas un booleen est refuse a la validation, pas
+    # interprete : « verification: "oui" » serait vrai en Python et faux ici.
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _contenu_avec_verification(root, "oui")
+        try:
+            content_catalogue.discover(root)
+        except content_catalogue.ContentValidationError as exc:
+            assert "verification" in str(exc), exc
+        else:
+            raise AssertionError("drapeau non booleen accepte")
+    finally:
+        shutil.rmtree(root)
+
+
 def test_content_v2_rejects_conflicting_modes_and_unknown_collection_item():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
@@ -785,6 +834,13 @@ def test_politique_est_declarative():
         assert succes["id"] not in ids
         ids.add(succes["id"])
     assert set(politique.SUCCES) == ids
+    # Les bandes de maitrise s'affichent comme les succes : en toutes lettres.
+    bandes = politique.POLITIQUE["maitrise"]["bandes"]
+    for bande in bandes:
+        assert bande["titre"] and bande["description"]
+    assert set(politique.BANDES) == {b["id"] for b in bandes} == set(
+        politique.bande_maitrise(r, t, n)
+        for n in range(0, 4) for t in range(0, n + 1) for r in range(0, t + 1))
     # AUCUNE VALEUR D'EQUILIBRAGE NE S'ECRIT EN DUR DANS L'API. Sans ce
     # controle la politique deviendrait decorative : deux endroits ou changer un
     # montant, dont un que personne ne pense a relire.
@@ -810,8 +866,13 @@ def test_niveau_derive_du_solde():
 def test_succes_derives_de_faits():
     assert politique.succes_atteints({}) == []
     assert politique.succes_atteints({"reussites": 1}) == ["premiere-reussite"]
-    beaucoup = politique.succes_atteints({"reussites": 10, "competences": 3})
+    beaucoup = politique.succes_atteints({"reussites": 10, "competences": 3,
+                                          "verifications": 1})
     assert set(beaucoup) == set(politique.SUCCES)
+    # UNE VERIFICATION N'EST PAS UNE PRATIQUE : dix exercices reussis ne
+    # debloquent pas le succes de verification.
+    assert "premiere-verification" not in politique.succes_atteints(
+        {"reussites": 10, "competences": 3})
     # Un fait inconnu de l'appelant vaut zero : ajouter un critere ne doit pas
     # faire lever sur un appelant plus ancien.
     assert politique.succes_atteints({"inconnu": 99}) == []
@@ -826,6 +887,21 @@ CATALOGUE_DEMO = [
     {"id": "tp6-ex1", "skills": ["arrays-1d"]},
     {"id": "tp1"},                                    # sans metadonnees : legal
 ]
+
+
+# Les memes exercices, plus DEUX VERIFICATIONS. `variables` est portee par les
+# deux, `arithmetic-operators` par une seule, `arrays-1d` par aucune : de quoi
+# distinguer les quatre bandes sans qu'un seuil existe nulle part.
+CATALOGUE_VERIF = CATALOGUE_DEMO + [
+    {"id": "verif-a", "skills": ["variables", "arithmetic-operators"],
+     "verification": True},
+    {"id": "verif-b", "skills": ["variables"], "verification": True},
+]
+
+
+def evidence(exercice, reussi):
+    """Une ligne telle que `etat.read_events` la rend."""
+    return {"exercice_id": exercice, "charge": {"job": "j", "reussi": reussi}}
 
 
 def test_projection_des_competences():
@@ -869,7 +945,7 @@ def test_progression_ne_publie_rien_de_secret():
                                "accorde_le": "2026-09-03"}]}
     charge = progression.progress_payload(
         CATALOGUE_DEMO, faits,
-        [{"exercice_id": "tp2-ex0", "statut": "valide"}], [])
+        [{"exercice_id": "tp2-ex0", "statut": "valide"}], [], [])
     assert charge["politique"] == politique.VERSION
     assert charge["xp"] == 25 and charge["niveau"]["rang"] >= 1
     assert charge["exercices"] == {"total": 4, "pratiques": 1, "reussis": 1}
@@ -877,11 +953,97 @@ def test_progression_ne_publie_rien_de_secret():
     # pas -- il reste en base, il ne devient pas une ligne vide a l'ecran.
     assert [s["id"] for s in charge["succes"]] == ["premiere-reussite"]
     assert charge["succes"][0]["titre"] and charge["succes"][0]["description"]
+    # La legende des bandes voyage meme quand aucune competence n'est
+    # verifiable : la page doit pouvoir expliquer ce qu'elle n'affiche pas
+    # encore, plutot que de reecrire les libelles de son cote.
+    assert [b["id"] for b in charge["maitrise"]["bandes"]] == list(politique.BANDES)
+    assert charge["maitrise"]["competences"] == []
     # RIEN DE SECRET NE TRAVERSE : ni chemin de tests, ni code soumis, ni
     # detail de verdict. Meme frontiere que publish_catalogue.
     texte = json.dumps(charge, ensure_ascii=False)
     for interdit in ("path", "answer", "statement", "sources", "template"):
         assert interdit not in texte, interdit
+
+
+def test_bandes_de_maitrise_par_couverture():
+    """La bande d'une competence, sans qu'aucun seuil existe.
+
+    CE QUI EST VERIFIE ICI : que « verifie » veuille dire TOUTES les
+    verifications ouvertes de la competence, et pas « une », sinon la phase 2
+    promettrait une capacite demontree sur une seule preuve.
+    """
+    vide = progression.maitrise_view(CATALOGUE_VERIF, [])
+    # Une competence qu'aucune verification ne porte n'y figure pas : lui
+    # reprocher « pas encore verifie » serait reprocher une lacune du contenu.
+    assert [c["id"] for c in vide] == ["variables", "arithmetic-operators"]
+    assert vide[0] == {"id": "variables", "total": 2, "tentees": 0,
+                       "reussies": 0, "bande": "non-verifie"}
+
+    une = progression.maitrise_view(CATALOGUE_VERIF, [evidence("verif-a", True)])
+    par_id = {c["id"]: c for c in une}
+    # `variables` est portee par DEUX verifications : une seule reussie ne la
+    # verifie pas. `arithmetic-operators` n'en a qu'une, donc elle est complete.
+    assert par_id["variables"]["bande"] == "en-progression"
+    assert par_id["arithmetic-operators"]["bande"] == "verifie"
+
+    deux = progression.maitrise_view(
+        CATALOGUE_VERIF, [evidence("verif-b", True), evidence("verif-a", True)])
+    assert {c["id"]: c["bande"] for c in deux} == {
+        "variables": "verifie", "arithmetic-operators": "verifie"}
+
+    rate = progression.maitrise_view(CATALOGUE_VERIF, [evidence("verif-a", False)])
+    # Tentee sans succes : une bande a consolider, PAS le silence d'une
+    # competence jamais abordee. C'est pour ca qu'un echec s'ecrit aussi.
+    assert {c["id"]: c["bande"] for c in rate} == {
+        "variables": "a-consolider", "arithmetic-operators": "a-consolider"}
+    assert par_id["variables"]["tentees"] == 1
+
+
+def test_maitrise_retient_la_derniere_tentative():
+    """Le dernier verdict fait foi ; les reessais restent historiques."""
+    # `read_events` rend du plus recent au plus ancien : ici, un echec APRES
+    # une reussite.
+    journal = [evidence("verif-a", False), evidence("verif-a", True)]
+    assert progression.dernieres_tentatives(journal) == {"verif-a": False}
+    vue = {c["id"]: c for c in progression.maitrise_view(CATALOGUE_VERIF, journal)}
+    assert vue["arithmetic-operators"]["bande"] == "a-consolider"
+    # MAIS UN SUCCES NE SE RETIRE PAS : ce que la bande perd, le journal le
+    # garde, et le compteur des succes est monotone.
+    assert progression.verifications_reussies(journal) == {"verif-a"}
+
+
+def test_une_pratique_ne_fait_bouger_aucune_bande():
+    """Invariant 4 : le juge en libre service ne prouve pas une maitrise."""
+    tout_reussi = [{"exercice_id": e["id"], "statut": "valide"}
+                   for e in CATALOGUE_DEMO]
+    faits = {"xp": 75, "succes": [], "transactions": []}
+    charge = progression.progress_payload(CATALOGUE_VERIF, faits, tout_reussi,
+                                          [], [])
+    assert charge["exercices"]["reussis"] == 4
+    assert all(c["bande"] == "non-verifie"
+               for c in charge["maitrise"]["competences"])
+
+
+def test_une_verification_ne_compte_pas_comme_une_pratique():
+    """Deux domaines : une verification n'est ni un denominateur ni une suite.
+
+    CE QUI EST VERIFIE ICI : que le filtre soit pose une seule fois et traverse
+    les trois compteurs. Sans lui, « 4 exercices » deviendrait « 6 » et la
+    recommandation enverrait pratiquer une verification.
+    """
+    charge = progression.progress_payload(
+        CATALOGUE_VERIF, {"xp": 0, "succes": [], "transactions": []}, [], [], [])
+    assert charge["exercices"]["total"] == len(CATALOGUE_DEMO)
+    assert charge["suivant"]["exercice_id"] == "tp2-ex0"
+    # Les competences PRATIQUEES ne comptent que les exercices de pratique :
+    # `variables` est portee par deux exercices, pas par les quatre.
+    par_id = {c["id"]: c for c in charge["competences"]}
+    assert par_id["variables"]["total"] == 2
+    assert "arrays-1d" in par_id
+    # Et rien ne recommande une verification, meme quand tout le reste est fait.
+    tout = {e["id"] for e in CATALOGUE_DEMO}
+    assert progression.recommander(
+        progression.exercices_pratique(CATALOGUE_VERIF), tout, tout) is None
 
 
 def test_suppression_couvre_toutes_les_tables():
@@ -911,6 +1073,10 @@ def test_progression_degradee_sans_base():
     assert etat.unlock("u", ["premiere-reussite"], "e", "v") is False
     assert etat.unlock("u", [], "e", "v") is True     # rien a faire, pas un echec
     assert etat.read_progress("u") is None
+    # Une evidence de maitrise degrade comme le reste : rien d'ecrit, rien de
+    # lu, et surtout pas une liste vide qui se lirait « jamais verifie ».
+    assert etat.record_event("u", "e", "T", "tp", "v", {}) is None
+    assert etat.read_events("u", "T") is None
     # Le theme degrade comme le reste : None dit « la base n'a pas repondu »,
     # jamais « pas de theme » -- c'est ce qui laisse la page garder le sien.
     assert etat.read_theme("u") is None
