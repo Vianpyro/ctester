@@ -183,9 +183,20 @@ main {
 }
 #consignetexte.vide { font-family: var(--sans); color: var(--muted); }
 
+/* UNE COLONNE FLEX, ET SURTOUT PAS UN GABARIT DE LIGNES. C'etait
+   `grid-template-rows: auto minmax(0, 1fr) auto auto`, donc une taille par
+   POSITION -- et deux choses la cassent. `#bandelabo`, ajoute apres coup en
+   deuxieme enfant, heritait du `1fr` destine a l'editeur : trois puces
+   occupaient la moitie de l'ecran, etirees par `align-content`. Et `#editor` /
+   `#quizwrap` s'excluent (`display: none`), donc un element qui disparait
+   decale toutes les lignes suivantes d'un cran.
+
+   En flex, chacun porte sa propre regle : ce qui grandit le dit, le reste
+   prend sa hauteur de contenu, et ajouter un enfant ne deplace rien. Les
+   `flex: 0 0 auto` de `#bandelabo` et `#actions` etaient deja la, inertes sous
+   grid -- c'est le modele d'origine qu'on remet. */
 #droite {
-  min-height: 0; display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  min-height: 0; display: flex; flex-direction: column;
 }
 #now { flex-wrap: wrap; }
 #now b { color: var(--fg); font-size: 12.5px; font-weight: 700;
@@ -197,9 +208,11 @@ main {
 }
 #now .learning { color: var(--muted); font-size: .68rem; letter-spacing: .02em;
                  text-transform: none; }
-#editor { min-height: 0; display: flex; flex-direction: column; }
+/* LES DEUX QUI GRANDISSENT, et les seuls. Ils s'excluent l'un l'autre :
+   celui qui reste prend la place, sans que personne ne compte les lignes. */
+#editor { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 #editor[hidden] { display: none; }
-#quizwrap { min-height: 0; overflow-y: auto; padding: .9rem; }
+#quizwrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .9rem; }
 
 #tabs { display: flex; gap: .2rem; flex-wrap: wrap; }
 /* Une regle `display:` l'emporte sur le [hidden] natif du navigateur :
@@ -305,7 +318,7 @@ main {
 #purger { font-size: 12px; }
 
 #out {
-  min-height: 0; max-height: 45vh; overflow-y: auto;
+  flex: 0 1 auto; min-height: 0; max-height: 45vh; overflow-y: auto;
   padding: .85rem .95rem;
   border-top: 1px solid var(--line);
   border-left: 3px solid var(--muted);
@@ -865,4 +878,8 @@ pre {
 .verdict.compte { font-variant-numeric: tabular-nums; }
 /* La pastille de mode et les métadonnées d'objectif : lisibles, pas criardes. */
 #now .badge { font-size: 11.5px; letter-spacing: .02em; text-transform: none; }
+/* La meme etiquette qu'au menu, dans le bandeau de l'exercice OUVERT.
+   Elle dit « sans XP » : c'est la question qu'on se pose en arrivant
+   dessus, et la reponse ne doit pas dependre d'avoir deplie la consigne. */
+#now .badge.verif { color: var(--fg); border-color: var(--ink); }
 #now .learning { font-size: 11.5px; }

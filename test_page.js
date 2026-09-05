@@ -797,6 +797,49 @@ const attendre = async () => { await sleep(); await sleep(); };
           + "[hidden]" + (fautifs.length ? " -- MANQUE : " + fautifs.join(", ") : ""));
   }
 
+  // LA COLONNE DE DROITE NE SE DIMENSIONNE PAS PAR POSITION, et c'est un bug
+  // deja paye : `#droite` etait une grille dont la 2e ligne valait `1fr`, ce
+  // qui convenait tant que l'editeur etait le 2e enfant. `#bandelabo`, ajoute
+  // ensuite en 2e position, a herite du `1fr` -- trois puces d'exercice
+  // occupaient la moitie de l'ecran. Et `#editor`/`#quizwrap` s'excluent en
+  // `display: none`, donc les lignes se decalent selon le mode.
+  //
+  // ON N'EPROUVE PAS LA MISE EN PAGE (le DOM en carton n'en a pas), on eprouve
+  // que chaque enfant DISE sa taille : ajouter un enfant sans regle `flex:`
+  // fait echouer ici, la ou le navigateur ne dirait rien.
+  {
+    const bloc = css.slice(css.indexOf("#droite {"),
+                           css.indexOf("}", css.indexOf("#droite {")));
+    check(bloc.includes("flex-direction: column") && !bloc.includes("grid-template-rows"),
+          "#droite est une colonne flex, pas un gabarit de lignes positionnel");
+    const debut = html.indexOf('<div id="droite">');
+    // Borne sur la fermeture a DEUX espaces : les enfants directs sont a
+    // quatre, tout ce qui est plus profond ne matche pas la regex.
+    const dedans = html.slice(debut, html.indexOf("\n  </div>", debut));
+    const enfants = [...dedans.matchAll(/^ {4}<[a-z]+ ([^>]*)>/gm)].map((m) => {
+      const id = /id="(\w+)"/.exec(m[1]);
+      const classe = /class="([^"]+)"/.exec(m[1]);
+      return { id: id ? id[1] : "?",
+               // `#now` tient sa taille de `.phead` : un selecteur vaut
+               // l'autre, ce qu'on refuse c'est qu'AUCUN ne la donne.
+               selecteurs: ["#" + (id ? id[1] : "?")]
+                 .concat(classe ? classe[1].trim().split(/ +/).map((c) => "." + c) : []) };
+    });
+    // ANCRE EN DEBUT DE LIGNE : sans elle, `.phead` tomberait sur
+    // « .field label, .phead { » qui est un autre bloc, et le controle
+    // repondrait sur la mauvaise regle.
+    const taille = (sel) => {
+      const i = css.indexOf("\n" + sel + " {");
+      return i >= 0 && css.slice(i, css.indexOf("}", i)).includes("flex:");
+    };
+    const sansTaille = enfants.filter((e) => !e.selecteurs.some(taille))
+                              .map((e) => e.id);
+    check(enfants.length >= 5 && sansTaille.length === 0,
+          "chaque enfant de #droite declare sa propre taille flex ("
+          + enfants.length + " vus)"
+          + (sansTaille.length ? " -- MANQUE : " + sansTaille.join(", ") : ""));
+  }
+
   check(html.indexOf('id="go"') > html.indexOf('id="quizwrap"') &&
         html.indexOf('id="go"') > html.indexOf('id="editor"'),
         "« Tester » vient après les deux volets, donc en masquer un ne l'emporte pas");
@@ -805,12 +848,24 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(collectionsMenu().map(titreCollection).join(",")
         === "TP 1,TP 2,TP 6,TP 10,Révisions",
         "le menu liste les collections, dans l'ordre du catalogue");
+  const texteBandeau = () => nodes.now.children
+    .map(c => c.textContent || "").join(" ");
   check(lignesDe("TP 2").map(l => l.dataset.id).join(",")
         === "tp2-ex0,tp2-ex3,verif-tp2",
         "chaque collection porte ses exercices");
   // MARQUÉE AU MENU, ET EN TOUTES LETTRES. Une vérification doit être
   // reconnaissable AVANT d'être ouverte : elle ne se pratique pas, elle se
   // passe. Une couleur seule ne le dirait pas.
+  // ET UNE FOIS OUVERTE, le bandeau le redit -- avec « sans XP », qui est la
+  // question qu'on se pose en arrivant dessus. La consigne se replie ; ce
+  // bandeau, non.
+  await choisir("TP 2", "verif-tp2");
+  check(/vérification — sans XP/.test(texteBandeau()),
+        "l'exercice ouvert dit qu'il est une vérification : " + texteBandeau());
+  await choisir("TP 2", "tp2-ex3");
+  check(!/vérification/.test(texteBandeau()),
+        "et un exercice de pratique ne le dit pas : " + texteBandeau());
+
   const etiquettes = lignesDe("TP 2")
     .map(l => l.children.map(c => c.textContent || "").join(" "));
   check(/vérification/.test(etiquettes[2]) && !/vérification/.test(etiquettes[0]),

@@ -1001,6 +1001,12 @@ function switchMode() {
     pastille.className = "badge";
     pastille.textContent = ATTENDU[tp.mode] || "";
     $("now").append(titre, pastille);
+    // MARQUÉE ICI AUSSI, et pas seulement au menu. Une vérification doit rester
+    // reconnaissable une fois OUVERTE : c'est là qu'on décide de la commencer,
+    // et le seul autre signal était une phrase de consigne qu'on peut replier.
+    if (tp.verification) {
+      $("now").append(noeud("span", "badge verif", "vérification — sans XP"));
+    }
     const learning = tp.learning || {};
     const details = [];
     if (Array.isArray(learning.skills) && learning.skills.length) {
