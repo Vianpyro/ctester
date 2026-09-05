@@ -733,6 +733,28 @@ def test_quota_horaire_pile_et_un_de_trop():
         assert r.json()["retry_after"] > 0, r.json()
 
 
+def test_quota_par_compte_pas_par_ip_derriere_un_nat():
+    """Deux comptes derrière UNE SEULE IP ne partagent pas le quota.
+
+    C'est le cas du labo : 27 postes sortent par la même IP NATée, et compter
+    par IP y ferait qu'un seul étudiant bloque toute la salle. L'anonyme, lui,
+    reste compté par IP -- il n'a rien d'autre.
+    """
+    with contexte(jetons={"alice": "sub-alice", "bob": "sub-bob"}) as (c, _, _tmp):
+        deps.quota = quotas.Quota(cooldown=0, hourly=1)
+        charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
+                  "files": {"submission.c": "int main(){return 0;}"}}
+        nat = {"CF-Connecting-IP": "10.0.0.1"}
+        for nom in ("alice", "bob"):
+            r = c.post("/submit", json=charge, headers={**auth(nom), **nat})
+            assert r.status_code == 200, (nom, r.status_code, r.text)
+        # Chacun épuise le SIEN, et seulement le sien.
+        r = c.post("/submit", json=charge, headers={**auth("alice"), **nat})
+        assert r.status_code == 429, r.status_code
+        # L'anonyme de la même salle garde son compteur d'IP, intact.
+        assert c.post("/submit", json=charge, headers=nat).status_code == 200
+
+
 def test_quota_ne_consomme_rien_sur_une_requete_refusee():
     """Un TP inconnu ne doit pas grignoter le quota de quelqu'un.
 

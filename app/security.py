@@ -200,6 +200,13 @@ def client_id(headers, peer):
     un régulateur de charge, pas un contrôle d'accès -- la clé de session est le
     contrôle d'accès.
     """
+    # LE COMPTE D'ABORD, L'IP EN REPLI. En labo, 27 étudiants sortent par une
+    # seule IP NATée : compter par IP y fait qu'un seul étudiant bloque toute la
+    # salle. Un `sub` validé est plus juste ET moins falsifiable que l'IP.
+    # L'anonyme, lui, n'a que son IP -- et il n'a pas de compte à protéger.
+    sub = current_user(headers)
+    if sub:
+        return "u:" + sub[:62]
     cf = headers.get("CF-Connecting-IP")
     if cf:
         return cf.strip()[:64]
