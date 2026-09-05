@@ -89,7 +89,7 @@ def rendre(nom, racine):
     return script
 
 
-def lancer(mode, fichiers, exercice):
+def lancer(mode, fichiers, exercice, **reglages):
     """Monte l'arborescence, execute, retourne (code, stdout)."""
     racine = pathlib.Path(tempfile.mkdtemp(prefix="e2e-"))
     (racine / "work").mkdir()
@@ -113,7 +113,8 @@ def lancer(mode, fichiers, exercice):
         cases = None
 
     done = subprocess.run(["bash", str(script)], capture_output=True, text=True,
-                          env={**os.environ, **REGLAGES, "CTESTER_NONCE": NONCE}, cwd=racine)
+                          env={**os.environ, **REGLAGES, **reglages,
+                               "CTESTER_NONCE": NONCE}, cwd=racine)
     return done.returncode, done.stdout, cases, racine
 
 
@@ -246,6 +247,35 @@ jetons = {m for m in runner.re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
 fuites = sorted(j for j in jetons if j in str(res))
 check(not fuites, "aucun identifiant du fichier de test dans le verdict"
       + (" -- FUITES : " + ", ".join(fuites[:8]) if fuites else ""))
+
+# --- 6. boucle infinie : le chronometre coupe, et le juge le DIT ------------
+# LE classique du cours. RUN_TIMEOUT descend a 2 s ici pour que le controle ne
+# coute pas 5 s par mode ; c'est la meme horloge, celle de `timeout -s KILL`.
+BOUCLE = '#include <stdio.h>\nint main(void){ while (1) {} return 0; }\n'
+rc, out, cases, _ = lancer("io", {"submission.c": BOUCLE}, "tp2-ex0",
+                           CTESTER_RUN_TIMEOUT="2")
+av, reste = runner.extraire_avertissements(out, NONCE)
+res = runner.avec_avertissements(
+    runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
+print("\n--- 6a. boucle infinie en mode io ---")
+cas = res["cases"][0] if res.get("cases") else {}
+check(res.get("passed") == 0, "aucun cas ne passe (statut %r)" % res["status"])
+check("boucle infinie" in cas.get("reason", ""),
+      "le message nomme la boucle infinie : " + cas.get("reason", "(aucun)")[:80])
+
+sol = corrige("tp6-ex1")
+fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
+fichiers["calendrier.c"] += (
+    "\n__attribute__((constructor)) static void boucle_e2e(void)"
+    " { while (1) {} }\n")
+rc, out, cases, _ = lancer("unity", fichiers, "tp6-ex1", CTESTER_RUN_TIMEOUT="2")
+av, reste = runner.extraire_avertissements(out, NONCE)
+res = runner.avec_avertissements(runner.verdict(rc, reste), av)
+print("\n--- 6b. boucle infinie en mode unity ---")
+montrer(res)
+check(res["status"] == "timeout", "le verdict est un timeout, pas un plantage")
+check("boucle infinie" in res.get("message", ""),
+      "et le message nomme la boucle infinie")
 
 print()
 print("%d CONTROLE(S) EN ECHEC" % len(rates) if rates
