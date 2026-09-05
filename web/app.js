@@ -1699,6 +1699,16 @@ function occupe(oui, texte) {
 // chargement d'un exercice, et pour la même raison.
 let soumissionCourante = 0;
 
+// ponytail: une constante, pas une mesure. Un job coûte au plus 10 s de
+// compilation et 5 s d'exécution ; 15 s par rang SURESTIME (la page ignore
+// combien de workers tournent), et c'est le bon sens de l'erreur -- finir plus
+// tôt qu'annoncé n'agace personne. Mesurer le débit réel le jour où la file
+// dépasse la poignée de rangs.
+function attenteEstimee(position) {
+  const s = Math.max(1, position) * 15;
+  return s < 60 ? `${s} s` : `${Math.ceil(s / 60)} min`;
+}
+
 async function poll(id, tries, portee, jeton) {
   if (jeton !== soumissionCourante) return;
   const r = await fetch(API("r/" + id));
@@ -1742,7 +1752,8 @@ async function poll(id, tries, portee, jeton) {
     cls: "wait",
     titre: body.state === "running"
       ? "Test en cours…"
-      : `En file d'attente — ${body.position}${body.position === 1 ? "er" : "e"}`,
+      : `En file d'attente — ${body.position}${body.position === 1 ? "er" : "e"}`
+        + ` (environ ${attenteEstimee(body.position)})`,
   });
   setTimeout(() => poll(id, tries - 1, portee, jeton), 2000);
 }
