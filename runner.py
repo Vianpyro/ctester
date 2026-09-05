@@ -832,10 +832,20 @@ def sandbox(job_dir, tp_dir, mode, nonce=""):
 # Un bogue de `normaliser_c()` ne peut donc produire qu'un mauvais hit de cache
 # -- jamais une compilation faussée, jamais un code d'étudiant mutilé.
 #
-# CTESTER_CACHE_MAX=0 l'éteint sans redéployer : c'est le rollback.
+# LE MAGASIN NE PÉRIME PAS, IL SE REMPLIT. Une entrée dont la clé porte
+# l'empreinte du juge ne peut pas devenir fausse -- un test corrigé la rend
+# inatteignable, pas mensongère. On n'évince donc jamais par âge, seulement
+# pour la place, et on jette alors les moins récemment SERVIES.
 
 CACHE_DIR = "cache"
-CACHE_MAX = int(os.environ.get("CTESTER_CACHE_MAX", "5000"))
+# LE MAGASIN DOIT TENIR UN SEMESTRE, pas une séance : en semaine 4, les
+# exercices de la semaine 1 sont rouverts pour réviser l'intra, et une entrée
+# écrite en septembre est toujours juste tant que son test n'a pas bougé.
+# Ordre de grandeur : 27 étudiants x 73 exercices x ~10 soumissions distinctes.
+# Un verdict fait quelques kilo-octets (les sorties sont bornées à
+# MAX_GCC_CHARS / MAX_CASE_OUTPUT / MAX_STDERR), donc ~40 Mo, ~200 Mo au pire.
+# CTESTER_CACHE_MAX=0 l'éteint sans redéployer : c'est le rollback.
+CACHE_MAX = int(os.environ.get("CTESTER_CACHE_MAX", "20000"))
 
 # CE QUI NE SE MET JAMAIS EN CACHE, parce que ce n'est pas une fonction du
 # code. Les trois plafonds (JOB_TIMEOUT, COMPILE_TIMEOUT, RUN_TIMEOUT) sont du
@@ -977,36 +987,83 @@ def signature(exercise_id, tp_dir, mode, conf, sent, empreinte=None):
 
 
 def cache_lire(sig):
+    """Le verdict rangé sous cette clé, et ON MARQUE QU'IL A SERVI.
+
+    L'`utime` est ce qui rend l'éviction juste : sans lui, l'ancienneté d'une
+    entrée serait celle de son ÉCRITURE, et l'exercice de la semaine 1 que
+    trente étudiants rouvrent pour réviser l'intra en semaine 4 serait le
+    premier jeté -- précisément parce qu'il est vieux, alors qu'il est celui qui
+    sert. « Récemment servi » et « souvent servi » ne se distinguent pas ici :
+    ce qui sert souvent est toujours récent.
+    """
     if CACHE_MAX <= 0:
         return None
+    chemin = os.path.join(SPOOL, CACHE_DIR, sig + ".json")
     try:
-        with open(os.path.join(SPOOL, CACHE_DIR, sig + ".json"),
-                  encoding="utf-8") as fh:
+        with open(chemin, encoding="utf-8") as fh:
             verdict = json.load(fh)
     except (OSError, ValueError):
         return None
-    return verdict if isinstance(verdict, dict) else None
+    if not isinstance(verdict, dict):
+        return None
+    try:
+        os.utime(chemin)
+    except OSError:
+        pass  # une date non posée coûte une entrée jetée trop tôt, rien de plus
+    return verdict
+
+
+def _elaguer_cache(dossier):
+    """Jette les plus anciennement SERVIES jusqu'à repasser sous le plafond.
+
+    PAS DE TTL, ET C'EST VOULU : une entrée ne périme pas. Sa clé porte
+    l'empreinte du juge, donc un test corrigé la rend inatteignable d'elle-même
+    plutôt que fausse. On ne jette que pour la place, jamais pour l'âge -- une
+    entrée d'octobre encore juste en décembre est une compilation économisée.
+
+    On descend un cran SOUS le plafond (`CACHE_ELAGAGE` de marge) pour ne pas
+    réélaguer à l'écriture suivante.
+    """
+    try:
+        entrees = [(entree.stat().st_mtime, entree.path)
+                   for entree in os.scandir(dossier) if entree.is_file()]
+    except OSError:
+        return
+    surplus = len(entrees) - CACHE_MAX + CACHE_ELAGAGE
+    if surplus <= 0:
+        return
+    entrees.sort()
+    for _, chemin in entrees[:surplus]:
+        try:
+            os.remove(chemin)
+        except OSError:
+            pass
+    print("ctester: cache élagué de %d entrées (reste %d)"
+          % (surplus, len(entrees) - surplus), file=sys.stderr, flush=True)
+
+
+# Combien d'écritures entre deux contrôles de taille. `os.scandir` sur des
+# dizaines de milliers de fichiers coûte trop cher pour être payé à CHAQUE
+# verdict mis en cache -- c'était le défaut du `len(os.listdir())` d'avant, qui
+# ne se voyait pas à 5000 entrées et se serait vu à 50 000. Le magasin dépasse
+# donc son plafond de cette marge au plus, par worker.
+CACHE_ELAGAGE = int(os.environ.get("CTESTER_CACHE_ELAGAGE", "500"))
+_ecritures = [0]
 
 
 def cache_ecrire(sig, verdict):
-    """ponytail: purge complète quand plein, pas de LRU -- même raccourci et
-    même raison que le cache de jetons de `app/security.py`. C'est un
-    économiseur de CPU, pas un magasin : tout reperdre coûte une compilation
-    par soumission distincte, ce que le service faisait avant que ce cache
-    n'existe. Une éviction par ancienneté le jour où le taux de succès chute
-    après chaque purge, ce qui demande plus de CACHE_MAX soumissions
-    DISTINCTES entre deux corrections de test."""
     if CACHE_MAX <= 0:
         return
     dossier = os.path.join(SPOOL, CACHE_DIR)
     try:
         os.makedirs(dossier, exist_ok=True)
-        if len(os.listdir(dossier)) >= CACHE_MAX:
-            shutil.rmtree(dossier, ignore_errors=True)
-            os.makedirs(dossier, exist_ok=True)
         write_json(os.path.join(dossier, sig + ".json"), verdict)
     except OSError:
-        pass  # un cache qui n'écrit pas n'est pas une panne de juge
+        return  # un cache qui n'écrit pas n'est pas une panne de juge
+    _ecritures[0] += 1
+    if _ecritures[0] >= CACHE_ELAGAGE:
+        _ecritures[0] = 0
+        _elaguer_cache(dossier)
 
 
 def cachable(conf, verdict):

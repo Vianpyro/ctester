@@ -1462,6 +1462,7 @@ def test_cache_de_verdicts():
 
     spool = tempfile.mkdtemp()
     garde_spool, garde_max = runner.SPOOL, runner.CACHE_MAX
+    garde_elagage = runner.CACHE_ELAGAGE
     try:
         runner.SPOOL = spool
         runner.cache_ecrire("a" * 64, ok)
@@ -1475,14 +1476,28 @@ def test_cache_de_verdicts():
         runner.CACHE_MAX = garde_max
         assert runner.cache_lire("c" * 64) is None
 
-        # ponytail: purge complète quand plein. Ce qui compte est la BORNE --
-        # un magasin sans elle remplit le disque du Dell en un semestre.
-        runner.CACHE_MAX = 2
-        runner.cache_ecrire("d" * 64, ok)
-        runner.cache_ecrire("e" * 64, ok)
-        assert runner.cache_lire("d" * 64) is None, "la purge n'a pas eu lieu"
-        assert runner.cache_lire("e" * 64) == ok
-        runner.CACHE_MAX = garde_max
+        # L'ÉVICTION GARDE CE QUI SERT, ET C'EST LE SCÉNARIO DE L'INTRA : en
+        # semaine 4 on rouvre les exercices de la semaine 1, dont les entrées
+        # sont les PLUS VIEILLES à l'écriture. Les jeter pour ça ferait
+        # recompiler tout le monde le jour de la révision. Ce qui compte est la
+        # date de DERNIER SERVICE, que `cache_lire` repose à chaque succès.
+        dossier = os.path.join(spool, runner.CACHE_DIR)
+        shutil.rmtree(dossier, ignore_errors=True)  # partir d'un magasin net
+        for rang, nom in enumerate(("vieux", "moyen", "recent")):
+            runner.cache_ecrire(nom * 16, ok)
+            os.utime(os.path.join(dossier, nom * 16 + ".json"),
+                     (1000 + rang, 1000 + rang))
+        # `vieux` est relu : il redevient le plus récemment servi.
+        assert runner.cache_lire("vieux" * 16) == ok
+        # Marge nulle : on jette exactement ce qui dépasse, pour que ce
+        # contrôle porte sur le CHOIX de la victime et pas sur la marge.
+        runner.CACHE_MAX, runner.CACHE_ELAGAGE = 3, 0
+        runner.cache_ecrire("neuf" * 16, ok)
+        assert runner.cache_lire("moyen" * 16) is None, "le moins servi a survécu"
+        assert runner.cache_lire("vieux" * 16) == ok, "une entrée servie a été jetée"
+        assert runner.cache_lire("recent" * 16) == ok
+        assert runner.cache_lire("neuf" * 16) == ok
+        runner.CACHE_MAX, runner.CACHE_ELAGAGE = garde_max, garde_elagage
 
         # Un fichier corrompu est un défaut de cache, jamais une panne de juge.
         os.makedirs(os.path.join(spool, runner.CACHE_DIR), exist_ok=True)
@@ -1504,6 +1519,7 @@ def test_cache_de_verdicts():
         assert runner.cache_lire("g" * 64) == ok, "sweep a effacé le cache"
     finally:
         runner.SPOOL, runner.CACHE_MAX = garde_spool, garde_max
+        runner.CACHE_ELAGAGE = garde_elagage
         shutil.rmtree(spool, ignore_errors=True)
 
 

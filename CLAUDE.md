@@ -523,9 +523,32 @@ annoncer plus court que le réel est la seule erreur d'estimation qui se remarqu
 
 **Le magasin est `<spool>/cache/<sig>.json`, et `sweep()` l'épargne** — sans
 cette ligne, dix minutes de calme le videraient et il ne servirait plus que
-pendant une rafale. Plein (`CTESTER_CACHE_MAX`, 5000), il est **purgé
-entièrement**, comme le cache de jetons de `app/security.py` : tout reperdre
-coûte une compilation par soumission distincte, ce que le service faisait avant.
+pendant une rafale. Le spool est un bind mount de l'hôte, donc il survit aussi
+aux redémarrages du conteneur et des workers.
+
+**IL DOIT TENIR UN SEMESTRE, PAS UNE SÉANCE, et c'est ce qui fixe l'éviction.**
+En semaine 4 les exercices de la semaine 1 rouvrent pour réviser l'intra : leurs
+entrées sont les plus VIEILLES à l'écriture et les plus utiles ce jour-là. On
+jette donc les moins récemment **SERVIES** — `cache_lire()` repose la date à
+chaque succès, ce qui fait que « récemment servi » et « souvent servi » se
+confondent. Mesuré : 20 000 entrées ≈ 46 Mo, une écriture à 0,89 ms, un élagage
+à 129 ms payé une fois par `CTESTER_CACHE_ELAGAGE` (500) écritures — le contrôle
+de taille N'EST PAS à chaque verdict, un `os.listdir()` par écriture ne se voyait
+pas à 5000 entrées et se serait vu à 20 000.
+
+**Et surtout PAS de TTL.** Une entrée ne périme pas : sa clé porte l'empreinte du
+juge, donc un test corrigé la rend **inatteignable**, pas fausse. Un TTL ne
+jetterait que des entrées valides, c'est-à-dire ne produirait que des
+recompilations gratuites. On n'évince que pour la place.
+
+**Ni étage RAM, ni table Postgres.** Le magasin est fait de fichiers : le page
+cache du noyau tient déjà les entrées chaudes en mémoire, partagées entre les
+deux workers, là où un cache en processus en ferait une copie par unité systemd.
+Et le worker est root sur l'hôte, **sans connexion à la base et sans dépendance
+Python** — c'est la même raison qui met `durees.json` dans le spool plutôt que
+dans une table. Un blob de verdict indexé par un hachage, c'est exactement ce
+qu'un système de fichiers est.
+
 `CTESTER_CACHE_MAX=0` l'éteint sans redéployer, et c'est le rollback.
 
 **Le taux de succès se lit dans `journalctl`**, pas dans un compteur :
@@ -1046,6 +1069,7 @@ python3 /opt/ctester/src/test_ctester.py       # les défenses tiennent-elles ?
 grep -rl answer /opt/ctester/published/        # DOIT ne rien trouver
 cat /opt/ctester/published/current.json        # la révision servie
 ls /opt/ctester/spool/cache | wc -l            # le cache de verdicts
+du -sh /opt/ctester/spool/cache                # ~46 Mo pour 20 000 entrées
 ```
 
 ## L'adresse de l'API et CORS
@@ -1242,12 +1266,12 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   peut pas tenir un verrou plus longtemps que le job qu'il exécute), **une seule
   fois**, sinon un job qui tue son worker à tous les coups arrêterait la file
   entière en tuant chaque worker à son tour.
-- **`runner.py`** — cache de verdicts : purge complète quand plein, pas de LRU
-  ni d'éviction par ancienneté (même raccourci que le cache de jetons). Tout
-  reperdre coûte une compilation par soumission distincte, ce que le service
-  faisait avant qu'il existe. Une éviction plus fine le jour où le taux de
-  succès chute après chaque purge, ce qui demande plus de `CACHE_MAX`
-  soumissions DISTINCTES entre deux corrections de test.
+- **`runner.py`** — cache de verdicts : éviction du moins récemment servi,
+  décidée par le `mtime` des fichiers et contrôlée une fois toutes les
+  `CACHE_ELAGAGE` écritures, par worker. Le magasin dépasse donc son plafond de
+  cette marge au plus, et deux workers élaguent chacun de leur côté sans se
+  concerter — un tri de 20 000 dates coûte 129 ms, un verrou pour ça coûterait
+  plus cher que l'erreur qu'il éviterait.
 - **`etat.py` / `schema.sql`** — progression : trois tables de faits, **aucune
   table de projection**. Le solde est un `sum()` sur quelques dizaines de lignes
   par étudiant ; matérialiser créerait un second endroit où la vérité peut
