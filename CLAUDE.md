@@ -483,6 +483,24 @@ test statistique sur un million de lancers (`tolerance: 0.02`) : les deux le
 portent. **Un futur exercice aléatoire doit le porter aussi** — l'oublier gèlerait
 un échec de malchance, et c'est le seul dégât que ce cache puisse faire.
 
+**LA RAFALE EST COUVERTE À PART, parce que le cache seul ne la couvre pas.**
+Vingt étudiants qui soumettent le gabarit non modifié dans la même minute ne se
+voient pas les uns les autres : aucun n'a FINI quand les autres sont dépilés.
+`resoudre_doublons()` fait donc écrire au premier qui termine le même verdict
+dans tous les jobs EN ATTENTE qui portent le même code -- vingt places rendues à
+la file pour le prix d'une compilation. Il prend chaque job par `claim()`, le
+verrou de partout ailleurs : un job qu'un autre worker vient de prendre n'est pas
+touché, c'est lui qui répondra. Le verdict est partagé, **l'attribution ne l'est
+pas** : chaque job garde son propre `owner`, et rien de ce que le worker écrit
+n'est spécifique à un compte. Un verdict non cachable n'est jamais diffusé --
+geler un `timeout` sur vingt étudiants d'un coup serait pire que de les faire
+attendre.
+
+*Ce qui reste :* un doublon soumis PENDANT la compilation et dépilé avant qu'elle
+finisse recompile quand même. Le couvrir demanderait un marqueur « en vol » à
+reprendre quand son worker meurt, soit un second mécanisme de verrou périmé pour
+la portion la plus étroite de la rafale.
+
 **L'ETA ne compte pas les hits, exprès.** Un job servi par le cache dure moins
 que `DUREE_MIN`, donc `enregistrer_duree()` l'ignore et la moyenne reste celle
 d'une vraie compilation. On ne sait pas à l'avance si un job en file sera un hit :
@@ -499,6 +517,7 @@ coûte une compilation par soumission distincte, ce que le service faisait avant
 
 ```sh
 journalctl -u 'ctester-runner@*' -n 500 | grep -c 'ctester: cache '
+journalctl -u 'ctester-runner@*' -n 500 | grep -c 'ctester: doublon '
 ls /opt/ctester/spool/cache | wc -l
 ```
 

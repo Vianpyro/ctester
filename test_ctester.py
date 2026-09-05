@@ -1507,6 +1507,102 @@ def test_cache_de_verdicts():
         shutil.rmtree(spool, ignore_errors=True)
 
 
+def test_une_rafale_du_meme_code_ne_paie_qu_une_compilation():
+    """LE CAS DU DÉBUT DE SÉANCE : vingt étudiants soumettent le gabarit non
+    modifié dans la même minute. Aucun n'a fini quand les autres sont dépilés,
+    donc le cache seul ne les couvre pas -- ils recompileraient tous. Celui qui
+    finit le premier doit libérer les autres, et rendre leurs places à la file.
+
+    Ce contrôle éprouve aussi les trois refus, qui comptent autant : un autre
+    code n'est pas touché, un job déjà pris par un autre worker non plus, et un
+    verdict qu'on ne met pas en cache n'est jamais diffusé -- geler un `timeout`
+    sur vingt étudiants d'un coup serait pire que de les faire attendre."""
+    racine = tempfile.mkdtemp()
+    garde_spool, garde_tp = runner.SPOOL, runner.tp_path
+    garde_juger, garde_max = runner._juger, runner.CACHE_MAX
+    try:
+        spool = os.path.join(racine, "spool")
+        os.makedirs(spool)
+        runner.SPOOL = spool
+        runner.CACHE_MAX = 100
+
+        tp_dir = os.path.join(racine, "exercises", "tp2-ex1", "assessment")
+        os.makedirs(tp_dir)
+        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
+            json.dump({"cases": [{"stdin": "", "expect": [1]}]}, fh)
+        runner.tp_path = lambda exercise_id: tp_dir
+
+        appels = []
+
+        def juger_faux(job_dir, tp_dir_, mode, conf, sent):
+            appels.append(sent.get("submission.c"))
+            return {"status": "ok", "kind": "io", "total": 1, "passed": 1}
+
+        runner._juger = juger_faux
+
+        numero = [0]
+
+        def deposer(source, exercise_id="tp2-ex1"):
+            numero[0] += 1
+            job_dir = os.path.join(spool, "%032x" % numero[0])
+            os.mkdir(job_dir)
+            with open(os.path.join(job_dir, "files.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"submission.c": source}, fh)
+            with open(os.path.join(job_dir, "job.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump({"exercise_id": exercise_id}, fh)
+            return job_dir
+
+        def fini(job_dir):
+            return os.path.exists(os.path.join(job_dir, "result.json"))
+
+        gabarit = "int main(void){\n    return 0;\n}"
+        premier = deposer(gabarit)
+        runner.claim(premier)  # comme main() : le worker prend son job
+
+        # La rafale : le même code, présenté autrement par chacun.
+        pareils = [deposer(gabarit),
+                   deposer("// essai\nint main(void){return 0;}"),
+                   deposer("int main(void)\n{\n\n\n    return 0;\n}\n")]
+        autre = deposer("int main(void){return 42;}")
+        ailleurs = deposer(gabarit, exercise_id="tp2-ex9")
+        # Un job que l'autre worker vient de prendre : il répondra lui-même.
+        pris = deposer(gabarit)
+        runner.claim(pris)
+
+        runner.write_result(premier, runner.run_job(premier))
+
+        assert len(appels) == 1, appels
+        for job_dir in pareils:
+            assert fini(job_dir), "un doublon en file n'a pas été libéré"
+            with open(os.path.join(job_dir, "result.json"),
+                      encoding="utf-8") as fh:
+                assert json.load(fh)["passed"] == 1
+        assert not fini(autre), "un AUTRE code a reçu le verdict"
+        assert not fini(ailleurs), "un autre exercice a reçu le verdict"
+        assert not fini(pris), "un job déjà pris a été écrasé"
+
+        # LA FILE S'EST VIDÉE DES DOUBLONS, et de rien d'autre. `pris` y
+        # reste : un job verrouillé mais pas encore jugé est toujours en
+        # attente -- c'est son worker qui le retirera.
+        restants = set(runner.pending_jobs())
+        assert restants == {autre, ailleurs, pris}, restants
+
+        # UN VERDICT QU'ON NE MET PAS EN CACHE N'EST JAMAIS DIFFUSÉ : le
+        # `timeout` d'un seul ne doit pas devenir celui de tout le monde.
+        runner._juger = lambda *a: {"status": "timeout", "message": "trop long"}
+        lent = deposer("while(1);")
+        runner.claim(lent)
+        jumeau = deposer("while (1) ;")
+        runner.write_result(lent, runner.run_job(lent))
+        assert not fini(jumeau), "un timeout a été diffusé à un autre étudiant"
+    finally:
+        runner.SPOOL, runner.tp_path = garde_spool, garde_tp
+        runner._juger, runner.CACHE_MAX = garde_juger, garde_max
+        shutil.rmtree(racine, ignore_errors=True)
+
+
 def test_run_job_sert_le_cache_sans_recompiler():
     """Le contrôle de bout en bout : deux soumissions du même code ne doivent
     dépenser QU'UN conteneur. C'est la seule raison d'être de tout ce qui

@@ -960,9 +960,14 @@ def empreinte_juge(exercise_id, tp_dir, mode):
     return condensat
 
 
-def signature(exercise_id, tp_dir, mode, conf, sent):
-    """La clé de cache : l'empreinte du juge, plus le code normalisé."""
-    condensat = empreinte_juge(exercise_id, tp_dir, mode)
+def signature(exercise_id, tp_dir, mode, conf, sent, empreinte=None):
+    """La clé de cache : l'empreinte du juge, plus le code normalisé.
+
+    `empreinte` est celle d'un appel précédent, RECOPIÉE et non consommée : elle
+    ne dépend pas du code soumis, et la recalculer pour chaque job d'une rafale
+    referait le même parcours de `assessment/` cinquante fois de suite.
+    """
+    condensat = (empreinte or empreinte_juge(exercise_id, tp_dir, mode)).copy()
     for declared in declared_files(conf, tp_dir):
         nom = declared["name"]
         _hacher_octets(condensat, nom.encode("utf-8"))
@@ -1014,6 +1019,49 @@ def cachable(conf, verdict):
             and verdict.get("status") not in JAMAIS_EN_CACHE)
 
 
+def resoudre_doublons(sig, verdict, exercise_id, tp_dir, mode, conf, empreinte):
+    """Rend le même verdict à tous les jobs EN ATTENTE qui portent ce code.
+
+    LA RAFALE EST LE CAS QUI COMPTE, et le cache seul ne la couvre pas : vingt
+    étudiants qui soumettent le gabarit non modifié dans la même minute ne se
+    voient pas les uns les autres, parce qu'aucun n'a FINI quand les autres sont
+    dépilés. Celui qui finit le premier libère donc les autres ici, au lieu de
+    les laisser payer chacun leur compilation puis découvrir le cache un par un.
+
+    `claim()` FERME LA COURSE, et c'est le même verrou que partout ailleurs : un
+    job qu'un autre worker vient de prendre n'est pas touché, et un job pris ici
+    garde son `.lock` comme après un jugement normal -- `pending_jobs()` l'écarte
+    désormais sur son `result.json`, et `sweep()` l'efface à l'heure dite.
+
+    Le verdict est PARTAGÉ, l'attribution ne l'est pas : chaque job garde son
+    propre `owner` dans son `job.json`, et rien de ce que le worker écrit n'est
+    spécifique à un compte.
+
+    ponytail: seuls les jobs DÉJÀ EN FILE sont libérés. Un doublon soumis
+    pendant la compilation et dépilé avant qu'elle finisse recompile quand même.
+    Le couvrir demanderait un marqueur « en vol » à reprendre quand son worker
+    meurt -- un second mécanisme de verrou périmé pour la portion la plus étroite
+    de la rafale.
+    """
+    for job_dir in pending_jobs():
+        if job_exercice(job_dir) != exercise_id:
+            continue
+        try:
+            with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
+                sent = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(sent, dict):
+            continue
+        if signature(exercise_id, tp_dir, mode, conf, sent, empreinte) != sig:
+            continue
+        if not claim(job_dir):
+            continue  # pris par un autre worker : c'est lui qui répondra
+        print("ctester: doublon %s %s -> %s" % (exercise_id, sig[:12], job_dir),
+              file=sys.stderr, flush=True)
+        write_result(job_dir, dict(verdict))  # dict() : write_result y pose `state`
+
+
 # --------------------------------------------------------------------------
 # Traitement d'un job
 # --------------------------------------------------------------------------
@@ -1053,7 +1101,8 @@ def run_job(job_dir):
     with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
         sent = json.load(fh)
 
-    sig = signature(exercise_id, tp_dir, mode, conf, sent)
+    empreinte = empreinte_juge(exercise_id, tp_dir, mode)
+    sig = signature(exercise_id, tp_dir, mode, conf, sent, empreinte)
     connu = cache_lire(sig)
     if connu is not None:
         # LE TAUX DE SUCCÈS SE LIT DANS journalctl, qui est déjà l'outil du
@@ -1066,6 +1115,10 @@ def run_job(job_dir):
     resultat = _juger(job_dir, tp_dir, mode, conf, sent)
     if cachable(conf, resultat):
         cache_ecrire(sig, resultat)
+        # Le cache seul ne couvre pas la RAFALE : les doublons déjà en file
+        # n'ont pas attendu qu'on finisse. On les libère maintenant.
+        resoudre_doublons(sig, resultat, exercise_id, tp_dir, mode, conf,
+                          empreinte)
     return resultat
 
 
