@@ -356,6 +356,40 @@ function block(text) {
   return pre;
 }
 
+// LA PREMIÈRE ERREUR, PAS LA DERNIÈRE. En C les erreurs partent en cascade :
+// un `;` oublié en produit six, dont cinq n'existent pas. Or la sortie brute
+// défile, et ce qu'un débutant lit, c'est le BAS -- donc la plus dérivée, celle
+// qui ne correspond à rien dans son code. On isole la première et on replie le
+// reste, sans rien cacher.
+const DIAGNOSTIC = /(^|\s)(error|erreur|warning|attention|note)\s*:/i;
+
+function premiereErreur(sortie) {
+  const lignes = (sortie || "").split("\n");
+  const debut = lignes.findIndex(l => /(^|\s)(error|erreur)\s*:/i.test(l));
+  if (debut < 0) return null;
+  // On garde ce qui SUIT la ligne d'erreur jusqu'au diagnostic suivant : c'est
+  // l'extrait de source et le curseur `^`, qui montrent l'endroit exact.
+  let fin = debut + 1;
+  while (fin < lignes.length && !DIAGNOSTIC.test(lignes[fin])) fin++;
+  return lignes.slice(debut, fin).join("\n").replace(/\s+$/, "");
+}
+
+function sortieCompilateur(gcc) {
+  const bloc = noeud("div", "gcc");
+  const premiere = premiereErreur(gcc);
+  if (!premiere) return block(gcc || "");
+  bloc.append(block(premiere));
+  // TOUT EST TOUJOURS LÀ, juste replié : cacher la suite ferait douter de ce
+  // qu'on ne montre pas, et certaines erreurs ne se comprennent qu'en chaîne.
+  const reste = document.createElement("details");
+  reste.className = "case";
+  const tete = document.createElement("summary");
+  tete.textContent = "Voir toute la sortie du compilateur";
+  reste.append(tete, block(gcc || ""));
+  bloc.append(reste);
+  return bloc;
+}
+
 // DEUX LECTURES DU MÊME CONTENU, et c'est voulu.
 //   `collections` porte l'ARBRE DU MENU : tous les exercices, ouverts ou non,
 //     avec leur cadenas et leur date. Montrer n'est pas donner -- la v1 faisait
@@ -847,16 +881,37 @@ function switchMode() {
   preparer(tp, quiz, ++loadToken);
 }
 
-function afficherConsigne(texte) {
+// TROIS ÉTATS, ET PAS DEUX. « Pas de consigne en ligne » et « la consigne n'est
+// pas arrivée » s'affichaient à l'identique : l'étudiant croyait à une
+// propriété de l'exercice, donc il ne réessayait jamais -- alors qu'un
+// rechargement aurait suffi. `chargerDetail` ne met d'ailleurs pas ce repli en
+// cache, exprès, pour que réessayer marche.
+function afficherConsigne(texte, panne) {
+  const boite = $("consignetexte");
   if (texte === null) {
-    $("consignetexte").textContent = "Chargement…";
-    $("consignetexte").className = "vide";
+    boite.textContent = "Chargement…";
+    boite.className = "vide";
     return;
   }
-  $("consignetexte").textContent = texte
-    || "Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP "
-     + "sur Moodle : les noms de fichiers et de fonctions attendus y sont.";
-  $("consignetexte").className = texte ? "" : "vide";
+  boite.textContent = panne
+    ? "La consigne n'a pas pu être chargée. Tu peux quand même écrire et "
+      + "tester : les noms de fichiers attendus, eux, sont déjà là."
+    : texte
+      || "Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du "
+       + "TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.";
+  boite.className = texte && !panne ? "" : "vide";
+  if (!panne) return;
+  // UN BOUTON, PAS UNE INVITATION À RECHARGER LA PAGE : recharger fait perdre
+  // le code non encore enregistré de celui qui vient de coller son fichier.
+  const reessayer = noeud("button", "nav", "Réessayer");
+  reessayer.type = "button";
+  reessayer.addEventListener("click", () => {
+    const tp = current();
+    if (!tp) return;
+    afficherConsigne(null);
+    preparer(tp, tp.mode === "quiz", ++loadToken);
+  });
+  boite.append(reessayer);
 }
 
 const details = {};
@@ -882,7 +937,7 @@ async function chargerDetail(id) {
     // NOMS de fichiers viennent du catalogue et sont donc toujours là, donc on
     // peut coller son code et soumettre. Le repli n'est PAS mis en cache : un
     // réseau qui revient doit pouvoir réessayer.
-    return { statement: "", files: [] };
+    return { statement: "", files: [], panne: true };
   }
 }
 
@@ -890,7 +945,7 @@ async function preparer(tp, quiz, thisLoad) {
   if (!tp) { afficherConsigne(""); return; }
   const detail = await chargerDetail(tp.id);
   if (thisLoad !== loadToken) return;
-  afficherConsigne(detail.statement);
+  afficherConsigne(detail.statement, detail.panne);
   if (quiz) {
     if (await activerModule("quiz", "le quiz")) ctester.quiz.load(tp.id);
     return;
@@ -1218,30 +1273,87 @@ $("file").addEventListener("change", async (e) => {
   e.target.value = "";
 });
 
+// LA CLASSE D'ERREUR, tirée de la raison écrite par le serveur. Un résumé qui
+// reprenait la phrase entière (« Cas 1 : ta sortie contient inf ou nan :
+// division par zéro, ou une variable utilisée alors que… ») ne se survolait
+// pas : avec trois cas repliés, on ne pouvait pas voir d'un coup d'oeil si le
+// programme avait planté ou simplement mal calculé.
+function classeDuCas(raison) {
+  const r = raison || "";
+  if (/n'a pas terminé|interrompu/.test(r)) return "n'a pas fini";
+  if (/débordé de la mémoire/.test(r)) return "débordement mémoire";
+  if (/terminé anormalement/.test(r)) return "a planté";
+  return "mauvaise sortie";
+}
+
+// LE CONTRAT DE CORRECTION, ÉCRIT. Le juge est BEAUCOUP plus permissif que ce
+// que l'étudiant croit -- `match_subsequence` accepte n'importe quel texte
+// autour des valeurs attendues -- et personne ne le lui disait. Il passait donc
+// du temps à deviner un format de sortie qui n'a jamais été imposé.
+//
+// Ça ne révèle aucune réponse : ça dit COMMENT on compare, pas À QUOI.
+// L'EXEMPLE EST TOUJOURS LE MÊME, sur tous les exercices, et il porte une
+// valeur qui n'est celle d'aucun d'eux : un exemple qui varierait avec
+// l'exercice se lirait comme un indice sur la réponse attendue.
+const CONTRAT = "On lit les NOMBRES de ta sortie, dans l'ordre ; le texte autour "
+              + "est libre. Par exemple, « Aire = 42 cm2 » et « 42 » sont lus de "
+              + "la même façon.";
+
+// Les ENTRÉES telles que le programme les reçoit, une par ligne. « stdin » ne
+// veut rien dire pour un débutant ; « ton programme reçoit 12 puis 7 » décrit
+// exactement ce que font ses deux scanf.
+function entreesDuCas(stdin) {
+  return (stdin || "").split("\n").map(v => v.trim()).filter(v => v !== "");
+}
+
+function ligneCas(etiquette, valeur, classe) {
+  const bloc = noeud("div", "champ" + (classe ? " " + classe : ""));
+  bloc.append(noeud("span", "quoi", etiquette));
+  bloc.append(noeud("pre", "valeur", valeur));
+  return bloc;
+}
+
 function cases(items) {
   const box = document.createElement("div");
   for (const c of items) {
     const wrap = document.createElement("details");
     wrap.className = "case";
     wrap.open = !box.children.length;
+    const classe = classeDuCas(c.reason);
     const why = document.createElement("summary");
-    why.textContent = `Cas ${c.case} : ${c.reason}`;
-    const corps = document.createElement("div");
-    corps.className = "corps";
-    let texte = "entrées :\n" + c.stdin + "\nta sortie :\n" + (c.stdout || "(rien)");
-    if (c.stderr) texte += "\nta sortie d'erreur :\n" + c.stderr;
-    const io = document.createElement("pre");
-    io.textContent = texte;
-    corps.append(io);
-    wrap.append(why, corps);
+    why.textContent = `Cas ${c.case} — ${classe}`;
+    const corps = noeud("div", "corps");
+
+    const recues = entreesDuCas(c.stdin);
+    corps.append(ligneCas(
+      recues.length === 1 ? "Ton programme reçoit :"
+                          : "Ton programme reçoit, dans cet ordre :",
+      recues.length ? recues.join("   puis   ")
+                    : "rien — ce cas ne lui fournit aucune entrée"));
+
+    corps.append(ligneCas("Ce qu'il a affiché :", c.stdout || "(rien)"));
+
+    // LES NOMBRES QUE LE JUGE A LUS, REMONTÉS AU MÊME RANG que la sortie. C'est
+    // l'information la plus actionnable du bloc -- elle démonte la boîte noire
+    // de l'appariement -- et elle vivait en gris de 12 px sous le reste.
     if (c.nombres) {
-      const vu = document.createElement("div");
-      vu.className = "vu";
-      vu.textContent = c.nombres.length
-        ? "nombres lus dans ta sortie : " + c.nombres.join(", ")
-        : "aucun nombre lu dans ta sortie";
-      corps.append(vu);
+      corps.append(ligneCas(
+        "Les nombres que le juge y a lus :",
+        c.nombres.length ? c.nombres.join(", ") : "aucun"));
     }
+
+    if (c.stderr) corps.append(ligneCas("Sa sortie d'erreur :", c.stderr));
+
+    // La raison du serveur, en toutes lettres : c'est elle qui porte les
+    // diagnostics vraiment utiles (« inf ou nan », « aucun nombre »).
+    corps.append(noeud("p", "pourquoi", c.reason));
+    // Le contrat n'a de sens que pour une comparaison de VALEURS : un programme
+    // qui a planté, ou un cas qui cherche un mot, ne se corrige pas en
+    // reformatant sa sortie.
+    if (classe === "mauvaise sortie" && !/mot attendu|mentionne/.test(c.reason || "")) {
+      corps.append(noeud("p", "contrat", CONTRAT));
+    }
+    wrap.append(why, corps);
     box.append(wrap);
   }
   return box;
@@ -1322,6 +1434,21 @@ const APRES_ECHEC = {
   quiz: "Corrige les réponses ci-dessus, puis relance le test.",
 };
 
+// LES NOMS DE TESTS SONT ÉCRITS POUR L'ÉTUDIANT -- encore faut-il le lui dire.
+// Une liste d'identifiants nus (`test_pop_pile_vide`) ne s'annonce pas comme du
+// français ; et le silence sur ce qu'on ne montre pas se lit comme un manque
+// d'information plutôt que comme une décision.
+function testsRates(noms) {
+  const bloc = noeud("div", "rates");
+  bloc.append(noeud("p", "quoi", noms.length === 1
+    ? "Cette vérification a échoué. Son nom décrit le cas qu'elle teste :"
+    : "Ces vérifications ont échoué. Leur nom décrit le cas qu'elles testent :"));
+  bloc.append(list(noms));
+  bloc.append(noeud("p", "contrat",
+    "Les valeurs attendues ne sont pas montrées : les trouver EST l'exercice."));
+  return bloc;
+}
+
 function render(r, portee) {
   // UN VERDICT EFFACE LE BANDEAU SYSTÈME. Laisser « le serveur est injoignable »
   // au-dessus d'un résultat qui vient d'arriver dirait deux choses opposées.
@@ -1345,7 +1472,7 @@ function render(r, portee) {
       etapes: etat.etapes,
       titre: etat.titre,
       texte: r.message || "",
-      detail: r.status === "compile_error" ? block(r.gcc || "") : null,
+      detail: r.status === "compile_error" ? sortieCompilateur(r.gcc) : null,
       suite: etat.suite,
     });
   } else {
@@ -1383,7 +1510,7 @@ function render(r, portee) {
                 detail: cases(r.cases), suite: APRES_ECHEC.io });
     } else {
       verdict({ cls: "bad", etapes: etapes, compte: true, titre: title, bar: bar,
-                detail: r.failed.length ? list(r.failed) : null,
+                detail: r.failed.length ? testsRates(r.failed) : null,
                 suite: APRES_ECHEC.unity });
     }
   }

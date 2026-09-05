@@ -728,8 +728,15 @@ const attendre = async () => { await sleep(); await sleep(); };
   // encore coller son code et soumettre -- c'est tout ce qu'on promet ici.
   // `tp1` est l'exercice que la page ouvre seule, et DETAILS ne le porte pas
   // encore : c'est exactement ce cas qui vient de se jouer.
-  check(/pas de consigne en ligne/.test(nodes.consignetexte.textContent),
-        "un detail introuvable retombe sur le message de repli");
+  // ET LES DEUX CAS NE SE DISENT PAS PAREIL. « pas de consigne en ligne » est une
+  // propriete de l'exercice ; « pas pu etre chargee » est une panne passagere.
+  // Les confondre faisait croire a un manque de contenu, donc on ne reessayait
+  // jamais -- alors qu'un simple nouvel essai aurait suffi.
+  check(/n'a pas pu être chargée/.test(nodes.consignetexte.textContent),
+        "une consigne qui n'arrive pas se dit comme une panne, pas comme un vide : "
+        + nodes.consignetexte.textContent.slice(0, 50));
+  check(nodes.consignetexte.children.some(c => /Réessayer/.test(c.textContent || "")),
+        "avec un bouton pour reessayer, plutot qu'une invitation a recharger la page");
   DETAILS["tp1"] = { statement: "Convertis 23 en binaire.", files: [] };
 
   // ON SOUMET DANS LES DEUX MODES. L'éditeur et le quiz se relaient dans la
@@ -1162,8 +1169,19 @@ const attendre = async () => { await sleep(); await sleep(); };
   const rate = await verdictAffiche({ status: "ok", kind: "io", passed: 0, total: 1, cases: [
     { case: 1, stdin: "5\n", stdout: "resultat 1 234", reason: "valeurs absentes",
       nombres: [1, 234], stderr: "mise au point : i vaut 3" } ] });
-  check(/nombres lus dans ta sortie : 1, 234/.test(rate),
+  check(/Les nombres que le juge y a lus :\s*1, 234/.test(rate),
         "les nombres que le juge a lus sont montres");
+  // LE CONTRAT DE CORRECTION, ECRIT. Le juge accepte n'importe quel texte
+  // autour des valeurs attendues, et personne ne le disait a l'etudiant : il
+  // passait du temps a deviner un format qui n'a jamais ete impose.
+  check(/le texte autour est libre/i.test(rate),
+        "et la regle de comparaison est dite, sans reveler la valeur attendue");
+  check(!/valeur attendue est|attendu : /i.test(rate),
+        "sans jamais donner la valeur attendue elle-meme");
+  // LES ENTREES SONT DES VALEURS SUCCESSIVES, pas un bloc avec des \\n : « stdin »
+  // ne veut rien dire pour quelqu'un qui apprend scanf ce mois-ci.
+  check(/reçoit :\s*5/.test(rate),
+        "les entrees sont presentees comme ce que le programme recoit : " + rate.slice(0, 70));
   check(/mise au point/.test(rate), "la sortie d'erreur du programme aussi");
 
   const quiz = await verdictAffiche({ status: "ok", kind: "quiz", passed: 0, total: 1,
@@ -1185,6 +1203,28 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(/Exécution.*pas atteinte/s.test(compile),
         "et dit que le programme n'a PAS tourne : " + compile.slice(0, 60));
   check(/expected/.test(compile), "la sortie du compilateur reste montree");
+
+  // LA PREMIERE ERREUR, PAS LA DERNIERE. En C un `;` oublie en produit six,
+  // dont cinq n'existent pas -- et ce qu'un debutant lit, c'est le BAS de la
+  // sortie, donc la plus derivee, celle qui ne correspond a rien dans son code.
+  const cascade = await verdictAffiche({ status: "compile_error",
+    message: "Ton fichier ne compile pas.",
+    gcc: ["sub.c:4:12: error: expected ';' before '}' token",
+          "    4 |     int x = 1",
+          "      |            ^",
+          "sub.c:9:3: error: 'x' undeclared here",
+          "sub.c:12:1: error: expected declaration or statement at end of input"].join("\n") });
+  const isole = nodes.out.children.find(c => c.className === "gcc");
+  check(!!isole, "la sortie du compilateur est mise en forme, pas jetee brute");
+  const enTete = isole && isole.children[0];
+  check(enTete && /expected ';'/.test(enTete.textContent),
+        "la PREMIERE erreur est isolee : " + (enTete ? enTete.textContent.split("\n")[0] : ""));
+  check(enTete && !/undeclared/.test(enTete.textContent),
+        "et les erreurs derivees n'y sont pas");
+  check(enTete && /\^/.test(enTete.textContent),
+        "l'extrait de source et le curseur ^ suivent, ils montrent l'endroit");
+  check(/Voir toute la sortie/.test(cascade) && /undeclared/.test(cascade),
+        "mais RIEN n'est cache : le reste est replie, pas supprime");
   check(/PREMIÈRE erreur/.test(compile),
         "et l'action suivante vise la premiere erreur, pas la derniere");
 

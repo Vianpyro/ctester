@@ -721,3 +721,41 @@ pre {
    perte de données de toute la page. */
 #sauvegarde.rate { color: var(--bad); font-weight: 600; }
 #sauvegarde.rate::before { content: "\26A0\00a0"; color: var(--bad); }
+
+/* --- Le bloc d'un cas qui échoue -----------------------------------------
+   Quatre champs étiquetés, au même rang. Avant, tout tenait dans un seul <pre>
+   où « entrées : » et « ta sortie : » étaient des mots en minuscules noyés
+   dans le texte, et « les nombres lus » vivait en gris sous le reste -- alors
+   que c'est l'information la plus actionnable du bloc. */
+.case .champ { margin: 0 0 .45rem; }
+.case .champ .quoi {
+  display: block; font-family: var(--sans); font-size: 12px;
+  color: var(--muted); margin-bottom: .15rem;
+}
+.case .champ .valeur { margin: 0; }
+/* Les entrées et les nombres lus sont des VALEURS, pas du texte à lire : on
+   les espace pour qu'elles se comptent d'un coup d'oeil. */
+.case .champ:first-child .valeur, .case .champ:nth-child(3) .valeur {
+  font-size: 13.5px; letter-spacing: .02em;
+}
+/* La raison écrite par le serveur : c'est elle qui porte les diagnostics
+   vraiment utiles (« inf ou nan », « aucun nombre »). */
+.case .pourquoi {
+  font-family: var(--sans); font-size: 13px; color: var(--fg);
+  margin: .6rem 0 0;
+}
+/* Le contrat de correction. Discret mais toujours là : il dit COMMENT on
+   compare, jamais À QUOI -- aucune réponse n'y transparaît. */
+.case .contrat, .rates .contrat {
+  font-family: var(--sans); font-size: 12px; color: var(--muted);
+  margin: .3rem 0 0; padding-left: .6rem;
+  border-left: 2px solid var(--line-2);
+}
+.rates .quoi { font-family: var(--sans); font-size: 13px; margin: .5rem 0 .2rem; }
+
+/* La première erreur du compilateur, isolée du reste. En C les erreurs partent
+   en cascade : la dernière -- celle qu'on lit, parce qu'elle est en bas -- ne
+   correspond souvent à rien dans le code. */
+.gcc > pre { border-left: 3px solid var(--bad); }
+.gcc > .case { margin-top: .4rem; }
+.gcc > .case > summary { color: var(--muted); }
