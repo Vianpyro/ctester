@@ -219,7 +219,6 @@ function signOut() {
   // connecté, et le laisser à l'écran montrerait des messages à quelqu'un que
   // le serveur ne reconnaît plus.
   if (ctester.forum) ctester.forum.oublier();
-  showListView(false);
 }
 
 async function loadStates() {
@@ -249,116 +248,6 @@ async function loadPractice() {
       practice[row.exercice_id] = row;
     }
   }
-}
-
-const STATE_LABELS = { valide: "validé", essaye: "essayé" };
-
-// L'EXPORT D'UN TP, DEPUIS LA LISTE. Le même bouton que dans la barre
-// d'actions, mais offert par laboratoire : c'est ici qu'on est quand on pense
-// « remise » plutôt que « exercice courant ». `exporter.js` ne descend qu'au
-// clic, comme partout, et la règle de qui a droit à un bouton reste au noyau.
-//
-// SON PROPRE ÉTAT, À CÔTÉ DE LUI. `#brouillon`, où le bouton de la barre écrit,
-// n'est pas à l'écran depuis cette vue : y annoncer « main.c exporté » ne
-// dirait rien à personne.
-function ligneExport(groupe) {
-  const bloc = document.createElement("div");
-  bloc.className = "exportligne";
-  const bouton = document.createElement("button");
-  bouton.type = "button";
-  bouton.className = "nav";
-  bouton.textContent = "Exporter le " + groupe + " en main.c";
-  const etat = document.createElement("span");
-  etat.className = "exportetat";
-  etat.setAttribute("aria-live", "polite");
-  const annoncer = (texte, rate) => {
-    etat.textContent = texte;
-    etat.className = rate ? "exportetat rate" : "exportetat";
-  };
-  bouton.addEventListener("click", async () => {
-    // `activerModule` dit déjà ce qui n'est pas arrivé -- mais il le dit dans
-    // `#out`, qui appartient à la vue exercice et n'est pas affiché ici. On le
-    // redit sur place, sinon le bouton reste inerte sans un mot.
-    if (!await ctester.activerModule("exporter", "l'export du TP")) {
-      annoncer("l'export n'a pas pu être chargé — réessaie", true);
-      return;
-    }
-    await ctester.exporter.exporter(groupe, annoncer);
-  });
-  bloc.append(bouton, etat);
-  return bloc;
-}
-
-function buildList() {
-  const box = $("liste");
-  box.innerHTML = "";
-  box.append(progression());
-  const tps = ctester.catalogue();
-  for (let rang = 0; rang < tps.length; rang++) {
-    const tp = tps[rang];
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "ligne";
-    const group = document.createElement("span");
-    group.className = "tpname";
-    group.textContent = tp.group;
-    const title = document.createElement("span");
-    title.className = "titre";
-    title.textContent = tp.short || tp.label;
-    const dot = document.createElement("span");
-    const stats = practice[tp.id];
-    const statut = states[tp.id] || "";
-    dot.className = "puce " + (stats && stats.reussites ? "valide" : statut);
-    dot.textContent = stats
-      ? stats.tentatives + " tentative" + (stats.tentatives > 1 ? "s" : "")
-        + (stats.reussites ? " — réussie" + (stats.reussites > 1 ? "s" : "") : "")
-      : STATE_LABELS[statut] || "à faire";
-    row.append(group, title, dot);
-    row.addEventListener("click", () => {
-      ctester.fillExercises(tp.id);
-      showListView(false);
-    });
-    box.append(row);
-    // LE BOUTON FERME LE GROUPE, il ne l'ouvre pas : il arrive après la
-    // dernière ligne du TP, quand on vient de lire ce qui y reste à faire.
-    const suivant = tps[rang + 1];
-    if ((!suivant || suivant.group !== tp.group)
-        && ctester.groupeExportable(tp.group)) {
-      box.append(ligneExport(tp.group));
-    }
-  }
-}
-
-function progression() {
-  const tps = ctester.catalogue();
-  const total = tps.length;
-  const faits = tps.filter(t => states[t.id] === "valide").length;
-  const bloc = document.createElement("div");
-  bloc.id = "progres";
-  const compte = document.createElement("div");
-  compte.className = "compte";
-  compte.innerHTML = "";
-  const fort = document.createElement("b");
-  fort.textContent = faits + " / " + total;
-  compte.append(fort, document.createTextNode(" exercices validés"));
-  const jauge = document.createElement("div");
-  jauge.className = "jauge";
-  const rempli = document.createElement("i");
-  rempli.setAttribute("style",
-    "width:" + (total ? Math.round(faits / total * 100) : 0) + "%");
-  jauge.append(rempli);
-  bloc.append(compte, jauge);
-  return bloc;
-}
-
-function showListView(on) {
-  if (on) buildList();
-  // C'est le noyau qui décide quelle vue est à l'écran : « Mes progrès »
-  // occupe la même place, et deux modules qui se masquent l'un l'autre chacun
-  // de son côté finissent par en laisser deux moitiés.
-  ctester.afficherVue(on ? "liste" : "");
-  if (on) $("quizwrap").hidden = true;
-  if (!on && ctester.catalogue().length) ctester.switchMode();
 }
 
 async function oublier() {
@@ -401,9 +290,13 @@ ctester.compte = {
   syncDraft: syncDraft,
   loadStates: loadStates,
   loadPractice: loadPractice,
+  // LES DONNÉES, PAS LEUR RENDU. La liste des exercices vit désormais dans
+  // « Mes progrès » : deux destinations répondaient à « où j'en suis », avec
+  // deux comptes différents des mêmes exercices.
+  etats: () => states,
+  pratique: () => practice,
   chargerTheme: chargerTheme,
   enregistrerTheme: enregistrerTheme,
   oublier: oublier,
-  basculerListe: () => showListView($("liste").hidden),
 };
 })(window.ctester);

@@ -497,7 +497,6 @@ function refreshAccount() {
   $("connexion").hidden = !oidc || on;
   $("deconnexion").hidden = !on;
   $("oublier").hidden = !on;
-  $("mesexos").hidden = !on;
   $("mesprogres").hidden = !on;
   // DEUX CONDITIONS, ET LES DEUX VIENNENT DU SERVEUR : être connecté, et un
   // déploiement qui a au moins un modérateur configuré (`oidc.forum`). Sans
@@ -522,15 +521,14 @@ function refreshAccount() {
 let vueCourante = "";
 
 function afficherVue(nom) {
-  // "" (l'exercice) | "liste" | "progres" | "forum" | "moderation"
+  // "" (l'exercice) | "progres" | "forum" | "moderation"
+  // « Mes exercices » a fusionné dans « Mes progrès » : deux destinations
+  // répondaient à « où j'en suis », avec deux comptes des mêmes exercices.
   vueCourante = nom;
-  $("liste").hidden = nom !== "liste";
   $("vueprogres").hidden = nom !== "progres";
   $("vueforum").hidden = nom !== "forum";
   $("vuemoderation").hidden = nom !== "moderation";
   $("travail").hidden = nom !== "";
-  $("mesexos").textContent =
-    nom === "liste" ? "Retour à l'exercice" : "Mes exercices";
   $("mesprogres").textContent =
     nom === "progres" ? "Retour à l'exercice" : "Mes progrès";
   $("discussions").textContent =
@@ -690,9 +688,12 @@ function ligneMenu(ex) {
   }
   const note = verrou(ex);
   if (note) {
-    // DÉSACTIVÉ, PAS CACHÉ. `find_exercise` refuse déjà de le servir côté
-    // serveur ; ce qui manquait ici, c'était de dire pourquoi et jusqu'à quand.
-    ligne.disabled = true;
+    // `aria-disabled` ET PAS `disabled`. Un bouton `disabled` sort de l'ordre
+    // de tabulation : les dates d'ouverture n'existaient que pour la souris,
+    // alors qu'elles sont toute la raison de laisser l'exercice affiché. Il
+    // reste donc atteignable, annoncé indisponible, et sans écouteur de clic.
+    ligne.setAttribute("aria-disabled", "true");
+    ligne.className += " verrouille";
     const marque = document.createElement("span");
     marque.className = "cadenas";
     marque.textContent = "🔒 " + note;
@@ -1166,9 +1167,6 @@ $("consentok").addEventListener("click", async () => {
 $("menucompte").addEventListener("click", (e) => {
   if (e.target && e.target.tagName === "BUTTON") $("menucompte").open = false;
 });
-$("mesexos").addEventListener("click", () => {
-  if (ctester.compte) ctester.compte.basculerListe();
-});
 // L'EXPORT MARCHE SANS COMPTE, et c'est voulu : les brouillons de cet appareil
 // suffisent à assembler le fichier. Le compte n'ajoute qu'une chose -- aller
 // chercher les exercices travaillés sur un AUTRE poste -- et `exporter.js` s'en
@@ -1339,6 +1337,7 @@ function setupFiles(tp, gabarits) {
     onglet.textContent = f.name;
     onglet.dataset.name = f.name;
     onglet.setAttribute("role", "tab");
+    onglet.setAttribute("aria-controls", "edwrap");
     onglet.addEventListener("click", () => activer(f.name));
     $("tabs").append(onglet);
   }
@@ -1351,6 +1350,10 @@ function activer(nom) {
   if (actif !== null) sources[actif] = $("code").value;
   actif = nom;
   $("edtitle").textContent = nom;
+  // LE CHAMP N'AVAIT AUCUN NOM ACCESSIBLE : `#edtitle` est un <span>, pas un
+  // <label>. Un lecteur d'écran annonçait « zone de texte », sans dire lequel
+  // des deux fichiers du module on était en train d'éditer.
+  $("code").setAttribute("aria-label", "Code de " + nom);
   $("code").value = sources[nom] || "";
   for (const onglet of $("tabs").children) {
     const courant = onglet.dataset.name === nom;

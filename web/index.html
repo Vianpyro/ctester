@@ -28,7 +28,6 @@
   </span>
   <span class="grow"></span>
   <span class="groupe">
-    <button type="button" id="mesexos" class="nav" hidden>Mes exercices</button>
     <button type="button" id="mesprogres" class="nav" hidden>Mes progrès</button>
     <button type="button" id="discussions" class="nav" hidden>Discussions</button>
   </span>
@@ -103,7 +102,11 @@
              permanent -- avant, il restait vide jusqu'a la premiere frappe. -->
         <span id="sauvegarde" aria-live="polite"></span>
       </div>
-      <div id="edwrap">
+      <!-- LE PANNEAU QUE LES ONGLETS GOUVERNENT. `role="tab"` etait pose
+           sans `aria-controls` ni `tabpanel` : un lecteur d'ecran annoncait
+           un onglet dont il ne trouvait pas le panneau -- un ARIA partiel
+           est pire qu'aucun ARIA. -->
+      <div id="edwrap" role="tabpanel">
         <pre id="gutter" aria-hidden="true"></pre>
         <div id="pane">
           <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
@@ -139,7 +142,6 @@
   </div>
 </div>
 
-<div id="liste" hidden></div>
 <section id="vueprogres" aria-labelledby="progrestitre" hidden></section>
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
 

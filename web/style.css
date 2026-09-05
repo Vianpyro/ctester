@@ -27,11 +27,21 @@
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 html, body { height: 100%; }
+/* SANS-SERIF POUR L'INTERFACE, MONOSPACE POUR LE CODE. Toute la page était en
+   chasse fixe : barre, boutons, étiquettes, messages. C'est un choix
+   esthétique, pas fonctionnel, et il coûte de la lisibilité sur tout ce qui
+   n'est pas du code -- pour des lecteurs dont une partie découvre à la fois la
+   programmation et cette interface.
+
+   Ce qui RESTE en monospace, et pour de bonnes raisons : l'éditeur et sa
+   gouttière (l'alignement des colonnes en dépend), la consigne (elle porte des
+   blocs indentés et des prototypes), la sortie d'un programme et celle du
+   compilateur (des colonnes, un curseur `^`). */
 body {
   margin: 0; overflow: hidden;
   display: flex; flex-direction: column; height: 100dvh;
   background: var(--bg); color: var(--fg);
-  font: 14px/1.5 var(--mono);
+  font: 14px/1.5 var(--sans);
 }
 
 #top {
@@ -44,7 +54,7 @@ h1 {
   font-size: .95rem; font-weight: 700; letter-spacing: .02em;
   margin: 0; white-space: nowrap;
 }
-.tagline { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.tagline { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 #live[hidden] { display: none; }
 #live::before {
   content: ""; display: inline-block; width: .4rem; height: .4rem;
@@ -53,9 +63,12 @@ h1 {
 }
 .sep { width: 1px; align-self: stretch; background: var(--line); }
 .field { display: inline-flex; align-items: center; gap: .45rem; }
+/* PLANCHER A 11,5 PX, ET PLUS DE MAJUSCULES FORCEES. 10,9 px en capitales avec
+   .09em d'espacement est le pire cas de lisibilite pour une etiquette : la
+   forme des mots disparait, et l'espacement casse la reconnaissance globale. */
 .field label, .phead {
-  color: var(--muted); font-size: .68rem; letter-spacing: .09em;
-  text-transform: uppercase;
+  color: var(--muted); font-size: 11.5px; letter-spacing: .04em;
+  font-weight: 600;
 }
 .grow { flex: 1 1 auto; }
 #moi { color: var(--muted); font-size: 12.5px; }
@@ -107,8 +120,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 #exliste .col > summary {
   cursor: pointer; list-style: none; user-select: none;
   display: flex; align-items: baseline; gap: .5rem; padding: .35rem .2rem;
-  color: var(--muted); font-size: .68rem; letter-spacing: .09em;
-  text-transform: uppercase;
+  color: var(--muted); font-size: 11.5px; letter-spacing: .04em;
+  font-weight: 600;
 }
 #exliste .col > summary::-webkit-details-marker { display: none; }
 #exliste .col > summary::before { content: "\25B8"; }
@@ -120,6 +133,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   border-color: transparent;
 }
 #exliste .exline:hover:not(:disabled) { border-color: var(--line-2); }
+/* Verrouille : l'apparence de `:disabled`, sans sortir de la tabulation.
+   `aria-disabled` l'annonce indisponible ; le sortir du parcours clavier
+   rendait sa date d'ouverture invisible a qui n'utilise pas de souris. */
+#exliste .exline.verrouille { opacity: .55; cursor: not-allowed; }
+#exliste .exline.verrouille:hover { border-color: transparent; }
 #exliste .exline .titre { flex: 1 1 auto; }
 #exliste .exline.on { border-color: var(--ink); color: var(--fg); font-weight: 600; }
 /* Le cadenas et sa date. Un exercice pas encore ouvert RESTE dans le menu :
@@ -198,18 +216,27 @@ main {
   flex: 0 0 auto; margin: 0; height: 100%; overflow: hidden;
   padding: .5rem .55rem .5rem .7rem;
   border: 1px solid transparent; border-right-color: var(--line);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 13.5px; line-height: 1.5; white-space: pre;
+  font: 400 13.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre;
   text-align: right; color: var(--muted); background: var(--panel);
   user-select: none;
 }
 #pane { position: relative; flex: 1 1 auto; min-width: 0; }
+/* LA SUPERPOSITION : `#hl` (coloré) sous `#code` (transparent). Leurs métriques
+   doivent être IDENTIQUES au pixel près -- tout ce qui décale le texte décale
+   les couleurs.
+
+   LA PROPRIÉTÉ RACCOURCIE `font` ET PAS QUATRE DÉCLARATIONS SÉPARÉES : la règle
+   générique plus haut pose `font: inherit` sur tout `textarea`, et un raccourci
+   ne se laisse pas battre proprement par des propriétés éparses -- il suffirait
+   qu'une seule des quatre soit reprise ailleurs pour désaligner la couche
+   colorée du texte saisi. Ici tout part d'un coup, et rien n'est hérité. */
 #hl, #code {
   margin: 0; box-sizing: border-box;
   padding: .5rem .7rem;
   border: 1px solid transparent;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 13.5px; line-height: 1.5; tab-size: 4;
+  font: 400 13.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  tab-size: 4;
   white-space: pre;
 }
 #hl {
@@ -382,14 +409,14 @@ pre {
 #consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: 13px; }
 #consentement .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
-#liste { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: .9rem; }
-#liste[hidden] { display: none; }
-#progres { margin: 0 0 .9rem; max-width: 34rem; }
-#progres .compte { font-size: 12.5px; color: var(--muted); margin-bottom: .35rem; }
-#progres .compte b { color: var(--fg); font-variant-numeric: tabular-nums; }
-#progres .jauge { height: 6px; border-radius: 999px; background: var(--line);
-                  overflow: hidden; }
-#progres .jauge i { display: block; height: 100%; background: var(--ok); }
+/* LA LISTE DES EXERCICES : une SECTION de « Mes progrès » depuis la fusion,
+   plus une destination à elle. Elle garde son identifiant, donc toute la mise
+   en forme ci-dessous -- la recopier sous un autre nom aurait fait deux
+   feuilles à tenir d'accord pour zéro changement visible.
+
+   Le compteur « N / M exercices validés » qui vivait ici a disparu : la vue
+   affiche déjà « N exercices pratiqués sur M, dont R réussis », calculé par le
+   SERVEUR. Deux comptes des mêmes exercices, dont un dérivait du client. */
 #liste .ligne {
   display: flex; align-items: center; gap: .6rem; width: 100%;
   padding: .45rem .6rem; margin-bottom: .25rem; text-align: left;
@@ -433,8 +460,8 @@ pre {
    sans fond, après ce qui a été pratiqué et ce qu'il reste à faire. */
 #vueprogres .bloc.second { background: none; border-style: dashed; }
 #vueprogres .soustitre {
-  margin: 0 0 .45rem; font-size: .68rem; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--muted); font-weight: 600;
+  margin: 0 0 .45rem; font-size: 11.5px; letter-spacing: .04em;
+  color: var(--muted); font-weight: 600;
 }
 #vueprogres p { margin: 0 0 .5rem; font-size: 13.5px; max-width: 40rem; }
 #vueprogres p:last-child { margin-bottom: 0; }
@@ -492,8 +519,8 @@ pre {
 }
 :is(#vueforum, #vuemoderation) .bloc.second { background: none; border-style: dashed; }
 :is(#vueforum, #vuemoderation) .soustitre {
-  margin: 0 0 .45rem; font-size: .68rem; letter-spacing: .09em;
-  text-transform: uppercase; color: var(--muted); font-weight: 600;
+  margin: 0 0 .45rem; font-size: 11.5px; letter-spacing: .04em;
+  color: var(--muted); font-weight: 600;
 }
 :is(#vueforum, #vuemoderation) p { margin: 0 0 .5rem; font-size: 13.5px; max-width: 40rem; }
 /* Le corps d'un message, lui, prend toute sa colonne : c'est le contenu
@@ -810,3 +837,17 @@ pre {
 /* Le bouton d'aide, dans la bande d'action suivante : discret, il ne doit pas
    concurrencer l'action qui fait avancer l'exercice. */
 .suite .aide { margin-left: auto; }
+
+/* --- Ce qui reste en chasse fixe, et pourquoi ----------------------------
+   Le corps de la page est passé en sans-serif ; ces quatre-là gardent le
+   monospace parce que l'alignement des colonnes y porte du sens. */
+#consignetexte { font-family: var(--mono); }
+.case .champ .valeur, .gcc pre, .avert pre, #out > pre {
+  font-family: var(--mono);
+}
+/* Le compte d'un verdict : chiffres à chasse fixe pour qu'il ne danse pas
+   d'une soumission à l'autre. */
+.verdict.compte { font-variant-numeric: tabular-nums; }
+/* La pastille de mode et les métadonnées d'objectif : lisibles, pas criardes. */
+#now .badge { font-size: 11.5px; letter-spacing: .02em; text-transform: none; }
+#now .learning { font-size: 11.5px; }

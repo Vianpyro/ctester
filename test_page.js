@@ -786,8 +786,14 @@ const attendre = async () => { await sleep(); await sleep(); };
   // faire disparaître -- ce que faisait la v1 -- ressemblait à une panne du
   // site la veille du cours.
   const verrouille = lignesDe("TP 10")[0];
-  check(verrouille.disabled === true && !verrouille.listeners.click,
+  check(verrouille.getAttribute("aria-disabled") === "true"
+        && !verrouille.listeners.click,
         "un exercice verrouillé est au menu, mais ne s'ouvre pas");
+  // ET IL RESTE ATTEIGNABLE AU CLAVIER. `disabled` le sortait de l'ordre de
+  // tabulation : la date d'ouverture n'existait que pour la souris, alors
+  // qu'elle est toute la raison de laisser l'exercice affiche.
+  check(verrouille.disabled !== true,
+        "et il reste atteignable au clavier, pour qu'on entende sa date");
   check(/\ud83d\udd12/.test(libelle(verrouille))
         && /ouvre le /.test(libelle(verrouille)),
         "il porte un cadenas ET une date : « pas encore ouvert » ne suffit pas");
@@ -1347,13 +1353,13 @@ const attendre = async () => { await sleep(); await sleep(); };
   // donc, littéralement, la preuve de non-régression du parcours anonyme sur un
   // déploiement où la connexion existe.
   check(nodes.connexion.hidden === false, "« Se connecter » est proposé");
-  check(nodes.mesexos.hidden === true && nodes.deconnexion.hidden === true &&
+  check(nodes.mesprogres.hidden === true && nodes.deconnexion.hidden === true &&
         nodes.oublier.hidden === true && nodes.discussions.hidden === true,
         "mais rien de ce qui suppose un compte n'apparaît");
-  // Le harnais ne lit pas les attributs du HTML : ce qui prouve que la vue
-  // liste est restée fermée, c'est qu'elle n'a jamais été construite.
-  check(!nodes.liste || !nodes.liste.children.length,
-        "et la vue liste n'est même pas construite");
+  // Le harnais ne lit pas les attributs du HTML : ce qui prouve que la vue des
+  // progres est restee fermee, c'est qu'elle n'a jamais ete construite.
+  check(!nodes.vueprogres || !nodes.vueprogres.children.length,
+        "et la vue des progrès n'est même pas construite");
 
   // LE POINT QUI COMPTE : pas un seul en-tête d'autorisation n'est parti, et
   // aucune écriture d'état non plus. Un anonyme ne parle jamais à la base.
@@ -1508,19 +1514,9 @@ const attendre = async () => { await sleep(); await sleep(); };
           c => c.opts.headers.Authorization === "Bearer " + JETON),
         "les projections privees partent avec le jeton");
 
-  global.ctester.compte.basculerListe();
-  // Le texte d'une ligne est reparti sur plusieurs niveaux (la progression met
-  // son compte dans un <b> puis un noeud texte), d'ou la descente.
+  // Le texte d'une ligne est reparti sur plusieurs niveaux, d'ou la descente.
   const texteDe = (n) => (n.children.length
     ? n.children.map(texteDe).join(" ") : n.textContent || "");
-  const lignes = nodes.liste.children.map(texteDe);
-  check(/1 \/ 4/.test(lignes[0] || ""),
-        "la progression compte les exercices valides : " + lignes[0]);
-  check(lignes.some(l => /3 tentatives — réussie/.test(l)),
-        "et un exercice reussi le dit, au lieu de « a faire » : "
-        + lignes.join(" // "));
-  check(lignes.some(l => /à faire/.test(l)),
-        "les autres restent a faire");
 
   // --- « MES PROGRÈS » : LA VUE PRIVÉE -------------------------------------
   // Tout ce qui suit n'existe QUE connecté. Le bloc anonyme plus haut prouve
@@ -1541,14 +1537,23 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(appelProgres &&
         appelProgres.opts.headers.Authorization === "Bearer " + JETON,
         "et la projection privée part avec le jeton, jamais sans");
-  check(nodes.travail.hidden === true && nodes.vueprogres.hidden === false &&
-        nodes.liste.hidden === true,
-        "la vue remplace l'exercice, et la vue liste reste fermée");
+  check(nodes.travail.hidden === true && nodes.vueprogres.hidden === false,
+        "la vue remplace l'exercice");
   check(nodes.mesprogres.textContent === "Retour à l'exercice",
         "le bouton dit comment revenir");
   check(focusé === "progrestitre",
         "le focus suit l'écran : sans ça, la tabulation repart du haut et un "
         + "lecteur d'écran n'annonce rien");
+
+  // « MES EXERCICES » A FUSIONNE DANS « MES PROGRES » : deux destinations
+  // repondaient a « ou j'en suis », avec deux comptes des memes exercices.
+  const lignes = nodes.liste.children.map(texteDe);
+  check(lignes.some(l => /3 tentatives — réussie/.test(l)),
+        "et un exercice reussi le dit, au lieu de « a faire » : "
+        + lignes.join(" // "));
+  check(lignes.some(l => /à faire/.test(l)),
+        "les autres restent a faire");
+
 
   const vu = texteDe(nodes.vueprogres);
   // L'ORDRE EST LE MESSAGE. Ce qui reste à faire d'abord, le compteur ensuite :
@@ -1666,7 +1671,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(appelFil && appelFil.opts.headers.Authorization === "Bearer " + JETON,
         "le fil part avec le jeton, jamais sans");
   check(nodes.travail.hidden === true && nodes.vueforum.hidden === false &&
-        nodes.vueprogres.hidden === true && nodes.liste.hidden === true,
+        nodes.vueprogres.hidden === true,
         "la vue remplace l'exercice, et elle est seule à l'écran");
   check(nodes.discussions.textContent === "Retour à l'exercice",
         "le bouton dit comment revenir");
@@ -2091,7 +2096,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   // Se deconnecter remet tout a zero, jusqu'au bandeau.
   global.ctester.compte.signOut();
   check(global.ctester.token() === null, "se deconnecter oublie le jeton");
-  check(nodes.mesexos.hidden === true && nodes.connexion.hidden === false,
+  check(nodes.mesprogres.hidden === true && nodes.connexion.hidden === false,
         "et le bandeau repropose la connexion");
 
   // --- EXPORTER UN TP EN UN SEUL main.c ------------------------------------
@@ -2249,16 +2254,16 @@ const attendre = async () => { await sleep(); await sleep(); };
 
   // LE MEME BOUTON DANS « MES EXERCICES », par laboratoire : c'est la qu'on est
   // quand on pense « remise » plutot que « exercice courant ».
-  global.ctester.compte.basculerListe();
-  await attendre();
+  await nodes.mesprogres.listeners.click();
+  await attendre(); await attendre();
   const lignesExport = nodes.liste.children
     .filter((c) => c.className === "exportligne")
     .map((c) => c.children[0].textContent);
   check(lignesExport.length === 1 && lignesExport[0] === "Exporter le TP 2 en main.c",
         "un seul bouton d'export dans la liste, celui du TP qui s'exporte : "
         + JSON.stringify(lignesExport));
-  global.ctester.compte.basculerListe();
-  await attendre();
+  await nodes.mesprogres.listeners.click();
+  await attendre(); await attendre();
 
 // L'ORIGINE DE L'API, LES TROIS BRANCHES. Un `config.js` qui rendrait "" en
   // production enverrait chaque appel sur GitHub Pages, qui repond 404 en HTML :
@@ -2275,6 +2280,34 @@ const attendre = async () => { await sleep(); await sleep(); };
         "et avant app.js");
   check(!/<script(?![^>]*\ssrc=)[^>]*>[^<]*\S/.test(html),
         "aucun script inline : `script-src 'self'` du <meta> le bloquerait");
+
+  // --- LES MÉTRIQUES DE L'ÉDITEUR SONT LOAD-BEARING ------------------------
+  // `#hl` (le texte coloré) est SOUS `#code` (le texte transparent) : tout ce
+  // qui décale l'un d'un pixel décale les couleurs. `#gutter` est le troisième
+  // texte à aligner. Ils doivent partager police, taille et interligne.
+  //
+  // CE CONTRÔLE EXISTE PARCE QUE LA RÉGRESSION A EU LIEU : passer le corps de
+  // la page en sans-serif a fait retomber `#code` sur `font: inherit` de la
+  // règle générique des champs, et lui seul est passé en 16 px. Rien dans le
+  // JS ne l'aurait vu -- c'est du CSS pur, et l'oeil ne le voit qu'en tapant.
+  // `feuille` ET PAS `css` : ce nom est deja pris plus haut dans cette portee,
+  // et le redeclarer met l'usage anterieur en zone morte temporelle. C'est la
+  // panne exacte que ce fichier existe pour attraper -- elle vient de se
+  // reproduire en ecrivant ce controle-ci.
+  const feuille = lire("style.css");
+  const police = (selecteur) => {
+    const bloc = feuille.split(selecteur + " {")[1];
+    if (!bloc) return null;
+    const regle = bloc.split("}")[0].match(/font:\s*([^;]+);/);
+    return regle ? regle[1].trim().replace(/\s+/g, " ") : null;
+  };
+  const superposition = police("#hl, #code");
+  const gouttiere = police("#gutter");
+  check(!!superposition,
+        "la superposition declare sa police d'un seul tenant (propriete `font`)");
+  check(superposition === gouttiere,
+        "et la gouttiere porte EXACTEMENT la meme : "
+        + superposition + " / " + gouttiere);
 
   for (const [hote, attendu] of [
     ["tch009.thevhome.com", "https://tch099.thevhome.com/catalog.json"],

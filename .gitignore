@@ -5,3 +5,6 @@ __pycache__/
 # elle donne un vrai DOM a DOMPurify pour que les tests XSS soient reels.
 # L application, elle, n a aucune dependance npm.
 node_modules/
+
+# Contenu publie localement pour essayer la page (voir CLAUDE.md).
+.pub-dev/

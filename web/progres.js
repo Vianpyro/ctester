@@ -180,6 +180,79 @@ function succes(vue) {
   return bloc;
 }
 
+// --- LA LISTE DES EXERCICES, VENUE DE « MES EXERCICES » --------------------
+// Les deux destinations répondaient à la même question -- « où j'en suis » --
+// dans deux écrans, avec deux comptes différents des mêmes exercices. Le
+// statut, lui, a rejoint la bande du laboratoire et le menu du catalogue : ce
+// qui restait ici de vraiment unique, c'est la vue d'ensemble et l'export.
+//
+// ELLE NE DÉPEND PAS DE `GET /progres`. Une base muette fait disparaître les
+// chiffres de la projection, pas cette liste : elle se dessine depuis ce que
+// `compte.js` a déjà lu, et l'export doit rester atteignable un soir de panne.
+const ETAT_MOT = { valide: "validé", essaye: "essayé" };
+
+function ligneExport(groupe) {
+  const bloc = noeud("div", "exportligne");
+  const bouton = noeud("button", "nav", "Exporter le " + groupe + " en main.c");
+  bouton.type = "button";
+  const etat = noeud("span", "exportetat");
+  etat.setAttribute("aria-live", "polite");
+  const annoncer = (texte, rate) => {
+    etat.textContent = texte;
+    etat.className = rate ? "exportetat rate" : "exportetat";
+  };
+  bouton.addEventListener("click", async () => {
+    // `activerModule` dit deja ce qui n'est pas arrive -- mais il le dit dans
+    // le bandeau systeme. On le redit sur place, sinon le bouton reste inerte.
+    if (!await ctester.activerModule("exporter", "l'export du TP")) {
+      annoncer("l'export n'a pas pu être chargé — réessaie", true);
+      return;
+    }
+    await ctester.exporter.exporter(groupe, annoncer);
+  });
+  bloc.append(bouton, etat);
+  return bloc;
+}
+
+function listeExercices() {
+  // L'IDENTIFIANT `liste` EST CONSERVÉ : toute la mise en forme de l'ancienne
+  // destination s'y accroche, et la recopier sous un autre nom aurait fait deux
+  // feuilles à tenir d'accord pour zéro changement visible.
+  const box = noeud("div");
+  box.id = "liste";
+  const etats = ctester.compte ? ctester.compte.etats() : {};
+  const stats = ctester.compte ? ctester.compte.pratique() : {};
+  const tps = ctester.catalogue();
+  for (let rang = 0; rang < tps.length; rang++) {
+    const tp = tps[rang];
+    const row = noeud("button", "ligne");
+    row.type = "button";
+    row.append(noeud("span", "tpname", tp.group));
+    row.append(noeud("span", "titre", tp.short || tp.label));
+    const compte = stats[tp.id];
+    const statut = etats[tp.id] || "";
+    const dot = noeud("span", "puce " + (compte && compte.reussites ? "valide" : statut),
+      compte
+        ? compte.tentatives + " tentative" + (compte.tentatives > 1 ? "s" : "")
+          + (compte.reussites ? " — réussie" + (compte.reussites > 1 ? "s" : "") : "")
+        : ETAT_MOT[statut] || "à faire");
+    row.append(dot);
+    row.addEventListener("click", () => ouvrir(tp.id));
+    box.append(row);
+    // LE BOUTON FERME LE GROUPE, il ne l'ouvre pas : il arrive apres la
+    // derniere ligne du TP, quand on vient de lire ce qui y reste a faire.
+    const suivant = tps[rang + 1];
+    if ((!suivant || suivant.group !== tp.group)
+        && ctester.groupeExportable(tp.group)) {
+      box.append(ligneExport(tp.group));
+    }
+  }
+  const bloc = noeud("div", "bloc");
+  bloc.append(titre("Tes exercices"));
+  bloc.append(box);
+  return bloc;
+}
+
 function dessiner() {
   const box = $("vueprogres");
   box.innerHTML = "";
@@ -187,16 +260,19 @@ function dessiner() {
   entete.id = "progrestitre";
   entete.tabIndex = -1;
   box.append(entete);
+  box.append(noeud("p", "aide", "Cette page n'est visible que par toi. Rien "
+    + "n'est transmis à ton enseignant, et ce n'est pas une note."));
   if (!projection) {
     // ON N'INVENTE PAS UN ZÉRO. Un solde à zéro affiché pendant une panne de
     // base se lit « tout mon travail a disparu », et c'est faux.
-    box.append(noeud("p", "rate", erreur));
+    //
+    // MAIS LA LISTE RESTE : elle ne vient pas de la projection, et l'export
+    // d'un TP ne doit pas disparaître le soir où Postgres tousse.
+    box.append(noeud("p", "rate", erreur), listeExercices());
     return;
   }
-  box.append(noeud("p", "aide", "Cette page n'est visible que par toi. Rien "
-    + "n'est transmis à ton enseignant, et ce n'est pas une note."));
-  box.append(actionSuivante(projection), pratique(projection),
-             niveau(projection), succes(projection));
+  box.append(actionSuivante(projection), listeExercices(),
+             pratique(projection), niveau(projection), succes(projection));
 }
 
 // --- Entrées ---------------------------------------------------------------
