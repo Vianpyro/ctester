@@ -104,6 +104,45 @@ chargées seulement à l'ouverture des discussions — voir `web/vendor/README.m
 Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
 le navigateur reçoit.
 
+## Le contenu v2 (refactor en cours)
+
+Le plan est dans `docs/refactor-content-architecture-plan.md`. La production
+lit toujours l'arborescence historique `tpN/exN` par `runner.py` ; **rien de ce
+qui suit n'est encore branché sur le service**, et c'est voulu — la phase 3 se
+termine avec une publication v2 qu'on peut comparer à la v1 avant de basculer.
+
+```sh
+python3 validate_content.py  ../unittests/content              # phase 1
+python3 publish_content.py   ../unittests/content /tmp/published  # phase 3
+```
+
+- **`content_catalogue.py`** — le modèle validé, et `find_exercise(model, id)`,
+  **la seule porte** : détail, quiz, brouillon, forum et soumission devront
+  passer par elle. Elle refuse ce qui n'est pas ouvert, donc un lien profond
+  partagé en avance ne résout pas au lieu de contourner. `access()` est la seule
+  lecture d'une release : un `scheduled` dont la date est passée EST ouvert,
+  sans commit ni tâche périodique le matin du cours.
+- **`publish_content.py`** — la projection publique, **jamais une copie
+  récursive**. La révision EST le hachage de ce qui est publié : republier un
+  contenu inchangé ne crée rien, le changer crée un répertoire de plus, et les
+  deux coexistent — le rollback est un pointeur à réécrire. Le pointeur est
+  `current.json` et pas un lien symbolique, parce qu'un montage Docker résout le
+  lien à l'attache : rebasculer ne se verrait qu'au redémarrage du conteneur.
+- **Un contenu invalide ne remplace jamais la publication active** : `discover()`
+  lève avant la première écriture, et le pointeur ne bouge qu'en dernier.
+- **Le catalogue porte TOUS les exercices, ouverts ou non** (cadenas + date) ;
+  le détail et le quiz ne sont écrits que pour ce qui est ouvert. Montrer n'est
+  pas donner — la v1 les faisait disparaître, ce qui ressemblait à une panne.
+- **La ceinture par-dessus les trois projections** : `projection()` relit ce
+  qu'elle vient de construire et refuse de publier si une clé `answer`,
+  `expect`, `stdin`, `cases`, `path`… y apparaît. Les trois fonctions publiques
+  reconstruisent déjà champ à champ ; ce contrôle attrape le champ qu'on leur
+  ajoutera demain. `test_ctester.py` l'éprouve, comme la bascule et le rollback.
+
+Reste à faire, dans l'ordre du plan : phase 4 (l'API et le worker lisent la
+release au lieu de `tps.json`, `exercise_id` dans les corps et le spool),
+phase 5 (l'UI par collections), phase 6 (volumes et timers dans `VHome`).
+
 ## Avant de déployer une modif de la page ou du contenu
 
 Sur le contrôleur, jamais sur le Dell (les trois derniers ont besoin de gcc) :

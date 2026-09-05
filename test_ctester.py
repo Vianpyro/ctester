@@ -13,6 +13,7 @@ Pas de pytest : ce fichier tourne sur le contrôleur ET sur le Dell, avec le
 python3 qui s'y trouve.
 """
 
+import datetime as dt
 import json
 import os
 import re
@@ -29,6 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 
 import content_catalogue  # noqa: E402
+import publish_content  # noqa: E402
 import config     # noqa: E402
 import csp        # noqa: E402
 import etat       # noqa: E402
@@ -127,9 +129,16 @@ def test_content_v2_discovery_and_public_projection():
         blob = json.dumps(public)
         assert "stdin" not in blob and "expect" not in blob and "note" not in blob, blob
         assert "template" not in blob and "statement" not in blob, blob
-        assert detail == {"statement": "Calcule la surface.",
-                          "files": [{"name": "submission.c", "template": "int main(void) {}"}]}
-        assert content_catalogue.public_detail(model, "inconnu") is None
+        # PAS ENCORE OUVERT : il figure au catalogue avec son cadenas, et son
+        # détail ne se résout pas. Montrer n'est pas donner.
+        assert public["exercises"][0]["access"] == "scheduled", public
+        assert detail is None, detail
+        ouvert = dt.datetime(2026, 10, 1, tzinfo=dt.timezone.utc)
+        assert content_catalogue.public_detail(model, "surface-rectangle", ouvert) == {
+            "statement": "Calcule la surface.",
+            "files": [{"name": "submission.c", "template": "int main(void) {}"}]}
+        assert content_catalogue.public_detail(model, "inconnu", ouvert) is None
+        assert content_catalogue.find_exercise(model, "surface-rectangle") is None
     finally:
         shutil.rmtree(root)
 
@@ -161,6 +170,93 @@ def test_content_v2_rejects_conflicting_modes_and_unknown_collection_item():
             raise AssertionError("contenu v2 invalide accepté")
     finally:
         shutil.rmtree(root)
+
+
+def _contenu_v2(root, etat_quiz):
+    """Une racine v2 minimale : un io ouvert, un quiz dont l'ouverture varie."""
+    _write_json(os.path.join(root, "catalog.json"), {"schema_version": 1, "skills": []})
+    for name, release, config in (
+            ("surface", {"state": "available"}, ("io.json", {"cases": [{"stdin": "1\n", "expect": [1]}]})),
+            ("nombres", etat_quiz, ("quiz.json", {"label": "Quiz", "questions": [
+                {"id": "q1", "group": "G", "label": "23", "type": "bin8", "answer": "00010111"}]})),
+    ):
+        exercise = os.path.join(root, "exercises", name)
+        _write_json(os.path.join(exercise, "exercise.json"), {
+            "schema_version": 1, "id": name, "title": name.title(), "release": release})
+        with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("Consigne.")
+        _write_json(os.path.join(exercise, "assessment", config[0]), config[1])
+        if config[0] != "quiz.json":
+            _write_json(os.path.join(exercise, "public", "files.json"),
+                        {"files": [{"name": "submission.c", "template": ""}]})
+    _write_json(os.path.join(root, "collections", "tp1.json"), {
+        "schema_version": 1, "id": "tp1", "title": "TP1", "items": ["surface", "nombres"],
+        "release": {"state": "available"}})
+
+
+def test_content_v2_publication_verrouille_et_bascule():
+    """La release est nommée par son contenu, le pointeur est le seul aiguillage."""
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    try:
+        _contenu_v2(root, {"state": "scheduled", "available_from": "2099-01-01T00:00:00-05:00"})
+        model = content_catalogue.discover(root)
+        revision = publish_content.publish(model, dest)
+        release = publish_content.current(dest)
+        assert release == os.path.join(dest, revision), release
+        publie = {}
+        for dossier, _, noms in os.walk(release):
+            for nom in noms:
+                chemin = os.path.join(dossier, nom)
+                publie[os.path.relpath(chemin, release).replace(os.sep, "/")] = lire(chemin)
+        assert sorted(publie) == ["catalog.json", "exercises/surface.json",
+                                  "manifest.json"], sorted(publie)
+        # LE POINT DE TOUT LE FICHIER : rien du corrigé ne franchit la frontière,
+        # et un exercice pas encore ouvert n'a ni détail ni quiz publiés.
+        assert "answer" not in "".join(publie.values()), publie
+        assert "00010111" not in "".join(publie.values()), publie
+        catalogue_publie = json.loads(publie["catalog.json"])
+        etats = {e["id"]: e["access"] for e in catalogue_publie["exercises"]}
+        assert etats == {"surface": "available", "nombres": "scheduled"}, etats
+
+        # Republier un contenu identique ne crée rien ; le changer bascule le
+        # pointeur SANS effacer l'ancienne release -- c'est ça, le rollback.
+        assert publish_content.publish(model, dest) == revision
+        _write_json(os.path.join(root, "exercises", "surface", "exercise.json"), {
+            "schema_version": 1, "id": "surface", "title": "Surface v2",
+            "release": {"state": "available"}})
+        suivante = publish_content.publish(content_catalogue.discover(root), dest)
+        assert suivante != revision, suivante
+        assert publish_content.current(dest) == os.path.join(dest, suivante)
+        assert os.path.isdir(os.path.join(dest, revision)), "rollback impossible"
+
+        # Le quiz ouvert est publié, sans son corrigé.
+        _contenu_v2(root, {"state": "available"})
+        ouvert = publish_content.publish(content_catalogue.discover(root), dest)
+        quiz = json.loads(lire(os.path.join(dest, ouvert, "quiz", "nombres.json")))
+        assert quiz["questions"][0]["label"] == "23" and "answer" not in str(quiz), quiz
+    finally:
+        shutil.rmtree(root)
+        shutil.rmtree(dest)
+
+
+def test_content_v2_projection_refuse_une_cle_privee():
+    """La ceinture : un champ public ajouté demain ne publie pas un corrigé."""
+    modele = {"schema_version": 1, "skills": [], "collections": {},
+              "exercises": {"x": {"id": "x", "title": "X", "release": {"state": "available"},
+                                  "skills": [], "mode": "io", "summary": "",
+                                  "difficulty": None, "contexts": [],
+                                  "statement": "", "files": [], "config": {}}}}
+    original = content_catalogue.public_detail
+    content_catalogue.public_detail = lambda *a, **k: {"statement": "", "answer": "42"}
+    try:
+        publish_content.projection(modele)
+    except content_catalogue.ContentValidationError as exc:
+        assert "answer" in str(exc), exc
+    else:
+        raise AssertionError("projection publiée avec une clé privée")
+    finally:
+        content_catalogue.public_detail = original
 
 
 # --------------------------------------------------------------------------

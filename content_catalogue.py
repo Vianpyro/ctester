@@ -3,8 +3,9 @@
 Ce module ne remplace pas encore ``runner.py`` : la production continue à lire
 l'arborescence historique ``tpN/exN`` tant que sa migration n'est pas terminée.
 Il définit toutefois le contrat v2 dans un endroit testable et sans dépendance
-externe. Le worker, la CI et le futur publisher devront tous appeler cette même
-porte, plutôt que de réinterpréter les métadonnées chacun de leur côté.
+externe. Le worker, la CI et le publisher (`publish_content.py`) appellent tous
+cette même porte -- `find_exercise()` --, plutôt que de réinterpréter les
+métadonnées chacun de leur côté.
 
 Le contenu est privé par défaut. ``public_catalogue`` reconstruit les seules
 valeurs qui peuvent quitter cette frontière; il ne retire jamais quelques clés
@@ -95,6 +96,37 @@ def _release(value, where, errors):
     if state == "scheduled" and isinstance(available_from, str):
         out["available_from"] = available_from
     return out
+
+
+def access(release, now=None):
+    """``available`` / ``scheduled`` / ``archived`` -- LA SEULE LECTURE D'UNE RELEASE.
+
+    Un ``scheduled`` dont la date est passée EST ouvert : la release est une
+    donnée, pas un travail périodique à déclencher. Sans ça, ouvrir un exercice
+    demanderait un commit le matin du cours, et l'oubli ressemblerait à une
+    panne. ``now`` n'est là que pour les tests et le mode aperçu.
+    """
+    state = (release or {}).get("state")
+    if state not in RELEASE_STATES:
+        return "archived"
+    if state != "scheduled":
+        return state
+    moment = _iso_datetime(release.get("available_from"))
+    now = now or dt.datetime.now(dt.timezone.utc)
+    return "available" if moment is not None and moment <= now else "scheduled"
+
+
+def find_exercise(model, exercise_id, now=None):
+    """L'UNIQUE PORTE vers un exercice : détail, quiz, brouillon, forum, soumission.
+
+    Un identifiant qui n'est pas ouvert ne se résout pas en entrée, donc pas en
+    chemin : le lien profond partagé par un étudiant en avance ne contourne
+    rien, il ne résout pas. Le worker rappelle la même fonction avant d'exécuter.
+    """
+    entry = model["exercises"].get(exercise_id)
+    if entry is None or access(entry["release"], now) != "available":
+        return None
+    return entry
 
 
 def _files(value, where, errors):
@@ -202,6 +234,11 @@ def _exercise(root, dirname, known_skills, errors):
         "statement": statement, "mode": mode, "release": _release(data.get("release"), where, errors),
         "skills": skills, "difficulty": difficulty, "contexts": contexts,
         "prerequisites": prerequisites, "files": _public_files(path, where, errors, mode),
+        # La configuration de correction reste DANS LE MODÈLE PRIVÉ : le worker
+        # et le publisher la lisent ici plutôt que de reconstruire un chemin.
+        # Rien de ce dictionnaire ne sort par public_catalogue/public_detail,
+        # qui reconstruisent champ à champ.
+        "config": config,
     }
 
 
@@ -270,11 +307,18 @@ def discover(root):
             "collections": collections}
 
 
-def public_catalogue(model):
-    """Projection publique reconstruite champ à champ, sans contenu assessment."""
+def public_catalogue(model, now=None):
+    """Projection publique reconstruite champ à champ, sans contenu assessment.
+
+    Un exercice pas encore ouvert FIGURE dans le catalogue, avec son état et sa
+    date : c'est ce qui fait la différence entre « verrouillé jusqu'au 18 » et
+    « n'existe pas ». Ce qu'il n'a pas, c'est un détail publié (voir
+    ``public_detail``) -- montrer n'est pas donner.
+    """
     exercises = []
     for entry in model["exercises"].values():
         public = {"id": entry["id"], "title": entry["title"], "release": entry["release"],
+                  "access": access(entry["release"], now),
                   "skills": entry["skills"], "mode": entry["mode"]}
         if isinstance(entry["summary"], str) and entry["summary"]:
             public["summary"] = entry["summary"]
@@ -287,11 +331,12 @@ def public_catalogue(model):
             "exercises": exercises,
             "collections": [{"id": entry["id"], "title": entry["title"],
                              "description": entry["description"], "items": list(entry["items"]),
-                             "release": entry["release"]}
+                             "release": entry["release"],
+                             "access": access(entry["release"], now)}
                             for entry in model["collections"].values()]}
 
 
-def public_detail(model, exercise_id):
+def public_detail(model, exercise_id, now=None):
     """Le détail public d'un exercice, séparé du menu et de assessment.
 
     Les gabarits sont assez volumineux pour ne pas figurer dans catalog.json,
@@ -299,7 +344,7 @@ def public_detail(model, exercise_id):
     ne se résout pas en chemin : l'appelant doit déjà l'avoir trouvé dans le
     modèle validé.
     """
-    entry = model["exercises"].get(exercise_id)
+    entry = find_exercise(model, exercise_id, now)
     if entry is None:
         return None
     return {"statement": entry["statement"], "files": [dict(item) for item in entry["files"]]}
