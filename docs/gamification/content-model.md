@@ -19,7 +19,7 @@ textes libres) et `verification` (booleen, `false` par defaut -- voir
 }
 ```
 
-`content_catalogue.discover()` **refuse de publier** un contenu dont une
+`content_catalog.discover()` **refuse de publier** un contenu dont une
 skill n'est pas dans `catalog.json`, une `difficulty` hors de la liste
 fermee, ou un `contexts`/`prerequisites` mal forme -- c'est bloquant, pas un
 tag ignore silencieusement. `publish_content.py` projette ces champs tels
@@ -27,4 +27,4 @@ quels dans le catalogue public ; il n'y a plus de bloc `learning` imbrique.
 
 Une `ExerciseVariant` est une instance d'une famille: parametres, contraintes et graines serveur; elle garde un lien vers la version de contenu qui l'a creee. Les variations changent valeurs, tailles, cas limites, noms ou contexte sans invalider l'objectif. Les valeurs servant a une verification ou au classe ne sont jamais choisies par le client -- `publish_content.py` interdit `seed` et `cases` en projection publique.
 
-Cycle auteur: brouillon -> revue pedagogique/equivalence -> tests prives (`valider_contenu.py`) -> publie -> retire. Retirer bloque les nouvelles tentatives sans detruire les evidences historiques. Toute modification qui change la difficulte ou les skills cree une nouvelle revision (le hachage de ce qui est publie), sans redeploiement -- voir CLAUDE.md, "Le contenu (architecture v2)".
+Cycle auteur: brouillon -> revue pedagogique/equivalence -> tests prives (`verify_content.py`) -> publie -> retire. Retirer bloque les nouvelles tentatives sans detruire les evidences historiques. Toute modification qui change la difficulte ou les skills cree une nouvelle revision (le hachage de ce qui est publie), sans redeploiement -- voir CLAUDE.md, "Le contenu (architecture v2)".

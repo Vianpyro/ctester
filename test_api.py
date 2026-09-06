@@ -286,7 +286,7 @@ def _ecrire_contenu(racine, exercices=CONTENU, release=None):
 
 def _publier(tmp, exercices=CONTENU):
     """Publie ce contenu et pose le pointeur. Rend le répertoire des releases."""
-    import content_catalogue
+    import content_catalog as content_catalogue
     import publish_content
     racine = os.path.join(tmp, "content")
     publie = os.path.join(tmp, "published")
@@ -395,7 +395,7 @@ def test_release_pilote_le_catalogue_et_ferme_le_reste():
     un pointeur absent est un catalogue absent, ce que la page dit au lieu
     d'afficher un menu vide.
     """
-    import content_catalogue
+    import content_catalog as content_catalogue
     import publish_content
 
     with contexte() as (c, _, tmp):

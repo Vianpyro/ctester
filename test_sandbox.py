@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Eprouve les DEUX SCRIPTS DU BAC A SABLE avec un vrai gcc, sans Docker.
+"""Exercises the TWO SANDBOX SCRIPTS with a real gcc, no Docker.
 
-    python3 test_bac_a_sable.py [chemin/vers/unittests/content]
+    python3 test_sandbox.py [path/to/unittests/content]
 
-test_ctester.py teste runner.py sur des sorties fabriquees, test_page.js teste
-la page sur un DOM en carton. Personne ne testait build-io.sh ni
-build-unity.sh -- or c'est LA que vit l'invariant de confidentialite : le
-decoupage en phases, le protocole du nonce, et le fait que la stderr de la
-phase 2 soit jetee. Un template casse ne se voit qu'en production.
+test_ctester.py tests runner.py against manufactured output, test_page.js
+tests the page against a cardboard DOM. Nobody tested build-io.sh or
+build-unity.sh -- yet that is EXACTLY where the confidentiality invariant
+lives: the phase split, the nonce protocol, and the fact that phase 2's
+stderr is discarded. A broken template only shows up in production.
 
-On prend donc les vrais scripts, on deplace /in et /work vers un repertoire
-temporaire, et on les execute tels quels avec bash, puis on passe leur sortie
-au vrai runner.py. Ce qui n'est PAS couvert : gVisor, les capabilities,
-l'absence de reseau -- aucun n'influe sur la sortie du script.
+So we take the real scripts, move /in and /work into a temporary directory,
+and run them as-is with bash, then feed their output to the real runner.py.
+What is NOT covered: gVisor, capabilities, the absence of network -- none of
+those affect the script's output.
 
-Outil de controleur, pas de serveur : il lui faut gcc, comme a
-valider_contenu.py. Ne tourne pas sur le Dell.
+Controller tool, not a server one: it needs gcc, like verify_content.py. Does
+not run on the Dell.
 """
 import importlib.util
 import os
@@ -26,9 +26,9 @@ import sys
 import tempfile
 
 ICI = pathlib.Path(__file__).resolve().parent
-# LA RACINE DU CONTENU PRIVE (celle qui porte catalog.json, exercises/ et
-# shared/unity), et les corriges A COTE : depuis la phase 8 les solutions ne
-# sont plus montees sous le contenu, elles vivent dans leur propre depot.
+# THE PRIVATE CONTENT ROOT (the one carrying catalog.json, exercises/ and
+# shared/unity), with reference solutions NEXT TO IT: since phase 8 solutions
+# are no longer mounted under the content, they live in their own repo.
 CONTENU = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
                        else ICI.parent / "unittests" / "content").resolve()
 SOLUTIONS = pathlib.Path(os.environ.get("CTESTER_SOLUTIONS") or next(
@@ -39,18 +39,18 @@ UNITY = CONTENU / "shared" / "unity"
 
 
 def assessment(exercice):
-    """Le repertoire de correction d'un exercice -- la meme porte que tp_path."""
+    """An exercise's grading directory -- the same gate as tp_path."""
     return CONTENU / "exercises" / exercice / "assessment"
 
 
 def corrige(exercice):
-    """Le repertoire du corrige. `tp6-ex1` d'abord, puis `tp6/ex1`."""
+    """The reference solution's directory. `tp6-ex1` first, then `tp6/ex1`."""
     for candidat in (SOLUTIONS / exercice,
                      SOLUTIONS.joinpath(*exercice.split("-", 1))):
         if candidat.is_dir():
             return candidat
-    raise SystemExit("corrige introuvable pour " + exercice
-                     + " sous " + str(SOLUTIONS))
+    raise SystemExit("no reference solution found for " + exercice
+                     + " under " + str(SOLUTIONS))
 
 spec = importlib.util.spec_from_file_location("runner", ICI / "runner.py")
 runner = importlib.util.module_from_spec(spec)
@@ -58,18 +58,18 @@ spec.loader.exec_module(runner)
 
 NONCE = "e2e0123456789abcdef0123456789abc"
 
-# Le gcc de cette machine peut etre plus ancien que celui de l'image du bac a
-# sable, qui accepte gnu23. Meme dialecte, autre orthographe.
+# This machine's gcc may be older than the sandbox image's, which accepts
+# gnu23. Same dialect, different spelling.
 STD = "gnu23"
 if subprocess.run(["gcc", "-std=gnu23", "-E", "-"], input="", capture_output=True,
                   text=True).returncode != 0:
     STD = "gnu2x"
 
 
-# Ce que le worker passe au conteneur en deploiement (SANDBOX_ENV dans
-# runner.py). Les scripts ont les MEMES valeurs par defaut : les repeter ici
-# fait que ce test verifie le chemin reellement emprunte en production, celui ou
-# les variables sont fournies, et pas seulement les defauts.
+# What the worker passes the container in deployment (SANDBOX_ENV in
+# runner.py). The scripts have the SAME defaults: repeating them here makes
+# this test check the path actually taken in production, the one where the
+# variables are supplied, not just the defaults.
 REGLAGES = {
     "CTESTER_C_STD": STD,
     "CTESTER_SANITIZERS": "-fsanitize=address,undefined",
@@ -80,7 +80,7 @@ REGLAGES = {
 
 
 def rendre(nom, racine):
-    """Le vrai script, avec /in et /work deplaces vers le repertoire temporaire."""
+    """The real script, with /in and /work moved into the temp directory."""
     texte = (ICI / nom).read_text(encoding="utf-8")
     texte = texte.replace("/in/", f"{racine}/in/").replace("/work", f"{racine}/work")
     script = racine / nom
@@ -90,7 +90,7 @@ def rendre(nom, racine):
 
 
 def lancer(mode, fichiers, exercice, **reglages):
-    """Monte l'arborescence, execute, retourne (code, stdout)."""
+    """Sets up the tree, runs it, returns (code, stdout)."""
     racine = pathlib.Path(tempfile.mkdtemp(prefix="e2e-"))
     (racine / "work").mkdir()
     (racine / "in/src").mkdir(parents=True)
@@ -101,7 +101,7 @@ def lancer(mode, fichiers, exercice, **reglages):
         (racine / "in/cases").mkdir()
         conf = runner.json.loads(
             (assessment(exercice) / "io.json").read_text(encoding="utf-8"))
-        # Les noms que verdict_io attend : "01", "02"... et pas autre chose.
+        # The names verdict_io expects: "01", "02"... and nothing else.
         for i, cas in enumerate(conf["cases"], 1):
             (racine / "in/cases" / ("%02d.in" % i)).write_text(cas["stdin"], encoding="utf-8")
         script = rendre("build-io.sh", racine)
@@ -127,16 +127,16 @@ rates = []
 
 def montrer(res):
     apercu = {k: v for k, v in res.items() if k not in ("warnings", "gcc")}
-    print("      verdict : " + runner.json.dumps(apercu, ensure_ascii=False)[:300])
+    print("      verdict: " + runner.json.dumps(apercu, ensure_ascii=False)[:300])
 
 
 def check(cond, libelle):
-    print(("ok    " if cond else "ECHEC ") + libelle)
+    print(("ok    " if cond else "FAIL  ") + libelle)
     if not cond:
         rates.append(libelle)
 
 
-# --- 1. Un code correct mais neglige : il REUSSIT, avec des avertissements ---
+# --- 1. Correct but sloppy code: it SUCCEEDS, with warnings -----------------
 NEGLIGE = """#include <stdio.h>
 
 int main(void)
@@ -154,35 +154,35 @@ rc, out, cases, _ = lancer("io", {"submission.c": NEGLIGE}, "tp2-ex0")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(
     runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
-print("\n--- 1. code correct mais neglige ---")
+print("\n--- 1. correct but sloppy code ---")
 montrer(res)
 check(res["status"] == "ok" and res["passed"] == res["total"],
-      "le verdict est une REUSSITE")
-check(res.get("warnings"), "le bloc d'avertissements est quand meme attache")
+      "the verdict is a SUCCESS")
+check(res.get("warnings"), "the warnings block is still attached")
 check("inutilisee" in res.get("warnings", ""),
-      "et il nomme la variable en cause : " + res.get("warnings", "").strip().splitlines()[-1][:70])
+      "and it names the offending variable: " + res.get("warnings", "").strip().splitlines()[-1][:70])
 check(res["passed"] == res["total"],
-      f"tous les cas passent ({res['passed']}/{res['total']})")
+      f"every case passes ({res['passed']}/{res['total']})")
 
-# --- 2. scanf sans & : gcc dit precisement ce qui manque ---------------------
+# --- 2. scanf without &: gcc says precisely what is missing -----------------
 SANS_ESPERLUETTE = NEGLIGE.replace('scanf("%d", &naissance)', 'scanf("%d", naissance)')
 rc, out, cases, _ = lancer("io", {"submission.c": SANS_ESPERLUETTE}, "tp2-ex0")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(
     runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
-print("\n--- 2. scanf sans & ---")
+print("\n--- 2. scanf without & ---")
 texte = res.get("warnings", "") + res.get("gcc", "")
-check("int *" in texte, "gcc dit qu'il attendait un int *")
-check("naissance" in texte or "%d" in texte, "et pointe la conversion fautive")
+check("int *" in texte, "gcc says it expected an int *")
+check("naissance" in texte or "%d" in texte, "and points at the faulty conversion")
 for ligne in texte.strip().splitlines():
     if "expects argument" in ligne:
         print("      " + ligne.strip()[:100])
 
-# --- 3. NON-FUITE : rien du fichier de test dans les avertissements ----------
+# --- 3. NO LEAK: nothing from the test file in the warnings -----------------
 sol = corrige("tp6-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-# On rend le corrige volontairement bavard pour FORCER des avertissements :
-# sans avertissement, le controle passerait pour de mauvaises raisons.
+# The reference solution is made deliberately noisy to FORCE warnings:
+# without a warning, this check would pass for the wrong reasons.
 fichiers["calendrier.c"] += "\nstatic int jamais_utilisee_e2e = 42;\n"
 rc, out, cases, racine = lancer("unity", fichiers, "tp6-ex1")
 av, reste = runner.extraire_avertissements(out, NONCE)
@@ -193,18 +193,18 @@ jetons = {m for m in runner.re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
           if m not in sien and not m.startswith(("TEST_", "UNITY"))
           and m not in ("static", "return", "include", "stdbool", "unsigned")}
 fuites = sorted(j for j in jetons if j in str(res))
-print("\n--- 3. non-fuite ---")
+print("\n--- 3. no leak ---")
 montrer(res)
 check(res["status"] == "ok" and res["passed"] == res["total"],
-      f"le corrige passe ({res.get('passed')}/{res.get('total')})")
-check(bool(res.get("warnings")), "des avertissements sont bien presents (sinon controle vide)")
-check("test_calendrier" not in str(res), "aucune mention du fichier de test")
-check(not fuites, "aucun identifiant propre au test dans le verdict"
-      + (" -- FUITES : " + ", ".join(fuites[:8]) if fuites else ""))
-check(len(jetons) > 5, f"le controle avait de quoi mordre ({len(jetons)} identifiants surveilles)")
+      f"the reference solution passes ({res.get('passed')}/{res.get('total')})")
+check(bool(res.get("warnings")), "warnings are indeed present (otherwise this check is empty)")
+check("test_calendrier" not in str(res), "no mention of the test file")
+check(not fuites, "no identifier specific to the test in the verdict"
+      + (" -- LEAKED: " + ", ".join(fuites[:8]) if fuites else ""))
+check(len(jetons) > 5, f"the check had something to bite on ({len(jetons)} identifiers watched)")
 
 
-# --- 4. ASan en mode io : le rapport complet, il n'y a rien a taire ---------
+# --- 4. ASan in io mode: the full report, nothing to hide -------------------
 sol = corrige("tp2-ex0")
 buggy = (sol / sources_c(sol)[0]).read_text(encoding="utf-8")
 DEBORDE = "    int t_e2e[3];\n    t_e2e[7] = 1;\n    return "
@@ -213,18 +213,18 @@ rc, out, cases, _ = lancer("io", {"submission.c": buggy}, "tp2-ex0")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(
     runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
-print("\n--- 4. debordement en mode io : le rapport est rendu ---")
+print("\n--- 4. overflow in io mode: the report is returned ---")
 cas = res["cases"][0] if res["cases"] else {}
 check("debord" in cas.get("reason", "") or "débord" in cas.get("reason", ""),
-      "le juge nomme la classe d'erreur : " + cas.get("reason", "(aucun cas rate)")[:60])
+      "the judge names the error class: " + cas.get("reason", "(no failing case)")[:60])
 check("AddressSanitizer" in cas.get("stderr", ""),
-      "et le rapport d'ASan remonte a l'etudiant")
+      "and the ASan report reaches the student")
 for ligne in cas.get("stderr", "").splitlines():
     if "ERROR:" in ligne or "submission.c:" in ligne:
         print("      " + ligne.strip()[:96])
         break
 
-# --- 5. ASan en mode unity : le FAIT, jamais le rapport ---------------------
+# --- 5. ASan in unity mode: the FACT, never the report ----------------------
 sol = corrige("tp6-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
 nom_c = "calendrier.c"
@@ -233,35 +233,35 @@ fichiers[nom_c] = ("static int deborde_e2e[4];\n" + fichiers[nom_c]).replace(
 rc, out, cases, racine = lancer("unity", fichiers, "tp6-ex1")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(runner.verdict(rc, reste), av)
-print("\n--- 5. debordement en mode unity : le fait, sans le rapport ---")
+print("\n--- 5. overflow in unity mode: the fact, without the report ---")
 montrer(res)
 check(res["status"] == "memory_error",
-      "le verdict est un debordement memoire, pas un « test rate »")
+      "the verdict is a memory overflow, not a \"failed test\"")
 check("AddressSanitizer" not in str(res) and "#0" not in str(res),
-      "aucun fragment du rapport d'ASan n'a fuite")
+      "no fragment of the ASan report leaked")
 test_src = (racine / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
 sien = "\n".join(fichiers.values())
 jetons = {m for m in runner.re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
           if m not in sien and not m.startswith(("TEST_", "UNITY"))
           and m not in ("static", "return", "include", "stdbool", "unsigned")}
 fuites = sorted(j for j in jetons if j in str(res))
-check(not fuites, "aucun identifiant du fichier de test dans le verdict"
-      + (" -- FUITES : " + ", ".join(fuites[:8]) if fuites else ""))
+check(not fuites, "no identifier from the test file in the verdict"
+      + (" -- LEAKED: " + ", ".join(fuites[:8]) if fuites else ""))
 
-# --- 6. boucle infinie : le chronometre coupe, et le juge le DIT ------------
-# LE classique du cours. RUN_TIMEOUT descend a 2 s ici pour que le controle ne
-# coute pas 5 s par mode ; c'est la meme horloge, celle de `timeout -s KILL`.
+# --- 6. infinite loop: the timer cuts it off, and the judge SAYS so ---------
+# The course's classic. RUN_TIMEOUT drops to 2 s here so this check does not
+# cost 5 s per mode; it is the same clock, that of `timeout -s KILL`.
 BOUCLE = '#include <stdio.h>\nint main(void){ while (1) {} return 0; }\n'
 rc, out, cases, _ = lancer("io", {"submission.c": BOUCLE}, "tp2-ex0",
                            CTESTER_RUN_TIMEOUT="2")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(
     runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
-print("\n--- 6a. boucle infinie en mode io ---")
+print("\n--- 6a. infinite loop in io mode ---")
 cas = res["cases"][0] if res.get("cases") else {}
-check(res.get("passed") == 0, "aucun cas ne passe (statut %r)" % res["status"])
+check(res.get("passed") == 0, "no case passes (status %r)" % res["status"])
 check("boucle infinie" in cas.get("reason", ""),
-      "le message nomme la boucle infinie : " + cas.get("reason", "(aucun)")[:80])
+      "the message names the infinite loop: " + cas.get("reason", "(none)")[:80])
 
 sol = corrige("tp6-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
@@ -271,13 +271,13 @@ fichiers["calendrier.c"] += (
 rc, out, cases, _ = lancer("unity", fichiers, "tp6-ex1", CTESTER_RUN_TIMEOUT="2")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(runner.verdict(rc, reste), av)
-print("\n--- 6b. boucle infinie en mode unity ---")
+print("\n--- 6b. infinite loop in unity mode ---")
 montrer(res)
-check(res["status"] == "timeout", "le verdict est un timeout, pas un plantage")
+check(res["status"] == "timeout", "the verdict is a timeout, not a crash")
 check("boucle infinie" in res.get("message", ""),
-      "et le message nomme la boucle infinie")
+      "and the message names the infinite loop")
 
 print()
-print("%d CONTROLE(S) EN ECHEC" % len(rates) if rates
-      else "le bac a sable tient ses invariants")
+print("%d CHECK(S) FAILED" % len(rates) if rates
+      else "the sandbox holds its invariants")
 sys.exit(1 if rates else 0)

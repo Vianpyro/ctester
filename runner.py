@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""ctester -- le worker de l'hôte, lancé depuis le clone git.
+"""ctester -- the host worker, launched from the git clone.
 
-Tourne en root sur le Dell, en N instances (ctester-runner@1..N), et fait les
-seules choses que le conteneur web n'a pas le droit de faire : lancer Docker, et
-lire les tests. Il LIT le spool, il ne l'exécute jamais -- rien de ce qui vient
-du web n'est passé à un shell, et `subprocess` reçoit une liste d'arguments,
-jamais une chaîne.
+Runs as root on the Dell, in N instances (ctester-runner@1..N), and does the
+only things the web container is not allowed to do: launch Docker, and read
+the tests. It READS the spool, it never executes it -- nothing coming from
+the web tier is ever passed to a shell, and `subprocess` receives a list of
+arguments, never a string.
 
-En Python et pas en bash pour cette raison précise : construire une ligne de
-commande docker autour d'un nom de TP venu du réseau est exactement le genre de
-chose qu'on écrit correctement une fois sur deux en shell. Ici il n'y a pas de
-shell à échapper, et le parsing des verdicts devient testable (test_ctester.py).
+In Python and not bash for this precise reason: building a docker command
+line around an exercise name coming from the network is exactly the kind of
+thing one gets right in shell only half the time. Here there is no shell to
+escape, and parsing verdicts becomes testable (test_ctester.py).
 
-TROIS MODES, DÉDUITS DU CONTENU DU RÉPERTOIRE DE TP -- pas d'un champ de
-configuration qu'il faudrait tenir synchronisé avec la réalité :
+THREE MODES, DEDUCED FROM THE CONTENTS OF THE EXERCISE DIRECTORY -- not from
+a configuration field that would need to be kept in sync with reality:
 
-  quiz.json   exercices sur papier. Aucune compilation, aucun conteneur.
-  io.json     un programme complet avec main(), exécuté sur des entrées.
-  test_*.c    des fonctions liées à Unity, sans main().
+  quiz.json   paper exercises. No compilation, no container.
+  io.json     a complete program with main(), run against inputs.
+  test_*.c    functions linked against Unity, with no main().
 """
 
 import datetime
@@ -32,14 +32,14 @@ import time
 import unicodedata
 import uuid
 
-import content_catalogue
+import content_catalog
 
 SPOOL = os.environ.get("CTESTER_SPOOL", "/opt/ctester/spool")
 
-# LE CONTENU PRIVÉ ET SES RELEASES. Depuis la phase 8 il n'y a plus
-# d'arborescence historique `tpN/exN` : le worker résout les exercices par
-# `content_catalogue.load_exercise()` et publie une release, toujours. Le
-# rollback est un pointeur `current.json` à réécrire, pas une variable à vider.
+# THE PRIVATE CONTENT AND ITS RELEASES. Since phase 8 there is no more
+# historical `tpN/exN` tree: the worker resolves exercises through
+# `content_catalog.load_exercise()` and always publishes a release. The
+# rollback is a `current.json` pointer to rewrite, not a variable to empty.
 CONTENT = os.environ.get("CTESTER_CONTENT", "/opt/ctester/content")
 PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "/opt/ctester/published")
 BUILD_UNITY = os.environ.get("CTESTER_BUILD_UNITY", "/opt/ctester/build-unity.sh")
@@ -52,55 +52,58 @@ PIDS = os.environ.get("CTESTER_PIDS", "64")
 CPUS = os.environ.get("CTESTER_CPUS", "1")
 SWEEP_AFTER = int(os.environ.get("CTESTER_SWEEP_AFTER", "600"))
 
-# UN VERROU ABANDONNÉ N'EST PAS UN VERROU. `claim()` pose un `.lock` qu'un worker
-# tué -- déploiement, OOM, reboot -- n'emporte pas avec lui : le job reste listé
-# par pending_jobs(), refusé par claim() pour toujours, et l'étudiant regarde
-# « en file d'attente » jusqu'à ce que sweep() efface le répertoire SWEEP_AFTER
-# plus tard. Dix minutes de silence pour une soumission qui n'a jamais échoué.
+# AN ABANDONED LOCK IS NOT A LOCK. `claim()` sets a `.lock` that a killed
+# worker -- deploy, OOM, reboot -- does not take with it: the job stays
+# listed by pending_jobs(), refused by claim() forever, and the student
+# stares at "queued" until sweep() erases the directory SWEEP_AFTER later.
+# Ten minutes of silence for a submission that never failed.
 #
-# LE SEUIL SE DÉDUIT, IL NE SE CHOISIT PAS, et c'est ce qui rend la reprise sûre
-# à N workers : un worker VIVANT ne peut pas tenir un verrou plus longtemps que
-# le job qu'il exécute, or `sandbox()` est plafonné à JOB_TIMEOUT par
-# subprocess. Trois fois cette borne couvre le reste de run_job() -- écriture
-# des cas, extraction des avertissements -- avec une marge que rien ne rend
-# serrée. Un verrou plus vieux que ça n'appartient à personne.
+# THE THRESHOLD IS DERIVED, NOT CHOSEN, and that is what makes reclaiming
+# safe with N workers: a LIVE worker cannot hold a lock longer than the job
+# it is running, since `sandbox()` is capped at JOB_TIMEOUT by subprocess.
+# Three times that bound covers the rest of run_job() -- writing cases,
+# extracting warnings -- with a margin nothing makes tight. A lock older than
+# that belongs to nobody.
 #
-# ET IL RESTE BIEN EN DEÇÀ DE SWEEP_AFTER : l'ordre est tout, un job doit
-# pouvoir être repris AVANT d'être balayé, sinon la reprise n'arrive jamais.
+# AND IT STAYS WELL UNDER SWEEP_AFTER: order is everything, a job must be
+# reclaimable BEFORE being swept, or reclaiming never happens.
 LOCK_STALE = int(os.environ.get("CTESTER_LOCK_STALE", str(3 * JOB_TIMEOUT)))
 
-# UNE reprise, pas une infinité. Un job qui tue son worker à tous les coups --
-# OOM, bogue, panne matérielle -- serait repris en boucle par chaque worker à
-# son tour, qui mourrait dessus à son tour : toute la file s'arrêterait sur une
-# seule soumission. Au-delà, on écrit un verdict d'erreur, que l'étudiant voit
-# au sondage suivant et peut relancer.
+# ONE reclaim, not infinite. A job that kills its worker every single time --
+# OOM, a bug, a hardware fault -- would be reclaimed in a loop by each worker
+# in turn, which would die on it in turn: the whole queue would stall on a
+# single submission. Past that, an error verdict is written, which the
+# student sees on the next poll and can retry.
 LOCK_RETRIES = int(os.environ.get("CTESTER_LOCK_RETRIES", "1"))
 
-# APERÇU AVANT OUVERTURE, pour la machine de l'enseignant. Mettre CTESTER_APERCU
-# à autre chose que "" ou "0" fait tomber le filtre `available_from` : le
-# catalogue publié ET tp_path voient alors tout, y compris ce qui ouvre en
-# novembre. C'est la seule façon d'éprouver un exercice de bout en bout -- coller son
-# corrigé dans la vraie page et lire le vrai verdict -- avant que les étudiants
-# n'y aient accès.
+# PREVIEW BEFORE OPENING, for the instructor's machine. Setting CTESTER_PREVIEW
+# to anything other than "" or "0" drops the `available_from` filter: the
+# published catalog AND tp_path then see everything, including what opens in
+# November. This is the only way to exercise an exercise end to end -- paste
+# its reference solution into the real page and read the real verdict --
+# before students have access.
 #
-# LES DEUX TOMBENT ENSEMBLE, ET C'EST LE POINT : le drapeau devient une DATE
-# (l'an 9999) que `access()` lit à la publication comme `tp_path` la lit avant
-# d'exécuter. Ouvrir le menu sans ouvrir tp_path donnerait un exercice qu'on
-# peut choisir et pas soumettre, ce qui ressemble à une panne.
+# THE TWO FALL TOGETHER, AND THAT IS THE POINT: the flag becomes a DATE (the
+# year 9999) that `access()` reads at publish time the same way `tp_path`
+# reads it before running anything. Opening the menu without opening tp_path
+# would give an exercise one can select but not submit, which looks like an
+# outage.
 #
-# CE N'EST PAS UN RÉGLAGE DE PRODUCTION. Le déploiement ne le définit pas, et
-# publish_catalogue() le dit dans le journal quand il est actif : un worker qui
-# l'aurait hérité par accident ouvrirait le semestre entier d'un coup.
-APERCU = os.environ.get("CTESTER_APERCU", "") not in ("", "0")
+# THIS IS NOT A PRODUCTION SETTING. The deployment does not set it, and
+# publish_catalogue() says so in the log when it is active: a worker that
+# inherited it by accident would open the whole term at once.
+PREVIEW = os.environ.get("CTESTER_PREVIEW", "") not in ("", "0")
 
-# Les réglages de compilation, RELAYÉS et non interprétés : leur sens est dans
-# build-unity.sh / build-io.sh, qui portent aussi leurs valeurs par défaut. Ce
-# qui est passé ici prime, et `docker run` ne propage rien tout seul.
+# Compilation settings, RELAYED and not interpreted: their meaning lives in
+# build-unity.sh / build-io.sh, which also carry their own defaults. What is
+# passed here takes precedence, and `docker run` propagates nothing on its
+# own.
 #
-# ABSENT VEUT DIRE « défaut du script ». Une variable non définie ici n'est pas
-# transmise, plutôt que transmise vide -- vider CTESTER_SANITIZERS est le repli
-# explicite qui désactive les sanitizers, et confondre les deux les couperait
-# par accident dès qu'un worker démarrerait sans son unité systemd.
+# ABSENT MEANS "the script's default". A variable not set here is not passed
+# through at all, rather than passed through empty -- emptying
+# CTESTER_SANITIZERS is the explicit fallback that disables sanitizers, and
+# confusing the two would cut them by accident the moment a worker started
+# without its systemd unit.
 SANDBOX_ENV = {
     k: os.environ[k]
     for k in ("CTESTER_C_STD", "CTESTER_SANITIZERS", "CTESTER_ASAN_OPTIONS",
@@ -113,10 +116,10 @@ FAIL_RE = re.compile(r"^[^\n:]*:\d+:([A-Za-z0-9_]{1,64}):FAIL", re.M)
 INCLUDE_RE = re.compile(r"^[ \t]*#[ \t]*include[ \t]*[<\"]([^>\"\n]+)", re.M)
 NUMBER_RE = re.compile(r"[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?")
 
-# `inf` et `nan` tels que printf les écrit. Les gardes de part et d'autre sont
-# des « pas une lettre », pas des \b : \b considère `é` comme une lettre selon
-# les cas, et « inférieur » ou « nanomètre » dans une invite ne doivent pas
-# déclencher le message. [^\W\d_] = une lettre, Unicode compris.
+# `inf` and `nan` as printf writes them. The guards on either side are "not a
+# letter", not \b: \b treats "é" as a letter inconsistently, and "inférieur"
+# or "nanomètre" in a prompt must not trigger the message. [^\W\d_] = a
+# letter, Unicode included.
 NONFINITE_RE = re.compile(
     r"(?<![^\W\d_])-?(?:inf(?:inity)?|nan)(?![^\W\d_])", re.I)
 
@@ -124,32 +127,33 @@ MAX_GCC_CHARS = 8000
 MAX_FAILED_NAMES = 50
 MAX_CASE_OUTPUT = 600
 
-# Le code de sortie qu'ASan reçoit par ctester_asan_options. Choisi hors de la
-# plage d'Unity, qui retourne SON NOMBRE D'ÉCHECS : un abandon d'ASan sortirait
-# sinon en 1, indistinguable de « un test raté ». Garder les deux en accord.
+# The exit code ASan gets via ctester_asan_options. Chosen outside Unity's
+# range, since Unity returns ITS OWN FAILURE COUNT: an ASan abort would
+# otherwise exit 86... er, exit 1, indistinguishable from "one failed test".
+# Keep the two in agreement.
 ASAN_EXIT = 86
 
-# Plus large que MAX_CASE_OUTPUT : un rapport d'ASan tient en une vingtaine
-# de lignes, et sa PREMIÈRE ligne -- celle qui nomme le fichier et la ligne
-# -- serait perdue si on coupait à la taille d'une sortie de programme.
+# Wider than MAX_CASE_OUTPUT: an ASan report fits in about twenty lines, and
+# its FIRST line -- the one naming the file and line -- would be lost if cut
+# to the size of a program's output.
 MAX_STDERR = 2000
 DEFAULT_TOLERANCE = 0.005
 
 
 # --------------------------------------------------------------------------
-# Mode d'un TP
+# Exercise mode
 # --------------------------------------------------------------------------
 
 MODE_FILES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
 
 
 def detect_mode(tp_dir):
-    """quiz / io / unity / None, d'après le fichier de configuration présent.
+    """quiz / io / unity / None, based on which configuration file is present.
 
-    UN SEUL MÉCANISME POUR LES TROIS MODES. Unity était détecté autrement --
-    par la présence d'un test_*.c -- et ça n'avait pas d'endroit où déclarer un
-    libellé ni la liste des fichiers attendus. Uniformiser coûte un fichier
-    unity.json par TP et supprime une exception.
+    ONE MECHANISM FOR ALL THREE MODES. Unity used to be detected differently
+    -- by the presence of a test_*.c -- and that left nowhere to declare a
+    label or the list of expected files. Unifying costs one unity.json file
+    per exercise and removes an exception.
     """
     for mode, conf in MODE_FILES:
         if os.path.exists(os.path.join(tp_dir, conf)):
@@ -161,31 +165,31 @@ def config_name(mode):
     return dict(MODE_FILES)[mode]
 
 
-# Les noms de fichiers viennent de la CONFIGURATION DES TESTS, écrite par
-# l'enseignant, jamais de l'étudiant. Ils sont quand même validés : une faute de
-# frappe qui produirait « ../../etc/passwd » ne doit pas devenir un chemin.
+# File names come from the TEST CONFIGURATION, written by the instructor,
+# never from the student. They are still validated: a typo that produced
+# "../../etc/passwd" must not become a path.
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 
 
 def declared_files(conf, tp_dir=None):
-    """Les fichiers que l'étudiant doit fournir, [{name, template}].
+    """The files the student must provide, [{name, template}].
 
-    Le nom est IMPOSÉ PAR L'ÉNONCÉ et pas choisi par l'étudiant : à partir du
-    laboratoire 5, il écrit un module `calendrier.h` + `calendrier.c`, et le
-    `#include "calendrier.h"` de son propre code comme celui du fichier de test
-    ne tombent juste que si le fichier porte exactement ce nom. Laisser
-    l'étudiant nommer ses fichiers ne serait pas de la liberté, ce serait une
-    classe d'erreur de plus.
+    The name is IMPOSED BY THE ASSIGNMENT and not chosen by the student:
+    starting at lab 5, they write a `calendrier.h` + `calendrier.c` module,
+    and the `#include "calendrier.h"` in their own code, as in the test
+    file's, only resolves if the file carries exactly that name. Letting the
+    student name their own files would not be freedom, it would be one more
+    error class.
 
-    Par défaut, un seul fichier `submission.c` -- la forme des laboratoires 2 à
-    4, un programme complet dans un seul fichier.
+    By default, a single `submission.c` file -- the shape of labs 2 to 4, a
+    complete program in a single file.
     """
     files = conf.get("files")
     if not files and tp_dir:
-        # CONTENU V2 : les gabarits sont PUBLICS, donc rangés à côté de la
-        # configuration de correction (`public/files.json`) et pas dedans. Le
-        # worker les relit ici -- jamais depuis le réseau, où un nom choisi par
-        # l'étudiant deviendrait un chemin.
+        # V2 CONTENT: templates are PUBLIC, so kept next to the grading
+        # configuration (`public/files.json`) rather than inside it. The
+        # worker reads them back here -- never from the network, where a name
+        # chosen by the student would become a path.
         try:
             with open(os.path.join(tp_dir, os.pardir, "public", "files.json"),
                       encoding="utf-8") as fh:
@@ -210,17 +214,17 @@ def load_config(tp_dir, name):
 
 
 # --------------------------------------------------------------------------
-# Catalogue public -- LA FRONTIÈRE
+# Public catalog -- THE BOUNDARY
 # --------------------------------------------------------------------------
 
 def public_quiz(quiz):
-    """Le quiz débarrassé de son corrigé, tel que le navigateur peut le voir.
+    """The quiz with its answer key stripped, as the browser may see it.
 
-    C'EST LA FONCTION QUI GARDE LE SECRET, et c'est pour ça qu'elle reconstruit
-    un dictionnaire champ par champ au lieu de retirer `answer` d'une copie. Une
-    clé ajoutée au corrigé demain (un commentaire, une variante acceptée) ne
-    fuit donc pas par défaut : elle est simplement absente tant que personne ne
-    l'ajoute ici. test_ctester.py vérifie qu'aucune clé 'answer' ne survit.
+    THIS IS THE FUNCTION THAT KEEPS THE SECRET, and that is why it rebuilds a
+    dict field by field instead of removing `answer` from a copy. A key added
+    to the answer key tomorrow (a comment, an accepted variant) therefore does
+    not leak by default: it is simply absent until someone adds it here.
+    test_ctester.py checks that no 'answer' key survives.
     """
     return {
         "label": quiz.get("label", ""),
@@ -244,68 +248,68 @@ def write_json(path, payload):
 
 
 def publish_catalogue():
-    """Projette le contenu privé en une release, et bascule le pointeur.
+    """Projects private content into a release, and switches the pointer.
 
-    Publié par LE WORKER et pas par Ansible : c'est lui qui a le droit de lire
-    les tests, et surtout « le corrigé ne franchit jamais la frontière »
-    devient une fonction Python qu'un test vérifie, au lieu d'une boucle Jinja
-    que personne ne relit.
+    Published by THE WORKER and not by Ansible: it is the one allowed to read
+    the tests, and above all "the reference solution never crosses the
+    boundary" becomes a Python function a test checks, instead of a Jinja
+    loop nobody rereads.
 
-    Les N workers écrivent le même contenu au démarrage. La course est sans
-    conséquence : une révision EST le hachage de son contenu, donc deux workers
-    écrivent le même répertoire et le même pointeur.
+    The N workers write the same content at startup. The race has no
+    consequence: a revision IS the hash of its content, so two workers write
+    the same directory and the same pointer.
 
-    LÈVE PLUTÔT QUE DE PUBLIER À VIDE si les deux variables manquent. Depuis la
-    phase 8 il n'y a plus d'arborescence historique à lire : un worker mal
-    configuré doit s'arrêter en le disant, pas servir un catalogue vide.
+    RAISES RATHER THAN PUBLISHING EMPTY if both variables are missing. Since
+    phase 8 there is no more historical tree to fall back on: a misconfigured
+    worker must stop and say so, not serve an empty catalog.
     """
-    if APERCU:
-        print("ctester: APERÇU ACTIF -- les exercices pas encore ouverts sont publiés",
+    if PREVIEW:
+        print("ctester: PREVIEW ACTIVE -- exercises not yet open are being published",
               file=sys.stderr, flush=True)
     if not (CONTENT and PUBLISHED):
         raise RuntimeError(
-            "CTESTER_CONTENT et CTESTER_PUBLISHED sont requis pour publier")
-    # Import LOCAL : publish_content lit `public_quiz` ici même, et un import
-    # en tête de fichier fermerait le cycle.
+            "CTESTER_CONTENT and CTESTER_PUBLISHED are required to publish")
+    # LOCAL import: publish_content reads `public_quiz` right here, and an
+    # import at the top of the file would close the cycle.
     import publish_content
-    model = content_catalogue.discover(CONTENT)
-    # L'aperçu est une DATE, pas un second filtre : `access()` reste la seule
-    # lecture d'une release, et se placer en l'an 9999 ouvre tout ce qui est
-    # daté sans toucher à ce qui est archivé.
-    maintenant = datetime.datetime(9999, 1, 1, tzinfo=datetime.timezone.utc) if APERCU else None
+    model = content_catalog.discover(CONTENT)
+    # Preview is a DATE, not a second filter: `access()` stays the only read
+    # of a release, and setting the clock to the year 9999 opens everything
+    # that is dated without touching what is archived.
+    maintenant = datetime.datetime(9999, 1, 1, tzinfo=datetime.timezone.utc) if PREVIEW else None
     publish_content.publish(model, PUBLISHED, now=maintenant)
     return list(model["exercises"].values())
 
 
 def tp_path(exercise_id):
-    """Le répertoire d'assessment d'un exercice. None s'il n'existe pas.
+    """An exercise's assessment directory. None if it does not exist.
 
-    LA SEULE FAÇON DE PASSER D'UN IDENTIFIANT À UN CHEMIN, et elle réapplique la
-    release : le web l'a déjà fait, ce processus est root et ne fait confiance à
-    personne, y compris à notre propre conteneur web.
+    THE ONLY WAY TO GO FROM AN ID TO A PATH, and it re-applies the release:
+    the web tier already did it, this process is root and trusts nobody,
+    including our own web container.
 
-    Le répertoire rendu est `exercises/<id>/assessment` : la même forme qu'un
-    répertoire de TP historique -- configuration, `test_*.c` et
-    `allowed_includes.txt` côte à côte -- donc `detect_mode`, `read_allowed`,
-    `docker_argv` et le bac à sable n'ont jamais eu à changer.
+    The directory returned is `exercises/<id>/assessment`: the same shape as
+    a historical exercise directory -- configuration, `test_*.c` and
+    `allowed_includes.txt` side by side -- so `detect_mode`, `read_allowed`,
+    `docker_argv` and the sandbox never had to change.
     """
-    entry = content_catalogue.load_exercise(CONTENT, exercise_id, tout=APERCU)
+    entry = content_catalog.load_exercise(CONTENT, exercise_id, tout=PREVIEW)
     return entry["path"] if entry else None
 
 
 # --------------------------------------------------------------------------
-# Mode quiz
+# Quiz mode
 # --------------------------------------------------------------------------
 
 def norm_bin(text):
-    """Chiffres binaires, ou None. Accepte les espaces, les _ et le préfixe 0b."""
+    """Binary digits, or None. Accepts spaces, underscores and the 0b prefix."""
     s = re.sub(r"[\s_]", "", str(text)).lower()
     s = re.sub(r"\A0b", "", s)
     return s if s and set(s) <= {"0", "1"} else None
 
 
 def norm_hex(text):
-    """Valeur d'un hexadécimal écrit 1F, 0x1f, 1Fh ou 001f. None si illisible."""
+    """The value of a hex number written 1F, 0x1f, 1Fh or 001f. None if unreadable."""
     s = re.sub(r"[\s_]", "", str(text)).lower()
     s = re.sub(r"\A0x", "", s)
     s = re.sub(r"h\Z", "", s)
@@ -316,9 +320,10 @@ def norm_hex(text):
 
 
 def norm_int(text):
-    # Le signe moins Unicode arrive par copier-coller depuis le PDF de l'énoncé,
-    # où il est écrit "-45". Le refuser serait punir un copier-coller réussi.
-    s = re.sub(r"[\s_]", "", str(text)).replace("\u2212", "-")
+    # The Unicode minus sign arrives via copy-paste from the statement's PDF,
+    # where it is written "-45". Refusing it would punish a successful
+    # copy-paste.
+    s = re.sub(r"[\s_]", "", str(text)).replace("−", "-")
     try:
         return int(s)
     except ValueError:
@@ -326,7 +331,7 @@ def norm_int(text):
 
 
 def check_answer(kind, given, expected):
-    """(juste, indice). L'indice explique une erreur de FORME, jamais la réponse."""
+    """(correct, hint). The hint explains a FORM error, never the answer."""
     if kind == "bin8":
         got, want = norm_bin(given), norm_bin(expected)
         if got is None:
@@ -334,10 +339,10 @@ def check_answer(kind, given, expected):
         if got == want:
             return True, ""
         if want is not None and int(got, 2) == int(want, 2):
-            # La valeur est bonne, l'écriture ne l'est pas. Le dire : l'énoncé
-            # demande 8 bits, et un étudiant qui répond 10111 a compris la
-            # conversion mais pas la consigne. Les deux méritent d'être
-            # distingués, sans donner la réponse pour autant.
+            # The value is right, the notation is not. Say so: the statement
+            # asks for 8 bits, and a student who answers 10111 understood the
+            # conversion but not the instructions. The two deserve to be told
+            # apart, without giving away the answer.
             return False, "bonne valeur, mais l'énoncé demande 8 bits"
         return False, ""
     if kind == "hex8":
@@ -352,7 +357,7 @@ def check_answer(kind, given, expected):
 
 
 def grade_quiz(quiz, answers):
-    """Corrige un quiz. `answers` est {id: texte} tel que soumis."""
+    """Grades a quiz. `answers` is {id: text} as submitted."""
     wrong, total = [], 0
     for question in quiz.get("questions", []):
         total += 1
@@ -364,8 +369,9 @@ def grade_quiz(quiz, answers):
             wrong.append({
                 "id": qid,
                 "label": str(question.get("label", qid)),
-                # Sa propre réponse : avec 40 questions paginées, se rappeler ce
-                # qu'on a tapé demande sinon un aller-retour de deux écrans.
+                # One's own answer: with 40 questions across pages,
+                # remembering what one typed would otherwise take a
+                # round trip across two screens.
                 "given": str(given)[:64],
                 "hint": ("non répondu" if not str(given).strip() else hint),
             })
@@ -379,14 +385,14 @@ def grade_quiz(quiz, answers):
 
 
 # --------------------------------------------------------------------------
-# Mode io
+# io mode
 # --------------------------------------------------------------------------
 
 def extract_numbers(text):
-    """Tous les nombres d'une sortie libre, dans l'ordre.
+    """Every number in a free-form output, in order.
 
-    La virgule décimale est acceptée : `printf("%.2f")` produit un point, mais
-    un étudiant qui formate à la main peut produire une virgule.
+    The decimal comma is accepted: `printf("%.2f")` produces a dot, but a
+    student formatting by hand may produce a comma.
     """
     out = []
     for match in NUMBER_RE.findall(text):
@@ -402,13 +408,13 @@ def close_enough(got, want, tol):
 
 
 def match_subsequence(numbers, expected, tol):
-    """Les valeurs attendues apparaissent-elles dans l'ordre parmi les nombres ?
+    """Do the expected values appear in order among the numbers?
 
-    SOUS-SUITE ET PAS ÉGALITÉ, parce que l'énoncé ne dit jamais quoi afficher :
-    « Surface = 15 cm2 » et « 15 » doivent passer tous les deux, et une
-    invite « Entrez la longueur : » ne doit rien casser. Le prix est un faux
-    positif possible si une invite contient par hasard la valeur attendue --
-    acceptable pour un outil de feedback.
+    SUBSEQUENCE AND NOT EQUALITY, because the statement never dictates
+    exactly what to print: "Surface = 15 cm2" and "15" must both pass, and a
+    prompt like "Enter the length: " must break nothing. The price is a
+    possible false positive if a prompt happens to contain the expected value
+    -- acceptable for a feedback tool.
     """
     index = 0
     for want in expected:
@@ -421,13 +427,13 @@ def match_subsequence(numbers, expected, tol):
 
 
 def fold(text):
-    """Minuscules sans accents, pour comparer un mot à une sortie d'étudiant."""
+    """Lowercase without accents, to compare a word against a student's output."""
     decomposed = unicodedata.normalize("NFKD", text.lower())
     return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 
 def check_case(case, output, tol):
-    """'' si le cas passe, sinon la raison, en français, pour l'étudiant."""
+    """'' if the case passes, else the reason, in French, for the student."""
     folded = fold(output)
     for word in case.get("absent", []):
         if fold(word) in folded:
@@ -435,11 +441,10 @@ def check_case(case, output, tol):
     wanted = case.get("contains")
     if wanted and fold(wanted) not in folded:
         return "la sortie ne contient pas le mot attendu"
-    # Intervalle plutôt que valeur : pour un programme qui tire au hasard, la
-    # sortie n'a pas de valeur attendue, seulement des bornes. « au moins N
-    # nombres dans [min, max] » et pas « tous », parce qu'une invite comme
-    # « Lancer 100 fois » ajoute un 100 que la borne rejetterait sur un
-    # programme parfaitement correct.
+    # A range rather than a value: for a program that draws at random, the
+    # output has no expected value, only bounds. "at least N numbers in
+    # [min, max]" and not "all", because a prompt like "Rolling 100 times"
+    # adds a 100 that the bound would reject on a perfectly correct program.
     borne = case.get("in_range")
     if borne:
         combien = int(case.get("count", 1))
@@ -455,11 +460,11 @@ def check_case(case, output, tol):
         numbers = extract_numbers(output)
         if match_subsequence(numbers, expected, tol):
             return ""
-        # DEUX ÉCHECS TRÈS FRÉQUENTS MÉRITENT LEUR PROPRE MESSAGE. « la sortie
-        # ne contient pas les valeurs attendues » est vrai mais inutile quand la
-        # sortie vaut `inf` ou ne contient aucun chiffre : l'étudiant ne fait
-        # alors pas une erreur de calcul, il lit une variable qui n'a jamais été
-        # remplie, ou il teste le mauvais exercice.
+        # TWO VERY COMMON FAILURES DESERVE THEIR OWN MESSAGE. "the output does
+        # not contain the expected values" is true but useless when the
+        # output is `inf` or has no digits at all: the student is then not
+        # making a math error, they are reading an uninitialized variable, or
+        # testing the wrong exercise.
         if NONFINITE_RE.search(output):
             return ("ta sortie contient inf ou nan : division par zéro, ou une "
                     "variable utilisée alors que sa lecture a échoué. Vérifie "
@@ -469,14 +474,14 @@ def check_case(case, output, tol):
             return ("ta sortie ne contient aucun nombre : vérifie que tu "
                     "affiches bien le résultat, et que c'est le bon exercice")
         if len(numbers) < len(expected):
-            # DÉDUCTION SÛRE, pas une heuristique : une sous-suite de M valeurs
-            # ne peut pas tenir dans moins de M nombres. Quand un exercice en
-            # demande trois et que le programme en affiche deux, c'est presque
-            # toujours un calcul juste et un printf incomplet -- le dire évite
-            # de chercher une erreur de formule qui n'existe pas.
+            # A SAFE DEDUCTION, not a heuristic: a subsequence of M values
+            # cannot fit in fewer than M numbers. When an exercise expects
+            # three and the program prints two, it is almost always a correct
+            # computation and an incomplete printf -- saying so avoids
+            # hunting for a formula error that does not exist.
             #
-            # Le NOMBRE de valeurs attendues n'est pas un secret : il est dans
-            # l'énoncé. Leurs valeurs, elles, ne sortent toujours pas d'ici.
+            # The NUMBER of expected values is not a secret: it is in the
+            # statement. Their values, though, still never leave here.
             return ("ta sortie ne contient que %d nombre%s, or ce cas en attend "
                     "%d : vérifie que tu affiches TOUTES les valeurs demandées "
                     "par l'énoncé" % (len(numbers),
@@ -487,10 +492,11 @@ def check_case(case, output, tol):
 
 
 def split_runs(output, nonce):
-    """Decoupe la sortie du bac a sable en {nom du cas: (texte, code de sortie)}.
+    """Splits the sandbox's output into {case name: (text, exit code)}.
 
-    Le séparateur est un nonce tiré par job, invisible de l'étudiant : sans ça,
-    un programme qui imprime le marqueur se fabriquerait des cas réussis.
+    The separator is a nonce drawn per job, invisible to the student: without
+    it, a program that prints the marker would manufacture passing cases for
+    itself.
     """
     runs, name, buf, err, dans_err = {}, None, [], [], False
     for line in output.splitlines():
@@ -510,14 +516,14 @@ def split_runs(output, nonce):
 
 
 def avec_avertissements(resultat, avertissements):
-    """Attache les avertissements du compilateur au verdict, s'il y en a.
+    """Attaches the compiler's warnings to the verdict, if any.
 
-    Attachés MÊME EN CAS DE RÉUSSITE : c'est là qu'ils sont les plus utiles, et
-    c'est aussi le seul moment où l'étudiant a le temps de les lire. La page se
-    charge de ne pas les faire passer pour un échec.
+    Attached EVEN ON SUCCESS: that is when they are most useful, and also the
+    only time the student has the leisure to read them. The page takes care
+    not to make them look like a failure.
 
-    Pas attachés à une erreur de compilation : la stderr complète est déjà dans
-    le champ `gcc`, les répéter n'ajouterait rien.
+    Not attached to a compile error: the full stderr is already in the `gcc`
+    field, repeating it would add nothing.
     """
     if avertissements and resultat.get("status") != "compile_error":
         resultat["warnings"] = avertissements
@@ -525,12 +531,11 @@ def avec_avertissements(resultat, avertissements):
 
 
 def extraire_avertissements(output, nonce):
-    """Sépare le bloc d'avertissements gcc du reste de la sortie.
+    """Splits the gcc warnings block off from the rest of the output.
 
-    Rend (avertissements, reste). Le bloc est RETIRÉ du reste : les parseurs
-    suivants lisent le résumé Unity et les cas avec des expressions
-    rationnelles, et un avertissement contenant `:FAIL` ou un nombre les
-    tromperait.
+    Returns (warnings, rest). The block is REMOVED from the rest: downstream
+    parsers read the Unity summary and the cases with regular expressions,
+    and a warning containing `:FAIL` or a number would fool them.
     """
     debut, fin = nonce + " WARN\n", nonce + " ENDWARN"
     i = output.find(debut)
@@ -544,10 +549,10 @@ def extraire_avertissements(output, nonce):
 
 
 def verdict_io(rc, output, cases, nonce, tol):
-    # Compilation (10/11/12) et plafond du conteneur entier (124/137) : mêmes
-    # codes que le mode unity, et un seul message. Le 137 ne peut venir que du
-    # chronomètre EXTERNE -- build-io.sh sort toujours 0 après sa boucle, et le
-    # dépassement d'un cas isolé se lit dans son marqueur de fin, pas ici.
+    # Compilation (10/11/12) and the whole container's cap (124/137): the
+    # same codes as unity mode, and a single message. 137 can only come from
+    # the EXTERNAL timer -- build-io.sh always exits 0 after its loop, and a
+    # single case's timeout is read from its own end marker, not here.
     if rc in (10, 11, 12, 124, 137):
         return verdict(rc, output)
     runs = split_runs(output, nonce)
@@ -563,9 +568,9 @@ def verdict_io(rc, output, cases, nonce, tol):
             reason = ("le programme a été interrompu : boucle infinie, ou il "
                       "attend plus de valeurs qu'il n'en reçoit")
         elif code == ASAN_EXIT:
-            # ICI le rapport EST montré, par la stderr du cas juste en dessous :
-            # ce conteneur-là ne monte aucun test, il n'a rien à taire. ASan
-            # nomme le fichier et la ligne de l'étudiant.
+            # HERE the report IS shown, through the case's own stderr right
+            # below: this particular container mounts no test, it has
+            # nothing to hide. ASan names the student's file and line.
             reason = ("le programme a débordé de la mémoire qu'il a réservée "
                       "(voir le rapport ci-dessous : il nomme la ligne)")
         elif code != 0:
@@ -575,15 +580,15 @@ def verdict_io(rc, output, cases, nonce, tol):
         if reason:
             failed.append({
                 "case": number,
-                # Les ENTRÉES sont montrées (l'étudiant a la formule, elles lui
-                # servent à déboguer), la valeur ATTENDUE ne l'est jamais : elle
-                # inviterait à écrire un printf de constantes.
+                # INPUTS are shown (the student has the formula, they use
+                # them to debug), the EXPECTED value never is: it would
+                # invite writing a printf of constants.
                 "stdin": case.get("stdin", ""),
                 "stdout": text[:MAX_CASE_OUTPUT],
-                # LES NOMBRES QUE LE JUGE A VUS. L'appariement en sous-suite
-                # était une boîte noire : un étudiant qui écrit « 1 234 » ou
-                # « 3,5 » ne pouvait pas deviner comment sa ligne avait été
-                # découpée. C'est sa sortie, relue à voix haute.
+                # THE NUMBERS THE JUDGE SAW. Subsequence matching used to be
+                # a black box: a student writing "1 234" or "3,5" could not
+                # guess how their line had been split. This is their own
+                # output, read back aloud.
                 "nombres": extract_numbers(text)[:20],
                 "stderr": err[:MAX_STDERR],
                 "reason": reason,
@@ -598,19 +603,19 @@ def verdict_io(rc, output, cases, nonce, tol):
 
 
 # --------------------------------------------------------------------------
-# Bac a sable
+# Sandbox
 # --------------------------------------------------------------------------
 
 def forbidden_includes(code, allowed):
-    """Les #include de la soumission qui ne sont pas dans la liste blanche.
+    """The submission's #include directives that are not on the allow-list.
 
-    `allowed` à None (pas de fichier allowed_includes.txt pour ce TP) désactive
-    la vérification.
+    `allowed` set to None (no allowed_includes.txt file for this exercise)
+    disables the check.
 
-    ponytail: une regex sur le texte brut. Elle voit un #include dans un
-    commentaire ou une chaîne, et ne voit pas un #include produit par macro.
-    Les deux sont hors de portée d'un étudiant de première session, et un faux
-    positif coûte un message d'erreur clair, pas une mauvaise note.
+    ponytail: a regex over the raw text. It sees a #include inside a comment
+    or a string, and misses one produced by a macro. Both are out of reach of
+    a first-term student, and a false positive costs a clear error message,
+    not a bad grade.
     """
     if allowed is None:
         return []
@@ -627,26 +632,26 @@ def read_allowed(tp_dir):
 
 
 def unity_dir():
-    """Unity est PARTAGÉ par tous les exercices, donc hors de l'un d'eux."""
+    """Unity is SHARED by every exercise, hence kept outside any one of them."""
     return os.path.join(CONTENT, "shared", "unity")
 
 
 def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
-    """La ligne de commande du bac à sable.
+    """The sandbox's command line.
 
-    Chaque option ferme une porte, et aucune n'est décorative :
-      --network=none      rien à exfiltrer, rien à scanner, pas de relais de spam
-      --pids-limit        la fork bomb est LE classique du TP de C
-      --read-only + tmpfs le conteneur ne survit à rien, y compris à lui-même
-      --cap-drop=ALL      aucune capability, même pas celles par défaut
-      --user 65534        jamais root, même à l'intérieur
-      --rm                un conteneur = un job = jetable, jamais réutilisé
-      --runtime=runsc     le code natif tape sur un noyau réimplémenté en
-                          espace utilisateur, pas sur celui du Dell
+    Each option closes a door, and none is decorative:
+      --network=none      nothing to exfiltrate, nothing to scan, no spam relay
+      --pids-limit        a fork bomb is THE classic C-lab mistake
+      --read-only + tmpfs the container survives nothing, including itself
+      --cap-drop=ALL      no capability, not even the default ones
+      --user 65534        never root, not even inside
+      --rm                one container = one job = disposable, never reused
+      --runtime=runsc     native code hits a kernel reimplemented in user
+                          space, not the Dell's own
 
-    EN MODE io, LE RÉPERTOIRE DES TESTS N'EST PAS MONTÉ DU TOUT. Les entrées ont
-    déjà été extraites dans le répertoire du job ; io.json, qui contient les
-    valeurs attendues, n'entre jamais dans le conteneur.
+    IN io MODE, THE TEST DIRECTORY IS NOT MOUNTED AT ALL. Inputs have already
+    been extracted into the job's own directory; io.json, which holds the
+    expected values, never enters the container.
     """
     argv = [
         "docker", "run", "--rm", "--name", name,
@@ -663,17 +668,17 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
         "--user", "65534:65534",
         "--ulimit", "fsize=8388608",
         "--ulimit", "nofile=64",
-        # LE RÉPERTOIRE, PAS UN FICHIER. Depuis le laboratoire 5 une soumission
-        # est un module -- calendrier.h ET calendrier.c -- et `#include
-        # "calendrier.h"` ne résout que si les deux sont côte à côte. Un montage
-        # par fichier ne donnerait pas ça.
+        # THE DIRECTORY, NOT A FILE. Since lab 5 a submission is a module --
+        # calendrier.h AND calendrier.c -- and `#include "calendrier.h"` only
+        # resolves if both sit side by side. A per-file mount would not give
+        # that.
         "-v", job_dir + "/src:/in/src:ro",
     ]
-    # Le nonce est passé DANS LES DEUX MODES : il séparait les cas en io, il
-    # encadre aussi le bloc d'avertissements du compilateur, qui existe partout.
+    # The nonce is passed IN BOTH MODES: it used to only separate io cases, it
+    # now also frames the compiler warnings block, which exists everywhere.
     argv += ["-e", "CTESTER_NONCE=" + nonce]
-    # Les mêmes dans les deux modes : le dialecte, les sanitizers et les
-    # chronomètres ne dépendent pas de la présence de secrets dans /in.
+    # The same in both modes: the dialect, the sanitizers and the timers do
+    # not depend on whether /in holds secrets.
     for key, value in SANDBOX_ENV.items():
         argv += ["-e", key + "=" + value]
     if mode == "io":
@@ -691,23 +696,23 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
 
 
 def parse_unity(out):
-    """Extrait le verdict de la sortie Unity. None si elle n'a pas de résumé.
+    """Extracts the verdict from Unity's output. None if it has no summary.
 
-    CETTE ENTRÉE N'EST PAS FIABLE. Le code étudiant tourne dans le même
-    processus que les tests et peut écrire ce qu'il veut sur stdout, y compris
-    imiter Unity. On ne renvoie donc que ce que les expressions rationnelles
-    ci-dessus acceptent : des entiers, et des noms de test réduits à
-    [A-Za-z0-9_] -- jamais le champ MESSAGE d'une ligne FAIL, qui contient la
-    valeur attendue par le test et donc le test lui-même.
+    THIS INPUT IS NOT TRUSTED. Student code runs in the same process as the
+    tests and can write whatever it wants to stdout, including imitating
+    Unity. So only what the regular expressions above accept is ever
+    returned: integers, and test names reduced to [A-Za-z0-9_] -- never a
+    FAIL line's MESSAGE field, which carries the value the test expected and
+    therefore the test itself.
 
-    ponytail: un `printf` bien placé peut fabriquer un faux « 0 Failures ».
-    C'est inhérent au fait de lier le code étudiant aux tests, ce service est du
-    feedback et pas de la notation, et le README le dit. Ne pas essayer de
-    durcir ça ici.
+    ponytail: a well-placed `printf` can manufacture a fake "0 Failures".
+    That is inherent to running student code linked with the tests, this
+    service is feedback and not grading, and the README says so. Do not try
+    to harden this here.
     """
     match = None
     for match in SUMMARY_RE.finditer(out):
-        pass  # le DERNIER résumé : celui qu'Unity écrit en sortant
+        pass  # the LAST summary: the one Unity writes on its way out
     if match is None:
         return None
     total, failures, ignored = (int(g) for g in match.groups())
@@ -721,7 +726,7 @@ def parse_unity(out):
 
 
 def verdict(rc, out):
-    """Traduit un code de sortie de build.sh en réponse pour l'étudiant."""
+    """Translates one of build.sh's exit codes into a response for the student."""
     if rc == 10:
         return {
             "status": "compile_error",
@@ -729,9 +734,9 @@ def verdict(rc, out):
             "gcc": out[:MAX_GCC_CHARS],
         }
     if rc == 11:
-        # Volontairement vague : le détail citerait les tests. Les deux causes
-        # de loin les plus fréquentes sont nommées, ce qui suffit à débloquer
-        # sans rien révéler des cas de test.
+        # Deliberately vague: the detail would quote the tests. The two by
+        # far most frequent causes are named, which is enough to unblock
+        # without revealing anything about the test cases.
         return {
             "status": "link_error",
             "message": (
@@ -747,11 +752,11 @@ def verdict(rc, out):
             "message": "La compilation a été trop longue et a été abandonnée.",
         }
     if rc == ASAN_EXIT:
-        # LE FAIT SANS LE RAPPORT. build-unity.sh a jeté la sortie d'ASan parce
-        # que sa pile d'appels nomme la fonction de test appelante. Il reste
-        # qu'un débordement mémoire est infiniment plus actionnable qu'un
-        # « segfault » : on nomme la CLASSE d'erreur et les endroits où la
-        # chercher, sans une ligne ni un nom qui vienne des tests.
+        # THE FACT WITHOUT THE REPORT. build-unity.sh discarded ASan's output
+        # because its call stack names the calling test function. Still, a
+        # memory overflow is infinitely more actionable than a bare
+        # "segfault": the error CLASS is named along with where to look for
+        # it, without a single line or name coming from the tests.
         return {
             "status": "memory_error",
             "message": (
@@ -785,7 +790,7 @@ def verdict(rc, out):
 
 
 def sandbox(job_dir, tp_dir, mode, nonce=""):
-    """Lance le conteneur et rend (code de sortie, sortie standard)."""
+    """Launches the container and returns (exit code, standard output)."""
     name = "ctester-" + os.path.basename(job_dir)[:16]
     try:
         done = subprocess.run(
@@ -793,74 +798,74 @@ def sandbox(job_dir, tp_dir, mode, nonce=""):
             capture_output=True, text=True, errors="replace",
             timeout=JOB_TIMEOUT, check=False,
         )
-        # gcc cite ses fichiers par leur chemin DANS le conteneur. L'étudiant
-        # n'a jamais vu /in/src et n'a pas à le voir : il reconnaît son fichier
-        # par son nom, « submission.c:9:13 ».
+        # gcc cites its files by their path INSIDE the container. The student
+        # never saw /in/src and does not need to: they recognize their file
+        # by its name, "submission.c:9:13".
         return done.returncode, done.stdout.replace("/in/src/", "")
     except subprocess.TimeoutExpired:
-        # `docker run --rm` ne suffit pas : tuer le CLIENT docker laisse le
-        # conteneur tourner. Sans ce rm -f, un job pathologique garde un coeur
-        # du Dell jusqu'au prochain redémarrage du démon.
+        # `docker run --rm` is not enough: killing the docker CLIENT leaves
+        # the container running. Without this rm -f, a pathological job holds
+        # onto a Dell core until the daemon's next restart.
         subprocess.run(["docker", "rm", "-f", name], capture_output=True,
                        check=False)
         return 137, ""
 
 
 # --------------------------------------------------------------------------
-# Cache de verdicts -- LA FILE NE PAIE PAS DEUX FOIS LE MÊME CODE
+# Verdict cache -- THE QUEUE DOES NOT PAY TWICE FOR THE SAME CODE
 # --------------------------------------------------------------------------
 #
-# Pendant un TP, beaucoup de jobs recompilent un code déjà jugé : le même
-# étudiant qui resoumet, le gabarit non modifié, le copier-coller. Un verdict
-# déjà calculé est rendu ici en quelques millisecondes, donc la file se vide au
-# lieu de se remplir. Le job passe toujours par le spool -- `/submit`, les
-# quotas et QUEUE_MAX ne changent pas, et le conteneur web ne gagne aucune
-# surface.
+# During a lab, many jobs recompile code that has already been graded: the
+# same student resubmitting, the unmodified template, copy-paste. An
+# already-computed verdict is returned here in a few milliseconds, so the
+# queue empties instead of filling up. The job still always goes through the
+# spool -- `/submit`, quotas and QUEUE_MAX are unchanged, and the web
+# container gains no extra surface.
 #
-# LE CACHE VIT DANS LE WORKER, ET C'EST STRUCTUREL. La révision publiée
-# (`publish_content.revision()`) ne hache que la PROJECTION PUBLIQUE : corriger
-# un `test_*.c` ou un `case` de io.json ne la change pas. Une clé fondée dessus
-# servirait l'ancien verdict après une correction de test. Seul ce processus
-# monte CTESTER_CONTENT et peut empreindre `assessment/` lui-même.
+# THE CACHE LIVES IN THE WORKER, AND THAT IS STRUCTURAL. The published
+# revision (`publish_content.revision()`) only hashes the PUBLIC PROJECTION:
+# fixing a `test_*.c` or a `case` in io.json does not change it. A key based
+# on it would serve the old verdict after a test fix. Only this process
+# mounts CTESTER_CONTENT and can fingerprint `assessment/` itself.
 #
-# LA NORMALISATION NE TOUCHE QUE LA CLÉ, jamais la valeur ni ce qui est
-# compilé : le juge écrit toujours les octets exacts de l'étudiant dans `src/`.
-# Un bogue de `normaliser_c()` ne peut donc produire qu'un mauvais hit de cache
-# -- jamais une compilation faussée, jamais un code d'étudiant mutilé.
+# NORMALIZATION ONLY TOUCHES THE KEY, never the value nor what gets compiled:
+# the judge always writes the student's exact bytes to `src/`. A bug in
+# `normaliser_c()` can therefore only produce a bad cache hit -- never a
+# miscompiled build, never mangled student code.
 #
-# LE MAGASIN NE PÉRIME PAS, IL SE REMPLIT. Une entrée dont la clé porte
-# l'empreinte du juge ne peut pas devenir fausse -- un test corrigé la rend
-# inatteignable, pas mensongère. On n'évince donc jamais par âge, seulement
-# pour la place, et on jette alors les moins récemment SERVIES.
+# THE STORE NEVER GOES STALE, IT FILLS UP. An entry whose key carries the
+# judge's fingerprint cannot become wrong -- a fixed test makes it
+# unreachable, not misleading. So eviction never happens by age, only for
+# space, and then the least recently SERVED entries are dropped.
 
 CACHE_DIR = "cache"
-# LE MAGASIN DOIT TENIR UN SEMESTRE, pas une séance : en semaine 4, les
-# exercices de la semaine 1 sont rouverts pour réviser l'intra, et une entrée
-# écrite en septembre est toujours juste tant que son test n'a pas bougé.
-# Ordre de grandeur : 27 étudiants x 73 exercices x ~10 soumissions distinctes.
-# Un verdict fait quelques kilo-octets (les sorties sont bornées à
-# MAX_GCC_CHARS / MAX_CASE_OUTPUT / MAX_STDERR), donc ~40 Mo, ~200 Mo au pire.
-# CTESTER_CACHE_MAX=0 l'éteint sans redéployer : c'est le rollback.
+# THE STORE MUST LAST A SEMESTER, not one session: in week 4, week 1's
+# exercises reopen to review for the midterm, and an entry written in
+# September is still correct as long as its test has not moved. Order of
+# magnitude: 27 students x 73 exercises x ~10 distinct submissions. A verdict
+# is a few kilobytes (output is bounded by MAX_GCC_CHARS / MAX_CASE_OUTPUT /
+# MAX_STDERR), so ~40 MB, ~200 MB worst case. CTESTER_CACHE_MAX=0 turns it off
+# without redeploying: that is the rollback.
 CACHE_MAX = int(os.environ.get("CTESTER_CACHE_MAX", "20000"))
 
-# CE QUI NE SE MET JAMAIS EN CACHE, parce que ce n'est pas une fonction du
-# code. Les trois plafonds (JOB_TIMEOUT, COMPILE_TIMEOUT, RUN_TIMEOUT) sont du
-# temps mural sous gVisor : un code limite passe ou échoue selon la charge du
-# Dell. Geler un ÉCHEC de malchance enfermerait l'étudiant, qui ne pourrait
-# plus jamais passer. `error` est une panne du juge, pas un verdict.
+# WHAT NEVER GOES INTO THE CACHE, because it is not a function of the code.
+# The three caps (JOB_TIMEOUT, COMPILE_TIMEOUT, RUN_TIMEOUT) are wall-clock
+# time under gVisor: borderline code passes or fails depending on the Dell's
+# load. Freezing a FAILURE born of bad luck would lock the student out,
+# unable to ever pass. `error` is a judge malfunction, not a verdict.
 JAMAIS_EN_CACHE = frozenset(("timeout", "compile_timeout", "error"))
 
 
-# UN LEXEUR C, PAS UN FORMATEUR ET PAS UN PARSEUR. clang-format ne retire pas
-# les commentaires et garde les lignes vides : il ne peut pas rendre la même
-# clé pour un code espacé autrement. Un AST demanderait un vrai parseur C sur
-# une entrée hostile, et n'ajouterait au flux de jetons que l'insensibilité aux
-# parenthèses redondantes -- deux étudiants indépendants diffèrent de toute
-# façon par leurs identifiants.
+# A C LEXER, NOT A FORMATTER AND NOT A PARSER. clang-format does not strip
+# comments and keeps blank lines: it cannot produce the same key for code
+# spaced differently. An AST would require a real C parser over hostile
+# input, and would only add insensitivity to redundant parentheses to the
+# token stream -- two independent students differ by their identifiers
+# regardless.
 #
-# L'ORDRE DES ALTERNATIVES EST LA CORRECTION : chaîne et caractère AVANT le
-# reste, sans quoi le `//` de `printf("http://x")` couperait la ligne en
-# commentaire et deux programmes distincts pourraient partager une clé.
+# THE ORDER OF ALTERNATIVES IS THE CORRECTNESS: string and character BEFORE
+# the rest, or the `//` in `printf("http://x")` would cut the line into a
+# comment and two distinct programs could share a key.
 _LEX = re.compile(r"""
       (?P<bloc>/\*.*?\*/)
     | (?P<ligne>//(?:[^\n\\]|\\.)*)
@@ -875,20 +880,20 @@ _CARACTERE_DE_MOT = re.compile(r"[A-Za-z0-9_]")
 
 
 def normaliser_c(source):
-    """Le code réduit à ses jetons : même clé quel que soit l'habillage.
+    """Code reduced to its tokens: the same key regardless of formatting.
 
-    Commentaires retirés, indentation et lignes vides sans effet. Un espace
-    n'est gardé que là où il SÉPARE deux jetons (`int x` ne doit pas devenir
-    `intx`), et un commentaire compte comme un tel séparateur.
+    Comments removed, indentation and blank lines have no effect. A space is
+    only kept where it SEPARATES two tokens (`int x` must not become `intx`),
+    and a comment counts as such a separator.
 
-    LES DIRECTIVES GARDENT LEUR FIN DE LIGNE : sans elle, `#define A 1` et
-    `#define B 2` fusionneraient en une seule ligne, et deux programmes
-    distincts pourraient se retrouver sur la même clé.
+    DIRECTIVES KEEP THEIR LINE ENDING: without it, `#define A 1` and
+    `#define B 2` would merge into a single line, and two distinct programs
+    could end up sharing the same key.
     """
     out = []
-    espace = False     # un blanc ou un commentaire attend d'être peut-être émis
-    directive = False  # on est dans une ligne `#...`
-    debut = True       # rien d'émis encore sur cette ligne source
+    espace = False     # a blank or a comment is waiting to possibly be emitted
+    directive = False  # currently inside a `#...` line
+    debut = True       # nothing emitted yet on this source line
     for m in _LEX.finditer(source):
         genre, texte = m.lastgroup, m.group()
         if genre in ("bloc", "ligne", "blanc"):
@@ -912,9 +917,9 @@ def normaliser_c(source):
 
 
 def _hacher_octets(condensat, blob):
-    """Longueur PUIS contenu : sans le préfixe, `ab` + `c` et `a` + `bc`
-    donneraient le même condensat, et deux jeux de fichiers distincts
-    pourraient partager une clé."""
+    """Length THEN content: without the prefix, `ab` + `c` and `a` + `bc`
+    would produce the same digest, and two distinct file sets could share a
+    key."""
     condensat.update(str(len(blob)).encode("ascii") + b":")
     condensat.update(blob)
 
@@ -929,7 +934,7 @@ def _hacher_fichier(condensat, chemin):
 
 def _hacher_arbre(condensat, racine):
     for dossier, sous, fichiers in os.walk(racine):
-        sous.sort()  # l'ordre de os.walk n'est pas garanti, la clé doit l'être
+        sous.sort()  # os.walk's order is not guaranteed, the key must be
         for nom in sorted(fichiers):
             chemin = os.path.join(dossier, nom)
             rel = os.path.relpath(chemin, racine).replace(os.sep, "/")
@@ -938,24 +943,24 @@ def _hacher_arbre(condensat, racine):
 
 
 def empreinte_juge(exercise_id, tp_dir, mode):
-    """Tout ce qui décide du verdict SAUF le code de l'étudiant.
+    """Everything that decides the verdict EXCEPT the student's code.
 
-    C'est ce qui rend l'invalidation automatique : un `test_*.c` corrigé par le
-    tick de cinq minutes change l'empreinte, donc la clé, donc le verdict est
-    recalculé sans que personne n'ait à vider quoi que ce soit.
+    This is what makes invalidation automatic: a `test_*.c` fixed by the
+    five-minute tick changes the fingerprint, therefore the key, therefore
+    the verdict gets recomputed with nobody having to clear anything.
 
-    `runner.py` s'y hache LUI-MÊME : `verdict_io`, `parse_unity` et la
-    tolérance par défaut vivent ici, et une version de cache à incrémenter à la
-    main serait oubliée exactement le jour où elle compte.
+    `runner.py` hashes ITSELF here: `verdict_io`, `parse_unity` and the
+    default tolerance live in it, and a cache version to bump by hand would
+    be forgotten on exactly the day it matters.
     """
     condensat = hashlib.sha256()
     _hacher_octets(condensat, ("%s|%s" % (exercise_id, mode)).encode("utf-8"))
     _hacher_arbre(condensat, tp_dir)
     if mode == "unity":
-        # Unity est PARTAGÉ : monter sa version change tous les verdicts.
+        # Unity is SHARED: mounting a different version changes every verdict.
         _hacher_arbre(condensat, unity_dir())
-    # Les gabarits sont publics donc HORS de assessment/, et ils décident des
-    # noms écrits sur disque (`declared_files`).
+    # Templates are public so kept OUTSIDE of assessment/, and they decide the
+    # names written to disk (`declared_files`).
     _hacher_fichier(condensat,
                     os.path.join(tp_dir, os.pardir, "public", "files.json"))
     _hacher_fichier(condensat, BUILD_UNITY if mode == "unity" else BUILD_IO)
@@ -967,11 +972,12 @@ def empreinte_juge(exercise_id, tp_dir, mode):
 
 
 def signature(exercise_id, tp_dir, mode, conf, sent, empreinte=None):
-    """La clé de cache : l'empreinte du juge, plus le code normalisé.
+    """The cache key: the judge's fingerprint, plus the normalized code.
 
-    `empreinte` est celle d'un appel précédent, RECOPIÉE et non consommée : elle
-    ne dépend pas du code soumis, et la recalculer pour chaque job d'une rafale
-    referait le même parcours de `assessment/` cinquante fois de suite.
+    `empreinte` is that of a previous call, COPIED rather than consumed: it
+    does not depend on the submitted code, and recomputing it for every job
+    in a burst would redo the same walk of `assessment/` fifty times in a
+    row.
     """
     condensat = (empreinte or empreinte_juge(exercise_id, tp_dir, mode)).copy()
     for declared in declared_files(conf, tp_dir):
@@ -983,14 +989,14 @@ def signature(exercise_id, tp_dir, mode, conf, sent, empreinte=None):
 
 
 def cache_lire(sig):
-    """Le verdict rangé sous cette clé, et ON MARQUE QU'IL A SERVI.
+    """The verdict stored under this key, and MARKS IT AS SERVED.
 
-    L'`utime` est ce qui rend l'éviction juste : sans lui, l'ancienneté d'une
-    entrée serait celle de son ÉCRITURE, et l'exercice de la semaine 1 que
-    trente étudiants rouvrent pour réviser l'intra en semaine 4 serait le
-    premier jeté -- précisément parce qu'il est vieux, alors qu'il est celui qui
-    sert. « Récemment servi » et « souvent servi » ne se distinguent pas ici :
-    ce qui sert souvent est toujours récent.
+    The `utime` call is what makes eviction fair: without it, an entry's age
+    would be that of its WRITE, and week 1's exercise, which thirty students
+    reopen to review for the midterm in week 4, would be the first dropped --
+    precisely because it is old, when it is in fact the one being served.
+    "Recently served" and "often served" cannot be told apart here: what
+    serves often is always recent.
     """
     if CACHE_MAX <= 0:
         return None
@@ -1005,27 +1011,27 @@ def cache_lire(sig):
     try:
         os.utime(chemin)
     except OSError:
-        pass  # une date non posée coûte une entrée jetée trop tôt, rien de plus
+        pass  # a date not set costs one entry dropped too early, nothing more
     return verdict
 
 
 def _elaguer_cache(dossier):
-    """Jette les plus anciennement SERVIES jusqu'à repasser sous le plafond.
+    """Drops the least recently SERVED entries until back under the cap.
 
-    PAS DE TTL, ET C'EST VOULU : une entrée ne périme pas. Sa clé porte
-    l'empreinte du juge, donc un test corrigé la rend inatteignable d'elle-même
-    plutôt que fausse. On ne jette que pour la place, jamais pour l'âge -- une
-    entrée d'octobre encore juste en décembre est une compilation économisée.
+    NO TTL, AND THAT IS INTENTIONAL: an entry does not expire. Its key
+    carries the judge's fingerprint, so a fixed test makes it unreachable on
+    its own rather than wrong. Eviction only happens for space, never for
+    age -- an October entry still correct in December is a compilation saved.
 
-    On descend un cran SOUS le plafond (`CACHE_ELAGAGE` de marge) pour ne pas
-    réélaguer à l'écriture suivante.
+    Drops one notch BELOW the cap (a margin of `CACHE_PRUNE_EVERY`) to avoid
+    re-pruning on the very next write.
     """
     try:
         entrees = [(entree.stat().st_mtime, entree.path)
                    for entree in os.scandir(dossier) if entree.is_file()]
     except OSError:
         return
-    surplus = len(entrees) - CACHE_MAX + CACHE_ELAGAGE
+    surplus = len(entrees) - CACHE_MAX + CACHE_PRUNE_EVERY
     if surplus <= 0:
         return
     entrees.sort()
@@ -1034,16 +1040,16 @@ def _elaguer_cache(dossier):
             os.remove(chemin)
         except OSError:
             pass
-    print("ctester: cache élagué de %d entrées (reste %d)"
+    print("ctester: cache pruned %d entries (%d left)"
           % (surplus, len(entrees) - surplus), file=sys.stderr, flush=True)
 
 
-# Combien d'écritures entre deux contrôles de taille. `os.scandir` sur des
-# dizaines de milliers de fichiers coûte trop cher pour être payé à CHAQUE
-# verdict mis en cache -- c'était le défaut du `len(os.listdir())` d'avant, qui
-# ne se voyait pas à 5000 entrées et se serait vu à 50 000. Le magasin dépasse
-# donc son plafond de cette marge au plus, par worker.
-CACHE_ELAGAGE = int(os.environ.get("CTESTER_CACHE_ELAGAGE", "500"))
+# How many writes between two size checks. `os.scandir` over tens of
+# thousands of files costs too much to pay on EVERY cached verdict -- that
+# was the flaw of the old `len(os.listdir())`, invisible at 5,000 entries and
+# would have shown at 50,000. The store therefore overshoots its cap by at
+# most this margin, per worker.
+CACHE_PRUNE_EVERY = int(os.environ.get("CTESTER_CACHE_PRUNE_EVERY", "500"))
 _ecritures = [0]
 
 
@@ -1055,27 +1061,27 @@ def cache_ecrire(sig, verdict):
         os.makedirs(dossier, exist_ok=True)
         write_json(os.path.join(dossier, sig + ".json"), verdict)
     except OSError:
-        return  # un cache qui n'écrit pas n'est pas une panne de juge
+        return  # a cache that fails to write is not a judge failure
     _ecritures[0] += 1
-    if _ecritures[0] >= CACHE_ELAGAGE:
+    if _ecritures[0] >= CACHE_PRUNE_EVERY:
         _ecritures[0] = 0
         _elaguer_cache(dossier)
 
 
 def cachable(conf, verdict):
-    """`"cache": false` dans io.json / unity.json pour un exercice dont le
-    PROGRAMME est aléatoire (tp4-ex1 tire des dés, tp4-ex2 est un test
-    statistique sur un million de lancers) : sans ça, un échec de malchance
-    serait gelé et l'étudiant ne pourrait plus jamais passer."""
+    """`"cache": false` in io.json / unity.json for an exercise whose PROGRAM
+    is randomized (tp4-ex1 rolls dice, tp4-ex2 is a statistical test over a
+    million rolls): without it, a failure born of bad luck would be frozen
+    and the student could never pass again."""
     return (bool(conf.get("cache", True))
             and isinstance(verdict, dict)
             and verdict.get("status") not in JAMAIS_EN_CACHE)
 
 
-# La signature d'un job en attente, calculée une fois. Un job est immuable dès
-# que `job.json` est posé -- mais l'empreinte du juge, elle, ne l'est pas : un
-# test corrigé pendant que le job attend doit changer sa clé. Le mémo porte donc
-# les deux, et se réduit à chaque passe aux jobs encore en file.
+# A pending job's signature, computed once. A job is immutable once
+# `job.json` is written -- but the judge's fingerprint is not: a test fixed
+# while the job waits must change its key. The memo therefore carries both,
+# and shrinks on every pass to the jobs still in the queue.
 _SIGS = {}
 
 
@@ -1097,26 +1103,27 @@ def _sig_du_job(job_dir, exercise_id, tp_dir, mode, conf, empreinte):
 
 
 def servir_les_connus():
-    """Rend D'ABORD tous les verdicts déjà connus, avant d'en compiler un seul.
+    """Returns EVERY already-known verdict FIRST, before compiling a single one.
 
-    LE FIFO EST CE QUI COÛTE, pas le hachage. Sans cette passe, un doublon au
-    rang 42 attend derrière quarante et une compilations -- cinq minutes -- un
-    verdict qui est déjà sur le disque, et il occupe pendant tout ce temps une
-    place que `QUEUE_MAX` compte. Elle coûte une signature par job en attente,
-    moins d'une milliseconde, contre les quinze secondes qu'elle évite.
+    THE FIFO IS WHAT COSTS, not the hashing. Without this pass, a duplicate
+    at rank 42 waits behind forty-one compilations -- five minutes -- for a
+    verdict already on disk, occupying a slot QUEUE_MAX counts the whole
+    time. It costs one signature per pending job, under a millisecond,
+    against the fifteen seconds it avoids.
 
-    C'EST AUSSI CE QUI COUVRE LA RAFALE. Vingt étudiants qui soumettent le
-    gabarit non modifié dans la même minute ne se voient pas les uns les autres
-    -- aucun n'a fini quand les autres sont dépilés. Dès que le premier a fini,
-    la passe suivante les libère tous d'un coup.
+    THIS IS ALSO WHAT COVERS THE BURST. Twenty students submitting the
+    unmodified template within the same minute do not see each other --
+    none has finished when the others are dequeued. As soon as the first one
+    finishes, the next pass releases all of them at once.
 
-    `claim()` FERME LA COURSE, et c'est le verrou de partout ailleurs : un job
-    qu'un autre worker vient de prendre n'est pas touché, c'est lui qui
-    répondra. Un job pris ici garde son `.lock` comme après un jugement normal.
+    `claim()` CLOSES THE RACE, and it is the same lock as everywhere else: a
+    job another worker just took is left untouched, it is the one that will
+    answer. A job claimed here keeps its `.lock` just as after a normal
+    grading run.
 
-    Le verdict est partagé, L'ATTRIBUTION NE L'EST PAS : chaque job garde son
-    propre `owner` dans son `job.json`, et rien de ce que le worker écrit n'est
-    spécifique à un compte.
+    The verdict is shared, THE ATTRIBUTION IS NOT: each job keeps its own
+    `owner` in its `job.json`, and nothing the worker writes is specific to
+    an account.
     """
     connus, vivants, servis = {}, set(), 0
     for job_dir in pending_jobs():
@@ -1138,7 +1145,7 @@ def servir_les_connus():
             continue
         print("ctester: cache servi %s %s [file]" % (exercise_id, sig[:12]),
               file=sys.stderr, flush=True)
-        write_result(job_dir, dict(verdict))  # dict() : write_result y pose `state`
+        write_result(job_dir, dict(verdict))  # dict(): write_result sets `state` on it
         servis += 1
     for parti in set(_SIGS) - vivants:
         del _SIGS[parti]
@@ -1146,9 +1153,9 @@ def servir_les_connus():
 
 
 def _contexte(exercise_id):
-    """(tp_dir, mode, conf, empreinte) pour cet exercice, ou False s'il n'y a
-    rien à servir depuis le cache -- exercice fermé, mode absent, ou quiz, qui
-    ne dépense aucun conteneur et n'a donc rien à économiser."""
+    """(tp_dir, mode, conf, fingerprint) for this exercise, or False if there
+    is nothing to serve from the cache -- closed exercise, no mode, or a
+    quiz, which spends no container and therefore has nothing to save."""
     tp_dir = tp_path(exercise_id)
     if tp_dir is None:
         return False
@@ -1163,7 +1170,7 @@ def _contexte(exercise_id):
 
 
 # --------------------------------------------------------------------------
-# Traitement d'un job
+# Processing one job
 # --------------------------------------------------------------------------
 
 def job_exercice(job_dir):
@@ -1175,16 +1182,16 @@ def job_exercice(job_dir):
 
 
 def run_job(job_dir):
-    """Le verdict d'un job. Sert le cache quand il l'a, juge sinon.
+    """A job's verdict. Serves the cache when it has one, judges otherwise.
 
-    LE QUIZ N'EST PAS MIS EN CACHE : il ne dépense aucun conteneur, `grade_quiz`
-    rend en quelques millisecondes, et une clé de plus n'économiserait rien.
+    THE QUIZ IS NEVER CACHED: it spends no container, `grade_quiz` returns in
+    a few milliseconds, and one more key would save nothing.
     """
     exercise_id = job_exercice(job_dir)
-    # REVALIDÉ ICI, même si le web l'a déjà fait. Ce processus est root et
-    # compose un chemin à partir de cette valeur : il ne fait confiance à
-    # personne, y compris à notre propre conteneur web. `load_exercise` borne
-    # l'identifiant (EXERCISE_RE) avant de le joindre, et réapplique la release.
+    # RE-VALIDATED HERE, even though the web tier already did. This process
+    # is root and builds a path from this value: it trusts nobody, including
+    # our own web container. `load_exercise` bounds the id (EXERCISE_RE)
+    # before joining it, and re-applies the release.
     tp_dir = tp_path(exercise_id)
     if tp_dir is None:
         return {"status": "error", "message": "Exercice inconnu."}
@@ -1205,44 +1212,44 @@ def run_job(job_dir):
     sig = signature(exercise_id, tp_dir, mode, conf, sent, empreinte)
     connu = cache_lire(sig)
     if connu is not None:
-        # LE TAUX DE SUCCÈS SE LIT DANS journalctl, qui est déjà l'outil du
-        # runbook. Pas de compteur, pas de table. LE MÊME MOT DES DEUX CÔTÉS --
-        # `grep -c 'cache servi'` compte les deux chemins, et le crochet dit
-        # lequel : [file] la passe de priorité, le cas normal ; [dépilé] un job
-        # que la boucle de jugement a pris en premier, ce qui est une course.
+        # THE HIT RATE IS READ FROM journalctl, already the runbook's tool.
+        # No counter, no table. THE SAME WORD ON BOTH SIDES --
+        # `grep -c 'cache servi'` counts both paths, and the bracket says
+        # which: [file] the priority pass, the normal case; [dépilé] a job
+        # the grading loop picked up first, which is a race.
         print("ctester: cache servi %s %s [dépilé]" % (exercise_id, sig[:12]),
               file=sys.stderr, flush=True)
         return connu
 
     resultat = _juger(job_dir, tp_dir, mode, conf, sent)
     if cachable(conf, resultat):
-        # Les doublons déjà en file sont libérés par `servir_les_connus()` à
-        # la passe suivante, qui les trouve tous d'un coup -- pas d'ici, où on
-        # ne verrait que ceux de CET exercice.
+        # Duplicates already in the queue are released by
+        # `servir_les_connus()` on the next pass, which finds them all at
+        # once -- not here, where only this exercise's would be seen.
         cache_ecrire(sig, resultat)
         print("ctester: cache écrit %s %s" % (exercise_id, sig[:12]),
               file=sys.stderr, flush=True)
     elif isinstance(resultat, dict):
-        # LA PAGE NE PEUT PAS LE DEVINER SEULE, et c'est pour ça que le serveur
-        # le dit. Elle réaffiche le verdict d'un code identique plutôt que de
-        # reprendre une place dans la file -- sauf sur ce drapeau, qu'elle ne
-        # doit jamais garder : un `timeout` dépend de la charge, et un exercice
-        # dont le PROGRAMME est aléatoire (`"cache": false`) mérite un nouveau
-        # tirage. Une seule règle, ici, plutôt que deux qui divergeraient.
+        # THE PAGE CANNOT GUESS THIS ON ITS OWN, which is why the server says
+        # so. It redisplays the verdict for identical code instead of
+        # retaking a queue slot -- except on this flag, which it must never
+        # keep: a `timeout` depends on load, and an exercise whose PROGRAM is
+        # randomized (`"cache": false`) deserves a fresh roll. One rule,
+        # here, rather than two that would drift apart.
         resultat["rejouer"] = True
     return resultat
 
 
 def _juger(job_dir, tp_dir, mode, conf, sent):
-    """La compilation et l'exécution elles-mêmes, sans cache ni catalogue."""
-    # Les fichiers sont écrits ICI, sous les noms DÉCLARÉS par la configuration
-    # des tests -- jamais sous ceux que la soumission propose. Le web a déjà
-    # refusé les autres, mais ce processus est root et ne délègue pas cette
-    # vérification : ce qui n'est pas déclaré n'est pas écrit.
+    """The compilation and execution themselves, with no cache and no catalog."""
+    # Files are written HERE, under the names DECLARED by the test
+    # configuration -- never under whatever the submission proposes. The web
+    # tier already refused the others, but this process is root and does not
+    # delegate this check: whatever is not declared is not written.
     #
-    # ET CE SONT LES OCTETS EXACTS DE L'ÉTUDIANT : `normaliser_c()` ne sert
-    # qu'à fabriquer une clé de cache, jamais ce qui est compilé, sans quoi un
-    # bogue de lexeur deviendrait une erreur de compilation fantôme.
+    # AND THESE ARE THE STUDENT'S EXACT BYTES: `normaliser_c()` only ever
+    # builds a cache key, never what gets compiled, or a lexer bug would
+    # become a phantom compile error.
     src_dir = os.path.join(job_dir, "src")
     os.makedirs(src_dir, exist_ok=True)
     code = ""
@@ -1253,16 +1260,16 @@ def _juger(job_dir, tp_dir, mode, conf, sent):
                   encoding="utf-8") as fh:
             fh.write(contenu)
 
-    # Un module qui inclut son propre en-tête n'est pas une dépendance interdite :
-    # `#include "calendrier.h"` est précisément ce que l'énoncé demande. Les
-    # fichiers déclarés s'ajoutent donc d'office à la liste blanche.
+    # A module including its own header is not a forbidden dependency:
+    # `#include "calendrier.h"` is exactly what the assignment asks for.
+    # Declared files are therefore automatically added to the allow-list.
     allowed = read_allowed(tp_dir)
     if allowed is not None:
         allowed = allowed | {f["name"] for f in declared_files(conf, tp_dir)}
 
     bad = forbidden_includes(code, allowed)
     if bad:
-        # Rejeté sans dépenser un conteneur.
+        # Rejected without spending a container.
         return {
             "status": "forbidden_include",
             "message": (
@@ -1298,20 +1305,20 @@ def write_result(job_dir, payload):
     write_json(os.path.join(job_dir, "result.json"), payload)
 
 
-# LES DURÉES SONT DANS LE SPOOL, PAS DANS POSTGRES. Le worker est root sur
-# l'hôte et n'a pas de connexion à la base ; le spool est déjà le seul canal
-# entre lui et l'API, et une statistique d'affichage n'est pas un fait à
-# conserver -- la perdre au balayage ne coûte que la première estimation.
+# DURATIONS LIVE IN THE SPOOL, NOT IN POSTGRES. The worker is root on the
+# host and has no database connection; the spool is already the only channel
+# between it and the API, and a display statistic is not a fact to keep --
+# losing it at a sweep only costs the first estimate.
 DUREES = "durees.json"
 
-# Chaque exercice a son coût : un quiz est instantané, un TP de dix cas
-# d'entrée/sortie paie dix exécutions. La moyenne est donc PAR EXERCICE, et
-# glissante sur les DUREE_FENETRE derniers jobs -- un cas de test ajouté en
-# cours de session doit se voir dans l'estimation, pas être noyé sous l'histoire.
+# Every exercise has its own cost: a quiz is instant, a ten-case io exercise
+# pays for ten runs. The average is therefore PER EXERCISE, and sliding over
+# the last DUREE_FENETRE jobs -- a test case added mid-session must show up
+# in the estimate, not get drowned under the semester's history.
 DUREE_FENETRE = 20
-# Un job rejeté avant le conteneur (en-tête interdit, exercice inconnu) coûte
-# quelques millisecondes et n'est pas représentatif : l'inclure tirerait la
-# moyenne vers zéro précisément parce que les étudiants se trompent souvent.
+# A job rejected before the container (forbidden header, unknown exercise)
+# costs a few milliseconds and is not representative: including it would pull
+# the average toward zero precisely because students make mistakes often.
 DUREE_MIN = 0.5
 
 
@@ -1325,12 +1332,12 @@ def lire_durees():
 
 
 def enregistrer_duree(exercise_id, secondes):
-    """Moyenne glissante par exercice : {id: [moyenne, n]}.
+    """Per-exercise sliding average: {id: [average, n]}.
 
-    ponytail: lecture-modification-écriture sans verrou. `write_json` renomme,
-    donc le fichier n'est jamais à moitié écrit ; deux workers qui finissent à
-    la même milliseconde perdent un échantillon sur les vingt de la fenêtre.
-    Un verrou pour ça coûterait plus cher que l'erreur qu'il évite.
+    ponytail: read-modify-write with no lock. `write_json` renames, so the
+    file is never half-written; two workers finishing at the same
+    millisecond lose one sample out of the window's twenty. A lock for this
+    would cost more than the error it avoids.
     """
     if not exercise_id or secondes < DUREE_MIN:
         return
@@ -1345,15 +1352,15 @@ def enregistrer_duree(exercise_id, secondes):
     try:
         write_json(os.path.join(SPOOL, DUREES), durees)
     except OSError:
-        pass  # une estimation perdue n'est pas une panne de juge
+        pass  # a lost estimate is not a judge failure
 
 
 def claim(job_dir):
-    """Réserve un job. mkdir échoue si le répertoire existe, et c'est atomique.
+    """Reserves a job. mkdir fails if the directory exists, and that is atomic.
 
-    ponytail: c'est tout le verrou dont N workers sur UN hôte ont besoin. Un
-    vrai verrou distribué le jour où il y a un deuxième hôte, ce qui n'arrivera
-    probablement jamais.
+    ponytail: this is the whole lock N workers on ONE host need. A real
+    distributed lock the day there is a second host, which will probably
+    never happen.
     """
     try:
         os.mkdir(os.path.join(job_dir, ".lock"))
@@ -1363,7 +1370,7 @@ def claim(job_dir):
 
 
 def reprises(job_dir):
-    """Combien de fois ce job a déjà été repris à un worker mort."""
+    """How many times this job has already been reclaimed from a dead worker."""
     try:
         with open(os.path.join(job_dir, "reprises.json"), encoding="utf-8") as fh:
             return int(json.load(fh).get("n", 0))
@@ -1372,30 +1379,30 @@ def reprises(job_dir):
 
 
 def reclaim(job_dir, now):
-    """Libère le verrou d'un worker mort. True si le job peut être reproposé.
+    """Releases a dead worker's lock. True if the job can be reoffered.
 
-    LA COURSE ENTRE DEUX WORKERS EST SANS CONSÉQUENCE, et c'est ce qui permet de
-    ne rien ajouter de plus fort : les deux peuvent juger le verrou périmé, l'un
-    des deux `rmdir` échoue, et c'est le `mkdir` de claim() -- atomique -- qui
-    départage ensuite, exactement comme pour un job neuf.
+    THE RACE BETWEEN TWO WORKERS HAS NO CONSEQUENCE, and that is what allows
+    adding nothing stronger: both may judge the lock stale, one of the two
+    `rmdir` calls fails, and it is claim()'s `mkdir` -- atomic -- that then
+    settles it, exactly as for a fresh job.
 
-    Un verrou encore frais appartient à un worker vivant : on ne touche à rien.
+    A lock that is still fresh belongs to a live worker: nothing is touched.
     """
     lock = os.path.join(job_dir, ".lock")
     try:
         if os.stat(lock).st_mtime > now - LOCK_STALE:
             return False
     except OSError:
-        # Le verrou vient de disparaître -- sweep(), ou un autre worker. Le
-        # prochain tour de boucle verra l'état réel.
+        # The lock just disappeared -- sweep(), or another worker. The next
+        # loop pass will see the real state.
         return False
 
     essai = reprises(job_dir) + 1
     if essai > LOCK_RETRIES:
-        # LE VERROU RESTE EN PLACE : plus personne ne reprend ce job, et le
-        # verdict ci-dessous est ce que l'étudiant lit au sondage suivant, au
-        # lieu d'attendre le balayage.
-        print("ctester: %s: abandonné après %d reprise(s)" % (job_dir, essai - 1),
+        # THE LOCK STAYS IN PLACE: nobody reclaims this job any more, and the
+        # verdict below is what the student reads on the next poll, instead
+        # of waiting for the sweep.
+        print("ctester: %s: abandoned after %d reclaim(s)" % (job_dir, essai - 1),
               file=sys.stderr, flush=True)
         write_result(job_dir, {
             "status": "error",
@@ -1403,15 +1410,15 @@ def reclaim(job_dir, now):
         })
         return False
 
-    # AVANT le rmdir : si le compteur s'écrivait après, un worker tué entre les
-    # deux rendrait le job repris sans que ça se voie, et la boucle de reprise
-    # que LOCK_RETRIES existe pour empêcher redeviendrait possible.
+    # BEFORE the rmdir: if the counter were written after, a worker killed in
+    # between would leave the job reclaimed with no trace of it, and the
+    # retry loop LOCK_RETRIES exists to prevent would become possible again.
     write_json(os.path.join(job_dir, "reprises.json"), {"n": essai})
     try:
         os.rmdir(lock)
     except OSError:
         return False
-    print("ctester: %s: verrou périmé repris (essai %d)" % (job_dir, essai),
+    print("ctester: %s: stale lock reclaimed (attempt %d)" % (job_dir, essai),
           file=sys.stderr, flush=True)
     return True
 
@@ -1430,22 +1437,22 @@ def pending_jobs():
             jobs.append((os.stat(job).st_mtime, entry.path))
         except OSError:
             continue
-    jobs.sort()  # FIFO : le rang affiché à l'étudiant doit être vrai
+    jobs.sort()  # FIFO: the rank shown to the student must be true
     return [path for _, path in jobs]
 
 
 def sweep(now):
-    """Efface les jobs vieux de SWEEP_AFTER, verrouillés ou non.
+    """Erases jobs older than SWEEP_AFTER, locked or not.
 
-    LE FILET DE SÉCURITÉ, PLUS LE PREMIER RECOURS. Un job dont le worker est
-    mort est repris par reclaim() bien avant cette échéance (LOCK_STALE) ; ce
-    qui arrive jusqu'ici est ce que personne n'a pu reprendre -- un job abandonné
-    après LOCK_RETRIES, ou un répertoire que le web a écrit à moitié.
+    THE SAFETY NET, AND ALSO THE FIRST RESORT. A job whose worker died is
+    reclaimed by reclaim() well before this deadline (LOCK_STALE); what makes
+    it this far is what nobody could reclaim -- a job abandoned after
+    LOCK_RETRIES, or a directory the web tier wrote only halfway.
     """
     for entry in os.scandir(SPOOL):
-        # LE CACHE N'EST PAS UN JOB. Sans cette ligne, dix minutes de calme --
-        # une pause, une soirée -- le videraient, et il ne servirait plus que
-        # pendant une rafale au lieu de tenir toute une séance.
+        # THE CACHE IS NOT A JOB. Without this line, ten quiet minutes -- a
+        # break, an evening -- would empty it, and it would only ever serve
+        # during a burst instead of lasting a whole session.
         if entry.name == CACHE_DIR:
             continue
         try:
@@ -1459,33 +1466,34 @@ def main():
     os.makedirs(SPOOL, exist_ok=True)
     try:
         published = publish_catalogue()
-        print("ctester: %d exercices publiés" % len(published), file=sys.stderr,
+        print("ctester: %d exercises published" % len(published), file=sys.stderr,
               flush=True)
     except (OSError, ValueError) as exc:
-        # Un catalogue illisible ne doit pas empêcher les jobs déjà en file
-        # d'être traités : le service dégrade en « menu vide », pas en panne.
-        print("ctester: catalogue: %s" % exc, file=sys.stderr, flush=True)
+        # An unreadable catalog must not stop jobs already in the queue from
+        # being processed: the service degrades to "empty menu", not an
+        # outage.
+        print("ctester: catalog: %s" % exc, file=sys.stderr, flush=True)
     jour = datetime.date.today()
     while True:
         if datetime.date.today() != jour:
-            # Le catalogue est publié UNE FOIS au démarrage : sans ça, un exercice
-            # dont la date arrive cette nuit n'apparaîtrait qu'au prochain
-            # redémarrage du worker. Republier au changement de jour est la seule
-            # échéance qui existe -- pas de planificateur, pas de minuterie.
+            # The catalog is published ONCE at startup: without this, an
+            # exercise whose date arrives tonight would only appear at the
+            # worker's next restart. Republishing on day change is the only
+            # deadline that exists -- no scheduler, no timer.
             jour = datetime.date.today()
             try:
                 publish_catalogue()
             except (OSError, ValueError) as exc:
-                print("ctester: catalogue: %s" % exc, file=sys.stderr, flush=True)
-        # LES VERDICTS DÉJÀ CONNUS PASSENT DEVANT. Sans cette ligne, un
-        # doublon au rang 42 attend derrière quarante et une compilations un
-        # résultat déjà écrit, et occupe pendant ce temps une place de file.
+                print("ctester: catalog: %s" % exc, file=sys.stderr, flush=True)
+        # ALREADY-KNOWN VERDICTS GO FIRST. Without this line, a duplicate at
+        # rank 42 would wait behind forty-one compilations for a result
+        # already written, occupying a queue slot the whole time.
         worked = bool(servir_les_connus())
         for job_dir in pending_jobs():
             if not claim(job_dir):
-                # Verrou tenu. Par un worker vivant -- on passe -- ou par un
-                # worker mort, et reclaim() tranche sur le seul critère qui ne
-                # ment pas ici : l'âge du verrou.
+                # Lock held. By a live worker -- move on -- or by a dead one,
+                # and reclaim() decides on the one criterion that does not
+                # lie here: the lock's age.
                 if not (reclaim(job_dir, time.time()) and claim(job_dir)):
                     continue
             worked = True
@@ -1493,23 +1501,23 @@ def main():
             try:
                 write_result(job_dir, run_job(job_dir))
                 enregistrer_duree(job_exercice(job_dir), time.time() - debut)
-            except Exception as exc:  # noqa: BLE001 -- un job ne tue pas le worker
+            except Exception as exc:  # noqa: BLE001 -- a job must not kill the worker
                 print("ctester: %s: %s" % (job_dir, exc), file=sys.stderr,
                       flush=True)
                 write_result(job_dir, {
                     "status": "error",
                     "message": "Erreur interne du juge. Réessaie.",
                 })
-            # UNE COMPILATION PAR PASSE, puis on repasse par les verdicts
-            # connus : celle-ci vient de peupler le cache, et vingt doublons
-            # attendent peut-être ce qu'elle vient d'écrire. Sans ce `break`,
-            # ils attendraient la fin de toute la file.
+            # ONE COMPILATION PER PASS, then back to known verdicts: this one
+            # just populated the cache, and twenty duplicates may be waiting
+            # for exactly what it just wrote. Without this `break`, they
+            # would wait for the whole queue to finish.
             break
         sweep(time.time())
         if not worked:
-            # ponytail: sondage à 0,5 s. Une unité systemd .path le jour où
-            # cette latence se voit, ce qui demanderait des jobs plus courts que
-            # la compilation elle-même.
+            # ponytail: polling at 0.5 s. A systemd .path unit the day this
+            # latency shows, which would require jobs shorter than the
+            # compilation itself.
             time.sleep(0.5)
 
 

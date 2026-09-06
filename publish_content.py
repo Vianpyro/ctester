@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
-"""Publier le contenu v2 : une projection allowlistée, datée, réversible.
+"""Publish v2 content: an allow-listed, dated, reversible projection.
 
-CE FICHIER NE COPIE RIEN. `publish_catalogue()` de runner.py écrivait dans le
-clone de l'application des fichiers dérivés du contenu privé ; ici on construit
-un dictionnaire en mémoire à partir du MODÈLE VALIDÉ (content_catalogue), on le
-relit à la recherche de clés qui n'ont rien à faire dehors, puis on l'écrit dans
-un répertoire nommé par son propre hachage. Une copie récursive, elle, publie
-tout ce que quelqu'un aura posé dans le dossier un mardi soir.
+THIS FILE COPIES NOTHING. runner.py's `publish_catalogue()` used to write
+files derived from private content into the application's clone; here we
+build an in-memory dict from the VALIDATED MODEL (content_catalog), read it
+back looking for keys that have no business leaving, then write it into a
+directory named after its own hash. A recursive copy, by contrast, publishes
+whatever anyone dropped into the folder on a Tuesday evening.
 
-DEUX PROPRIÉTÉS QUI FONT TOUT LE RESTE :
+TWO PROPERTIES THAT DO ALL THE REST:
 
-- La révision EST le hachage de ce qui est publié. Republier un contenu
-  inchangé ne crée rien, republier un contenu changé crée un répertoire de plus,
-  et les deux coexistent -- un rollback est un pointeur à réécrire, pas une
-  restauration.
-- Le pointeur est un petit fichier remplacé par `os.replace`. Un lien
-  symbolique aurait été plus élégant, mais un montage Docker résout le lien à
-  l'attache : rebasculer `current` ne se verrait qu'au redémarrage du conteneur.
-  ponytail: pointeur JSON relu à chaque requête, symlink le jour où le web ne
-  lit plus le répertoire parent.
+- The revision IS the hash of what is published. Republishing unchanged
+  content creates nothing, republishing changed content creates one more
+  directory, and the two coexist -- a rollback is a pointer to rewrite, not a
+  restore.
+- The pointer is a small file replaced with `os.replace`. A symlink would
+  have been more elegant, but a Docker mount resolves the link at attach
+  time: switching `current` back would only show up on container restart.
+  ponytail: JSON pointer re-read on every request, symlink the day the web
+  tier no longer reads the parent directory.
 
-Un contenu invalide ne remplace jamais la publication active : `discover()` lève
-avant qu'une seule ligne ne soit écrite, et le pointeur ne bouge qu'en dernier.
+Invalid content never replaces the active publication: `discover()` raises
+before a single line is written, and the pointer only moves last.
 """
 
 import argparse
@@ -32,16 +32,16 @@ import os
 import shutil
 import sys
 
-import content_catalogue
+import content_catalog
 from runner import public_quiz
 
 POINTER = "current.json"
 
-# LES CLÉS QUI NE SORTENT PAS, vérifiées SUR LA PROJECTION et pas sur la source.
-# public_catalogue / public_detail / public_quiz reconstruisent déjà champ à
-# champ ; ce contrôle-ci est la ceinture qui attrape le champ ajouté demain à
-# l'une des trois. Il porte sur les CLÉS : un énoncé qui contient le mot
-# « note » est du texte, pas une fuite.
+# KEYS THAT DO NOT GO OUT, checked ON THE PROJECTION and not on the source.
+# public_catalogue / public_detail / public_quiz already rebuild field by
+# field; this check is the belt that catches the field added to one of the
+# three tomorrow. It checks KEYS: a statement containing the word "note" is
+# text, not a leak.
 INTERDIT = frozenset((
     "answer", "answers", "expect", "expected", "stdin", "cases", "tolerance",
     "note", "notes", "path", "paths", "seed", "solution", "solutions",
@@ -50,7 +50,7 @@ INTERDIT = frozenset((
 
 
 def _cles(value):
-    """Toutes les clés d'une structure JSON, à toute profondeur."""
+    """Every key of a JSON structure, at any depth."""
     if isinstance(value, dict):
         for key, sub in value.items():
             yield key
@@ -63,15 +63,15 @@ def _cles(value):
 
 
 def projection(model, now=None):
-    """{chemin relatif: objet JSON} -- exactement ce que le navigateur peut voir.
+    """{relative path: JSON object} -- exactly what the browser can see.
 
-    Le catalogue porte TOUS les exercices, ouverts ou non (un cadenas et une
-    date). Le détail et le quiz ne sont écrits que pour ce qui est ouvert :
-    `find_exercise` est la porte, ici comme dans l'API et le worker.
+    The catalog carries EVERY exercise, open or not (a lock and a date). The
+    detail and the quiz are only written for what is open: `find_exercise`
+    is the gate, here as in the API and the worker.
     """
-    files = {"catalog.json": content_catalogue.public_catalogue(model, now)}
+    files = {"catalog.json": content_catalog.public_catalogue(model, now)}
     for exercise_id, entry in model["exercises"].items():
-        detail = content_catalogue.public_detail(model, exercise_id, now)
+        detail = content_catalog.public_detail(model, exercise_id, now)
         if detail is None:
             continue
         files["exercises/%s.json" % exercise_id] = detail
@@ -80,19 +80,19 @@ def projection(model, now=None):
     fuites = sorted({key for value in files.values() for key in _cles(value)}
                     & INTERDIT)
     if fuites:
-        raise content_catalogue.ContentValidationError(
-            ["clé privée dans la projection publique : " + ", ".join(fuites)])
+        raise content_catalog.ContentValidationError(
+            ["private key in the public projection: " + ", ".join(fuites)])
     return files
 
 
 def revision(files):
-    """Le hachage du contenu publié, donc le nom de sa release."""
+    """The hash of the published content, i.e. its release name."""
     payload = json.dumps(files, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
 def current(dest):
-    """Le répertoire de la publication active, ou None. Relu à chaque appel."""
+    """The active publication's directory, or None. Re-read on every call."""
     try:
         with open(os.path.join(dest, POINTER), encoding="utf-8") as fh:
             rev = json.load(fh)["revision"]
@@ -109,11 +109,11 @@ def _write(path, value):
 
 
 def publish(model, dest, now=None, keep=3):
-    """Écrit la release, bascule le pointeur, garde les `keep` dernières.
+    """Writes the release, switches the pointer, keeps the last `keep`.
 
-    L'ordre est l'invariant : tout est écrit AVANT que le pointeur ne bouge, et
-    le pointeur bouge d'un seul `os.replace`. Une publication interrompue
-    laisse un répertoire orphelin que personne ne lit.
+    The order is the invariant: everything is written BEFORE the pointer
+    moves, and the pointer moves with a single `os.replace`. An interrupted
+    publish leaves an orphaned directory nobody reads.
     """
     files = projection(model, now)
     rev = revision(files)
@@ -123,11 +123,11 @@ def publish(model, dest, now=None, keep=3):
         shutil.rmtree(temporaire, ignore_errors=True)
         for relatif, value in files.items():
             _write(os.path.join(temporaire, relatif.replace("/", os.sep)), value)
-        # Le manifeste est HORS du hachage : sa date changerait la révision d'un
-        # contenu identique, et deux publications du même contenu doivent porter
-        # le même nom pour que republier ne coûte rien.
+        # The manifest is OUTSIDE the hash: its date would change identical
+        # content's revision, and two publishes of the same content must
+        # carry the same name so republishing costs nothing.
         _write(os.path.join(temporaire, "manifest.json"), {
-            "schema_version": content_catalogue.SCHEMA_VERSION, "revision": rev,
+            "schema_version": content_catalog.SCHEMA_VERSION, "revision": rev,
             "published_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "exercises": len(model["exercises"]),
             "collections": len(model["collections"])})
@@ -141,7 +141,7 @@ def publish(model, dest, now=None, keep=3):
 
 
 def _elaguer(dest, garder, keep):
-    """Les anciennes releases sont le rollback : on en garde quelques-unes."""
+    """Old releases are the rollback: a few of them are kept."""
     releases = [(os.path.getmtime(os.path.join(dest, name)), name)
                 for name in os.listdir(dest)
                 if name != garder and os.path.isdir(os.path.join(dest, name))]
@@ -150,20 +150,20 @@ def _elaguer(dest, garder, keep):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="publie le contenu ctester v2")
-    parser.add_argument("root", help="racine contenant catalog.json et exercises/")
-    parser.add_argument("dest", help="répertoire des releases (published/)")
-    parser.add_argument("--keep", type=int, default=3, help="releases conservées")
+    parser = argparse.ArgumentParser(description="publish ctester v2 content")
+    parser.add_argument("root", help="root containing catalog.json and exercises/")
+    parser.add_argument("dest", help="directory for releases (published/)")
+    parser.add_argument("--keep", type=int, default=3, help="releases kept")
     args = parser.parse_args(argv)
     try:
-        model = content_catalogue.discover(args.root)
+        model = content_catalog.discover(args.root)
         rev = publish(model, args.dest, keep=args.keep)
-    except content_catalogue.ContentValidationError as exc:
-        print("publication refusée, la release active est intacte :", file=sys.stderr)
+    except content_catalog.ContentValidationError as exc:
+        print("publish refused, the active release is untouched:", file=sys.stderr)
         for error in exc.errors:
             print("- " + error, file=sys.stderr)
         return 1
-    print("publié : révision %s (%d exercice(s), %d collection(s))"
+    print("published: revision %s (%d exercise(s), %d collection(s))"
           % (rev, len(model["exercises"]), len(model["collections"])))
     return 0
 

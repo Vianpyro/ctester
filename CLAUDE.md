@@ -130,7 +130,7 @@ python3 publish_content.py   ../unittests/content /tmp/published  # phase 3
 CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/main.py
 ```
 
-- **`content_catalogue.py`** — le modèle validé, et `find_exercise(model, id)`,
+- **`content_catalog.py`** — le modèle validé, et `find_exercise(model, id)`,
   **la seule porte** : détail, quiz, brouillon, forum et soumission devront
   passer par elle. Elle refuse ce qui n'est pas ouvert, donc un lien profond
   partagé en avance ne résout pas au lieu de contourner. `access()` est la seule
@@ -156,7 +156,7 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
 ### Ce que la phase 4 a branché
 
 - **Le worker.** `tp_path()` reste LA porte ; en v2 elle passe par
-  `content_catalogue.load_exercise()`, qui rejoue la release — le web l'a déjà
+  `content_catalog.load_exercise()`, qui rejoue la release — le web l'a déjà
   fait, ce processus est root et ne fait confiance à personne. Elle rend
   `exercises/<id>/assessment`, **la même forme qu'un répertoire de TP
   historique** (configuration, `test_*.c`, `allowed_includes.txt` côte à côte),
@@ -181,7 +181,7 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
   `publish_content.publish()`. C'est ce qui
   garde la republication au changement de jour — un `scheduled` dont la date
   tombe cette nuit s'ouvre parce que le catalogue est reprojeté, pas parce
-  qu'un service redémarre. `CTESTER_APERCU` s'y traduit en une DATE (l'an 9999)
+  qu'un service redémarre. `CTESTER_PREVIEW` s'y traduit en une DATE (l'an 9999)
   plutôt qu'en un second filtre : `access()` reste la seule lecture d'une release.
 
 ### Ce que la phase 5 a branché
@@ -290,7 +290,7 @@ que rien de local n'ait changé.
   (`job.json` porte `exercise_id`). `extra="ignore"` fait qu'une page vraiment
   ancienne n'est pas rejetée — elle vise l'exercice vide, que `find_exercise`
   refuse en 404.
-- **`valider_contenu.py` et `test_bac_a_sable.py` prennent la racine v2**
+- **`verify_content.py` et `test_sandbox.py` prennent la racine v2**
   (`../unittests/content`) et cherchent les corrigés à CÔTÉ
   (`CTESTER_SOLUTIONS`, défaut `<racine>/../solutions`) — le gitlink qui les
   montait sous le contenu part avec cette phase. Les deux acceptent encore la
@@ -312,9 +312,9 @@ npm ci                                # UNE FOIS : jsdom, contrôles XSS du foru
 python3 test_ctester.py          # les défenses, la progression, le forum
 python3 test_api.py              # l'API : frontière HTTP, bornes, valeurs extrêmes
 node    test_page.js             # le JS de la page, sur un DOM en carton
-python3 valider_contenu.py   ../unittests/content
+python3 verify_content.py   ../unittests/content
 python3 validate_content.py  ../unittests/content   # le schéma seul, sans gcc
-python3 test_bac_a_sable.py  ../unittests/content   # les deux build.sh, vrai gcc
+python3 test_sandbox.py  ../unittests/content   # les deux build.sh, vrai gcc
 ```
 
 Et avant une cohorte, une fois, avec Docker — pas à chaque modif :
@@ -347,13 +347,13 @@ docker stop pg
   l'étudiant qui la découvre à 23 h la veille de la remise. Il éprouve aussi
   l'ordre des refus (forum éteint → 503 avant 401), qu'aucune route n'accepte un
   identifiant dans son corps, et qu'une base muette rend 503 et **aucun chiffre**.
-- **`test_bac_a_sable.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
+- **`test_sandbox.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
   les exécute avec un vrai gcc, chemins déplacés, sans Docker. C'est le seul
   contrôle qui **éprouve l'invariant de confidentialité** au lieu d'en parler :
   il soumet un module qui déborde d'un tableau et vérifie qu'en mode unity le
   verdict ne contient aucun identifiant du fichier de test — ni le rapport
   d'ASan, dont la pile d'appels nommerait la fonction de test appelante.
-- **`valider_contenu.py`** — compile la solution de référence de chaque exercice
+- **`verify_content.py`** — compile la solution de référence de chaque exercice
   et la passe dans le vrai juge (il **importe `runner.py`**, il ne refait pas ses
   vérifications). Un exercice sans corrigé apparaît « non prouvé » : rien ne
   garantit alors que son test soit juste. Appelle `catalogue(tout=True)` pour
@@ -532,7 +532,7 @@ entrées sont les plus VIEILLES à l'écriture et les plus utiles ce jour-là. O
 jette donc les moins récemment **SERVIES** — `cache_lire()` repose la date à
 chaque succès, ce qui fait que « récemment servi » et « souvent servi » se
 confondent. Mesuré : 20 000 entrées ≈ 46 Mo, une écriture à 0,89 ms, un élagage
-à 129 ms payé une fois par `CTESTER_CACHE_ELAGAGE` (500) écritures — le contrôle
+à 129 ms payé une fois par `CTESTER_CACHE_PRUNE_EVERY` (500) écritures — le contrôle
 de taille N'EST PAS à chaque verdict, un `os.listdir()` par écriture ne se voyait
 pas à 5000 entrées et se serait vu à 20 000.
 
@@ -665,19 +665,19 @@ ansible-playbook playbooks/ctester.yml --tags tests --ask-vault-pass
 ### Voir un TP avant son ouverture
 
 Pour éprouver ses corrigés dans la vraie page, avec les vrais tests, avant les
-étudiants : `CTESTER_APERCU=1` traduit la date d'ouverture en l'an 9999. Il
+étudiants : `CTESTER_PREVIEW=1` traduit la date d'ouverture en l'an 9999. Il
 agit à la publication **et** dans `tp_path()` — un exercice qu'on voit est un
 exercice qu'on peut soumettre.
 
 ```sh
-CTESTER_APERCU=1 CTESTER_CONTENT=../unittests/content \
+CTESTER_PREVIEW=1 CTESTER_CONTENT=../unittests/content \
 CTESTER_PUBLISHED=/tmp/published \
   python3 -c 'import runner; runner.publish_catalogue()'
 CTESTER_KEY=dev CTESTER_PUBLISHED=/tmp/published CTESTER_PAGE=web python3 app/main.py
 ```
 
 Pour de vrais verdicts il faut en plus un worker (Docker + gVisor) ; sans eux,
-`valider_contenu.py` reste le contrôle qui dit si un test est juste. Ce n'est
+`verify_content.py` reste le contrôle qui dit si un test est juste. Ce n'est
 **pas** un réglage de production : le déploiement ne le définit pas, et
 `publish_catalogue()` l'annonce dans le journal quand il est actif. Republier
 sans la variable remet le semestre en ordre.
@@ -889,7 +889,7 @@ raté.
 
 `GET /progres` fait maintenant SIX allers-retours SQL derrière le verrou unique
 d'`etat.py` — le seuil de refonte reste un p95 au-dessus d'une seconde, que
-`charge.py` signale.
+`load_test.py` signale.
 
 ## Le forum d'entraide (hors phases, entre 1 et 2)
 
@@ -1112,14 +1112,14 @@ disque. Rien n'est publié, et le champ reste vide si on ne sait pas.
 
 ## Mesurer avant de tourner un bouton
 
-`charge.py` existe pour qu'on arrête de régler `ctester_workers` à l'instinct.
+`load_test.py` existe pour qu'on arrête de régler `ctester_workers` à l'instinct.
 **Jamais pendant une séance** : il écrit dans la base, remplit la file et fait
 compiler pour de vrai.
 
 ```sh
-CTESTER_KEY=<la clé de session> CTESTER_CHARGE_TP=tp2-ex3 \
-CTESTER_CHARGE_TOKEN=<un vrai jeton, pris dans sessionStorage> \
-  python3 charge.py http://ctester-web-1:8000
+CTESTER_KEY=<la clé de session> CTESTER_LOAD_EXERCISE=tp2-ex3 \
+CTESTER_LOAD_TOKEN=<un vrai jeton, pris dans sessionStorage> \
+  python3 load_test.py http://ctester-web-1:8000
 ```
 
 **Contre l'origine, sur le LAN**, pas contre le nom public : mesurer à travers

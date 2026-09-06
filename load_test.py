@@ -1,34 +1,34 @@
 #!/usr/bin/env python3
-"""ctester -- test de charge. NE PAS LANCER PENDANT UNE SEANCE DE LABORATOIRE.
+"""ctester -- load test. DO NOT RUN DURING A LAB SESSION.
 
-    python3 charge.py http://ctester-web-1:8000
+    python3 load_test.py http://ctester-web-1:8000
 
-Il ecrit dans la base, remplit la file et fait compiler pour de vrai. C'est un
-outil de mesure avant cohorte, pas une sonde de supervision.
+It writes to the database, fills the queue and makes real compilations
+happen. This is a pre-cohort measurement tool, not a monitoring probe.
 
-CONTRE L'ORIGINE, SUR LE LAN -- pas contre le nom public. Deux raisons:
+AGAINST THE ORIGIN, ON THE LAN -- not against the public name. Two reasons:
 
-  1. `client_id()` fait confiance a `CF-Connecting-IP` parce que Cloudflare
-     l'ECRASE toujours. En tapant l'origine directement, ce script le pose
-     lui-meme pour simuler N etudiants distincts. C'est le seul moyen d'eprouver
-     les quotas au lieu de les subir depuis une seule IP -- et c'est le meme
-     raccourci que CLAUDE.md documente deja: regulateur de charge, pas controle
-     d'acces.
-  2. Mesurer a travers Cloudflare mesurerait Cloudflare.
+  1. `client_id()` trusts `CF-Connecting-IP` because Cloudflare always
+     OVERWRITES it. By hitting the origin directly, this script sets it
+     itself to simulate N distinct students. That is the only way to exercise
+     quotas instead of suffering them from a single IP -- and it is the same
+     shortcut CLAUDE.md already documents: a load regulator, not access
+     control.
+  2. Measuring through Cloudflare would measure Cloudflare.
 
-CE QU'IL NE MESURE PAS: le Dell. Le CPU, la RAM et la longueur reelle du spool
-se lisent sur l'hote, PENDANT que ce script tourne:
+WHAT IT DOES NOT MEASURE: the Dell. CPU, RAM and the spool's real length are
+read on the host, WHILE this script runs:
 
     docker stats --no-stream ctester-web-1 ctester-postgres
     uptime; ls /opt/ctester/spool | wc -l
     journalctl -u 'ctester-runner@*' -n 50
 
-LE JETON. `/progres` et `/brouillon` demandent un vrai jeton OIDC, et on ne
-peut pas en fabriquer 200. `CTESTER_CHARGE_TOKEN` en prend UN, rejoue par tous
-les fils. Ce qui est mesure reste juste: le cout serveur d'une lecture de
-progression ne depend pas de QUI la demande -- meme travail SQL, meme verrou
-global dans state.py, et c'est ce verrou qu'on vient regarder. Sans jeton, les
-phases privees sont annoncees non jouees plutot que sautees en silence.
+THE TOKEN. `/progres` and `/brouillon` require a real OIDC token, and 200 of
+them cannot be manufactured. `CTESTER_LOAD_TOKEN` takes ONE, replayed by every
+thread. What gets measured stays valid: a progression read's server cost does
+not depend on WHO requests it -- same SQL work, same global lock in
+state.py, and that lock is what we come here to look at. Without a token,
+the private phases are reported as not played rather than silently skipped.
 """
 
 import http.client
@@ -39,16 +39,16 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
-CIBLE = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CTESTER_CHARGE_URL", "")
+CIBLE = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CTESTER_LOAD_URL", "")
 if not CIBLE:
     raise SystemExit(__doc__)
 
-ETUDIANTS = int(os.environ.get("CTESTER_CHARGE_ETUDIANTS", "200"))
-SOUMISSIONS = int(os.environ.get("CTESTER_CHARGE_SOUMISSIONS", "40"))
-TOKEN = os.environ.get("CTESTER_CHARGE_TOKEN", "")
+ETUDIANTS = int(os.environ.get("CTESTER_LOAD_STUDENTS", "200"))
+SOUMISSIONS = int(os.environ.get("CTESTER_LOAD_SUBMISSIONS", "40"))
+TOKEN = os.environ.get("CTESTER_LOAD_TOKEN", "")
 KEY = os.environ.get("CTESTER_KEY", "")
-TP = os.environ.get("CTESTER_CHARGE_TP", "")
-PATIENCE = int(os.environ.get("CTESTER_CHARGE_PATIENCE", "180"))
+TP = os.environ.get("CTESTER_LOAD_EXERCISE", "")
+PATIENCE = int(os.environ.get("CTESTER_LOAD_PATIENCE", "180"))
 
 URL = urllib.parse.urlparse(CIBLE)
 HOTE, PORT = URL.hostname, URL.port or (443 if URL.scheme == "https" else 80)
@@ -56,13 +56,13 @@ BASE = URL.path.rstrip("/")
 
 
 def appel(methode, chemin, corps=None, etudiant=0, jeton=False):
-    """Une requete, chronometree. Rend (statut, secondes, charge decodee|None).
+    """One timed request. Returns (status, seconds, decoded payload|None).
 
-    Une connexion par appel: c'est ce que fait un navigateur qui vient de se
-    reveiller, et ca evite qu'un pool masque le cout d'etablissement.
+    One connection per call: that is what a browser waking up from sleep
+    does, and it keeps a pool from hiding the cost of establishing one.
     """
     entetes = {"Content-Type": "application/json",
-               # N etudiants distincts pour les quotas. Voir l'en-tete.
+               # N distinct students for quota purposes. See the header.
                "CF-Connecting-IP": "10.90.%d.%d" % (etudiant // 250, etudiant % 250)}
     if jeton and TOKEN:
         entetes["Authorization"] = "Bearer " + TOKEN
@@ -81,15 +81,15 @@ def appel(methode, chemin, corps=None, etudiant=0, jeton=False):
         except ValueError:
             return reponse.status, time.perf_counter() - debut, None
     except Exception as souci:
-        # Un refus de connexion EST une mesure: c'est ce que voit l'etudiant.
+        # A connection refusal IS a measurement: it is what the student sees.
         return 0, time.perf_counter() - debut, {"erreur": str(souci)}
 
 
 class Mesures:
-    """Les latences et les statuts d'une phase. Percentiles au rang le plus proche.
+    """A phase's latencies and statuses. Percentiles at the nearest rank.
 
-    PAS DE MOYENNE. Une moyenne de latence cache exactement ce qu'on vient
-    chercher: la queue de distribution, c'est-a-dire l'etudiant qui attend.
+    NO AVERAGE. A latency average hides exactly what we came here to find:
+    the tail of the distribution, i.e. the student who is waiting.
     """
 
     def __init__(self, nom):
@@ -110,8 +110,8 @@ class Mesures:
 
     def ligne(self):
         if not self.temps:
-            return "%-14s NON JOUE" % self.nom
-        histo = " ".join("%s:%d" % (s or "panne", n)
+            return "%-14s NOT PLAYED" % self.nom
+        histo = " ".join("%s:%d" % (s or "failure", n)
                          for s, n in sorted(self.statuts.items()))
         return ("%-14s n=%-4d  p50=%6.0f ms  p95=%6.0f ms  p99=%6.0f ms  "
                 "max=%6.0f ms  %s"
@@ -124,13 +124,13 @@ class Mesures:
 
 
 def en_parallele(mesure, combien, travail):
-    """`combien` appels concurrents. Le parallelisme EST la charge.
+    """`combien` concurrent calls. Concurrency IS the load.
 
-    Zero est un reglage legitime -- on vient mesurer les lectures sans faire
-    compiler quoi que ce soit -- et pas une erreur a faire lever.
+    Zero is a legitimate setting -- measuring reads with nothing compiled at
+    all -- not an error to raise on.
     """
     if combien <= 0:
-        print("%-14s NON JOUE (0 demande)" % mesure.nom)
+        print("%-14s NOT PLAYED (0 requested)" % mesure.nom)
         return mesure
     with ThreadPoolExecutor(max_workers=min(combien, 256)) as piscine:
         for statut, duree, _ in piscine.map(travail, range(combien)):
@@ -140,10 +140,10 @@ def en_parallele(mesure, combien, travail):
 
 
 def phase_page(mesures):
-    """La visite anonyme: la page, sa feuille, son script, le catalogue.
+    """The anonymous visit: the page, its stylesheet, its script, the catalog.
 
-    LE PLANCHER DE REFERENCE. Si celle-ci se degrade, ce n'est pas la
-    progression qu'il faut regarder mais la machine.
+    THE BASELINE FLOOR. If this one degrades, it is not progression that
+    needs looking at but the machine.
     """
     mesures.append(en_parallele(
         Mesures("page"), ETUDIANTS,
@@ -154,21 +154,21 @@ def phase_page(mesures):
 
 
 def phase_privee(mesures):
-    """Progression et autosauvegarde: tout ce qui passe par le verrou global.
+    """Progression and autosave: everything that goes through the global lock.
 
-    CE QU'ON VIENT MESURER. `GET /progres` fait SIX allers-retours SQL
-    serialises derriere le verrou unique de state.py. C'est la que se decide
-    s'il faut les regrouper en une seule lecture -- pas avant.
+    WHAT WE CAME HERE TO MEASURE. `GET /progres` makes SIX serialized SQL
+    round trips behind state.py's single lock. This is where it gets decided
+    whether to group them into one read -- not before.
     """
     if not TOKEN:
-        print("%-14s NON JOUE (CTESTER_CHARGE_TOKEN vide)" % "progres")
-        print("%-14s NON JOUE (CTESTER_CHARGE_TOKEN vide)" % "brouillon")
+        print("%-14s NOT PLAYED (CTESTER_LOAD_TOKEN empty)" % "progres")
+        print("%-14s NOT PLAYED (CTESTER_LOAD_TOKEN empty)" % "brouillon")
         return
     mesures.append(en_parallele(
         Mesures("progres"), ETUDIANTS,
         lambda n: appel("GET", "/progres", etudiant=n, jeton=True)))
     if not TP:
-        print("%-14s NON JOUE (CTESTER_CHARGE_TP vide)" % "brouillon")
+        print("%-14s NOT PLAYED (CTESTER_LOAD_EXERCISE empty)" % "brouillon")
         return
     corps = {"exercise_id": TP, "files": {}}
     mesures.append(en_parallele(
@@ -177,14 +177,14 @@ def phase_privee(mesures):
 
 
 def phase_soumissions(mesures):
-    """La vague: SOUMISSIONS depots simultanes, puis on suit la file.
+    """The wave: SOUMISSIONS simultaneous drops, then the queue is followed.
 
-    Chaque depot fait vraiment compiler dans un conteneur gVisor. C'est la
-    seule phase qui coute des coeurs au Dell, et la seule ou `ctester_workers`
-    et `ctester_queue_max` se voient.
+    Every drop makes a real compilation happen in a gVisor container. This is
+    the only phase that costs Dell cores, and the only one where
+    `ctester_workers` and `ctester_queue_max` show themselves.
     """
     if not (KEY and TP):
-        print("%-14s NON JOUE (CTESTER_KEY ou CTESTER_CHARGE_TP vide)" % "submit")
+        print("%-14s NOT PLAYED (CTESTER_KEY or CTESTER_LOAD_EXERCISE empty)" % "submit")
         return
     depot = Mesures("submit")
     jobs = []
@@ -193,8 +193,9 @@ def phase_soumissions(mesures):
         statut, duree, charge = appel(
             "POST", "/submit",
             {"key": KEY, "exercise_id": TP,
-             # Un corps different par etudiant: un juge qui deduplique les
-             # soumissions identiques rendrait la mesure fausse et flatteuse.
+             # A different body per student: a judge that deduplicates
+             # identical submissions would make the measurement wrong and
+             # flattering.
              "files": {"submission.c": SOURCE % n}},
             etudiant=n)
         if statut == 200 and isinstance(charge, dict) and charge.get("id"):
@@ -205,7 +206,7 @@ def phase_soumissions(mesures):
     if not depot.temps:
         return
     mesures.append(depot)
-    print("               %d job(s) accepte(s), %.0f %% de 503 (file pleine)"
+    print("               %d job(s) accepted, %.0f %% 503s (queue full)"
           % (len(jobs), depot.part_503() * 100))
     if jobs:
         suivre(mesures, jobs)
@@ -216,10 +217,10 @@ SOURCE = ("#include <stdio.h>\n"
 
 
 def suivre(mesures, jobs):
-    """Sonde les verdicts comme la page, et retient le pire rang vu dans la file.
+    """Polls verdicts like the page does, and keeps the worst rank seen in the queue.
 
-    LE RANG MAXIMUM EST LA VRAIE MESURE DE CAPACITE. Un p99 flatteur sur
-    /r/<id> ne dit rien: repondre << 37e >> en 4 ms reste repondre 37e.
+    THE MAXIMUM RANK IS THE TRUE MEASURE OF CAPACITY. A flattering p99 on
+    /r/<id> says nothing: answering "37th" in 4 ms is still answering 37th.
     """
     sondage = Mesures("verdict")
     rang_max, restants, limite = 0, list(jobs), time.time() + PATIENCE
@@ -238,31 +239,31 @@ def suivre(mesures, jobs):
             time.sleep(2)
     mesures.append(sondage)
     print(sondage.ligne())
-    print("               rang max dans la file : %d -- %d job(s) encore en "
-          "vol apres %d s" % (rang_max, len(restants), PATIENCE))
+    print("               max queue rank: %d -- %d job(s) still in flight "
+          "after %d s" % (rang_max, len(restants), PATIENCE))
 
 
 def main():
-    print("cible      : %s" % CIBLE)
-    print("etudiants  : %d   soumissions : %d" % (ETUDIANTS, SOUMISSIONS))
-    print("jeton      : %s   exercice : %s\n"
-          % ("oui" if TOKEN else "NON", TP or "(aucun)"))
+    print("target     : %s" % CIBLE)
+    print("students   : %d   submissions : %d" % (ETUDIANTS, SOUMISSIONS))
+    print("token      : %s   exercise : %s\n"
+          % ("yes" if TOKEN else "NO", TP or "(none)"))
     depart = time.time()
     mesures = []
     phase_page(mesures)
     phase_privee(mesures)
     phase_soumissions(mesures)
-    print("\n--- %.0f s au total ---" % (time.time() - depart))
+    print("\n--- %.0f s total ---" % (time.time() - depart))
     pires = [m for m in mesures if m.part_503() > 0.01]
     if pires:
-        print("503 AU-DELA DE 1 % : " + ", ".join(
+        print("503s ABOVE 1%: " + ", ".join(
             "%s %.0f %%" % (m.nom, m.part_503() * 100) for m in pires))
     lentes = [m for m in mesures if m.temps and m.centile(.95) > 1.0]
     if lentes:
-        print("p95 AU-DELA D'UNE SECONDE : " + ", ".join(
+        print("p95 ABOVE ONE SECOND: " + ", ".join(
             "%s %.0f ms" % (m.nom, m.centile(.95) * 1000) for m in lentes))
     if not pires and not lentes:
-        print("aucun seuil franchi -- ne pas toucher a ctester_workers.")
+        print("no threshold crossed -- leave ctester_workers alone.")
 
 
 if __name__ == "__main__":

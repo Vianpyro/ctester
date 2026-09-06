@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Valider le contrat de contenu v2 avant de le publier.
+"""Validate the v2 content contract before publishing it.
 
-Usage : ``python3 validate_content.py /chemin/vers/content``.
-Le schéma seul : les corrigés sont éprouvés par `valider_contenu.py`. Elle est
-volontairement sans dépendance tierce pour tourner en CI et sur le contrôleur.
+Usage: ``python3 validate_content.py /path/to/content``.
+Schema only: reference solutions are exercised by `verify_content.py`. It is
+deliberately dependency-free so it can run in CI and on the controller.
 """
 
 import argparse
 import sys
 
-import content_catalogue
+import content_catalog
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="valide le contenu ctester v2")
-    parser.add_argument("root", help="racine contenant catalog.json et exercises/")
+    parser = argparse.ArgumentParser(description="validate ctester v2 content")
+    parser.add_argument("root", help="root containing catalog.json and exercises/")
     args = parser.parse_args(argv)
     try:
-        model = content_catalogue.discover(args.root)
-    except content_catalogue.ContentValidationError as exc:
-        print("contenu invalide :", file=sys.stderr)
+        model = content_catalog.discover(args.root)
+    except content_catalog.ContentValidationError as exc:
+        print("invalid content:", file=sys.stderr)
         for error in exc.errors:
             print("- " + error, file=sys.stderr)
         return 1
-    print("contenu valide : %d exercice(s), %d collection(s)" %
+    print("valid content: %d exercise(s), %d collection(s)" %
           (len(model["exercises"]), len(model["collections"])))
     return 0
 

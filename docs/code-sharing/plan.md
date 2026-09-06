@@ -387,7 +387,7 @@ alimente un `UPDATE`, et quatorze `DELETE` dans une seule instruction.
 ```sh
 python3 test_ctester.py
 node    test_page.js                     # npm ci une fois
-python3 valider_contenu.py ../unittests
+python3 verify_content.py ../unittests
 
 docker run -d --rm --name pg -e POSTGRES_PASSWORD=x -e POSTGRES_DB=ctester \
   -p 55432:5432 postgres:16-alpine
@@ -398,7 +398,7 @@ CTESTER_DB_ADMIN_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester \
 docker stop pg
 ```
 
-Puis, à la main, dans la vraie page (`CTESTER_APERCU=1` + un worker) :
+Puis, à la main, dans la vraie page (`CTESTER_PREVIEW=1` + un worker) :
 
 1. Compte A, exercice non validé → la vue Discussions ne montre **aucun**
    code, seulement l'encart d'explication.

@@ -1,7 +1,7 @@
 # CI de ctester. Deux jobs, et rien de plus.
 #
 #   tests   les deux suites qui tournent sans le dépôt privé de corrigés.
-#           test_bac_a_sable.py et valider_contenu.py exigent `unittests` :
+#           test_sandbox.py et verify_content.py exigent `unittests` :
 #           ils restent des outils de contrôleur et n'entrent pas ici. Une CI
 #           publique n'a pas à détenir la deploy key des corrigés.
 #   codeql  l'analyse statique. Ce dépôt sert une API exposée à Internet sur

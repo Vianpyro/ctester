@@ -29,7 +29,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 
-import content_catalogue  # noqa: E402
+import content_catalog as content_catalogue  # noqa: E402
 import publish_content  # noqa: E402
 import config     # noqa: E402
 import csp        # noqa: E402
@@ -224,7 +224,7 @@ def test_content_v2_rejects_conflicting_modes_and_unknown_collection_item():
             content_catalogue.discover(root)
         except content_catalogue.ContentValidationError as exc:
             message = str(exc)
-            assert "plusieurs modes" in message and "exercice inconnu" in message, message
+            assert "several modes" in message and "unknown exercise" in message, message
         else:
             raise AssertionError("contenu v2 invalide accepté")
     finally:
@@ -1628,7 +1628,7 @@ def test_cache_de_verdicts():
 
     spool = tempfile.mkdtemp()
     garde_spool, garde_max = runner.SPOOL, runner.CACHE_MAX
-    garde_elagage = runner.CACHE_ELAGAGE
+    garde_elagage = runner.CACHE_PRUNE_EVERY
     try:
         runner.SPOOL = spool
         runner.cache_ecrire("a" * 64, ok)
@@ -1657,13 +1657,13 @@ def test_cache_de_verdicts():
         assert runner.cache_lire("vieux" * 16) == ok
         # Marge nulle : on jette exactement ce qui dépasse, pour que ce
         # contrôle porte sur le CHOIX de la victime et pas sur la marge.
-        runner.CACHE_MAX, runner.CACHE_ELAGAGE = 3, 0
+        runner.CACHE_MAX, runner.CACHE_PRUNE_EVERY = 3, 0
         runner.cache_ecrire("neuf" * 16, ok)
         assert runner.cache_lire("moyen" * 16) is None, "le moins servi a survécu"
         assert runner.cache_lire("vieux" * 16) == ok, "une entrée servie a été jetée"
         assert runner.cache_lire("recent" * 16) == ok
         assert runner.cache_lire("neuf" * 16) == ok
-        runner.CACHE_MAX, runner.CACHE_ELAGAGE = garde_max, garde_elagage
+        runner.CACHE_MAX, runner.CACHE_PRUNE_EVERY = garde_max, garde_elagage
 
         # Un fichier corrompu est un défaut de cache, jamais une panne de juge.
         os.makedirs(os.path.join(spool, runner.CACHE_DIR), exist_ok=True)
@@ -1685,7 +1685,7 @@ def test_cache_de_verdicts():
         assert runner.cache_lire("g" * 64) == ok, "sweep a effacé le cache"
     finally:
         runner.SPOOL, runner.CACHE_MAX = garde_spool, garde_max
-        runner.CACHE_ELAGAGE = garde_elagage
+        runner.CACHE_PRUNE_EVERY = garde_elagage
         shutil.rmtree(spool, ignore_errors=True)
 
 

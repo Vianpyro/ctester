@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Valide le CONTENU du dépôt de tests : chaque corrigé passe-t-il son test ?
+"""Verify the test repo's CONTENT: does every reference solution pass its test?
 
-    python3 valider_contenu.py ../unittests/content
-    CTESTER_SOLUTIONS=../solutions python3 valider_contenu.py ../unittests/content
+    python3 verify_content.py ../unittests/content
+    CTESTER_SOLUTIONS=../solutions python3 verify_content.py ../unittests/content
 
-Un test faux envoie un étudiant chercher un bug qui n'existe pas -- c'est pire
-que pas de test du tout. Ce script est la seule preuve qu'un test est juste : il
-compile la solution de référence de chaque exercice et exige qu'elle passe.
+A wrong test sends a student hunting for a bug that does not exist -- worse
+than no test at all. This script is the only proof that a test is correct: it
+compiles each exercise's reference solution and requires it to pass.
 
-IL IMPORTE runner.py PLUTÔT QUE DE REFAIRE SES VÉRIFICATIONS. Réimplémenter
-`check_case` ici donnerait deux définitions de « ce cas passe », qui dériveraient
-l'une de l'autre en silence -- et la validation dirait alors le contraire du
-juge. Ce qui est mesuré ici est exactement ce que l'étudiant obtiendra.
+IT IMPORTS runner.py RATHER THAN REDOING ITS CHECKS. Reimplementing
+`check_case` here would give two definitions of "this case passes", which
+would silently drift apart -- and validation would then say the opposite of
+the judge. What is measured here is exactly what the student will get.
 
-Ne tourne pas sur le serveur : c'est un outil de contrôleur, et il lui faut gcc.
+Does not run on the server: this is a controller tool, and it needs gcc.
 """
 
 import json
@@ -23,20 +23,21 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import content_catalogue  # noqa: E402
+import content_catalog  # noqa: E402
 import runner  # noqa: E402
 
 CC = os.environ.get("CC", "gcc")
 STD = os.environ.get("CTESTER_STD", "gnu2x")
 TIMEOUT = 30
-# Drapeaux gcc supplementaires, pour mesurer une option avant de la deployer :
-#   CTESTER_EXTRA="-fsanitize=undefined -fno-sanitize-recover" ... valider_contenu.py
-# Les 72 corriges de reference servent alors de banc d'essai : un diagnostic sur
-# du code juste est soit un vrai defaut du corrige, soit un faux positif a ecarter.
+# Extra gcc flags, to measure an option before deploying it:
+#   CTESTER_EXTRA="-fsanitize=undefined -fno-sanitize-recover" ... verify_content.py
+# The 72 reference solutions then serve as a test bench: a diagnostic on
+# correct code is either a real defect in the solution or a false positive to
+# dismiss.
 EXTRA = os.environ.get("CTESTER_EXTRA", "").split()
-# LES SOLUTIONS VIVENT DANS UN AUTRE DÉPÔT, et le gitlink qui les montait sous
-# `unittests/solutions` a disparu en phase 8 : le couple contenu/solutions est
-# réuni ici, par un chemin donné, et jamais par une arborescence partagée.
+# SOLUTIONS LIVE IN A SEPARATE REPO, and the gitlink that mounted them under
+# `unittests/solutions` disappeared in phase 8: the content/solutions pair is
+# reunited here, through a given path, and never through a shared tree.
 SOLUTIONS = os.environ.get("CTESTER_SOLUTIONS", "")
 
 
@@ -51,20 +52,20 @@ def sources(chemin):
 
 
 def valider_unity(entree, sol_dir, unity_dir, travail):
-    """Compile la solution + le test + Unity, et exige zéro échec."""
+    """Compiles the solution + the test + Unity, and requires zero failures."""
     objets = []
     for src in sources(sol_dir):
         obj = os.path.join(travail, src[:-2] + ".o")
         rc, err = gcc(EXTRA + ["-std=" + STD, "-Wall", "-I" + sol_dir, "-c",
                        os.path.join(sol_dir, src), "-o", obj], travail)
         if rc:
-            return "la solution ne compile pas :\n" + err.strip()[:400]
+            return "the solution does not compile:\n" + err.strip()[:400]
         objets.append(obj)
 
-    # -DUNITY_INCLUDE_DOUBLE : la même macro que build-unity.sh, et pour la même
-    # raison. Sans elle, Unity 2.6 compile TEST_ASSERT_DOUBLE_WITHIN en une
-    # souche qui ÉCHOUE, et la validation contredirait le juge -- ou, pire,
-    # validerait un contenu que le juge refuse.
+    # -DUNITY_INCLUDE_DOUBLE: the same macro as build-unity.sh, for the same
+    # reason. Without it, Unity 2.6 compiles TEST_ASSERT_DOUBLE_WITHIN into a
+    # stub that FAILS, and verification would then contradict the judge -- or,
+    # worse, validate content the judge refuses.
     binaire = os.path.join(travail, "t")
     rc, err = gcc(EXTRA + ["-DUNITY_INCLUDE_DOUBLE"] + objets
                   + [os.path.join(entree["path"], f)
@@ -73,7 +74,7 @@ def valider_unity(entree, sol_dir, unity_dir, travail):
                      "-I" + unity_dir, "-I" + entree["path"], "-I" + sol_dir,
                      "-o", binaire, "-lm"], travail)
     if rc:
-        return "l'édition de liens échoue :\n" + err.strip()[:400]
+        return "linking fails:\n" + err.strip()[:400]
 
     done = subprocess.run([binaire], capture_output=True, text=True,
                           errors="replace", timeout=TIMEOUT, check=False)
@@ -81,20 +82,20 @@ def valider_unity(entree, sol_dir, unity_dir, travail):
     if verdict.get("status") != "ok":
         return verdict.get("message", "") + "\n" + done.stdout.strip()[:400]
     if verdict["passed"] != verdict["total"]:
-        return "%d/%d tests seulement, échecs : %s" % (
+        return "only %d/%d tests, failures: %s" % (
             verdict["passed"], verdict["total"], ", ".join(verdict["failed"]))
     return ""
 
 
 def valider_io(entree, sol_dir, travail):
-    """Compile la solution, la lance sur chaque cas, applique les règles du juge."""
+    """Compiles the solution, runs it on every case, applies the judge's rules."""
     conf = entree["config"]
     binaire = os.path.join(travail, "t")
     rc, err = gcc(EXTRA + ["-std=" + STD, "-Wall", "-I" + sol_dir]
                   + [os.path.join(sol_dir, f) for f in sources(sol_dir)]
                   + ["-o", binaire, "-lm"], travail)
     if rc:
-        return "la solution ne compile pas :\n" + err.strip()[:400]
+        return "the solution does not compile:\n" + err.strip()[:400]
 
     tol = float(conf.get("tolerance", runner.DEFAULT_TOLERANCE))
     for numero, cas in enumerate(conf.get("cases", []), 1):
@@ -103,21 +104,21 @@ def valider_io(entree, sol_dir, travail):
                                   capture_output=True, text=True,
                                   errors="replace", timeout=TIMEOUT, check=False)
         except subprocess.TimeoutExpired:
-            return "cas %d : le programme ne termine pas" % numero
+            return "case %d: the program does not terminate" % numero
         raison = runner.check_case(cas, done.stdout, tol)
         if raison:
-            return "cas %d (%r) : %s\n      sortie : %r" % (
+            return "case %d (%r): %s\n      output: %r" % (
                 numero, cas.get("stdin", ""), raison, done.stdout[:200])
     return ""
 
 
 def solutions_racine(contenu):
-    """La racine des corrigés : `CTESTER_SOLUTIONS`, ou le premier voisin trouvé.
+    """The solutions root: `CTESTER_SOLUTIONS`, or the first neighbor found.
 
-    Le gitlink qui montait les solutions SOUS le contenu a disparu ; selon qu'on
-    a gardé le clone à côté du dépôt de tests ou à côté de ce dépôt, il est à un
-    ou deux niveaux au-dessus. Chercher les deux vaut mieux que d'imposer une
-    variable pour un chemin qu'on peut voir.
+    The gitlink that mounted solutions UNDER the content is gone; depending on
+    whether the clone was kept next to the test repo or next to this repo, it
+    is one or two levels up. Trying both beats requiring a variable for a path
+    one can already see.
     """
     if SOLUTIONS:
         return os.path.abspath(SOLUTIONS)
@@ -129,12 +130,11 @@ def solutions_racine(contenu):
 
 
 def solutions_dir(racine, ident):
-    """Le répertoire du corrigé de cet exercice, ou None.
+    """This exercise's reference solution directory, or None.
 
-    DEUX DISPOSITIONS ACCEPTÉES, parce que le dépôt de solutions n'a pas été
-    migré avec le contenu : `tp2-ex3` d'abord tel quel, puis `tp2/ex3`. L'ID
-    reste la clé dans les deux cas -- rien ici ne reconstruit un chemin depuis
-    autre chose que lui.
+    TWO ACCEPTED LAYOUTS, because the solutions repo was not migrated along
+    with the content: `tp2-ex3` as-is first, then `tp2/ex3`. The id stays the
+    key either way -- nothing here rebuilds a path from anything but it.
     """
     for candidat in ([os.path.join(racine, ident)]
                      + ([os.path.join(racine, *ident.split("-", 1))]
@@ -148,25 +148,25 @@ def main():
     racine = os.path.abspath(sys.argv[1] if len(sys.argv) > 1
                              else os.path.join("unittests", "content"))
     unity_dir = os.path.join(racine, "shared", "unity")
-    # Le dépôt de solutions est à CÔTÉ du contenu, plus dedans.
+    # The solutions repo sits NEXT TO the content, not inside it.
     sol_racine = solutions_racine(racine)
 
-    # ABSENT ET VIDE NE SONT PAS LA MÊME PANNE. « aucun exercice trouvé » sur un
-    # chemin qui n'existe pas envoie chercher un bug dans le dépôt de tests au
-    # lieu de le cloner.
+    # ABSENT AND EMPTY ARE NOT THE SAME FAILURE. "no exercise found" on a path
+    # that does not exist sends someone hunting for a bug in the test repo
+    # instead of cloning it.
     if not os.path.isdir(racine):
-        print("ce répertoire n'existe pas : " + racine)
+        print("this directory does not exist: " + racine)
         return 1
 
-    # LE MODÈLE VALIDÉ D'ABORD, comme le publisher : un contenu qui ne passe pas
-    # `discover()` n'a pas de corrigé à éprouver, il a des erreurs à corriger.
-    # Aucune date n'est appliquée -- un exercice qui ouvre en novembre doit être
-    # prouvé en septembre, sinon la date suspendrait la validation exactement
-    # sur ce qui n'a jamais tourné.
+    # THE VALIDATED MODEL FIRST, like the publisher: content that does not
+    # pass `discover()` has no reference solution to check, it has errors to
+    # fix. No date is applied -- an exercise opening in November must be
+    # provable in September, or the date would suspend validation on exactly
+    # what has never run.
     try:
-        model = content_catalogue.discover(racine)
-    except content_catalogue.ContentValidationError as exc:
-        print("contenu invalide :")
+        model = content_catalog.discover(racine)
+    except content_catalog.ContentValidationError as exc:
+        print("invalid content:")
         for erreur in exc.errors:
             print("  - " + erreur)
         return 1
@@ -174,21 +174,21 @@ def main():
                 "path": os.path.join(e["path"], "assessment")}
                for e in model["exercises"].values()]
     if not entrees:
-        print("aucun exercice trouvé dans " + racine)
+        print("no exercise found in " + racine)
         return 1
 
     ok, sautes, casses = 0, [], []
     for entree in entrees:
         ident, mode = entree["id"], entree["mode"]
         if mode == "quiz":
-            # Un quiz n'a pas de solution à compiler : son corrigé EST le
-            # fichier de test. On vérifie qu'il se corrige lui-même à 100 %,
-            # ce qui attrape une réponse mal formée pour son propre type.
+            # A quiz has no solution to compile: its reference IS the test
+            # file. We check that it grades itself at 100%, which catches a
+            # malformed answer for its own type.
             quiz = entree["config"]
             justes = {q["id"]: q["answer"] for q in quiz["questions"]}
             note = runner.grade_quiz(quiz, justes)
             if note["passed"] != note["total"]:
-                casses.append((ident, "le corrigé ne se valide pas lui-même : "
+                casses.append((ident, "the reference solution does not validate itself: "
                                       + str(note["wrong"][:3])))
             else:
                 ok += 1
@@ -206,7 +206,7 @@ def main():
             else:
                 probleme = valider_io(entree, sol_dir, travail)
         except Exception as exc:  # noqa: BLE001
-            probleme = "erreur du validateur : %s" % exc
+            probleme = "validator error: %s" % exc
         finally:
             subprocess.run(["rm", "-rf", travail], check=False)
 
@@ -215,12 +215,12 @@ def main():
         else:
             ok += 1
 
-    print("%d exercice(s) validé(s)" % ok)
+    print("%d exercise(s) validated" % ok)
     if sautes:
-        print("\n%d SANS SOLUTION DE RÉFÉRENCE (donc non prouvés) :" % len(sautes))
+        print("\n%d WITH NO REFERENCE SOLUTION (so unproven):" % len(sautes))
         print("   " + ", ".join(sautes))
     if casses:
-        print("\n%d EN ÉCHEC :" % len(casses))
+        print("\n%d FAILING:" % len(casses))
         for ident, probleme in casses:
             print("\n  %s" % ident)
             for ligne in probleme.splitlines():

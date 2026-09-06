@@ -43,7 +43,7 @@ Objectif: dire a un compte connecte ce qu'il sait REFAIRE, et non plus seulement
 ce qu'il a soumis. Exclut: tout chiffre de maitrise, toute prediction de note.
 
 **Ce qui est en place.** Un drapeau `verification` dans le catalogue v2,
-independant du mode, valide et projete par `content_catalogue.py`; l'evidence
+independant du mode, valide et projete par `content_catalog.py`; l'evidence
 ecrite cote serveur a la lecture du verdict -- reussie OU NON -- dans le journal
 en ajout seul deja existant (`evenement_progression`, type
 `VerificationEvaluated`), idempotente par `verification:<exercice>:<job>` et

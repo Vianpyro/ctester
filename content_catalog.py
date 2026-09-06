@@ -1,12 +1,12 @@
-"""Validation et découverte du contenu v2.
+"""Validation and discovery of v2 content.
 
-Le worker, la CI et le publisher (`publish_content.py`) passent tous par la
-même porte, `find_exercise()`, plutôt que de réinterpréter les métadonnées
-chacun de leur côté.
+The worker, CI, and the publisher (`publish_content.py`) all go through the
+same gate, `find_exercise()`, rather than each reinterpreting the metadata on
+its own.
 
-Le contenu est privé par défaut. ``public_catalogue`` reconstruit les seules
-valeurs qui peuvent quitter cette frontière; il ne retire jamais quelques clés
-d'une copie de la configuration de correction.
+Content is private by default. ``public_catalogue`` rebuilds only the values
+allowed to cross this boundary; it never strips a few keys from a copy of the
+grading configuration.
 """
 
 import datetime as dt
@@ -26,7 +26,7 @@ RELEASE_STATES = frozenset(("available", "scheduled", "archived"))
 
 
 class ContentValidationError(ValueError):
-    """Une ou plusieurs erreurs auteurs, jamais une erreur de chemin HTTP."""
+    """One or more author errors, never an HTTP path error."""
 
     def __init__(self, errors):
         self.errors = tuple(errors)
@@ -38,10 +38,10 @@ def _json(path, errors):
         with open(path, encoding="utf-8") as fh:
             value = json.load(fh)
     except (OSError, ValueError) as exc:
-        errors.append("%s: JSON illisible (%s)" % (path, exc))
+        errors.append("%s: unreadable JSON (%s)" % (path, exc))
         return None
     if not isinstance(value, dict):
-        errors.append("%s: objet JSON attendu" % path)
+        errors.append("%s: expected a JSON object" % path)
         return None
     return value
 
@@ -58,14 +58,13 @@ _NATURAL_PARTS_RE = re.compile(r"(\d+)")
 
 
 def _natural_key(value):
-    """Clé stable pour les identifiants de collection lus depuis des fichiers.
+    """Stable key for collection ids read from files.
 
-    Les collections sont le parcours affiché dans le menu. Un tri lexical de
-    leurs fichiers place donc ``tp10.json`` avant ``tp2.json``. Les identifiants
-    restent des identifiants stables et ne sont pas gonflés artificiellement
-    avec des zéros : leurs portions numériques sont simplement comparées comme
-    des nombres. Les portions sont typées pour qu'un identifiant commençant par
-    un chiffre reste comparable à un identifiant commençant par une lettre.
+    Collections are the path shown in the menu. A lexical sort of their files
+    would therefore place ``tp10.json`` before ``tp2.json``. Ids stay stable
+    ids and are not artificially padded with zeros: their numeric portions are
+    simply compared as numbers. Portions are typed so that an id starting
+    with a digit stays comparable to one starting with a letter.
     """
     return tuple((1, int(part)) if part.isdigit() else (0, part.casefold())
                  for part in _NATURAL_PARTS_RE.split(value) if part)
@@ -82,10 +81,10 @@ def _iso_datetime(value):
 
 
 def detect_mode(assessment_dir):
-    """Le seul mode présent, ou ``None`` / une liste de conflits.
+    """The single mode present, or ``None`` / a list of conflicts.
 
-    Aucun champ ``mode`` ne figure dans exercise.json : le fichier de correction
-    est la source de vérité. Le validateur distingue absence et pluralité.
+    No ``mode`` field appears in exercise.json: the grading file is the
+    source of truth. The validator distinguishes absence from plurality.
     """
     found = [mode for mode, filename in MODES
              if os.path.isfile(os.path.join(assessment_dir, filename))]
@@ -94,18 +93,18 @@ def detect_mode(assessment_dir):
 
 def _release(value, where, errors):
     if not isinstance(value, dict):
-        errors.append("%s: release doit être un objet" % where)
+        errors.append("%s: release must be an object" % where)
         return {"state": "archived"}
     state = value.get("state")
     if state not in RELEASE_STATES:
-        errors.append("%s: release.state invalide" % where)
+        errors.append("%s: invalid release.state" % where)
         state = "archived"
     available_from = value.get("available_from")
     if state == "scheduled":
         if _iso_datetime(available_from) is None:
-            errors.append("%s: scheduled exige available_from ISO avec fuseau" % where)
+            errors.append("%s: scheduled requires an ISO available_from with a timezone" % where)
     elif available_from is not None:
-        errors.append("%s: available_from n'est permis que pour scheduled" % where)
+        errors.append("%s: available_from is only allowed for scheduled" % where)
     out = {"state": state}
     if state == "scheduled" and isinstance(available_from, str):
         out["available_from"] = available_from
@@ -113,12 +112,12 @@ def _release(value, where, errors):
 
 
 def access(release, now=None):
-    """``available`` / ``scheduled`` / ``archived`` -- LA SEULE LECTURE D'UNE RELEASE.
+    """``available`` / ``scheduled`` / ``archived`` -- THE ONLY READ OF A RELEASE.
 
-    Un ``scheduled`` dont la date est passée EST ouvert : la release est une
-    donnée, pas un travail périodique à déclencher. Sans ça, ouvrir un exercice
-    demanderait un commit le matin du cours, et l'oubli ressemblerait à une
-    panne. ``now`` n'est là que pour les tests et le mode aperçu.
+    A ``scheduled`` release whose date has passed IS open: a release is data,
+    not a periodic job to trigger. Without this, opening an exercise would
+    require a commit the morning of class, and forgetting it would look like
+    an outage. ``now`` exists only for tests and preview mode.
     """
     state = (release or {}).get("state")
     if state not in RELEASE_STATES:
@@ -131,11 +130,12 @@ def access(release, now=None):
 
 
 def find_exercise(model, exercise_id, now=None):
-    """L'UNIQUE PORTE vers un exercice : détail, quiz, brouillon, forum, soumission.
+    """THE ONE GATE to an exercise: detail, quiz, draft, forum, submission.
 
-    Un identifiant qui n'est pas ouvert ne se résout pas en entrée, donc pas en
-    chemin : le lien profond partagé par un étudiant en avance ne contourne
-    rien, il ne résout pas. Le worker rappelle la même fonction avant d'exécuter.
+    An id that is not open does not resolve to an entry, so not to a path
+    either: a deep link a student shared early does not bypass anything, it
+    just does not resolve. The worker calls this same function before
+    running anything.
     """
     entry = model["exercises"].get(exercise_id)
     if entry is None or access(entry["release"], now) != "available":
@@ -144,15 +144,15 @@ def find_exercise(model, exercise_id, now=None):
 
 
 def load_exercise(root, exercise_id, now=None, tout=False):
-    """UN exercice résolu depuis la racine privée, sans valider tout le dépôt.
+    """ONE exercise resolved from the private root, without validating the whole repo.
 
-    C'EST LA PORTE DU WORKER. Il tourne en root, une fois par job, et un
-    exercice cassé ailleurs dans le dépôt ne doit pas arrêter la file --
-    `discover()` valide TOUT et sert à la CI et au publisher, pas ici.
+    THIS IS THE WORKER'S GATE. It runs as root, once per job, and an exercise
+    broken elsewhere in the repo must not stop the queue -- `discover()`
+    validates EVERYTHING and serves CI and the publisher, not this.
 
-    La release est réappliquée : le web l'a déjà fait, ce processus ne fait
-    confiance à personne, y compris à notre propre conteneur web. `tout=True`
-    est le mode aperçu de l'enseignant, et rien d'autre.
+    The release is re-applied: the web tier already did it, this process
+    trusts nobody, including our own web container. `tout=True` is the
+    instructor's preview mode, and nothing else.
     """
     if not isinstance(exercise_id, str) or not EXERCISE_RE.match(exercise_id):
         return None
@@ -166,7 +166,7 @@ def load_exercise(root, exercise_id, now=None, tout=False):
     assessment = os.path.join(path, "assessment")
     mode = detect_mode(assessment)
     if not isinstance(mode, str):
-        return None  # aucun mode, ou plusieurs : rien à exécuter
+        return None  # no mode, or several: nothing to run
     files = _public_files(path, "exercises/" + exercise_id, errors, mode)
     return {"id": exercise_id, "path": assessment, "mode": mode,
             "files": files or [{"name": "submission.c", "template": ""}],
@@ -177,19 +177,19 @@ def _files(value, where, errors):
     if value is None:
         return [{"name": "submission.c", "template": ""}]
     if not isinstance(value, list) or not value:
-        errors.append("%s: files doit être une liste non vide" % where)
+        errors.append("%s: files must be a non-empty list" % where)
         return []
     result, seen = [], set()
     for item in value:
         if not isinstance(item, dict):
-            errors.append("%s: entrée files invalide" % where)
+            errors.append("%s: invalid files entry" % where)
             continue
         name, template = item.get("name"), item.get("template", "")
         if not isinstance(name, str) or not FILE_RE.match(name) or name in seen:
-            errors.append("%s: nom de fichier invalide ou dupliqué" % where)
+            errors.append("%s: invalid or duplicate file name" % where)
             continue
         if not isinstance(template, str):
-            errors.append("%s: template doit être du texte" % where)
+            errors.append("%s: template must be text" % where)
             continue
         seen.add(name)
         result.append({"name": name, "template": template})
@@ -197,7 +197,7 @@ def _files(value, where, errors):
 
 
 def _public_files(path, where, errors, mode):
-    """Les gabarits sont publics, donc séparés de la configuration assessment."""
+    """Templates are public, so kept apart from the grading configuration."""
     if mode == "quiz":
         return []
     data = _json(os.path.join(path, "public", "files.json"), errors)
@@ -213,110 +213,110 @@ def _exercise(root, dirname, known_skills, errors):
         return None
     where = "exercises/%s" % dirname
     if data.get("schema_version") != SCHEMA_VERSION:
-        errors.append("%s: schema_version %s attendu" % (where, SCHEMA_VERSION))
+        errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
     exercise_id, title = data.get("id"), data.get("title")
     if not isinstance(exercise_id, str) or not EXERCISE_RE.match(exercise_id):
-        errors.append("%s: id invalide" % where)
+        errors.append("%s: invalid id" % where)
         return None
     if dirname != exercise_id:
-        errors.append("%s: le dossier doit porter l'id" % where)
+        errors.append("%s: the directory must be named after the id" % where)
     if not isinstance(title, str) or not title.strip():
-        errors.append("%s: title manquant" % where)
+        errors.append("%s: missing title" % where)
     if not isinstance(data.get("summary", ""), str):
-        errors.append("%s: summary doit être du texte" % where)
+        errors.append("%s: summary must be text" % where)
     try:
         with open(os.path.join(path, "statement.md"), encoding="utf-8") as fh:
             statement = fh.read()
     except OSError:
-        errors.append("%s: statement.md manquant" % where)
+        errors.append("%s: missing statement.md" % where)
         statement = ""
     assessment = os.path.join(path, "assessment")
     mode = detect_mode(assessment)
     if isinstance(mode, list):
-        errors.append("%s: plusieurs modes présents (%s)" % (where, ", ".join(mode)))
+        errors.append("%s: several modes present (%s)" % (where, ", ".join(mode)))
         mode = None
     elif mode is None:
-        errors.append("%s: aucun mode présent" % where)
+        errors.append("%s: no mode present" % where)
     config = _json(os.path.join(assessment, dict(MODES).get(mode, "missing.json")), errors) if mode else {}
     config = config or {}
     assessment_names = os.listdir(assessment) if os.path.isdir(assessment) else []
     if mode == "unity" and not any(name.startswith("test_") and name.endswith(".c")
                                     for name in assessment_names):
-        errors.append("%s: unity exige au moins un test_*.c" % where)
+        errors.append("%s: unity requires at least one test_*.c" % where)
     if mode == "io" and not isinstance(config.get("cases"), list):
-        errors.append("%s: io exige cases" % where)
+        errors.append("%s: io requires cases" % where)
     if mode == "quiz" and not isinstance(config.get("questions"), list):
-        errors.append("%s: quiz exige questions" % where)
+        errors.append("%s: quiz requires questions" % where)
     skills = data.get("skills", [])
     if (not isinstance(skills, list)
             or any(not isinstance(skill, str) for skill in skills)
             or len(skills) != len(set(skills))):
-        errors.append("%s: skills doit être une liste de textes sans doublon" % where)
+        errors.append("%s: skills must be a list of text with no duplicates" % where)
         skills = []
     for skill in skills:
         if not isinstance(skill, str) or not SKILL_RE.match(skill) or skill not in known_skills:
-            errors.append("%s: skill inconnue ou invalide (%r)" % (where, skill))
+            errors.append("%s: unknown or invalid skill (%r)" % (where, skill))
     difficulty = data.get("difficulty")
     if difficulty is not None and difficulty not in DIFFICULTIES:
-        errors.append("%s: difficulty invalide" % where)
-    # UNE VÉRIFICATION EST UN EXERCICE ORDINAIRE, MARQUÉ. Le drapeau ne dépend
-    # pas du mode : un quiz de lecture de code et un débogage io sont tous deux
-    # des vérifications valables (docs/gamification/mastery.md). Ce qu'il change
-    # est en aval -- pas d'XP, pas de comptage dans la pratique, et une évidence
-    # de maîtrise à chaque verdict.
+        errors.append("%s: invalid difficulty" % where)
+    # A VERIFICATION IS AN ORDINARY EXERCISE, MARKED. The flag does not
+    # depend on the mode: a code-reading quiz and an io debugging exercise
+    # are both valid verifications (docs/gamification/mastery.md). What it
+    # changes is downstream -- no XP, no counting toward practice, and a
+    # piece of mastery evidence on every verdict.
     verification = data.get("verification", False)
     if not isinstance(verification, bool):
-        errors.append("%s: verification doit être un booléen" % where)
+        errors.append("%s: verification must be a boolean" % where)
         verification = False
     contexts = data.get("contexts", [])
     if not isinstance(contexts, list) or any(not isinstance(context, str) or not context
                                               for context in contexts):
-        errors.append("%s: contexts doit être une liste de textes" % where)
+        errors.append("%s: contexts must be a list of text" % where)
         contexts = []
     prerequisites = data.get("prerequisites", [])
     if (not isinstance(prerequisites, list)
             or any(not isinstance(prerequisite, str) for prerequisite in prerequisites)
             or len(prerequisites) != len(set(prerequisites))):
-        errors.append("%s: prerequisites doit être une liste de textes sans doublon" % where)
+        errors.append("%s: prerequisites must be a list of text with no duplicates" % where)
         prerequisites = []
     elif any(not isinstance(prerequisite, str) or not EXERCISE_RE.match(prerequisite)
              for prerequisite in prerequisites):
-        errors.append("%s: prerequisite invalide" % where)
+        errors.append("%s: invalid prerequisite" % where)
     return {
         "id": exercise_id, "path": path, "title": title, "summary": data.get("summary", ""),
         "statement": statement, "mode": mode, "release": _release(data.get("release"), where, errors),
         "skills": skills, "difficulty": difficulty, "contexts": contexts,
         "verification": verification,
         "prerequisites": prerequisites, "files": _public_files(path, where, errors, mode),
-        # La configuration de correction reste DANS LE MODÈLE PRIVÉ : le worker
-        # et le publisher la lisent ici plutôt que de reconstruire un chemin.
-        # Rien de ce dictionnaire ne sort par public_catalogue/public_detail,
-        # qui reconstruisent champ à champ.
+        # THE GRADING CONFIGURATION STAYS IN THE PRIVATE MODEL: the worker and
+        # the publisher read it here rather than rebuilding a path. None of
+        # this dict is exposed by public_catalogue/public_detail, which
+        # rebuild field by field.
         "config": config,
     }
 
 
 def discover(root):
-    """Retourne le modèle privé validé du contenu v2, ou lève avec toutes les erreurs."""
+    """Returns v2 content's validated private model, or raises with every error."""
     errors = []
     catalog = _json(os.path.join(root, "catalog.json"), errors)
     if catalog is None:
         raise ContentValidationError(errors)
     if catalog.get("schema_version") != SCHEMA_VERSION:
-        errors.append("catalog.json: schema_version %s attendu" % SCHEMA_VERSION)
+        errors.append("catalog.json: expected schema_version %s" % SCHEMA_VERSION)
     skills = catalog.get("skills", [])
     if not isinstance(skills, list) or any(not isinstance(s, str) or not SKILL_RE.match(s) for s in skills):
-        errors.append("catalog.json: skills invalides")
+        errors.append("catalog.json: invalid skills")
         skills = []
     if len(skills) != len(set(skills)):
-        errors.append("catalog.json: skills dupliquées")
+        errors.append("catalog.json: duplicate skills")
     exercises = {}
     for dirname in _children(os.path.join(root, "exercises")):
         entry = _exercise(root, dirname, set(skills), errors)
         if entry is None:
             continue
         if entry["id"] in exercises:
-            errors.append("exercise id dupliqué: %s" % entry["id"])
+            errors.append("duplicate exercise id: %s" % entry["id"])
         else:
             exercises[entry["id"]] = entry
     collections = {}
@@ -328,34 +328,34 @@ def discover(root):
             continue
         where, collection_id = "collections/%s" % filename, data.get("id")
         if data.get("schema_version") != SCHEMA_VERSION:
-            errors.append("%s: schema_version %s attendu" % (where, SCHEMA_VERSION))
+            errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
         if not isinstance(collection_id, str) or not COLLECTION_RE.match(collection_id):
-            errors.append("%s: id invalide" % where)
+            errors.append("%s: invalid id" % where)
             continue
         if filename != collection_id + ".json":
-            errors.append("%s: le fichier doit porter l'id" % where)
+            errors.append("%s: the file must be named after the id" % where)
         if not isinstance(data.get("title"), str) or not data["title"].strip():
-            errors.append("%s: title manquant" % where)
+            errors.append("%s: missing title" % where)
         if not isinstance(data.get("description", ""), str):
-            errors.append("%s: description doit être du texte" % where)
+            errors.append("%s: description must be text" % where)
         items = data.get("items")
         if (not isinstance(items, list)
                 or any(not isinstance(item, str) for item in items)
                 or len(items) != len(set(items))):
-            errors.append("%s: items doit être une liste de textes sans doublon" % where)
+            errors.append("%s: items must be a list of text with no duplicates" % where)
             items = []
         for item in items:
             if item not in exercises:
-                errors.append("%s: exercice inconnu %r" % (where, item))
+                errors.append("%s: unknown exercise %r" % (where, item))
         if collection_id in collections:
-            errors.append("collection id dupliqué: %s" % collection_id)
+            errors.append("duplicate collection id: %s" % collection_id)
         collections[collection_id] = {"id": collection_id, "title": data.get("title", ""),
                                       "description": data.get("description", ""), "items": items,
                                       "release": _release(data.get("release", {"state": "available"}), where, errors)}
     for entry in exercises.values():
         for prerequisite in entry["prerequisites"]:
             if prerequisite not in exercises:
-                errors.append("%s: prerequisite inconnu %r" % (entry["id"], prerequisite))
+                errors.append("%s: unknown prerequisite %r" % (entry["id"], prerequisite))
     if errors:
         raise ContentValidationError(errors)
     return {"schema_version": SCHEMA_VERSION, "skills": skills, "exercises": exercises,
@@ -363,12 +363,12 @@ def discover(root):
 
 
 def public_catalogue(model, now=None):
-    """Projection publique reconstruite champ à champ, sans contenu assessment.
+    """Public projection rebuilt field by field, with no assessment content.
 
-    Un exercice pas encore ouvert FIGURE dans le catalogue, avec son état et sa
-    date : c'est ce qui fait la différence entre « verrouillé jusqu'au 18 » et
-    « n'existe pas ». Ce qu'il n'a pas, c'est un détail publié (voir
-    ``public_detail``) -- montrer n'est pas donner.
+    An exercise not yet open still APPEARS in the catalog, with its state and
+    date: that is what makes the difference between "locked until the 18th"
+    and "does not exist". What it lacks is a published detail (see
+    ``public_detail``) -- showing is not giving.
     """
     exercises = []
     for entry in model["exercises"].values():
@@ -379,16 +379,16 @@ def public_catalogue(model, now=None):
             public["summary"] = entry["summary"]
         if entry["difficulty"] is not None:
             public["difficulty"] = entry["difficulty"]
-        # Absent quand c'est faux : le catalogue est relu à chaque requête, et
-        # une clé par exercice qui ne dit rien est 73 clés qui ne disent rien.
+        # Absent when false: the catalog is re-read on every request, and one
+        # key per exercise that says nothing is 73 keys saying nothing.
         if entry.get("verification"):
             public["verification"] = True
         if isinstance(entry["contexts"], list):
             public["contexts"] = [str(context) for context in entry["contexts"]]
-        # LES NOMS RESTENT, LES GABARITS PARTENT. `files` est la liste blanche
-        # qu'oppose l'API à une soumission (validate_files) : la vider ouvrirait
-        # un trou. Le gabarit, lui, ne sert qu'à préremplir l'éditeur et vit
-        # dans le détail, chargé à l'ouverture de l'exercice.
+        # NAMES STAY, TEMPLATES LEAVE. `files` is the allow-list the API
+        # checks a submission against (validate_files): emptying it would
+        # open a hole. The template only ever pre-fills the editor and lives
+        # in the detail, loaded when the exercise opens.
         if entry["files"]:
             public["files"] = [{"name": item["name"]} for item in entry["files"]]
         exercises.append(public)
@@ -402,12 +402,11 @@ def public_catalogue(model, now=None):
 
 
 def public_detail(model, exercise_id, now=None):
-    """Le détail public d'un exercice, séparé du menu et de assessment.
+    """An exercise's public detail, kept apart from the menu and from assessment.
 
-    Les gabarits sont assez volumineux pour ne pas figurer dans catalog.json,
-    mais sont publics par intention et nécessaires à l'éditeur. Un ID inconnu
-    ne se résout pas en chemin : l'appelant doit déjà l'avoir trouvé dans le
-    modèle validé.
+    Templates are bulky enough to stay out of catalog.json, but are public by
+    design and needed by the editor. An unknown id does not resolve to a
+    path: the caller must already have found it in the validated model.
     """
     entry = find_exercise(model, exercise_id, now)
     if entry is None:
