@@ -42,21 +42,21 @@ n'existe pas et l'API ne renvoie rien.
   utilisateur = %s AND exercice_id = %s AND statut = 'valide'`. Zéro ligne
   insérée = pas validé. Le code publié ne peut littéralement pas venir
   d'ailleurs que d'une soumission que le juge a acceptée, parce que
-  `etat_exercice.sources` n'est écrit que par `_result()`
-  ([app/app.py:1534](app/app.py#L1534)) via `job_sources()`
-  ([app/app.py:401](app/app.py#L401)).
+  `etat_exercice.sources` n'est écrit que par `_enregistrer()`
+  (`app/routers/soumission.py`) via `job_sources()`
+  (`app/services/spool.py`).
 - Lire : `SELECT … FROM forum_partage p WHERE p.exercice_id = %s AND EXISTS
   (SELECT 1 FROM etat_exercice WHERE utilisateur = %(moi)s AND exercice_id =
   %s AND statut = 'valide')`. Pas validé = zéro ligne, jamais un filtre en
   Python. C'est l'idiome que `forum_supprimer()`
-  ([app/etat.py:345](app/etat.py#L345)) et `forum_signaler()`
-  ([app/etat.py:357](app/etat.py#L357)) utilisent déjà.
+  (`app/etat.py`) et `forum_signaler()`
+  (`app/etat.py`) utilisent déjà.
 
 Le filtrage en Python reste interdit : une garde `if` bien placée est ce que
 `build-unity.sh` / `build-io.sh` refusent de devenir.
 
 **Caveat à écrire dans le code et dans l'interface** : `write_state()`
-([app/etat.py:132](app/etat.py#L132)) réécrit `sources` à **chaque**
+(`app/etat.py`) réécrit `sources` à **chaque**
 soumission tout en gardant `statut = 'valide'`. Le snapshot est donc « le
 dernier code que vous avez soumis sur un exercice que vous avez validé », pas
 « le code exact du verdict vert ». Le bouton doit le dire : *« Publier le
@@ -67,8 +67,8 @@ de confirmer.
 
 ## 1. Schéma — `app/schema.sql`
 
-Deux tables, à la suite du bloc forum (après `forum_nom_signale`, l.237). Le
-schéma passe de **onze à treize** tables.
+Deux tables, à la suite du bloc forum (après `forum_nom_signale`). Le
+schéma passe de **douze à quatorze** tables.
 
 ### `forum_partage` — journal en ajout seul, la dernière ligne d'un compte fait foi
 
@@ -85,7 +85,7 @@ cree_le      TIMESTAMPTZ NOT NULL DEFAULT now()
 Index `forum_partage_dernier_idx (exercice_id, utilisateur, cree_le DESC)` —
 il sert le `DISTINCT ON (utilisateur)` de la lecture d'un exercice.
 
-Même forme que `forum_profil` ([app/schema.sql:217](app/schema.sql#L217)) :
+Même forme que `forum_profil` (`app/schema.sql`) :
 ajout seul, `DISTINCT ON … ORDER BY utilisateur, cree_le DESC, partage_id
 DESC` pour ne rendre que le dernier. « Remplacer » = insérer une ligne de
 plus. « Supprimer » = un vrai `DELETE` de **toutes** les lignes du compte sur
@@ -94,8 +94,8 @@ cet exercice (c'est le retrait d'un contenu, pas une révision).
 **Le trou à ne pas creuser** : avec un journal, republier après avoir été
 masqué se démasquerait tout seul. La règle est donc : *un compte dont le
 dernier partage sur cet exercice est masqué ne peut pas republier* — refus
-explicite côté `app.py` (409 + message), pas un masquage silencieux. Un test
-dédié.
+explicite côté `app/routers/forum.py` (409 + message), pas un masquage
+silencieux. Un test dédié.
 
 ### `forum_partage_signalement`
 
@@ -106,7 +106,7 @@ cree_le     TIMESTAMPTZ NOT NULL DEFAULT now()
 PRIMARY KEY (partage_id, utilisateur)
 ```
 
-Copie exacte de `forum_signalement` ([app/schema.sql:179](app/schema.sql#L179))
+Copie exacte de `forum_signalement` (`app/schema.sql`)
 — la PK **est** la règle « un compte ne signale qu'une fois ».
 
 **Pas de table de journal de modération séparée.** Masquer/rétablir un
@@ -130,72 +130,72 @@ cible explicitement nommées, aucune ambiguïté à la relecture.
 - `GRANT SELECT, INSERT ON forum_partage_signalement TO ctester_app`
 - `forum_moderation` gagne sa colonne : rien à changer au GRANT.
 
-`test_postgres.py::forum_privileges()` ([test_postgres.py:325](test_postgres.py#L325))
-doit gagner les `UPDATE` refusés correspondants (`sources`, `note`,
+`test_postgres.py::forum_privileges()` doit gagner les `UPDATE` refusés correspondants (`sources`, `note`,
 `utilisateur`) et le `UPDATE … SET masque = masque` qui doit passer.
 
 ---
 
 ## 3. `app/etat.py` — six fonctions, aucune logique
 
-À placer dans le bloc forum (après `forum_auteur`, l.517). Rappel de
-l'en-tête l.312 : ce module **rend le `sub`**, c'est `app.py` qui traduit.
+À placer dans le bloc forum, après les fonctions de forum existantes. Rappel
+de l'en-tête du module : ce module **rend le `sub`**, c'est `forum_vue()`
+(`app/services/forum.py`) qui traduit.
 
 | Fonction | Rôle | Forme |
 |---|---|---|
 | `forum_partage_ecrire(partage_id, exercise_id, user, note)` | publie | `INSERT … SELECT %s,%s,%s,e.sources,%s FROM etat_exercice e WHERE e.utilisateur=%s AND e.exercice_id=%s AND e.statut='valide' RETURNING partage_id` — **la clause WHERE est le contrôle d'accès** ; `[]` = pas validé |
-| `forum_partages(exercise_id, lecteur, limite)` | lit le fil des partages | `SELECT DISTINCT ON (utilisateur) …` + `WHERE EXISTS (… etat_exercice … statut='valide')` pour le lecteur ; rend **aussi** les masqués avec leur drapeau, comme `forum_fil` ([app/etat.py:318](app/etat.py#L318)) |
+| `forum_partages(exercise_id, lecteur, limite)` | lit le fil des partages | `SELECT DISTINCT ON (utilisateur) …` + `WHERE EXISTS (… etat_exercice … statut='valide')` pour le lecteur ; rend **aussi** les masqués avec leur drapeau, comme `forum_fil` (`app/etat.py`) |
 | `forum_partage_mien(exercise_id, user)` | l'état de mon propre partage (existe ? masqué ?) | `DISTINCT ON` limité à `utilisateur = %s`, sans la garde EXISTS |
 | `forum_partage_supprimer(exercise_id, user)` | retire le sien | `DELETE … WHERE exercice_id=%s AND utilisateur=%s RETURNING partage_id` |
 | `forum_partage_signaler(partage_id, user)` | signale | `INSERT … SELECT p.partage_id, %s FROM forum_partage p WHERE p.partage_id=%s ON CONFLICT DO NOTHING RETURNING` — pas d'orphelin **et** pas de doublon, en une instruction |
 | `forum_partages_signales(limite)` | la file du modérateur | JOIN + `count(*)`, `ORDER BY combien DESC, p.cree_le`. Ne rend **jamais** qui a signalé |
-| `forum_partage_moderer(action_id, partage_id, moderator, action)` | masque / rétablit | CTE `agi` insère dans `forum_moderation` (`cible='partage'`) puis `UPDATE forum_partage SET masque=… WHERE partage_id=(SELECT … FROM agi) RETURNING` — copie de `forum_moderer` ([app/etat.py:396](app/etat.py#L396)) |
+| `forum_partage_moderer(action_id, partage_id, moderator, action)` | masque / rétablit | CTE `agi` insère dans `forum_moderation` (`cible='partage'`) puis `UPDATE forum_partage SET masque=… WHERE partage_id=(SELECT … FROM agi) RETURNING` — copie de `forum_moderer` (`app/etat.py`) |
 
 Toutes passent par `_query()` : `None` = « la base n'a pas répondu », jamais
-« il n'y a rien » ([app/etat.py:57](app/etat.py#L57)).
+« il n'y a rien » (`app/etat.py`).
 
-**`forget(user)` ([app/etat.py:547](app/etat.py#L547)) gagne deux CTE de
+**`forget(user)` (`app/etat.py`) gagne deux CTE de
 DELETE.** Le test compte les tables du schéma et exige `_query(` **une seule
 fois** dans la fonction : la seule façon correcte est d'ajouter deux CTE à
 l'instruction unique, pas deux appels.
 
-Les horodatages passent par `_minute()` ([app/etat.py:527](app/etat.py#L527)),
+Les horodatages passent par `_minute()` (`app/etat.py`),
 comme les messages.
 
 ---
 
-## 4. `app/app.py` — trois routes, zéro nouvelle notion
+## 4. `app/routers/forum.py` — trois routes, zéro nouvelle notion
 
 ### Bornes
 `FORUM_PARTAGE_MAX_OCTETS` (défaut : réutiliser `MAX_CODE`) plafonne le
 snapshot ; la note passe par `forum_texte()`
-([app/app.py:615](app/app.py#L615)) inchangé. Une constante de plus dans le
-bloc de configuration l.48-69.
+(`app/services/forum.py`) inchangé. Une constante de plus dans
+`app/config.py`.
 
 ### Routes
-Toutes derrière `_forum_qui()` ([app/app.py:1166](app/app.py#L1166)) — donc
-503 si le forum est éteint, 401 sans jeton — et `_forum_entree()`
-([app/app.py:1189](app/app.py#L1189)) pour l'exercice.
+Toutes derrière `SubForum` (`app/deps.py`) — donc
+503 si le forum est éteint, 401 sans jeton — et `find_exercise()`
+(`app/services/catalogue.py`) pour l'exercice.
 
 | Route | Handler | Notes |
 |---|---|---|
-| `GET /forum/partages?ex=<id>` | `_forum_partages` | `{exercice_id, autorise, mien, partages: [...]}`. **`autorise: false` et une liste vide** quand le lecteur n'a pas validé — pas un 403 : « vous n'y avez pas droit » et « il n'y a rien » se ressemblent, et la page a besoin de savoir laquelle des deux pour afficher le bon encart |
-| `POST /forum/partages` | `_forum_partager` | corps `{ex, note}`. Ordre : qui → corps → entrée → `forum_texte` (si note) → **`_forum_throttle(sub)`** → refus 409 si mon dernier partage est masqué → `forum_partage_ecrire` → **`[]` ⇒ 403 « il faut avoir validé cet exercice »** |
-| `DELETE /forum/partages?ex=<id>` | `_forum_partage_supprimer` | 404 identique pour « rien à supprimer » et « pas à vous », comme `_forum_supprimer` ([app/app.py:1268](app/app.py#L1268)) |
+| `GET /forum/partages?ex=<id>` | `partages` | `{exercice_id, autorise, mien, partages: [...]}`. **`autorise: false` et une liste vide** quand le lecteur n'a pas validé — pas un 403 : « vous n'y avez pas droit » et « il n'y a rien » se ressemblent, et la page a besoin de savoir laquelle des deux pour afficher le bon encart |
+| `POST /forum/partages` | `partager` | corps `{ex, note}`. Ordre : qui → corps → entrée → `forum_texte` (si note) → **`freiner_forum(sub)`** → refus 409 si mon dernier partage est masqué → `forum_partage_ecrire` → **`[]` ⇒ 403 « il faut avoir validé cet exercice »** |
+| `DELETE /forum/partages?ex=<id>` | `partage_supprimer` | 404 identique pour « rien à supprimer » et « pas à vous », comme `supprimer` (`app/routers/forum.py`) |
 
 Deux routes existantes gagnent une branche, sans nouvelle route :
 - `POST /forum/signalement` : `{quoi: "partage", id: <partage_id>}` à côté de
-  `"nom"` et du défaut ([app/app.py:1288](app/app.py#L1288)). **Même réponse**
+  `"nom"` et du défaut (`signaler`, `app/routers/forum.py`). **Même réponse**
   pour neuf / doublon / inconnu.
 - `GET` et `POST /forum/moderation` : la file gagne une clé `partages`, et
   l'action accepte `cible: "partage"` avec `masquer` / `retablir`
-  ([app/app.py:1322](app/app.py#L1322), [app/app.py:1339](app/app.py#L1339)).
+  (`app/routers/forum.py`).
 
 ### La frontière de confidentialité
-`forum_vue()` ([app/app.py:728](app/app.py#L728)) ne convient pas tel quel
+`forum_vue()` (`app/services/forum.py`) ne convient pas tel quel
 (un partage n'a pas de `texte`). Écrire **`forum_partage_vue(partages, sub,
 moderateur, profils)`** juste à côté, qui réutilise **`forum_identite()`**
-([app/app.py:704](app/app.py#L704)) sans la réécrire, et rend :
+(`app/services/forum.py`) sans la réécrire, et rend :
 
 ```
 {id, sources, note, cree_le, auteur, groupe, nom_signalable, mien,
@@ -206,38 +206,38 @@ moderateur, profils)`** juste à côté, qui réutilise **`forum_identite()`**
   le code du chargé de labo en tête. Recalculé serveur, jamais un claim.
 - **Aucun `sub` ne sort.** Le test existant
   `test_forum_vue_ne_laisse_sortir_aucun_sub`
-  ([test_ctester.py:1574](test_ctester.py#L1574)) doit être étendu à cette
+  (`test_ctester.py`) doit être étendu à cette
   charge-là, y compris dans la vue la plus renseignée (celle du modérateur).
 - Le filtre des masqués est le même : `if not (moderateur or not
   p["masque"]) and not p["mien"]: continue` — l'auteur d'un partage masqué doit
   voir qu'il est masqué, sinon il republie en boucle sans comprendre.
 
 ### Ce qui ne bouge pas
-`_result()` ([app/app.py:1534](app/app.py#L1534)) n'est **pas** touché :
+`_enregistrer()` (`app/routers/soumission.py`) n'est **pas** touché :
 publier ne rapporte aucun XP et ne débloque aucun succès. La progression
 récompense la réussite, pas l'exhibition. `politique.py` reste inchangé.
 
 ---
 
-## 5. `app/forum.js` — une section de plus, un seul `innerHTML` de plus
+## 5. `web/forum.js` — une section de plus, un seul `innerHTML` de plus
 
 Le module est déjà l'endroit où vit l'identité, le signalement et la
 modération ; le partage réutilise tout ça.
 
 ### Ce que `app.js` doit exposer
-`highlight()` ([app/app.js:497](app/app.js#L497)) est privé au noyau. L'exposer
+`highlight()` (`web/app.js`) est privé au noyau. L'exposer
 sur le contexte : **`ctester.colorer(src)`** — même fonction, même échappement
 **après** découpage. Sens unique respecté : `forum.js` lit `window.ctester`,
-le noyau n'importe rien ([app/app.js:9](app/app.js#L9)).
+le noyau n'importe rien.
 
 ### Rendu d'un partage — `unPartage(p)`
-1. En-tête identique à `unMessage()` ([app/forum.js:535](app/forum.js#L535)) :
+1. En-tête identique à `unMessage()` (`web/forum.js`) :
    `span.auteur` (le mot rendu par le serveur), `span.groupe`, `time.quand` via
    `quandLocal`, `span.etat` « masqué » en toutes lettres. Si `p.reference`,
    une puce « Référence du cours » et l'élément est **placé en tête** de la
    liste.
 2. La note, s'il y en a une, par **`rendreMarkdown()`**
-   ([app/forum.js:123](app/forum.js#L123)) — inchangé, deux barrières.
+   (`web/forum.js`) — inchangé, deux barrières.
 3. Le code : un `<pre><code>` **par fichier**, précédé du nom de fichier en
    `textContent`. Contenu posé par `codeEl.innerHTML = ctester.colorer(src)` —
    `colorer` échappe chaque tranche, c'est le même contrat que l'éditeur. Si
@@ -248,7 +248,7 @@ le noyau n'importe rien ([app/app.js:9](app/app.js#L9)).
    modérateur.
 
 ### Où ça s'accroche
-`dessiner()` ([app/forum.js:647](app/forum.js#L647)) place déjà deux colonnes.
+`dessiner()` (`web/forum.js`) place déjà deux colonnes.
 La colonne large gagne, **sous le fil**, une section `Codes partagés` qui a
 trois états et un seul :
 
@@ -260,20 +260,21 @@ trois états et un seul :
 - **validé, déjà publié** → la liste, mon partage marqué « Vous », et
   « Remplacer » / « Retirer ».
 
-La file de modération ([app/forum.js:590](app/forum.js#L590)) gagne une
+La file de modération (`web/forum.js`) gagne une
 troisième pile, `filePartages()`, à côté de `fileModeration()` et
-`fileNoms()`, qui rend le code par le **même** chemin — la remarque l.610
-(« une vue de modération qui rendrait le HTML brut pour voir ce qu'il y a
-dedans serait la page la plus facile à attaquer du site ») vaut mot pour mot.
+`fileNoms()`, qui rend le code par le **même** chemin — la remarque sur
+la vue de modération qui rendrait le HTML brut pour voir ce qu'il y a
+dedans (« ce serait la page la plus facile à attaquer du site ») vaut mot
+pour mot.
 
-`charger(id)` ([app/forum.js:184](app/forum.js#L184)) fait un appel de plus
-(`forum/partages?ex=`) et `oublier()` ([app/forum.js:724](app/forum.js#L724))
+`charger(id)` (`web/forum.js`) fait un appel de plus
+(`forum/partages?ex=`) et `oublier()` (`web/forum.js`)
 remet le nouvel état à zéro à la déconnexion.
 
 **Aucune nouvelle bibliothèque**, aucun fichier `vendor/` de plus : le code
 n'est pas du Markdown.
 
-### `app/style.css`
+### `web/style.css`
 Les `<pre>` de partage réutilisent les classes `.tc .ts .tp .tk .tn .tf .tu`
 déjà définies pour `#hl` — mais **pas** les métriques de la superposition
 `#hl`/`#code`/`#gutter`, qui ne concernent que l'éditeur. Une classe
@@ -281,7 +282,7 @@ déjà définies pour `#hl` — mais **pas** les métriques de la superposition
 `overflow-x: auto`).
 
 ### `ASSET_REVISION`
-À incrémenter dans [app/app.js:14](app/app.js#L14) **et** `index.html` — les
+À incrémenter dans `web/app.js` **et** `index.html` — les
 deux, sinon le module arrive en version de cache et `activerModule` affiche
 « le fichier ne s'est pas déclaré ».
 
@@ -290,19 +291,18 @@ deux, sinon le module arrive en version de cache et `activerModule` affiche
 ## 6. Tests — la partie qui rend le reste vrai
 
 ### `test_ctester.py`
-- **`test_suppression_couvre_toutes_les_tables`**
-  ([test_ctester.py:830](test_ctester.py#L830)) : `assert len(tables) == 11`
-  devient `== 13`. C'est le contrôle qui échoue tout seul si une des deux
+- **`test_suppression_couvre_toutes_les_tables`** : `assert len(tables) == 12`
+  devient `== 14`. C'est le contrôle qui échoue tout seul si une des deux
   tables n'est pas dans `forget()` — ne pas le contourner, le mettre à jour.
-- **`test_forum_vue_ne_laisse_sortir_aucun_sub`**
-  ([test_ctester.py:1574](test_ctester.py#L1574)) : étendre à
+- **`test_forum_vue_ne_laisse_sortir_aucun_sub`** : étendre à
   `forum_partage_vue`, avec un partage de modérateur (le cas `reference`) et
   un partage masqué, et rechercher `sub-*` et `"utilisateur"` dans le JSON.
 - **Nouveau `test_forum_partage_vue`** : les trois identités, `reference`
   vrai pour le seul modérateur, `mien` correct, un masqué invisible pour un
   tiers **et visible pour son auteur**.
-- **`test_http_forum`** ([test_ctester.py:1667](test_ctester.py#L1667)) —
-  la `BaseSimulee` gagne les sept fonctions ; nouveaux cas :
+- **Les routes de partage** (`app/routers/forum.py`, éprouvées comme les six
+  routes existantes via `fastapi.testclient` dans `test_api.py`) — nouveaux
+  cas :
   - alice n'a pas validé → `GET /forum/partages` rend `autorise: false` et une
     liste vide **même si bob a publié** ;
   - alice publie sans avoir validé → **403**, et rien n'entre en base ;
@@ -319,29 +319,28 @@ deux, sinon le module arrive en version de cache et `activerModule` affiche
     jamais** ;
   - `DELETE /moi` efface les partages d'alice sans toucher ceux de bob.
 - Forum éteint (`CTESTER_FORUM_MODERATORS` vide) → **503 sur les trois
-  nouvelles routes**, comme les six autres
-  ([test_ctester.py:1460](test_ctester.py#L1460)).
+  nouvelles routes**, comme les six autres.
 
 ### `test_postgres.py` — le seul contrôle qui éprouve le SQL
 Les formes ajoutées sont précisément celles que le fichier existe pour
-attraper ([test_postgres.py:18](test_postgres.py#L18)) : un `INSERT … SELECT`
+attraper : un `INSERT … SELECT`
 dont le `WHERE` **est** le contrôle d'accès, un `SELECT … WHERE EXISTS` qui
 fait la même chose en lecture, un `DISTINCT ON`, une CTE modifiante qui
-alimente un `UPDATE`, et treize `DELETE` dans une seule instruction.
+alimente un `UPDATE`, et quatorze `DELETE` dans une seule instruction.
 
-- `TABLES` ([test_postgres.py:53](test_postgres.py#L53)) : deux noms de plus.
+- `TABLES` : deux noms de plus.
 - **`partages()`** : publier sans état → 0 ligne ; avec `statut='essaye'` →
   0 ligne ; avec `'valide'` → 1 ligne et **`sources` égal à celui de
   `etat_exercice`** ; `forum_partages` pour un lecteur non validé → `[]`, pour
   un lecteur validé → la liste ; `DISTINCT ON` rend la dernière de deux
   lignes ; masquer/rétablir avec deux lignes de journal en `cible='partage'` ;
   signalement unique par compte.
-- **`forum_privileges()`** ([test_postgres.py:325](test_postgres.py#L325)) :
+- **`forum_privileges()`** :
   `UPDATE forum_partage SET sources = …`, `SET note = …`, `SET utilisateur =
   …` et `UPDATE forum_partage_signalement` doivent lever
   `InsufficientPrivilege` ; `UPDATE forum_partage SET masque = masque` doit
   passer. **C'est la moitié du contrat que Python ne peut pas tenir.**
-- **`suppression()`** ([test_postgres.py:377](test_postgres.py#L377)) : treize
+- **`suppression()`** : quatorze
   compteurs non nuls avant, tous nuls après, bob intact.
 
 ### `test_page.js`
@@ -361,7 +360,7 @@ alimente un `UPDATE`, et treize `DELETE` dans une seule instruction.
 
 - **`CLAUDE.md`**, section « Le forum d'entraide » : un paragraphe sur le
   partage — la règle d'accès en une phrase, le fait que le snapshot vient du
-  serveur, le compte de tables qui passe de onze à treize, et le piège du
+  serveur, le compte de tables qui passe de douze à quatorze, et le piège du
   republish-après-masquage.
 - **`app/schema.sql`** : le commentaire de bloc avant les deux tables, dans le
   ton des autres (pourquoi ajout seul, pourquoi pas de clé étrangère).
@@ -373,13 +372,13 @@ alimente un `UPDATE`, et treize `DELETE` dans une seule instruction.
 ## Ordre d'exécution suggéré
 
 1. `schema.sql` + les `GRANT` dans `VHome` (rien ne marche sans).
-2. `etat.py` : les sept fonctions + les deux CTE dans `forget()`.
+2. `app/etat.py` : les sept fonctions + les deux CTE dans `forget()`.
 3. `test_postgres.py` : `partages()`, `forum_privileges()`, `suppression()`,
    `TABLES` — **avant** l'API, parce que c'est le seul contrôle qui dit si le
    SQL est juste.
-4. `app.py` : bornes, `forum_partage_vue`, trois routes, deux branches.
-5. `test_ctester.py` : les 13 tables, la frontière, `test_http_forum`.
-6. `app.js` (`ctester.colorer`, `ASSET_REVISION`), `forum.js`, `style.css`.
+4. `app/routers/forum.py` : bornes, `forum_partage_vue`, trois routes, deux branches.
+5. `test_ctester.py` / `test_api.py` : les 14 tables, la frontière, les routes de partage.
+6. `web/app.js` (`ctester.colorer`, `ASSET_REVISION`), `web/forum.js`, `web/style.css`.
 7. `test_page.js`.
 8. `CLAUDE.md`.
 
@@ -421,5 +420,5 @@ Puis, à la main, dans la vraie page (`CTESTER_APERCU=1` + un worker) :
 Et le contrôle qui ne se saute jamais :
 
 ```sh
-grep -rl answer app/*.json app/quiz/ app/tp/     # DOIT ne rien trouver
+grep -rl answer /opt/ctester/published/     # DOIT ne rien trouver
 ```

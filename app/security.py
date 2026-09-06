@@ -91,7 +91,7 @@ def userinfo_url():
     return url
 
 
-# Token fingerprint -> (sub, expiry). THE config.KEY IS A SHA-256 OF THE TOKEN, not the
+# Token fingerprint -> (sub, preferred_username, expiry). THE KEY IS A SHA-256 OF THE TOKEN, not the
 # token: this dict ends up in a core dump or a traceback sooner or later, and a
 # raw access token found there would still be replayable.
 _tokens = {}

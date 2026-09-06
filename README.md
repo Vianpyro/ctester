@@ -54,7 +54,7 @@ content_catalogue.py  Course content validation and lookup
 publish_content.py    Content publication and releases
 runner.py             Host-side execution worker
 build-unity.sh        Unit-test execution
-build-io.sh            stdin/stdout execution
+build-io.sh           stdin/stdout execution
 test_*.py             Application and integration tests
 ```
 

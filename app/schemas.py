@@ -28,11 +28,9 @@ _CONFIG = ConfigDict(extra="ignore")
 class _AvecExercice(BaseModel):
     """L'exercice visé, sous le nom qui vit déjà dans toutes les tables.
 
-    `exercise_id` est la seule orthographe depuis que la fenêtre de
-    compatibilité ouverte en phase 4 est refermée : `tp` a été accepté le temps
-    que les pages en cache des étudiants se rechargent, et `extra="ignore"` fait
-    qu'une page vraiment ancienne n'est pas rejetée -- elle vise simplement
-    l'exercice vide, ce que `find_exercise` refuse en 404.
+    `exercise_id` est la seule orthographe acceptée ; `extra="ignore"`
+    (ci-dessus) fait qu'une page ancienne vise l'exercice vide, que
+    `find_exercise` refuse en 404.
     """
 
     model_config = _CONFIG
@@ -59,12 +57,11 @@ class SoumissionIn(_AvecExercice):
 
 
 class BrouillonIn(_AvecExercice):
-    """PUT /brouillon et PUT /etat -- le code en cours, et son statut déclaré."""
+    """PUT /brouillon -- le code en cours."""
 
     model_config = _CONFIG
 
     files: dict | None = None
-    statut: str = ""
 
 
 class PreferencesIn(BaseModel):

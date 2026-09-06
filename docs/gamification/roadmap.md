@@ -8,21 +8,22 @@ Livrable: ce repertoire, revue avec enseignant/proprietaire et resolution des qu
 
 Objectif: comptes connectes voient skills, XP/niveau et quelques accomplissements sans modifier le juge. Exclut: classe, reset saisonnier et formule complexe de mastery.
 
-**Ce qui est en place.** Trois tables de faits en ajout seul (`evenement_progression`, `transaction_xp`, `succes_obtenu`) dans `app/schema.sql`; une politique declarative et versionnee dans `app/politique.py`; l'attribution cote serveur a la lecture du verdict, idempotente par identifiant d'evenement `reussite:<exercice>`; `GET /progres` authentifie, qui derive solde, niveau, competences pratiquees, succes et recommandation sans rien mettre en cache; la vue `app/progres.js`, chargee au clic et seulement connectee; la suppression etendue a toutes les tables en une instruction. Les non-regressions anonyme et connectee sont dans `test_page.js`, les contrats et l'idempotence dans `test_ctester.py`.
+**Ce qui est en place.** Trois tables de faits en ajout seul (`evenement_progression`, `transaction_xp`, `succes_obtenu`) dans `app/schema.sql`; une politique declarative et versionnee dans `app/politique.py`; l'attribution cote serveur a la lecture du verdict, idempotente par identifiant d'evenement `reussite:<exercice>`; `GET /progres` authentifie, qui derive solde, niveau, competences pratiquees, succes et recommandation sans rien mettre en cache; la vue `web/progres.js`, chargee au clic et seulement connectee; la suppression etendue a toutes les tables en une instruction. Les non-regressions anonyme et connectee sont dans `test_page.js`, les contrats et l'idempotence dans `test_ctester.py`.
 
 **Ce qui reste ouvert.** Les montants, plafonds et seuils sont des valeurs de pilote non observees (voir [xp.md](xp.md) et [levels.md](levels.md)); aucune correction d'XP administrative n'existe encore, et le GRANT applicatif l'interdit deliberement.
 
 ## Hors phases — forum d'entraide MVP (livre)
 
 Un lot volontairement place ENTRE la Phase 1 et la Phase 2, et qui n'appartient a
-aucune des deux. Voir [D-008](decisions.md) et [social.md](social.md).
+aucune des deux. Voir [D-008](decisions.md), [D-011](decisions.md#d-011--lidentite-choisie-facultative-et-invisible-par-defaut) et [social.md](social.md).
 
-**Ce qui est en place.** Trois tables de faits (`forum_message`,
-`forum_signalement`, `forum_moderation`) dans `app/schema.sql`, en ajout seul a
+**Ce qui est en place.** Cinq tables de faits (`forum_message`,
+`forum_signalement`, `forum_moderation`, `forum_profil`, `forum_nom_signale`)
+dans `app/schema.sql`, en ajout seul a
 une colonne pres (`UPDATE (masque)` par GRANT de colonne); six routes derriere
-`_who()`, toutes bornees par `find_tp()`; un role de moderation configure par
+`SubForum`, toutes bornees par `find_exercise()`; un role de moderation configure par
 `CTESTER_FORUM_MODERATORS` et recalcule serveur a chaque appel; la vue
-`app/forum.js`, chargee au clic et seulement connectee, avec un rendu Markdown
+`web/forum.js`, chargee au clic et seulement connectee, avec un rendu Markdown
 restreint assaini a chaque affichage ([D-009](decisions.md)); une charte visible
 en permanence et avant la premiere publication; `DELETE /moi` etendu.
 

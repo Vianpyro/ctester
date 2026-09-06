@@ -243,10 +243,9 @@ async function ecrire(chemin, methode, charge, succes, echec) {
   return ok;
 }
 
-// ON REDESSINE L'ECRAN QU'ON REGARDE. Depuis que la moderation est une
-// destination a part, masquer un message depuis celle-ci redessinait le FIL --
-// c'est-a-dire un ecran qui n'etait pas a l'affichage : l'action semblait
-// n'avoir eu aucun effet.
+// ON REDESSINE L'ECRAN QU'ON REGARDE, pas l'autre : masquer un message depuis
+// la moderation redessinait sinon le FIL, un ecran qui n'etait pas a
+// l'affichage, et l'action semblait n'avoir eu aucun effet.
 function redessiner() {
   if (ctester.vue() === "moderation") dessinerModeration();
   else dessiner();
@@ -724,9 +723,8 @@ function dessiner() {
   }
   gauche.append(formulaire());
   droite.append(leFil());
-  // LA MODÉRATION N'EST PLUS RENDUE ICI. Les deux files vivaient au milieu du
-  // fil que les étudiants viennent lire : un outil d'enseignant dans le
-  // parcours de l'apprenant. Il en reste une porte, visible du seul modérateur.
+  // LA MODÉRATION N'EST PLUS RENDUE ICI. Il en reste une porte, visible du
+  // seul modérateur.
   if (moderateur) droite.append(porteModeration());
 }
 

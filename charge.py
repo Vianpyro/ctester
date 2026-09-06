@@ -156,7 +156,7 @@ def phase_page(mesures):
 def phase_privee(mesures):
     """Progression et autosauvegarde: tout ce qui passe par le verrou global.
 
-    CE QU'ON VIENT MESURER. `GET /progres` fait CINQ allers-retours SQL
+    CE QU'ON VIENT MESURER. `GET /progres` fait SIX allers-retours SQL
     serialises derriere le verrou unique de etat.py. C'est la que se decide
     s'il faut les regrouper en une seule lecture -- pas avant.
     """

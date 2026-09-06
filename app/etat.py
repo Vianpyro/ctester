@@ -7,7 +7,7 @@ anonymous path never needs this layer. A database that is down must not stop a
 student from testing their code the evening before a deadline -- so nothing here
 raises. Functions return None or False, and the caller says so honestly on screen.
 
-`utilisateur` is ALWAYS the opaque `sub` validated by app.current_user(), never a value
+`utilisateur` is ALWAYS the opaque `sub` validated by `security.current_user()`, never a value
 taken from a request body: that is the one thing keeping a student out of
 another student's state.
 
@@ -21,7 +21,7 @@ import threading
 from datetime import timezone
 
 try:
-    import psycopg          # the exposed container's only external dependency
+    import psycopg          # the only optional import
 except ImportError:         # image built without it: persistence is simply absent
     psycopg = None
 
@@ -322,8 +322,9 @@ def read_progress(user):
      "transactions": [{exercice_id, montant, motif, accorde_le}]}
 
     Le solde, le niveau et les compétences ne sont PAS ici : ce sont des
-    projections, `app.py` les recalcule à partir de ces faits et du catalogue
-    public. Ce qui est stocké est ce qui s'est passé, pas ce qui s'affiche.
+    projections, `services/progression.py` les recalcule à partir de ces faits
+    et du catalogue public. Ce qui est stocké est ce qui s'est passé, pas ce
+    qui s'affiche.
 
     Les dates sortent en JOUR seulement. C'est ce que l'interface montre, et
     l'heure exacte d'une soumission n'a pas à voyager.
@@ -415,23 +416,24 @@ def write_theme(user, theme):
 # UN fil par exercice publié, pour les comptes connectés seulement. Rien ici ne
 # touche à la progression : ni XP, ni succès, ni statut d'exercice.
 #
-# `utilisateur` EST TOUJOURS le `sub` validé par app.current_user(), comme
-# partout ailleurs dans ce fichier -- jamais une valeur prise dans un corps de
-# requête. C'est ce qui empêche de publier, de supprimer ou de signaler au nom
-# d'un autre.
+# `utilisateur` EST TOUJOURS le `sub` validé par `security.current_user()`,
+# comme partout ailleurs dans ce fichier -- jamais une valeur prise dans un
+# corps de requête. C'est ce qui empêche de publier, de supprimer ou de
+# signaler au nom d'un autre.
 #
-# CE MODULE REND LE `sub` DE L'AUTEUR à l'appelant, et c'est `app.py` qui le
-# traduit en « Vous » / « Participant » / « Enseignant » sans jamais le
-# laisser sortir. Le traduire ici aurait demandé de connaître la liste des
-# modérateurs dans la couche SQL, où elle n'a rien à faire.
+# CE MODULE REND LE `sub` DE L'AUTEUR à l'appelant, et c'est `forum_vue()`
+# (`services/forum.py`) qui le traduit en « Vous » / « Participant » /
+# « Enseignant » sans jamais le laisser sortir. Le traduire ici aurait demandé
+# de connaître la liste des modérateurs dans la couche SQL, où elle n'a rien à
+# faire.
 
 
 def forum_fil(exercise_id, limite):
     """Le fil d'un exercice, du plus ancien au plus récent. None si base muette.
 
-    Les messages masqués SONT rendus, avec leur drapeau : c'est `app.py` qui les
-    retire pour un étudiant ordinaire et les garde pour un modérateur, parce que
-    c'est lui qui sait qui appelle.
+    Les messages masqués SONT rendus, avec leur drapeau : c'est `forum_vue()`
+    qui les retire pour un étudiant ordinaire et les garde pour un modérateur,
+    parce que c'est lui qui sait qui appelle.
     """
     rows = _query(
         "SELECT message_id, utilisateur, texte, masque, cree_le"
@@ -599,7 +601,8 @@ def forum_nom_signaler(message_id, user):
 
 def forum_noms_signales(limite):
     """Les NOMS signalés, pour un modérateur. Le nom, le groupe, le compte à
-    poignée -- jamais le `sub` : `app.py` ne recopie que ce qui s'affiche.
+    poignée -- jamais le `sub` : `routers/forum.py` ne recopie que ce qui
+    s'affiche.
 
     Un même compte peut être signalé depuis plusieurs de ses messages ; on rend
     une ligne par message porteur, la plus signalée d'abord, avec le profil

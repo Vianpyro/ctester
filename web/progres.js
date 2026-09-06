@@ -235,12 +235,7 @@ function succes(vue) {
   return bloc;
 }
 
-// --- LA LISTE DES EXERCICES, VENUE DE « MES EXERCICES » --------------------
-// Les deux destinations répondaient à la même question -- « où j'en suis » --
-// dans deux écrans, avec deux comptes différents des mêmes exercices. Le
-// statut, lui, a rejoint la bande du laboratoire et le menu du catalogue : ce
-// qui restait ici de vraiment unique, c'est la vue d'ensemble et l'export.
-//
+// --- LA LISTE DES EXERCICES -------------------------------------------------
 // ELLE NE DÉPEND PAS DE `GET /progres`. Une base muette fait disparaître les
 // chiffres de la projection, pas cette liste : elle se dessine depuis ce que
 // `compte.js` a déjà lu, et l'export doit rester atteignable un soir de panne.

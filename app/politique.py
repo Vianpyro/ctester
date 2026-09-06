@@ -5,7 +5,7 @@ TOUT CE QUI SE RÈGLE VIT DANS `POLITIQUE`, en haut, et rien d'autre dans ce
 dépôt ne contient un montant d'XP, un seuil de niveau, un libellé de succès
 ni un libellé de bande de maîtrise.
 C'est la raison d'être du fichier : piloter la première session veut dire
-changer ces nombres, et il ne doit jamais falloir relire `app.py` pour le
+changer ces nombres, et il ne doit jamais falloir relire l'API pour le
 faire. Les fonctions en dessous ne font que LIRE cette table.
 
 CES VALEURS SONT PROVISOIRES. Elles n'ont pas été observées sur une cohorte ;

@@ -1,4 +1,4 @@
-// Le compte : OIDC, états, pratique, vue « Mes exercices ». Chargé seulement
+// Le compte : OIDC, états, pratique, thème. Chargé seulement
 // si une session est en cours ou si l'étudiant demande à se connecter --
 // l'anonyme, qui reste le parcours par défaut, n'en télécharge rien.
 //
@@ -290,9 +290,7 @@ ctester.compte = {
   syncDraft: syncDraft,
   loadStates: loadStates,
   loadPractice: loadPractice,
-  // LES DONNÉES, PAS LEUR RENDU. La liste des exercices vit désormais dans
-  // « Mes progrès » : deux destinations répondaient à « où j'en suis », avec
-  // deux comptes différents des mêmes exercices.
+  // LES DONNÉES, PAS LEUR RENDU : la liste est dessinée par `progres.js`.
   etats: () => states,
   pratique: () => practice,
   chargerTheme: chargerTheme,

@@ -12,9 +12,9 @@ Les chiffres, seuils et formules marques **PROVISOIRE** sont configurables et ne
 
 ## Architecture actuelle confirmee
 
-ctester est un juge C sans framework: `app/app.py` est l'API HTTP, `app/index.html` le client, `runner.py` le worker de l'hote, et les scripts de build executent le code dans un conteneur jetable gVisor. Le tier web n'a ni Docker ni les tests secrets. Les exercices exposes par `tps.json` sont quiz, programme I/O ou module Unity. Un compte OIDC/Postgres est facultatif; il conserve seulement brouillons et l'etat `essaye|valide`, rattaches a un `sub` opaque. L'anonyme demeure le parcours par defaut.
+ctester est un juge C: `app/main.py` (FastAPI) est l'API HTTP, `web/index.html` le client, `runner.py` le worker de l'hote, et les scripts de build executent le code dans un conteneur jetable gVisor. Le tier web n'a ni Docker ni les tests secrets. Les exercices exposes par `/catalog.json` sont quiz, programme I/O ou module Unity. Un compte OIDC/Postgres est facultatif; il conserve seulement brouillons et l'etat `essaye|valide`, rattaches a un `sub` opaque. L'anonyme demeure le parcours par defaut.
 
-Consequences: un futur systeme doit etre facultatif comme la connexion, ne jamais placer de reponses/tests dans `app/`, et ne doit pas interpreter le verdict actuel comme une preuve d'integrite: le README existant documente qu'un verdict peut etre fabrique dans certains modes. Toute donnee de progression qui compte doit donc etre produite par un flux serveur explicite et traceable.
+Consequences: un futur systeme doit etre facultatif comme la connexion, ne jamais placer de reponses/tests dans `app/`, et ne doit pas interpreter le verdict actuel comme une preuve d'integrite: un verdict peut etre fabrique dans certains modes (`runner.py:parse_unity`). Toute donnee de progression qui compte doit donc etre produite par un flux serveur explicite et traceable.
 
 ## Carte de conception
 

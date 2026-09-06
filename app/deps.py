@@ -131,8 +131,8 @@ def freiner_ecriture(request: Request) -> None:
 def freiner_forum(sub: str) -> None:
     """Le régulateur du forum, par COMPTE. Appelé après validation du contenu.
 
-    APRÈS la validation, comme dans la version précédente : un message refusé
-    parce qu'il est vide ne doit pas consommer le quota de quelqu'un.
+    APRÈS la validation : un message refusé parce qu'il est vide ne doit pas
+    consommer le quota de quelqu'un.
     """
     with verrou:
         attente = forum_quota.check(sub, time.time())

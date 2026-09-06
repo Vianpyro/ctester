@@ -46,7 +46,7 @@ def csp(body, issuer=""):
     doit aussi contenir l'API : pendant la bascule, ce serveur sert encore la
     page alors que `config.js` appelle déjà `tch099`.
 
-    `body` N'EST PLUS LU QUE POUR REFUSER UN SCRIPT INLINE. La page n'en a plus
+    `body` N'EST LU QUE POUR REFUSER UN SCRIPT INLINE. La page n'en a plus
     aucun ; un qui reviendrait ne serait pas haché en douce, il ferait échouer
     `test_csp_du_document`.
     """

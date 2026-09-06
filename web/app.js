@@ -214,7 +214,7 @@ function bandeEtapes(etats) {
 
 // CE QUE CHAQUE ÉTAT VEUT DIRE POUR L'ÉTUDIANT : où ça a cassé, comment le dire
 // en une ligne, et quoi faire ensuite. Tout est dérivé de ce que `/r/<id>`
-// renvoie DÉJÀ -- aucun changement serveur n'a été nécessaire.
+// renvoie déjà.
 //
 //   `etapes` : "ok" réussie, "ko" échouée, "" pas atteinte.
 //   `titre`  : COURT. C'est lui qui porte la couleur et lui qui est annoncé.
@@ -514,8 +514,8 @@ function refreshAccount() {
   $("menucompte").hidden = !on;
 }
 
-// UNE SEULE VUE À LA FOIS, ET L'ARBITRAGE EST ICI. « Mes exercices » et
-// « Mes progrès » vivent dans deux modules chargés séparément : si chacun
+// UNE SEULE VUE À LA FOIS, ET L'ARBITRAGE EST ICI. « Mes progrès » et
+// « Discussions » vivent dans deux modules chargés séparément : si chacun
 // masquait l'autre de son côté, ouvrir le second par-dessus le premier
 // laisserait les deux moitiés à l'écran, ou aucune.
 let vueCourante = "";
@@ -683,8 +683,7 @@ function ligneMenu(ex) {
   nom.className = "titre";
   nom.textContent = ex.short;
   ligne.append(nom);
-  // LE STATUT, LA OU ON CHOISIT. Il ne vivait que dans « Mes exercices » : on
-  // ne pouvait pas savoir ce qu'on avait deja valide sans changer d'ecran.
+  // LE STATUT, LA OU ON CHOISIT.
   // MARQUÉE, ET EN TOUTES LETTRES. Une vérification doit être reconnaissable
   // AVANT d'être ouverte : c'est ce qui la distingue d'un exercice de pratique
   // (docs/gamification/mastery.md), et une couleur seule ne le dirait pas.
@@ -859,9 +858,9 @@ function aller(pas) {
 $("prev").addEventListener("click", () => aller(-1));
 $("next").addEventListener("click", () => aller(1));
 
-// LE NOM RESTE, le menu a changé : `compte.js` et `progres.js` l'appellent pour
-// ouvrir un exercice depuis leur liste, et le renommer ferait trois modules à
-// éditer pour zéro comportement de plus.
+// LE NOM RESTE : `progres.js` l'appelle pour ouvrir un exercice depuis sa
+// liste, et le renommer ferait deux modules à éditer pour zéro comportement
+// de plus.
 function fillExercises(preselect) {
   if (preselect) selection = preselect;
   dessinerMenu();
@@ -1246,20 +1245,14 @@ Object.assign(ctester, {
   sessionDrop: sessionDrop,
   authCode: authCode,
   authState: authState,
-  // DES FONCTIONS, PAS DES `get`. `catalogue`, `token` et `oidc` sont
-  // réaffectés après le chargement, donc une copie mentirait -- et
-  // `Object.assign` copie justement la VALEUR d'un getter, pas le getter :
-  // `ctester.token` serait resté figé à null pour toute la visite, et tout ce
-  // qui suit un compte (états, pratique, synchronisation des brouillons)
-  // serait tombé en silence. C'est arrivé.
   // Le chargeur de scripts, exposé pour les DEUX bibliothèques du rendu du
-  // forum (`app/vendor/`). Même mécanique que les modules, mêmes garanties :
+  // forum (`web/vendor/`). Même mécanique que les modules, mêmes garanties :
   // une promesse par fichier, un échec jamais gardé, et l'appelant décide quoi
   // faire quand ça n'arrive pas -- pour le forum, retomber sur du texte brut.
   charger: charger,
   // Le chargeur de MODULES, celui qui dit à l'étudiant ce qui n'est pas
-  // arrivé. Exposé parce que « Mes exercices » (compte.js) offre lui aussi
-  // l'export : sans lui, compte.js réécrirait `charger()` plus ses deux
+  // arrivé. Exposé parce que « Mes progrès » (progres.js) offre lui aussi
+  // l'export : sans lui, progres.js réécrirait `charger()` plus ses deux
   // messages d'erreur, et la moitié qui manquerait serait toujours ceux-là.
   activerModule: activerModule,
   // Le thème : le noyau le pose (le bouton est dans la barre, et il
@@ -1267,6 +1260,12 @@ Object.assign(ctester, {
   appliquerTheme: appliquerTheme,
   retenirTheme: retenirTheme,
   themeCourant: themeCourant,
+  // DES FONCTIONS, PAS DES `get`. `catalogue`, `token` et `oidc` sont
+  // réaffectés après le chargement, donc une copie mentirait -- et
+  // `Object.assign` copie justement la VALEUR d'un getter, pas le getter :
+  // `ctester.token` serait resté figé à null pour toute la visite, et tout ce
+  // qui suit un compte (états, pratique, synchronisation des brouillons)
+  // serait tombé en silence. C'est arrivé.
   catalogue: () => catalogue,
   token: () => token,
   oidc: () => oidc,
@@ -1761,9 +1760,8 @@ async function poll(id, tries, portee, jeton) {
         && body.status !== "error") {
       dejaSoumis[enVol.exercice] = { cle: enVol.cle, verdict: body };
     }
-    // The API has just derived the exercise state from this verdict. Refresh
-    // the private projections so « Mes exercices » reflects it immediately;
-    // this is display state, not a client-side declaration of success.
+    // L'API vient de dériver le statut de ce verdict : on RELIT les
+    // projections, la page n'en déclare aucune.
     // LE VERDICT EST DÉJÀ À L'ÉCRAN, et rien de ce qui suit ne doit pouvoir le
     // gâter : d'où le `finally`. Sans lui, une projection privée qui lèverait
     // laisserait les deux boutons « Tester » bloqués sur un résultat correct.

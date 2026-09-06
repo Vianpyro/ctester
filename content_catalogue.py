@@ -1,11 +1,8 @@
-"""Validation et découverte du futur dépôt de contenu ctester.
+"""Validation et découverte du contenu v2.
 
-Ce module ne remplace pas encore ``runner.py`` : la production continue à lire
-l'arborescence historique ``tpN/exN`` tant que sa migration n'est pas terminée.
-Il définit toutefois le contrat v2 dans un endroit testable et sans dépendance
-externe. Le worker, la CI et le publisher (`publish_content.py`) appellent tous
-cette même porte -- `find_exercise()` --, plutôt que de réinterpréter les
-métadonnées chacun de leur côté.
+Le worker, la CI et le publisher (`publish_content.py`) passent tous par la
+même porte, `find_exercise()`, plutôt que de réinterpréter les métadonnées
+chacun de leur côté.
 
 Le contenu est privé par défaut. ``public_catalogue`` reconstruit les seules
 valeurs qui peuvent quitter cette frontière; il ne retire jamais quelques clés

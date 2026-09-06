@@ -23,12 +23,6 @@ import politique
 from services.catalogue import exercices_ouverts
 
 
-# --- Progression (phase 1) --------------------------------------------------
-# XP, niveau, compétences pratiquées et recommandation, pour les comptes
-# connectés SEULEMENT. Rien ici ne touche au verdict, au bac à sable, au
-# catalogue public ni au parcours anonyme : ce sont des lectures de faits que
-# le serveur a lui-même écrits, plus les métadonnées publiques du catalogue.
-#
 # LES CHIFFRES SONT DANS politique.py. Aucune valeur d'équilibrage n'a le droit
 # d'apparaître dans ce fichier : piloter le semestre doit rester une édition de
 # la politique, pas une relecture de l'API.

@@ -68,7 +68,7 @@ jobs:
           persist-credentials: false
       - uses: github/codeql-action/init@v4
         with:
-          # javascript-typescript couvre aussi le <script> de index.html.
+          # javascript-typescript couvre web/*.js.
           # Pas d'autobuild : rien ici ne se compile.
           languages: python, javascript-typescript
       - uses: github/codeql-action/analyze@v4

@@ -69,30 +69,6 @@ def ecrire_brouillon(sub: Sub, corps: BrouillonIn, request: Request):
     return {"ok": True}
 
 
-@router.put("/etat")
-def ecrire_etat(sub: Sub, corps: BrouillonIn, request: Request):
-    """Le statut qu'un exercice a pour ce compte.
-
-    ponytail: la page déclare son propre verdict, et un étudiant peut se marquer
-    « validé » depuis la console. Sans note en jeu, il ne trompe que son propre
-    tableau de bord -- et depuis la phase 1, `/r/<id>` écrit de toute façon le
-    vrai statut à partir du verdict du juge. À dériver du serveur seul le jour
-    où ça compte.
-    """
-    entree = catalogue.find_exercise(corps.exercise_id)
-    if entree is None:
-        return headers.erreur(400, "TP inconnu")
-    fichiers, message, code = catalogue.validate_files(entree, corps.files)
-    if message:
-        return headers.erreur(code, message)
-    if corps.statut not in etat.STATUSES:
-        return headers.erreur(400, "statut inconnu")
-    freiner_ecriture(request)
-    if not etat.write_state(sub, entree["id"], corps.statut, fichiers):
-        return headers.erreur(503, "la base ne répond pas")
-    return {"ok": True}
-
-
 @router.get("/preferences")
 def lire_preferences(sub: Sub):
     """Le thème enregistré sur CE COMPTE, pas sur cet appareil.

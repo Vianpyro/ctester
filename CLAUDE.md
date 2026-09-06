@@ -4,7 +4,7 @@ Le README est la façade du projet. Ce fichier-ci est pour Claude Code et pour
 quiconque modifie le dépôt : ce qu'il faut savoir avant de toucher au code, les
 contrôles à repasser avant de déployer, et les pièges déjà payés une fois.
 
-## Où vit quoi
+## Dépôt et déploiement
 
 Ce dépôt porte l'application. Le déploiement — gVisor, systemd, Compose, les
 deploy keys, le service Postgres, le client Rauthy — vit dans `VHome`, sous
@@ -88,8 +88,8 @@ GRANT de colonne sont éprouvés contre un vrai Postgres par `test_postgres.py`,
 et les réécrire en SQLAlchemy async remplacerait du SQL prouvé par du SQL à
 prouver dans la seule couche où une erreur donne accès aux données d'autrui.
 
-**La page vit dans `web/`, l'API dans `app/`**, et c'est la séparation en cours
-(voir `docs/split-front_back/plan.md`) : `web/` est destiné à GitHub Pages,
+**La page vit dans `web/`, l'API dans `app/`**, et c'est la séparation en cours :
+`web/` est destiné à GitHub Pages,
 `app/` reste sur le Dell. Tant que les deux ne sont pas séparés, l'API sert
 encore les deux — la page depuis `CTESTER_PAGE` (`/web`), le catalogue depuis
 `CTESTER_PUBLISHED` (`/published`). Deux variables, deux montages : confondre
@@ -108,7 +108,7 @@ le navigateur reçoit.
 
 ## Le contenu (architecture v2)
 
-Le plan est dans `docs/refactor-content-architecture-plan.md`. **Depuis la phase
+**Depuis la phase
 8 ce n'est plus un refactor en cours mais l'architecture : l'arborescence
 historique `tpN/exN` n'est plus lue par rien, et les deux variables ci-dessous
 sont obligatoires.** Un worker sans elles LÈVE plutôt que de publier un
@@ -743,7 +743,7 @@ volatil), pas des fichiers.
 **La compression est faite ici, à partir de 1 Ko.** Reste à mesurer si
 Cloudflare ne la refaisait pas déjà en amont — `curl -sI -H 'Accept-Encoding:
 gzip, br' https://<hôte>/app.js` : s'il répond `content-encoding: br` sur une
-origine non compressée, les quelques lignes de `_send_file` sont à supprimer.
+origine non compressée, les quelques lignes de `headers.fichier()` sont à supprimer.
 Même curl à faire pour l'autre constat Lighthouse resté ouvert : 268 Ko de JS à
 minifier et 328 Ko inutilisé, alors que tout notre JS fait 30 Ko non minifié.
 Le suspect est **Rocket Loader** (Speed → Optimization dans le tableau de bord
@@ -760,7 +760,7 @@ résultat attendu — ne pas le « corriger ».
 `GET /live?id=<jeton>` → `{"n": <fenêtres ouvertes>}`, affiché discrètement dans
 le bandeau (`#live`) **pour tout le monde, anonyme compris**. C'est la SEULE
 entorse à « l'anonyme n'émet aucune requête » — assumée, le battement va vers un
-`dict` en mémoire (`Handler.presence`, une `Presence`), jamais vers la base ni
+`dict` en mémoire (`deps.presence`, une `Presence`), jamais vers la base ni
 un compte, et ne porte aucun jeton.
 
 - **Polling, pas WebSocket.** Un seul worker uvicorn devant une connexion
@@ -770,8 +770,8 @@ un compte, et ne porte aucun jeton.
   quelque chose de plus fin qu'« à la minute ».
 - **Le jeton `id` vient du navigateur** (`crypto.randomUUID`, gardé dans
   `sessionStorage`), donc falsifiable et non authentifié : c'est un chiffre
-  affiché, pas un contrôle. Sans `id`, `_live()` retombe sur l'IP (une école =
-  une fenêtre) plutôt que d'exposer quoi que ce soit.
+  affiché, pas un contrôle. Sans `id`, `live()` (`routers/sante.py`) retombe
+  sur l'IP (une école = une fenêtre) plutôt que d'exposer quoi que ce soit.
 - **RAZ au redémarrage du conteneur**, comme les quotas. TTL de 150 s
   (`CTESTER_PRESENCE_TTL`, 2,5 battements) pour qu'un ping raté ne fasse pas
   clignoter le total.
@@ -795,7 +795,7 @@ changement de logique. Un test refuse qu'un montant réapparaisse en dur dans
 le service : sans lui, la politique deviendrait décorative.
 
 **Ce qui produit de la valeur, c'est le SERVEUR en lisant le verdict**, dans
-`_result()` — jamais le navigateur. Une seule règle : la **première** réussite
+`_enregistrer()` (`routers/soumission.py`) — jamais le navigateur. Une seule règle : la **première** réussite
 complète d'un exercice publié. Un échec ne rapporte rien, refaire le même
 exercice non plus, un sondage rejoué non plus. Les trois tiennent par la même
 chose : l'identifiant d'événement vaut `reussite:<exercice>` et sa clé primaire
@@ -1069,7 +1069,7 @@ module : c'est elle qui décide si le bouton existe, et il faut le savoir avant
 d'aller chercher le fichier.
 
 **Deux boutons, un seul module.** Celui de la barre d'actions exporte le TP
-affiché ; « Mes exercices » en pose un sous la dernière ligne de chaque TP
+affiché ; « Mes progrès » en pose un sous la dernière ligne de chaque TP
 exportable. Chacun passe son propre `annoncer(texte, rate)` — `#brouillon` n'est
 pas à l'écran depuis la vue liste, et un module qui choisirait lui-même où
 écrire écrirait dans le vide une fois sur deux.
@@ -1139,7 +1139,7 @@ tourne** : `docker stats --no-stream ctester-web-1 ctester-postgres`, `uptime`,
 
 Ce qu'on décide APRÈS, et pas avant :
 
-- **`GET /progres` fait cinq allers-retours SQL sérialisés** derrière le verrou
+- **`GET /progres` fait six allers-retours SQL sérialisés** derrière le verrou
   unique. Les regrouper en une lecture est faisable et pas fait : à 27 étudiants
   la file derrière ce verrou est vide, et une requête groupée est plus dure à
   relire. Le seuil, c'est un p95 de `/progres` au-dessus d'une seconde — le
@@ -1236,26 +1236,27 @@ et les trois branches de `config.js` à la fin de `test_page.js`.
 
 ## La page — ce qui est fragile
 
-Cinq fichiers, `no-cache` (voir plus bas). `index.html` n'a **aucun
-commentaire** : le garder mince est un objectif. Ce qu'il faut savoir avant d'y
-toucher :
+Neuf fichiers (voir « L'API — un seul point d'entrée »), `no-cache` (voir plus
+bas). `index.html` reste mince : le markup et quelques commentaires de
+structure, aucun script. Ce qu'il faut savoir avant d'y toucher :
 
 ### index.html
 
-- **`<script src="config.js">` reste en tête de `<head>`, SANS `defer`.** C'est
-  lui qui pose le thème avant le premier rendu depuis qu'il n'y a plus d'inline
-  (voir « La CSP » plus haut) ; un `<script src>` classique bloque le rendu,
-  donc il tourne avant la première peinture. Avec `defer`, ou en fin de
-  `<body>`, le flash sombre→clair serait déjà passé.
+- **L'ordre du `<head>` est : icône, `<meta charset>`, le `<meta
+  http-equiv="Content-Security-Policy">`, viewport, robots, titre, `config.js`,
+  `style.css`.** Le `<meta>` CSP doit rester juste après `<meta charset>` et
+  avant tout ce qu'il gouverne : un navigateur n'applique la politique qu'à
+  partir du moment où il la lit.
+- **`<script src="config.js">` vient avant `<link rel="stylesheet">`, SANS
+  `defer`.** C'est lui qui pose le thème avant le premier rendu depuis qu'il
+  n'y a plus d'inline (voir « La CSP » plus haut) ; un `<script src>`
+  classique bloque le rendu, donc il tourne avant la première peinture. Avec
+  `defer`, ou en fin de `<body>`, le flash sombre→clair serait déjà passé. La
+  feuille, elle, est demandée juste après : plus tôt ne l'afficherait pas plus
+  vite, puisque rien n'est encore peint.
 - **Aucun `<script>` inline, jamais.** `script-src 'self'` du `<meta>` le
   bloquerait, et `csp()` lève plutôt que de le hacher. `test_page.js` et
   `test_ctester.py` le vérifient tous les deux.
-- **Le `<meta http-equiv="Content-Security-Policy">` doit rester juste après
-  `<meta charset>`**, donc avant tout ce qu'il gouverne : un navigateur
-  n'applique la politique qu'à partir du moment où il la lit.
-- **`<link rel="stylesheet">` reste en tout début de `<head>`.** La feuille est
-  externe désormais : plus elle est demandée tôt, moins il y a de risque de voir
-  la page non stylée avant qu'elle n'arrive.
 - **`<script src="app.js">` reste en FIN de `<body>`**, sans `defer` : le script
   travaille sur le DOM dès son exécution.
 
@@ -1282,10 +1283,6 @@ toucher :
   verdict complet que l'API dérive `valide`. `restreindre()` ne fait que
   refiltrer `wrong` sur les identifiants de la page affichée. Envoyer un
   sous-ensemble au serveur ferait valider un TP sur un exercice juste.
-- **`recordState()` — la page déclare son propre verdict** (`valide` / `essaye`).
-  Un étudiant peut se marquer « validé » depuis la console ; sans note en jeu, il
-  ne trompe que son propre tableau de bord. Dériver le statut de `result.json`
-  côté serveur le jour où ça compte.
 - **Tout le bloc connexion est inerte** tant que `/oidc.json` ne renvoie pas
   d'`issuer`. Le jeton vit dans `sessionStorage` (meurt avec l'onglet). Le
   contrôle `state` au retour d'OIDC est un anti-CSRF, pas une décoration : sans
@@ -1299,7 +1296,7 @@ toucher :
   `normaliser()` en tire DEUX listes : `collections` (l'arbre du menu, tous les
   exercices avec `access` et `available_from`) et `catalogue` (les exercices
   ouverts, aplatis en `{id, mode, label, group, short, learning, files}` — la
-  forme que « Mes exercices », « Mes progrès » et l'export lisent). `files` ne
+  forme que « Mes progrès » et l'export lisent). `files` ne
   porte que des **noms** ; le chemin serveur ne franchit jamais la publication.
   Le `mode` décide de tout ce que la page affiche et envoie. Un 404 sur
   `/catalog.json` est un message, pas un menu vide.
@@ -1313,10 +1310,10 @@ toucher :
   pas ne bloque rien — les noms de fichiers viennent du catalogue, donc
   l'étudiant peut coller son code et soumettre.
 - **`afficherVue()` est le seul arbitre des quatre écrans** (exercice, « Mes
-  exercices », « Mes progrès », « Discussions »), et il vit dans le noyau. Les
-  trois vues sont dans trois modules chargés séparément : si chacun masquait
-  les autres de son côté, en ouvrir une par-dessus l'autre laisserait deux
-  moitiés à l'écran.
+  progrès », « Discussions », « Modération »), et il vit dans le noyau. Les
+  trois vues sont dans deux modules chargés séparément (`progres.js`,
+  `forum.js`) : si chacun masquait les autres de son côté, en ouvrir une
+  par-dessus l'autre laisserait deux moitiés à l'écran.
   Revenir depuis « Mes progrès » ne repasse PAS par `switchMode()` : c'est ce
   qui garde l'éditeur et le verdict exactement où on les avait laissés.
 - **`currentId` est ce que l'ÉDITEUR tient, pas ce que le menu montre**, et
@@ -1350,7 +1347,7 @@ toucher :
 - **`progres.js` ne calcule RIEN.** Solde, niveau, compétences, succès et
   recommandation arrivent tout faits de `GET /progres`. Une page qui calculerait
   son propre XP serait une page où l'on se le donne depuis la console — c'est
-  l'erreur que `recordState()` a déjà coûtée, en plus petit.
+  l'erreur qu'un verdict déclaré par la page a déjà coûtée, en plus petit.
 - **Une projection absente n'est pas un zéro.** Base en panne, API muette :
   la vue affiche un message et AUCUN chiffre. Annoncer « 0 XP » pendant une
   panne, c'est dire à quelqu'un que son travail a disparu.

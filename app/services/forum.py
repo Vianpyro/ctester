@@ -17,7 +17,6 @@ import config
 from security import is_moderator, oidc_enabled
 
 
-# --- Forum d'entraide (MVP) -------------------------------------------------
 # UN fil chronologique par exercice PUBLIÉ, privé aux comptes connectés. Rien
 # ici ne produit de valeur de jeu : pas d'XP, pas de succès, pas de compteur, et
 # la progression de la phase 1 n'est ni lue ni écrite depuis ces routes.

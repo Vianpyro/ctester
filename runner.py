@@ -236,10 +236,6 @@ def public_quiz(quiz):
     }
 
 
-# Le nom du répertoire porte la structure du cours : tp<N> ou tp<N>-ex<M>. C'est
-# de là que sortent le regroupement du menu et l'ordre d'affichage.
-
-
 def write_json(path, payload):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:

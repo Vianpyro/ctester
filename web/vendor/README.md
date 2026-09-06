@@ -6,13 +6,13 @@ servent qu'au forum : `forum.js` va les chercher au moment où l'on ouvre
 n'en dépendent.
 
 **Servies depuis cette origine, jamais depuis un CDN.** La page déclare une CSP
-en `script-src 'self'` (voir `_csp()` dans `app.py`) : un script tiers chargé
+en `script-src 'self'` (voir `csp()` dans `app/csp.py`) : un script tiers chargé
 d'ailleurs serait bloqué, et c'est voulu. C'est aussi ce qui garde la propriété
 que le README annonce — *ce que le dépôt contient est ce que le navigateur
 reçoit*, sans build ni chaîne d'assemblage.
 
-**La version est dans le NOM du fichier**, et elle est répétée dans la liste
-blanche de `do_GET` et dans `forum.js`. Monter de version demande donc de
+**La version est dans le NOM du fichier**, et elle est répétée dans
+`config.VENDOR` (servie par `app/routers/page.py`) et dans `forum.js`. Monter de version demande donc de
 toucher aux trois, ce qui est exactement le point : une mise à jour d'un
 assainisseur HTML ne doit pas pouvoir se faire par accident.
 
@@ -38,7 +38,7 @@ sed '/sourceMappingURL/d' package/dist/purify.min.js > purify-3.4.14.min.js
 ```
 
 Le seul écart avec l'amont est la ligne `sourceMappingURL` retirée : la carte de
-source n'est pas publiée par `do_GET`, et l'y laisser ne produirait qu'un 404
+source n'est pas dans la liste blanche servie, et l'y laisser ne produirait qu'un 404
 dans la console de qui ouvre les outils de développement.
 
 ## Ce qui les remplace quand elles n'arrivent pas

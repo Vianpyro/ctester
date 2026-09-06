@@ -5,9 +5,9 @@
 //
 //   node test_page.js [web/]
 //
-// La page est en TROIS fichiers depuis qu'elle a ete decoupee, et chacun porte
-// un contrat different : `html` les identifiants et l'ordre du document, `css`
-// les regles `display:`, `js` le code qu'on execute vraiment.
+// Ce harnais lit trois fichiers, chacun sous un contrat different : `html` les
+// identifiants et l'ordre du document, `css` les regles `display:`, `js` le
+// code qu'on execute vraiment (les modules a la demande arrivent par `charger`).
 // UN FUSEAU QUI N'EST PAS UTC, expres : l'affichage des dates du forum se
 // traduit dans celui du lecteur, et sous UTC ce controle ne prouverait rien.
 process.env.TZ = "America/Toronto";
@@ -42,9 +42,9 @@ if (!appRevision || !js.includes('const ASSET_REVISION = "' + appRevision + '"')
 }
 
 // --- DOM en carton --------------------------------------------------------
-// CE QUE LE MARKUP MASQUE DEJA. `<div id="liste" hidden>` part masque dans un
-// vrai navigateur ; un faux DOM qui le rend visible fait basculer a l'envers
-// tout ce qui lit `.hidden` pour decider, et la vue liste ne s'ouvrait jamais.
+// CE QUE LE MARKUP MASQUE DEJA. `<section id="vueprogres" hidden>` part masque
+// dans un vrai navigateur ; un faux DOM qui le rend visible fait basculer a
+// l'envers tout ce qui lit `.hidden` pour decider.
 const masquesAuDepart = new Set(
   [...html.matchAll(/<[^>]+>/g)]
     .filter((m) => /\shidden(\s|>|=)/.test(m[0]))
@@ -196,7 +196,7 @@ global.document = {
 };
 global.window = global;
 // UN HOTE INCONNU DE `config.js`, expres : le harnais joue le mode local,
-// celui ou `app.py` sert encore la page et ou les appels restent relatifs.
+// celui où `app/main.py` sert encore la page et ou les appels restent relatifs.
 // Les deux autres branches sont eprouvees a la fin du fichier.
 global.location = { search: "?k=cle-de-test", hostname: "ctester.example" };
 global.URLSearchParams = URLSearchParams;
@@ -1136,9 +1136,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(global.ctester.exerciceChoisi() !== "tp2-ex0",
         "un clic sur la bande change d'exercice : " + global.ctester.exerciceChoisi());
 
-  // LE STATUT S'Y AFFICHE, ET DANS LE MENU AUSSI. Il ne vivait que dans
-  // « Mes exercices » : on ne pouvait pas savoir ce qu'on avait valide sans
-  // changer d'ecran.
+  // LE STATUT, LÀ OÙ ON CHOISIT.
   global.ctester.poserStatuts({ "tp2-ex0": "valide" });
   const marquee = puces().find(p => /valide/.test(p.className));
   check(!!marquee, "un exercice validé porte sa marque dans la bande");
@@ -1447,9 +1445,9 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(!bloque, "Echap puis Tab laisse sortir : on n'enferme pas le clavier");
 
   // --- La connexion est offerte, mais personne ne s'est connecté ---
-  // TOUT CE FICHIER tourne dans cet état : les 70 vérifications ci-dessus sont
-  // donc, littéralement, la preuve de non-régression du parcours anonyme sur un
-  // déploiement où la connexion existe.
+  // TOUT CE FICHIER tourne dans cet état : toutes les vérifications ci-dessus
+  // sont donc, littéralement, la preuve de non-régression du parcours anonyme
+  // sur un déploiement où la connexion existe.
   check(nodes.connexion.hidden === false, "« Se connecter » est proposé");
   check(nodes.mesprogres.hidden === true && nodes.deconnexion.hidden === true &&
         nodes.oublier.hidden === true && nodes.discussions.hidden === true,
@@ -2017,17 +2015,15 @@ const attendre = async () => { await sleep(); await sleep(); };
           + "élément ou un attribut hors allow-list"
           + (passees.length ? " -- " + passees.length + " PASSENT" : ""));
 
-    // ET LA CHARGE RESTE VISIBLE COMME DU TEXTE. Un message dont la moitié
-    // s'évapore ferait croire à un bug plutôt qu'à une règle -- et surtout,
-    // « rien ne s'affiche » et « rien ne s'exécute » ne sont pas la même
-    // preuve : ceci vérifie la seconde en montrant la première.
+    // LA CHARGE RESTE LISIBLE, ÉCHAPPÉE PLUTÔT QUE SUPPRIMÉE : un message dont
+    // la moitié s'évapore ferait croire à un bug plutôt qu'à une règle -- et
+    // surtout, « rien ne s'affiche » et « rien ne s'exécute » ne sont pas la
+    // même preuve : les deux contrôles ci-dessous vérifient la seconde en
+    // montrant la première.
     const vuTexte = auditer(passerAuRendu("<img src=x onerror=alert(1)>").html);
     check(/<img src=x onerror=alert\(1\)>/.test(vuTexte.texte),
           "une balise hostile reste lisible EN TEXTE : " + vuTexte.texte);
 
-    // ET LE HTML BRUT RESTE LISIBLE PLUTOT QUE DE DISPARAITRE : il est
-    // ECHAPPE, pas supprime. Un message dont la moitie s'evapore ferait croire
-    // a un bug plutot qu'a une regle.
     const echappe = passerAuRendu("regarde <script>alert(1)</script> ici");
     check(/&lt;script&gt;/.test(echappe.html),
           "le HTML brut est échappé, pas escamoté : " + echappe.html);
@@ -2418,7 +2414,7 @@ const attendre = async () => { await sleep(); await sleep(); };
         "l'auteur est pre-rempli avec le nom choisi : " +
         (complet.texte.match(/Auteur : .*/) || [])[0]);
 
-  // LE MEME BOUTON DANS « MES EXERCICES », par laboratoire : c'est la qu'on est
+  // LE MEME BOUTON DANS « MES PROGRES », par laboratoire : c'est la qu'on est
   // quand on pense « remise » plutot que « exercice courant ».
   await nodes.mesprogres.listeners.click();
   await attendre(); await attendre();
@@ -2431,7 +2427,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   await nodes.mesprogres.listeners.click();
   await attendre(); await attendre();
 
-// L'ORIGINE DE L'API, LES TROIS BRANCHES. Un `config.js` qui rendrait "" en
+  // L'ORIGINE DE L'API, LES TROIS BRANCHES. Un `config.js` qui rendrait "" en
   // production enverrait chaque appel sur GitHub Pages, qui repond 404 en HTML :
   // le `catch` dirait « le serveur ne repond pas » et les logs de l'origine
   // seraient vides. C'est la panne muette que ce harnais existe pour voir.
@@ -2458,8 +2454,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   // JS ne l'aurait vu -- c'est du CSS pur, et l'oeil ne le voit qu'en tapant.
   // `feuille` ET PAS `css` : ce nom est deja pris plus haut dans cette portee,
   // et le redeclarer met l'usage anterieur en zone morte temporelle. C'est la
-  // panne exacte que ce fichier existe pour attraper -- elle vient de se
-  // reproduire en ecrivant ce controle-ci.
+  // panne exacte que ce fichier existe pour attraper.
   const feuille = lire("style.css");
   const police = (selecteur) => {
     const bloc = feuille.split(selecteur + " {")[1];

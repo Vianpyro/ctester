@@ -1,8 +1,7 @@
 """ctester -- les en-têtes de sortie : CORS, `Vary`, cache, CSP, ETag.
 
 TOUT CE QUI DOIT APPARAÎTRE SUR *CHAQUE* RÉPONSE EST ICI, dans un middleware
-unique. C'est la même leçon que le `end_headers()` de la version précédente : les
-réponses partent de partout -- une route, un gestionnaire d'exception, un 304,
+unique. Les réponses partent de partout -- une route, un gestionnaire d'exception, un 304,
 un 404 de Starlette que personne n'a écrit -- et une réponse sans en-tête CORS
 est une panne invisible côté serveur : seul le navigateur de l'étudiant la voit.
 
@@ -145,7 +144,7 @@ async def _repondre(envoyer, code, corps, entetes=None):
 
 
 class JSON(JSONResponse):
-    """`application/json; charset=utf-8`, comme la version précédente.
+    """`application/json; charset=utf-8`, explicitement.
 
     Starlette rend `application/json` tout court -- correct au sens de la RFC
     8259 (JSON est toujours de l'UTF-8), mais ce n'est pas ce que ce service a

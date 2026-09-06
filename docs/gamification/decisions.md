@@ -60,6 +60,18 @@
 
 **Consequences:** stocker policy/version dans les attributions et evidences.
 
+## D-006 — Contexte est orthogonal a la competence
+
+**Statut:** Accepted.
+
+**Decision:** preferer un contexte d'ingenierie configurable sans changer la competence evaluee.
+
+**Raison:** donner du sens sans favoriser un parcours d'etude particulier.
+
+**Alternatives:** pistes par programme fixes (rejetee).
+
+**Consequences:** revue d'equivalence de variantes et preferences reversibles.
+
 ## D-007 — L'XP ne recompense qu'une premiere reussite, et ne regarde pas en arriere
 
 **Statut:** Accepted (2026-09-03, phase 1).
@@ -104,9 +116,9 @@ signalement n'aboutirait nulle part ; on n'ouvre pas le canal « en attendant »
 **Aucune identite ne traverse.** Une publication s'annonce « Vous » a son auteur,
 « Participant » aux autres, « Enseignant » pour un moderateur. Ces trois
 mots sont derives par le serveur a partir du `sub` ; le `sub` lui-meme ne franchit
-jamais la frontiere HTTP, et il n'y a pas de pseudonyme persistant — ce serait
-une identite, en plus petit. Deux messages du meme etudiant ne sont pas
-recollables par le client.
+jamais la frontiere HTTP. *(Revise par [D-011](#d-011--lidentite-choisie-facultative-et-invisible-par-defaut) :
+un compte peut depuis choisir un nom d'affichage, mais rien n'apparait sans
+qu'il l'ait explicitement coche.)*
 
 **Alternatives:** attendre la Phase 4 (rejetee : rien avant decembre) ; un canal
 externe type Discord (rejetee : hors du controle du cours, transporte du code
@@ -132,7 +144,7 @@ sous leur forme source**. Le rendu se fait dans le navigateur, a CHAQUE point
 d'affichage — le fil, l'apercu de redaction, la vue de moderation — par
 [marked](https://github.com/markedjs/marked) puis
 [DOMPurify](https://github.com/cure53/DOMPurify), tous deux **epingles par
-version et servis depuis cette origine** (`app/vendor/`, jamais un CDN). Le HTML
+version et servis depuis cette origine** (`web/vendor/`, jamais un CDN). Le HTML
 brut est echappe AVANT l'analyse Markdown. L'allow-list est fermee : `p`, `br`,
 `strong`, `em`, `ul`, `ol`, `li`, `blockquote`, `code`, `a`, avec `href` et `rel`
 pour seuls attributs, `http(s)` absolus pour seuls schemas, `rel="noopener
@@ -158,8 +170,8 @@ bloc cloture retombe en texte. Le forum est pour les questions conceptuelles, pa
 pour coller du code — la charte le dit, et le rendu ne le facilite pas.
 
 **La CSP n'est PAS la defense principale.** Elle existe (`default-src 'none'`,
-`script-src 'self'` plus le hachage du script de theme inline, `frame-ancestors
-'none'`), elle est calculee sur le corps servi pour rester en phase avec la page,
+`script-src 'self'`, sans hachage : il n'y a plus de script inline,
+`frame-ancestors 'none'`), elle est calculee sur le corps servi pour rester en phase avec la page,
 et elle limite les degats si les deux barrieres ci-dessus cedaient. `style-src`
 garde `'unsafe-inline'` : la page pose des attributs `style` calcules (largeur de
 jauge, rang d'une coche de verdict) et les retirer demanderait de reecrire trois
@@ -181,20 +193,8 @@ deux n'arrive pas, ou si `DOMPurify.isSupported` est faux, le rendu retombe sur
 `test_page.js` gagne une dependance de TEST (jsdom) pour donner un vrai DOM a
 DOMPurify — sans quoi ses controles XSS ne prouveraient rien, `sanitize()` rendant
 son entree telle quelle en l'absence de DOM. Monter de version demande de toucher
-au nom de fichier, a la liste blanche de `do_GET` et a `forum.js` : c'est le prix
+au nom de fichier, a `config.VENDOR` et a `forum.js` : c'est le prix
 volontaire de l'epinglage.
-
-## D-006 — Contexte est orthogonal a la competence
-
-**Statut:** Accepted.
-
-**Decision:** preferer un contexte d'ingenierie configurable sans changer la competence evaluee.
-
-**Raison:** donner du sens sans favoriser un parcours d'etude particulier.
-
-**Alternatives:** pistes par programme fixes (rejetee).
-
-**Consequences:** revue d'equivalence de variantes et preferences reversibles.
 
 ## D-010 — La maitrise est DERIVEE, pas stockee
 
@@ -242,4 +242,37 @@ aucun compteur de pratique (denominateur, competences pratiquees,
 recommandation, export `main.c`) : le filtre est pose une seule fois dans
 `exercices_pratique()`. Le rollback est de retirer `verification: true` du
 contenu : les evidences restent en base, plus rien ne les lit.
+
+## D-011 — L'identite choisie, facultative et invisible par defaut
+
+**Statut:** Accepted (livree).
+
+**Decision:** un compte peut choisir un nom d'affichage et un numero de
+groupe (`forum_profil`, journal en ajout seul -- la derniere ligne fait foi),
+chacun derriere sa propre case de visibilite. Rien n'apparait sans que son
+porteur l'ait explicitement coche -- une seule exception : l'enseignant voit
+le numero de groupe en tout temps, jamais le nom si l'etudiant ne l'a pas
+affiche. Un nom affiche est signalable par la meme route que les messages ;
+le moderateur peut l'effacer (une ligne de profil de plus, `par_moderateur`
+a vrai), jamais le message ni le groupe qui l'accompagnent.
+
+**Raison:** [D-008](#d-008--un-forum-dentraide-mvp-entre-la-phase-1-et-la-phase-2)
+excluait tout pseudonyme persistant pour eviter de reconstituer une identite.
+L'usage a montre un besoin different : un groupe de travail veut pouvoir se
+reconnaitre d'un message a l'autre sans que ce soit impose ni permanent par
+defaut. La difference avec l'identite que D-008 rejetait est le consentement
+explicite et reversible : le nom n'est ni derive d'un claim OIDC, ni affiche
+tant que le compte ne l'a pas choisi et coche.
+
+**Alternatives:** un pseudonyme genere automatiquement (rejetee : imposerait
+une identite sans consentement) ; le `preferred_username` de Rauthy affiche
+directement (rejetee : c'est souvent le code d'acces de l'ecole, le publier
+sans consentement explicite serait un consentement pris de travers -- il ne
+fait que pre-remplir le champ).
+
+**Consequences:** deux tables de plus (`forum_profil`, `forum_nom_signale`),
+en ajout seul, couvertes par `forget()` -- le schema passe de trois a cinq
+tables de forum. `CTESTER_FORUM_GROUPES` fixe optionnellement la liste des
+groupes valides pour la session. Voir [social.md](social.md) et
+[privacy.md](privacy.md).
 

@@ -77,7 +77,6 @@ select, button, textarea, input {
   font: inherit; color: inherit; background: var(--card);
   border: 1px solid var(--line); border-radius: 6px; padding: .35rem .55rem;
 }
-/* select { max-width: 15rem; } */
 button { cursor: pointer; font-weight: 600; }
 button:hover:not(:disabled) { border-color: var(--line-2); }
 button:disabled { cursor: not-allowed; opacity: .45; }
@@ -150,7 +149,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   padding: .05rem .35rem; border: 1px solid var(--line); border-radius: 999px;
   color: var(--muted);
 }
-#excourant { /* max-width: 16rem; */ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#excourant { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .phead {
   flex: 0 0 auto; display: flex; align-items: center; gap: .6rem;
@@ -179,7 +178,7 @@ main {
 #consignetexte {
   margin: 0; padding: .85rem .9rem; border: 0; background: none;
   white-space: pre-wrap; font-size: 13.5px; line-height: 1.6;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--mono);
 }
 #consignetexte.vide { font-family: var(--sans); color: var(--muted); }
 
@@ -202,11 +201,11 @@ main {
 #now b { color: var(--fg); font-size: 12.5px; font-weight: 700;
          text-transform: none; letter-spacing: 0; }
 #now .badge {
-  font-size: .66rem; letter-spacing: .06em; text-transform: uppercase;
+  font-size: 11.5px; letter-spacing: .02em;
   color: var(--muted);
   border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
 }
-#now .learning { color: var(--muted); font-size: .68rem; letter-spacing: .02em;
+#now .learning { color: var(--muted); font-size: 11.5px; letter-spacing: .02em;
                  text-transform: none; }
 /* LES DEUX QUI GRANDISSENT, et les seuls. Ils s'excluent l'un l'autre :
    celui qui reste prend la place, sans que personne ne compte les lignes. */
@@ -343,7 +342,7 @@ main {
 .verdict.idle { color: var(--muted); }
 .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
 .aide { font-family: var(--sans); color: var(--muted); font-size: 12.5px;
-        /* max-width: 46rem; */ margin: .5rem 0 0; }
+        margin: .5rem 0 0; }
 .aide + .aide { margin-top: .35rem; }
 
 .ticks { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 .6rem; }
@@ -429,14 +428,10 @@ pre {
 #consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: 13px; }
 #consentement .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
-/* LA LISTE DES EXERCICES : une SECTION de « Mes progrès » depuis la fusion,
-   plus une destination à elle. Elle garde son identifiant, donc toute la mise
-   en forme ci-dessous -- la recopier sous un autre nom aurait fait deux
-   feuilles à tenir d'accord pour zéro changement visible.
-
-   Le compteur « N / M exercices validés » qui vivait ici a disparu : la vue
-   affiche déjà « N exercices pratiqués sur M, dont R réussis », calculé par le
-   SERVEUR. Deux comptes des mêmes exercices, dont un dérivait du client. */
+/* LA LISTE DES EXERCICES : une SECTION de « Mes progrès », plus une
+   destination à elle. Elle garde son identifiant, donc toute la mise en forme
+   ci-dessous -- la recopier sous un autre nom aurait fait deux feuilles à
+   tenir d'accord pour zéro changement visible. */
 #liste .ligne {
   display: flex; align-items: center; gap: .6rem; width: 100%;
   padding: .45rem .6rem; margin-bottom: .25rem; text-align: left;
@@ -473,7 +468,7 @@ pre {
 #vueprogres[hidden] { display: none; }
 #vueprogres h2 { font-size: 1rem; margin: 0 0 .35rem; }
 #vueprogres .bloc {
-  /* max-width: 42rem; */ margin: .9rem 0 0; padding: .75rem .85rem;
+  margin: .9rem 0 0; padding: .75rem .85rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
 }
 /* Le niveau et l'XP au SECOND PLAN, et ça se voit : encadré en pointillés,
@@ -483,7 +478,7 @@ pre {
   margin: 0 0 .45rem; font-size: 11.5px; letter-spacing: .04em;
   color: var(--muted); font-weight: 600;
 }
-#vueprogres p { margin: 0 0 .5rem; font-size: 13.5px; /* max-width: 40rem; */}
+#vueprogres p { margin: 0 0 .5rem; font-size: 13.5px; }
 #vueprogres p:last-child { margin-bottom: 0; }
 #vueprogres .rate { color: var(--bad); font-weight: 600; }
 #vueprogres .jauge {
@@ -514,8 +509,7 @@ pre {
 #vueprogres .aide { font-family: var(--sans); }
 
 /* LA MODERATION PARTAGE CETTE MISE EN FORME : memes blocs, memes cadres, meme
-   colonne. Elle a sa propre destination depuis que ses deux files ne sont plus
-   rendues au milieu du fil que les etudiants viennent lire.
+   colonne, sa propre destination.
 
    « Discussions » : même place et mêmes composants que les deux autres vues.
    Rien n'y dépend de la couleur seule -- « masqué » et le nombre de
@@ -540,7 +534,7 @@ pre {
 :is(#vueforum, #vuemoderation)[hidden] { display: none; }
 :is(#vueforum, #vuemoderation) h2 { font-size: 1rem; margin: 0 0 .35rem; }
 /* PAS DE LARGEUR MAXIMALE ICI : un cadre remplit sa colonne, et c'est la
-   colonne qui borne. La mesure de lecture, elle, tient sur `:is(#vueforum, #vuemoderation) p`. */
+   colonne qui borne. */
 :is(#vueforum, #vuemoderation) .bloc {
   margin: .9rem 0 0; padding: .75rem .85rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
@@ -550,7 +544,7 @@ pre {
   margin: 0 0 .45rem; font-size: 11.5px; letter-spacing: .04em;
   color: var(--muted); font-weight: 600;
 }
-:is(#vueforum, #vuemoderation) p { margin: 0 0 .5rem; font-size: 13.5px; /* max-width: 40rem; */ }
+:is(#vueforum, #vuemoderation) p { margin: 0 0 .5rem; font-size: 13.5px; }
 /* Le corps d'un message, lui, prend toute sa colonne : c'est le contenu
    qu'on vient lire, et il est déjà borné par la largeur de la colonne. */
 :is(#vueforum, #vuemoderation) .texte p, :is(#vueforum, #vuemoderation) .texte li, :is(#vueforum, #vuemoderation) .texte blockquote
@@ -563,12 +557,11 @@ pre {
                   margin-bottom: .3rem; }
 :is(#vueforum, #vuemoderation) select, :is(#vueforum, #vuemoderation) textarea, :is(#vueforum, #vuemoderation) input[type="text"],
 :is(#vueforum, #vuemoderation) input[type="number"] {
-  width: 100%; /* max-width: 40rem; */ font-family: var(--sans); font-size: 13.5px;
+  width: 100%; font-family: var(--sans); font-size: 13.5px;
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
   border: 1px solid var(--line-2); border-radius: 6px;
 }
 :is(#vueforum, #vuemoderation) textarea { min-height: 5.5rem; resize: vertical; }
-/* :is(#vueforum, #vuemoderation) input[type="number"] { max-width: 6rem; } */
 /* Une case à cocher est une case, pas un bloc : la règle `label` ci-dessus
    couperait la ligne entre la case et son texte. */
 .coche {
@@ -666,7 +659,6 @@ pre {
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
   border: 1px solid var(--line-2); border-radius: 6px;
 }
-/* #identitepanneau input[type="number"] { max-width: 6rem; } */
 #identitepanneau .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
 @media (max-width: 900px) {
@@ -684,7 +676,6 @@ pre {
   #out { max-height: none; overflow: visible; }
   #consentement { position: static; width: auto; margin: .9rem; box-shadow: none; }
   #charte { position: static; width: auto; margin: .9rem; box-shadow: none; }
-  /* select { max-width: 10rem; } */
 }
 
 /* --- Le canal du service, et le canal du verdict -------------------------
@@ -749,7 +740,7 @@ pre {
    typographie de titre ils écrasaient toute la zone. */
 .explique {
   font-family: var(--sans); font-size: 13.5px; line-height: 1.55;
-  color: var(--fg); /* max-width: 46rem; */ margin: .1rem 0 .6rem;
+  color: var(--fg); margin: .1rem 0 .6rem;
 }
 
 /* L'action suivante. Détachée du reste : c'est la dernière chose lue, et la
@@ -845,8 +836,7 @@ pre {
 #bandelabo .puce.valide .marque { color: var(--ok); }
 #bandelabo .puce.essaye .marque { color: var(--wait); }
 
-/* Le statut dans le menu du catalogue : la même information, là où l'on
-   choisit. Elle ne vivait que dans « Mes exercices ». */
+/* Le statut, là où l'on choisit. */
 #exliste .exline .etat {
   flex: 0 0 auto; font-size: 11.5px; white-space: nowrap;
   font-family: var(--sans);
@@ -867,19 +857,12 @@ pre {
 .suite .aide { margin-left: auto; }
 
 /* --- Ce qui reste en chasse fixe, et pourquoi ----------------------------
-   Le corps de la page est passé en sans-serif ; ces quatre-là gardent le
+   Le corps de la page est passé en sans-serif ; ceux-ci gardent le
    monospace parce que l'alignement des colonnes y porte du sens. */
-#consignetexte { font-family: var(--mono); }
 .case .champ .valeur, .gcc pre, .avert pre, #out > pre {
   font-family: var(--mono);
 }
-/* Le compte d'un verdict : chiffres à chasse fixe pour qu'il ne danse pas
-   d'une soumission à l'autre. */
-.verdict.compte { font-variant-numeric: tabular-nums; }
-/* La pastille de mode et les métadonnées d'objectif : lisibles, pas criardes. */
-#now .badge { font-size: 11.5px; letter-spacing: .02em; text-transform: none; }
 /* La meme etiquette qu'au menu, dans le bandeau de l'exercice OUVERT.
    Elle dit « sans XP » : c'est la question qu'on se pose en arrivant
    dessus, et la reponse ne doit pas dependre d'avoir deplie la consigne. */
 #now .badge.verif { color: var(--fg); border-color: var(--ink); }
-#now .learning { font-size: 11.5px; }

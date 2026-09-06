@@ -85,7 +85,7 @@ QUIZ = {
 
 
 # --------------------------------------------------------------------------
-# Contenu v2 -- contrat de migration, sans toucher aux TP historiques
+# Contenu v2 -- découverte, projection, publication
 # --------------------------------------------------------------------------
 
 def _write_json(path, value):
@@ -319,7 +319,7 @@ def test_worker_v2_resout_un_exercice_et_refuse_ce_qui_est_ferme():
         conf = runner.load_config(assessment, "io.json")
         assert [f["name"] for f in runner.declared_files(conf, assessment)] == [
             "calendrier.h", "calendrier.c"]
-        # Sans répertoire, le défaut historique tient : un TP v1 ne change pas.
+        # Sans répertoire, le défaut `submission.c` tient.
         assert runner.declared_files(conf) == [{"name": "submission.c", "template": ""}]
     finally:
         runner.CONTENT = garde
@@ -1384,7 +1384,7 @@ def test_verrou_perime_est_repris_puis_abandonne():
         job = os.path.join(tmp, "job-1")
         os.makedirs(job)
         with open(os.path.join(job, "job.json"), "w", encoding="utf-8") as fh:
-            json.dump({"tp": "tp2-ex0"}, fh)
+            json.dump({"exercise_id": "tp2-ex0"}, fh)
         lock = os.path.join(job, ".lock")
         os.mkdir(lock)
         maintenant = time.time()

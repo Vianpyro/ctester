@@ -5,7 +5,7 @@
 -r requirements.txt
 
 # `fastapi.testclient.TestClient` est une façade sur un client HTTP : sans lui,
-# pas de `test_api.py` ni de `test_parite.py`.
+# pas de `test_api.py`.
 #
 # `httpx2` ET PAS `httpx` : starlette 1.6 déprécie le second et le dit à chaque
 # exécution. Un avertissement sur chaque sortie de test est un avertissement que

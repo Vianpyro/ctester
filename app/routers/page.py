@@ -1,8 +1,8 @@
 """La page, servie par ce processus. TEMPORAIRE.
 
 Ce routeur n'est monté que si `config.PAGE` est défini, et il disparaîtra quand
-GitHub Pages servira la page pour de bon (voir `docs/split-front_back/plan.md`).
-Il reste pour deux raisons, et pas une de plus :
+GitHub Pages servira la page pour de bon. Il reste pour deux raisons, et pas
+une de plus :
 
   * `python3 app/main.py` sert alors la page ET l'API sur la même origine, donc
     `web/config.js` retombe sur son repli `""` et le mode « je lance et je

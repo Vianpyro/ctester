@@ -17,11 +17,13 @@ profil public ni groupe-cours. Rien ici ne touche a la progression : les routes
 du forum ne lisent ni n'ecrivent les trois tables de la Phase 1, et le `GRANT`
 applicatif ne leur donne aucun privilege dessus.
 
-**Identite.** « Vous » pour son auteur, « Participant » pour les autres,
-« Enseignant » pour un moderateur. Ces trois mots sont derives par le
-serveur ; le `sub` ne franchit jamais la frontiere HTTP, et il n'y a **pas de
-pseudonyme persistant** — ce serait une identite, en plus petit. Deux messages du
-meme etudiant ne sont pas recollables par le client.
+**Identite.** « Vous » pour son auteur, « Participant » pour les autres (ou le
+nom qu'il a choisi d'afficher), « Enseignant » pour un moderateur. Ces mots
+sont derives par le serveur ; le `sub` ne franchit jamais la frontiere HTTP.
+Un compte peut choisir un nom d'affichage et un numero de groupe
+(`forum_profil`), chacun derriere sa propre case de visibilite — rien
+n'apparait sans avoir ete explicitement coche, sauf le numero de groupe pour
+l'enseignant, visible en tout temps. Voir [D-011](decisions.md#d-011--lidentite-choisie-facultative-et-invisible-par-defaut).
 
 **Immuabilite.** Un message ne s'edite pas apres publication : son auteur peut le
 supprimer, un moderateur peut le masquer ou le retablir. Editer permettrait de
@@ -40,7 +42,7 @@ le lire est un canal de partage de solutions avec une charte dessus.
 
 ### La charte, telle qu'elle s'affiche
 
-Elle vit a UN seul endroit dans le code (`CHARTE` dans `app/forum.js`), et elle
+Elle vit a UN seul endroit dans le code (`CHARTE` dans `web/forum.js`), et elle
 apparait deux fois : dans la vue, en permanence, et en encart avant la premiere
 publication de la session.
 

@@ -38,9 +38,9 @@ window.CTESTER_API = (() => {
   // deploiement de preparation, qui sert a eprouver la page avant le DNS.
   if (h === "tch009.thevhome.com") return "https://tch099.thevhome.com";
   if (h.endsWith(".github.io")) return "https://tch099.thevhome.com";
-  // Développement local : `app.py` sert encore la page, donc chemins relatifs.
-  // C'est ce repli qui garde `CTESTER_PAGE=web python3 app/app.py` vivant, et
-  // qui rend la bascule réversible en changeant une ligne.
+  // Développement local : `app/main.py` sert encore la page, donc chemins
+  // relatifs. C'est ce repli qui garde `CTESTER_PAGE=web python3 app/main.py`
+  // vivant, et qui rend la bascule réversible en changeant une ligne.
   return "";
 })();
 

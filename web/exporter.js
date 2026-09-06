@@ -252,7 +252,7 @@ function telecharger(fichier, texte) {
 }
 
 // `annoncer(texte, rate)` : L'APPELANT DIT OÙ ÇA S'AFFICHE. Le bouton de la
-// barre d'actions écrit sur la ligne du brouillon, celui de « Mes exercices »
+// barre d'actions écrit sur la ligne du brouillon, celui de « Mes progrès »
 // à côté de lui-même -- et `#brouillon` n'est même pas à l'écran depuis la vue
 // liste. Un module qui choisirait lui-même écrirait dans le vide une fois sur
 // deux.

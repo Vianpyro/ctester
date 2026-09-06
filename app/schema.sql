@@ -74,8 +74,8 @@ CREATE INDEX IF NOT EXISTS tentative_pratique_utilisateur_finie_idx
 -- comptes connectés seulement. TROIS TABLES DE FAITS, aucune de solde.
 --
 -- Le solde XP, le niveau, les compétences pratiquées et la recommandation sont
--- des PROJECTIONS : `app.py` les recalcule à la lecture depuis ces faits et le
--- catalogue public. Rien n'est mis en cache ici.
+-- des PROJECTIONS : l'API (`services/progression.py`) les recalcule à la
+-- lecture depuis ces faits et le catalogue public. Rien n'est mis en cache ici.
 --
 -- ponytail: pas de table de projection. Le solde est un `sum()` sur quelques
 -- dizaines de lignes par étudiant, et une projection matérialisée serait un
@@ -267,8 +267,8 @@ CREATE TABLE IF NOT EXISTS forum_nom_signale (
 -- matin où on remarquerait le moins pourquoi.
 --
 -- Le CHECK est la même défense qu'ailleurs : la valeur vient d'un corps de
--- requête, et `app.py` la valide déjà. La contrainte tient pour TOUS les
--- chemins d'écriture, y compris un psql ouvert à minuit.
+-- requête, et `etat.write_theme()` la valide déjà. La contrainte tient pour
+-- TOUS les chemins d'écriture, y compris un psql ouvert à minuit.
 CREATE TABLE IF NOT EXISTS preference_affichage (
     utilisateur TEXT        NOT NULL PRIMARY KEY,
     theme       TEXT        NOT NULL CHECK (theme IN ('light', 'dark')),

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """La frontière HTTP de l'API FastAPI, éprouvée par `fastapi.testclient`.
 
-Ce fichier reprend le rôle que `test_http_end_to_end` tenait pour la v1 : ce qui
-se voit depuis un navigateur -- codes, en-têtes, formes de corps -- et surtout
+Ce qui se voit depuis un navigateur -- codes, en-têtes, formes de corps -- et surtout
 LES BORNES. Les règles pures (progression, forum, catalogue) restent éprouvées
 par appel direct dans `test_ctester.py`, sans serveur.
 
@@ -54,9 +53,8 @@ client = TestClient(main.app)
 def _modules_avec_etat():
     """Tous les modules qui ont importé `etat`, pour le remplacer PARTOUT.
 
-    L'ancien harnais posait `app.etat = faux` et c'était fini : il n'y avait
-    qu'un fichier. Maintenant `security`, `services.forum`, `services.progression`
-    et quatre routeurs l'importent chacun de leur côté. En oublier un ferait
+    `security`, `services.forum`, `services.progression` et quatre routeurs
+    importent `etat` chacun de leur côté. En oublier un ferait
     parler un test à une VRAIE base -- absente en test, donc `enabled()` faux,
     donc des 503 partout et un contrôle qui « passe » sans rien avoir éprouvé.
 

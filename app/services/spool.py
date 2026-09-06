@@ -107,7 +107,7 @@ def job_metadata(job_id):
 
     `owner` is written after validating the bearer token at submission time;
     it is never accepted from browser JSON.  Malformed/old jobs simply have no
-    owner so the anonymous judge keeps its historical behaviour.
+    owner, so the job stays anonymous.
     """
     try:
         with open(os.path.join(config.SPOOL, job_id, "job.json"), encoding="utf-8") as fh:
@@ -124,7 +124,7 @@ def job_metadata(job_id):
 
 
 def job_sources(job_id, entry):
-    """The submitted source snapshot needed by the legacy exercise state.
+    """The submitted source snapshot written to `etat_exercice`.
 
     It is read only for a job whose owner was fixed by the API at submission.
     Quiz answers are not source files and intentionally keep the existing empty

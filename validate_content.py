@@ -2,8 +2,7 @@
 """Valider le contrat de contenu v2 avant de le publier.
 
 Usage : ``python3 validate_content.py /chemin/vers/content``.
-Cette commande ne compile pas encore les solutions : cette étape sera raccordée
-au validateur existant pendant la migration des contenus historiques. Elle est
+Le schéma seul : les corrigés sont éprouvés par `valider_contenu.py`. Elle est
 volontairement sans dépendance tierce pour tourner en CI et sur le contrôleur.
 """
 
