@@ -1,36 +1,36 @@
-"""ctester -- les en-têtes de sortie : CORS, `Vary`, cache, CSP, ETag.
+"""ctester -- output headers: CORS, `Vary`, cache, CSP, ETag.
 
-TOUT CE QUI DOIT APPARAÎTRE SUR *CHAQUE* RÉPONSE EST ICI, dans un middleware
-unique. Les réponses partent de partout -- une route, un gestionnaire d'exception, un 304,
-un 404 de Starlette que personne n'a écrit -- et une réponse sans en-tête CORS
-est une panne invisible côté serveur : seul le navigateur de l'étudiant la voit.
+EVERYTHING THAT MUST APPEAR ON *EVERY* RESPONSE LIVES HERE, in a single
+middleware. Responses come from everywhere -- a route, an exception handler, a
+304, a Starlette 404 nobody wrote -- and a response with no CORS header is an
+invisible server-side outage: only the student's browser ever sees it.
 
-PAS `CORSMiddleware` de Starlette, et c'est délibéré :
-  * il répond 400 à un préflight d'origine inconnue, là où on veut ne rien
-    poser du tout et laisser le navigateur bloquer -- un réglage oublié ne doit
-    pas ressembler à une panne de service ;
-  * il ajoute une SECONDE ligne `Vary` au lieu de fusionner. Deux lignes `Vary`
-    séparées sont légales mais mal recombinées par certains caches, et un cache
-    qui perd `Origin` sert la réponse d'une origine à une autre.
+NOT Starlette's `CORSMiddleware`, and that is deliberate:
+  * it answers 400 to a preflight from an unknown origin, where we want to set
+    nothing at all and let the browser block -- a forgotten setting must not
+    look like a service outage;
+  * it adds a SECOND `Vary` line instead of merging. Two separate `Vary` lines
+    are legal but poorly recombined by some caches, and a cache that drops
+    `Origin` serves one origin's response to another.
 """
 
 import gzip
 import hashlib
 import os
 
-import csp as politique_csp
+import csp
 from starlette.datastructures import MutableHeaders
 from starlette.responses import JSONResponse, Response
 
 import config
 
-# Le préflight, pour toute route. `Max-Age` à 86400 est ce qui empêche la
-# séparation front/back de coûter un aller-retour de plus par requête : sans
-# lui, chaque PUT et chaque DELETE en paierait un.
+# The preflight, for every route. `Max-Age` at 86400 is what keeps the
+# front/back split from costing one extra round trip per request: without it,
+# every PUT and every DELETE would pay for one.
 #
-# DELETE EST DANS LA LISTE ET DOIT Y RESTER -- `compte.js` supprime un compte,
-# `forum.js` un message. L'oubli ne casse que le cross-origin, c'est-à-dire
-# seulement la production, et seulement ces deux boutons-là.
+# DELETE IS IN THE LIST AND MUST STAY THERE -- `compte.js` deletes an account,
+# `forum.js` a message. Forgetting it only breaks cross-origin, meaning only
+# production, and only these two buttons.
 PREFLIGHT = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
@@ -38,19 +38,18 @@ PREFLIGHT = {
 }
 
 
-class EnTetes:
-    """Middleware ASGI : CORS, `Vary`, et `no-store` par défaut.
+class HeaderMiddleware:
+    """ASGI middleware: CORS, `Vary`, and `no-store` by default.
 
-    ASGI PUR ET PAS `BaseHTTPMiddleware` : celui-ci met la réponse en mémoire
-    tampon et enveloppe les exceptions, ce qui change le code de sortie de
-    routes qui en dépendent. Ici on ne fait que réécrire l'en-tête de départ.
+    PURE ASGI AND NOT `BaseHTTPMiddleware`: that one buffers the response in
+    memory and wraps exceptions, which changes the exit code of routes that
+    depend on it. Here we only rewrite the outgoing header.
 
-    `no-store` EST LE DÉFAUT, et l'exception est explicite. Toute réponse de
-    données -- verdict, progression, forum, préférences -- ne doit pas être
-    gardée ; les fichiers posent `no-cache` eux-mêmes (voir `fichier()`), et ce
-    sont les seuls. Un défaut dans l'autre sens ferait qu'une route de compte
-    ajoutée un soir de session serait mise en cache sans que personne ne le
-    demande.
+    `no-store` IS THE DEFAULT, and the exception is explicit. No data
+    response -- verdict, progression, forum, preferences -- must be kept; only
+    files set `no-cache` themselves (see `fichier()`), and they are the only
+    ones. A default the other way would mean an account route added one
+    evening during a session gets cached with nobody asking for that.
     """
 
     def __init__(self, app):
@@ -72,26 +71,26 @@ class EnTetes:
                 entetes = MutableHeaders(scope=message)
                 if connue:
                     entetes["Access-Control-Allow-Origin"] = origine
-                # PAS de `Access-Control-Allow-Credentials` : il n'y a aucun
-                # cookie ici, le jeton voyage en en-tête `Authorization`.
+                # NO `Access-Control-Allow-Credentials`: there is no cookie
+                # here, the token travels in the `Authorization` header.
                 #
-                # UN SEUL EN-TÊTE `Vary`, et il annonce les deux axes.
-                # L'affectation remplace ce qui s'y trouvait déjà -- c'est le
-                # point : deux lignes ne doivent pas pouvoir cohabiter.
-                # `Accept-Encoding` y reste même sur les réponses non
-                # compressées : la constante est juste partout, une valeur
-                # calculée serait un `if` de plus sur chaque réponse.
+                # A SINGLE `Vary` HEADER, and it announces both axes. The
+                # assignment replaces whatever was already there -- that is
+                # the point: two lines must never coexist. `Accept-Encoding`
+                # stays there even on uncompressed responses: the constant is
+                # simply everywhere, a computed value would be one more `if`
+                # on every response.
                 entetes["Vary"] = "Accept-Encoding, Origin"
                 if "cache-control" not in entetes:
                     entetes["Cache-Control"] = "no-store"
             await send(message)
 
-        # LA BORNE DE CORPS EST ICI, AVANT TOUTE ANALYSE, et pour toute route.
-        # Uvicorn N'A PAS de limite de taille de corps : sans ce test, un POST
-        # annonçant 2 Go ferait lire 2 Go avant que la moindre validation ne
-        # s'exécute. Le poser une fois ici, plutôt qu'au début de chaque
-        # routeur, est ce qui garantit qu'une route ajoutée un soir de séance
-        # naît bornée.
+        # THE BODY BOUND LIVES HERE, BEFORE ANY PARSING, and for every route.
+        # Uvicorn HAS NO body size limit: without this check, a POST
+        # announcing 2 GB would get read in full before the slightest
+        # validation runs. Setting it once here, rather than at the top of
+        # every router, is what guarantees a route added one evening during a
+        # session is born bounded.
         if scope["method"] in ("POST", "PUT"):
             trop = _corps_hors_bornes(scope)
             if trop:
@@ -99,13 +98,13 @@ class EnTetes:
                                 b'{"error": "corps trop gros ou vide"}')
                 return
 
-        # LE PRÉFLIGHT NE PASSE PAS PAR LE ROUTEUR, et c'est ce qui le rend
-        # correct. Une route attrape-tout `OPTIONS /{chemin:path}` ferait
-        # répondre 405 à tout chemin INCONNU : Starlette retient la
-        # correspondance partielle (bon chemin, mauvaise méthode) de cette
-        # route-là et ne descend jamais jusqu'à son 404. Un `/nimporte` se
-        # mettrait alors à répondre « méthode non autorisée », ce qui est faux
-        # et ce qui confirme au passage qu'il existe.
+        # THE PREFLIGHT DOES NOT GO THROUGH THE ROUTER, and that is what
+        # makes it correct. A catch-all `OPTIONS /{chemin:path}` route would
+        # answer 405 to any UNKNOWN path: Starlette keeps that route's
+        # partial match (right path, wrong method) and never falls through to
+        # its 404. A `/whatever` would then start answering "method not
+        # allowed", which is false and which confirms in passing that it
+        # exists.
         if scope["method"] == "OPTIONS":
             await _repondre(envoyer, 204, b"", PREFLIGHT)
             return
@@ -114,10 +113,10 @@ class EnTetes:
 
 
 def _corps_hors_bornes(scope):
-    """True si `Content-Length` manque, est illisible, ou sort des bornes.
+    """True if `Content-Length` is missing, unreadable, or out of bounds.
 
-    Absent vaut « hors bornes » : une requête en `chunked` n'annonce pas sa
-    taille, et on ne lit pas un corps dont on ignore la longueur.
+    Absent counts as "out of bounds": a `chunked` request does not announce
+    its size, and we do not read a body whose length we do not know.
     """
     brut = b""
     for nom, valeur in scope["headers"]:
@@ -132,7 +131,7 @@ def _corps_hors_bornes(scope):
 
 
 async def _repondre(envoyer, code, corps, entetes=None):
-    """Une réponse complète depuis le middleware, sans passer par le routeur."""
+    """A complete response straight from the middleware, bypassing the router."""
     lignes = [(b"content-length", str(len(corps)).encode())]
     if corps:
         lignes.append((b"content-type", b"application/json; charset=utf-8"))
@@ -144,53 +143,52 @@ async def _repondre(envoyer, code, corps, entetes=None):
 
 
 class JSON(JSONResponse):
-    """`application/json; charset=utf-8`, explicitement.
+    """`application/json; charset=utf-8`, explicitly.
 
-    Starlette rend `application/json` tout court -- correct au sens de la RFC
-    8259 (JSON est toujours de l'UTF-8), mais ce n'est pas ce que ce service a
-    toujours annoncé. Le `charset` explicite coûte quinze octets par réponse et
-    évite d'avoir à se demander, le jour d'une panne, si un intermédiaire
-    (Cloudflare, un cache, un proxy d'école) traite les deux pareil.
+    Starlette renders plain `application/json` -- correct under RFC 8259
+    (JSON is always UTF-8), but not what this service has always advertised.
+    The explicit `charset` costs fifteen bytes per response and avoids
+    wondering, the day something breaks, whether an intermediary (Cloudflare,
+    a cache, a school proxy) treats the two the same.
 
-    Posée en `default_response_class` : toutes les routes qui rendent un `dict`
-    passent par ici, sans qu'aucune n'ait à y penser.
+    Set as `default_response_class`: every route that returns a `dict` goes
+    through here, with none of them having to think about it.
     """
 
     media_type = "application/json; charset=utf-8"
 
 
 def erreur(code, message, cle="error", **extra):
-    """Le corps d'erreur que la page attend : `{"error": "..."}`, et rien d'autre.
+    """The error body the page expects: `{"error": "..."}`, and nothing else.
 
-    UNE SEULE FORME, parce que `app.js` lit `out.error` et affiche ce qu'il y
-    trouve. `cle` n'existe que pour le sondage de verdict, qui répond
-    `{"state": ...}` ; `extra` porte `retry_after` sur un 429, dont la page se
-    sert pour dire combien de temps attendre au lieu d'inviter à recliquer.
+    A SINGLE SHAPE, because `app.js` reads `out.error` and displays whatever
+    it finds there. `cle` exists only for the verdict poll, which answers
+    `{"state": ...}`; `extra` carries `retry_after` on a 429, which the page
+    uses to say how long to wait instead of inviting a re-click.
     """
     return JSON(dict({cle: message}, **extra), status_code=code)
 
 
 def fichier(request, body, ctype, issuer=""):
-    """Un fichier statique, revalidé à chaque visite, transféré si besoin.
+    """A static file, revalidated on every visit, transferred if needed.
 
-    `no-cache` NE VEUT PAS DIRE « ne pas mettre en cache » : il veut dire
-    « garde-le, mais redemande-moi avant de t'en servir ». Le navigateur repasse
-    donc systématiquement, et un correctif déployé se voit toujours tout de
-    suite -- c'est ce que `no-store` protégeait, et c'est intact. Ce qui change,
-    c'est qu'un fichier inchangé revient en 304 vide au lieu de repartir en
-    entier : la page, sa feuille et son script font 65 Ko, et un étudiant
-    recharge beaucoup.
+    `no-cache` DOES NOT MEAN "do not cache": it means "keep it, but ask me
+    again before serving it". The browser therefore always checks back, and a
+    deployed fix is always seen right away -- that is what `no-store`
+    protected, and it is intact. What changes is that an unchanged file comes
+    back as an empty 304 instead of the whole thing: the page, its stylesheet
+    and its script total 65 KB, and a student reloads a lot.
 
-    `no-store` interdisait AUSSI le cache aller-retour du navigateur (bfcache) :
-    avec lui, le bouton Retour refaisait toute la page.
+    `no-store` ALSO forbade the browser's back/forward cache (bfcache): with
+    it, the Back button redid the whole page.
     """
     etiquette = '"' + hashlib.sha256(body).hexdigest()[:16]
-    # LA CSP EST CALCULÉE SUR LE CORPS EN CLAIR, avant la compression : la
-    # politique porte sur le document, pas sur son transport.
-    politique = politique_csp.csp(body, issuer) if ctype.startswith("text/html") else ""
-    # UNE ÉTIQUETTE PAR REPRÉSENTATION. Deux corps différents pour une même URL
-    # -- l'original et le gzip -- ne peuvent pas partager un ETag : un cache
-    # intermédiaire servirait l'un en croyant valider l'autre.
+    # THE CSP IS COMPUTED ON THE PLAIN BODY, before compression: the policy is
+    # about the document, not its transport.
+    politique = csp.csp(body, issuer) if ctype.startswith("text/html") else ""
+    # ONE ETAG PER REPRESENTATION. Two different bodies for the same URL --
+    # the original and the gzip -- must not share an ETag: an intermediate
+    # cache would serve one while believing it validated the other.
     comprime = (len(body) >= 1024
                 and "gzip" in request.headers.get("accept-encoding", ""))
     if comprime:
@@ -199,9 +197,9 @@ def fichier(request, body, ctype, issuer=""):
     etiquette += '"'
 
     entetes = {"ETag": etiquette, "Cache-Control": "no-cache"}
-    # SUR LE 304 AUSSI. Le navigateur rejoue la réponse gardée en la mettant à
-    # jour avec ces en-têtes ; une CSP qui n'apparaîtrait que sur le 200
-    # disparaîtrait donc dès la deuxième visite, c'est-à-dire presque toujours.
+    # ON THE 304 TOO. The browser replays the kept response, refreshed with
+    # these headers; a CSP that only appeared on the 200 would then disappear
+    # from the second visit onward, i.e. almost always.
     if politique:
         entetes["Content-Security-Policy"] = politique
 
@@ -213,19 +211,19 @@ def fichier(request, body, ctype, issuer=""):
 
 
 def fichier_du_disque(request, base, nom, ctype, issuer=""):
-    """Un fichier du disque, et `base` DIT LEQUEL DES DEUX RÉPERTOIRES.
+    """A file from disk, and `base` SAYS WHICH OF THE TWO DIRECTORIES.
 
-    Pas de défaut, exprès : la page (`config.PAGE`) et la release publiée par
-    le worker (`config.PUBLISHED`) vivent à part depuis que `web/` est destiné à
-    GitHub Pages, et les deux passent par ici. Un défaut ferait chercher
-    `exercises/<id>.json` dans le répertoire de la page -- un 500 sur chaque
-    consigne et chaque quiz, en production seulement, parce qu'un harnais qui
-    monte les deux au même endroit ne peut pas le voir.
+    No default, on purpose: the page (`config.PAGE`) and the release the
+    worker publishes (`config.PUBLISHED`) have lived apart since `web/` was
+    meant for GitHub Pages, and both go through here. A default would make it
+    look for `exercises/<id>.json` in the page's directory -- a 500 on every
+    statement and every quiz, in production only, because a harness that
+    mounts both in the same place cannot see it.
 
-    `nom` NE VIENT JAMAIS DE L'URL telle quelle : les appelants le
-    reconstruisent depuis le catalogue ou depuis une liste close. Il n'y a donc
-    pas de chemin à traverser, et pas de `..` à filtrer -- filtrer voudrait dire
-    qu'on accepte une entrée, ce qu'on ne fait pas.
+    `nom` NEVER COMES FROM THE URL AS-IS: callers rebuild it from the catalog
+    or from a closed list. There is therefore no path to traverse, and no
+    `..` to filter -- filtering would mean accepting an input, which we do
+    not.
     """
     try:
         with open(os.path.join(base, nom), "rb") as fh:

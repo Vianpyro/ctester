@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
-"""ctester -- l'API du juge C. Fichier géré par Ansible : éditer le rôle.
+"""ctester -- the C judge's API. File managed by Ansible: edit the role.
 
-Ce processus ne compile RIEN et n'exécute RIEN. Il valide une soumission,
-l'écrit dans le spool, et lit le verdict qu'un worker de l'hôte y dépose. Il n'a
-ni le socket Docker, ni accès au répertoire des tests -- c'est toute la raison
-pour laquelle il peut être exposé à Internet.
+This process compiles NOTHING and executes NOTHING. It validates a submission,
+writes it into the spool, and reads the verdict a host worker drops there. It
+has neither the Docker socket nor access to the test directory -- that is the
+whole reason it can be exposed to the Internet.
 
-UN SEUL WORKER, TOUJOURS, et ce n'est pas un réglage de performance. Les quotas,
-le compteur de présence, le cache de jetons OIDC et la connexion unique
-d'`state.py` sont de l'état EN MÉMOIRE DE PROCESSUS. Deux workers, c'est deux
-compteurs : chaque quota est doublé en silence, et le plafond de file laisse
-passer deux fois ce qu'il annonce. C'est pour ça que le lancement vit ici, dans
-`__main__`, et pas dans une ligne de commande de Compose que quelqu'un
-recopiera un jour avec `--workers 4`. Le jour où un deuxième processus est
-vraiment nécessaire, c'est Redis ou Postgres qui tient ces compteurs, pas
-uvicorn.
+ONE WORKER, ALWAYS, and this is not a performance setting. Quotas, the
+presence counter, the OIDC token cache and `state.py`'s single connection are
+PROCESS-MEMORY state. Two workers means two counters: every quota silently
+doubles, and the queue cap lets through twice what it advertises. That is why
+the launch lives here, in `__main__`, and not in a Compose command line that
+someone will one day copy with `--workers 4`. The day a second process is
+truly needed, Redis or Postgres holds these counters, not uvicorn.
 
-LES ENDPOINTS SONT `def`, PAS `async def`, et c'est délibéré. Starlette exécute
-alors chacun dans son threadpool, ce qui laisse `state.py` synchrone : ses CTE
-modifiantes, son `INSERT ... SELECT` dont le `WHERE` EST le contrôle d'accès et
-ses GRANT de colonne sont éprouvés contre un vrai Postgres par
-`test_postgres.py`. Les réécrire en SQLAlchemy async remplacerait du SQL prouvé
-par du SQL à prouver, dans la seule couche où une erreur donne accès aux données
-de quelqu'un d'autre.
+THE ENDPOINTS ARE `def`, NOT `async def`, and that is deliberate. Starlette
+then runs each one in its threadpool, which keeps `state.py` synchronous: its
+data-modifying CTEs, its `INSERT ... SELECT` whose `WHERE` clause IS the
+access control, and its column GRANTs are exercised against a real Postgres by
+`test_postgres.py`. Rewriting them in async SQLAlchemy would swap proven SQL
+for SQL yet to be proven, in the one layer where a mistake grants access to
+someone else's data.
 """
 
 import os
@@ -34,66 +32,67 @@ import headers
 import security
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from routers import (catalogue, compte, forum, page, progression, sante,
-                     soumission)
+from routers import (account, catalog, forum, health, page, progress,
+                     submission)
 from starlette.exceptions import HTTPException
 
 
 def create_app():
     app = FastAPI(
         title="ctester",
-        # LA DOCUMENTATION AUTOMATIQUE EST ÉTEINTE SAUF DEMANDE EXPRESSE.
-        # `None` retire la route, il ne la protège pas : il n'y a donc rien à
-        # contourner. Voir `config.DOCS`.
+        # AUTOMATIC DOCUMENTATION IS OFF UNLESS EXPLICITLY REQUESTED. `None`
+        # removes the route, it does not protect it: there is therefore
+        # nothing to bypass. See `config.DOCS`.
         docs_url="/docs" if config.DOCS else None,
         redoc_url="/redoc" if config.DOCS else None,
         openapi_url="/openapi.json" if config.DOCS else None,
-        # Le `charset=utf-8` que ce service a toujours annoncé -- voir
+        # The `charset=utf-8` this service has always advertised -- see
         # `headers.JSON`.
         default_response_class=headers.JSON,
     )
-    app.add_middleware(headers.EnTetes)
+    app.add_middleware(headers.HeaderMiddleware)
 
     @app.exception_handler(deps.Refus)
     async def _refus(request, exc):
-        """Nos propres refus : 401, 403, 429, 503, avec leur `retry_after`."""
+        """Our own refusals: 401, 403, 429, 503, with their `retry_after`."""
         return headers.erreur(exc.code, exc.message, **exc.extra)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request, exc):
-        """422 de Pydantic -> 400 `{"error": ...}`, SANS RECOPIER L'ENTRÉE.
+        """Pydantic's 422 -> 400 `{"error": ...}`, WITHOUT ECHOING THE INPUT.
 
-        Le défaut de FastAPI répond 422 avec un corps qui contient la valeur
-        refusée. Deux problèmes : la page lit `out.error` et n'y comprendrait
-        rien, et renvoyer l'entrée à l'expéditeur est une fuite gratuite -- un
-        corps refusé peut contenir le code de quelqu'un, ou un jeton mal collé.
-        Le message est donc constant, et le détail reste dans le journal.
+        FastAPI's default responds 422 with a body that contains the rejected
+        value. Two problems: the page reads `out.error` and would not
+        understand any of it, and echoing the input back to the sender is a
+        free leak -- a rejected body can contain someone's code, or a
+        mis-pasted token. The message is therefore constant, and the detail
+        stays in the log.
         """
         return headers.erreur(400, "requête malformée")
 
     @app.exception_handler(HTTPException)
     async def _http(request, exc):
-        """`{"error": ...}`, la forme que la page lit -- jamais `{"detail": ...}`."""
+        """`{"error": ...}`, the shape the page reads -- never `{"detail": ...}`."""
         detail = exc.detail
         if exc.status_code == 404 and detail == "Not Found":
             detail = "inconnu"
         return headers.erreur(exc.status_code, detail)
 
-    # Le préflight est traité par le middleware, AVANT le routeur -- voir
-    # `headers.EnTetes`. Il n'y a donc pas de route `OPTIONS` ici, et il ne faut
-    # pas en ajouter une : une route attrape-tout ferait répondre 405 au lieu de
-    # 404 sur tout chemin inconnu.
+    # The preflight is handled by the middleware, BEFORE the router -- see
+    # `headers.HeaderMiddleware`. There is therefore no `OPTIONS` route here, and none
+    # should be added: a catch-all route would answer 405 instead of 404 on
+    # any unknown path.
 
-    app.include_router(sante.router)
-    app.include_router(catalogue.router)
-    app.include_router(soumission.router)
-    app.include_router(compte.router)
-    app.include_router(progression.router)
+    app.include_router(health.router)
+    app.include_router(catalog.router)
+    app.include_router(submission.router)
+    app.include_router(account.router)
+    app.include_router(progress.router)
     app.include_router(forum.router)
-    # EN DERNIER, ET SEULEMENT S'IL Y A UNE PAGE À SERVIR. Ce routeur finit par
-    # un attrape-tout `/{nom:path}` : monté plus haut, il masquerait toutes les
-    # routes déclarées après lui. Sans `CTESTER_PAGE`, cette origine ne répond
-    # plus que sur des données -- l'état visé par la séparation front/back.
+    # LAST, AND ONLY IF THERE IS A PAGE TO SERVE. This router ends with a
+    # catch-all `/{nom:path}`: mounted earlier, it would shadow every route
+    # declared after it. Without `CTESTER_PAGE`, this origin answers only on
+    # data -- the state the frontend/backend split is aiming for.
     if config.PAGE:
         app.include_router(page.router)
     return app
@@ -103,18 +102,18 @@ app = create_app()
 
 
 def _avertir():
-    """Ce qu'un déploiement à moitié configuré doit dire dans `docker logs`.
+    """What a half-configured deployment must say in `docker logs`.
 
-    UNE FONCTIONNALITÉ FACULTATIVE MAL CONFIGURÉE NE DOIT PAS EMPORTER LE JUGE.
-    Refuser de démarrer sur une faute de frappe dans une variable OIDC
-    empêcherait tout le monde de tester du code, pour une fonctionnalité que
-    personne n'a encore utilisée ce jour-là. Elle se tait donc, mais bruyamment.
+    AN OPTIONAL FEATURE, MISCONFIGURED, MUST NOT TAKE THE JUDGE DOWN WITH IT.
+    Refusing to start on a typo in an OIDC variable would stop everyone from
+    testing code, for a feature nobody has used yet that day. So it stays
+    quiet -- but loudly.
     """
     if config.OIDC_ISSUER and not security.oidc_enabled():
         print("connexion desactivee : il faut CTESTER_OIDC_ISSUER en https,"
               " CTESTER_OIDC_CLIENT_ID et CTESTER_DB_DSN", file=sys.stderr)
-    # « Personne ne clique dessus » et « il n'existe pas » se ressemblent trop
-    # de l'extérieur pour qu'on laisse deviner lequel des deux.
+    # "Nobody clicks it" and "it doesn't exist" look too alike from the
+    # outside to leave anyone guessing which one it is.
     if security.oidc_enabled() and not config.FORUM_MODERATORS:
         print("discussions desactivees : CTESTER_FORUM_MODERATORS est vide"
               " (liste de `sub` OIDC separes par des virgules)", file=sys.stderr)
@@ -133,20 +132,20 @@ if __name__ == "__main__":
 
     uvicorn.run(
         app,
-        host="0.0.0.0",  # noqa: S104 -- le conteneur n'expose rien sur l'hôte
+        host="0.0.0.0",  # noqa: S104 -- the container exposes nothing on the host
         port=config.PORT,
-        # UN SEUL WORKER : voir le docstring de ce module.
+        # ONE WORKER ONLY: see this module's docstring.
         workers=1,
-        # `server_header` retire `Server: uvicorn` ; la date reste, les caches en
-        # ont besoin. Annoncer sa version de serveur ne sert que celui qui
-        # cherche une version vulnérable.
+        # `server_header` removes `Server: uvicorn`; the date stays, caches
+        # need it. Advertising a server version only helps someone looking
+        # for a vulnerable one.
         server_header=False,
-        # Les en-têtes de proxy ne sont lus que derrière NPM. `client_id()` s'en
-        # sert pour compter les quotas -- et il préfère de toute façon
-        # `CF-Connecting-IP`, que Cloudflare écrase toujours.
+        # Proxy headers are only read behind NPM. `client_id()` uses them to
+        # count quotas -- and prefers `CF-Connecting-IP` anyway, which
+        # Cloudflare always overwrites.
         proxy_headers=True,
-        # Silence sur le chemin heureux : le sondage de `/r/<id>` produit des
-        # centaines de 200 par TP, qui noieraient tout ce qui est intéressant
-        # dans `docker logs`. Les erreurs, elles, passent toujours.
+        # Silence on the happy path: polling `/r/<id>` produces hundreds of
+        # 200s per exercise, which would drown out anything interesting in
+        # `docker logs`. Errors, though, always come through.
         access_log=False,
     )

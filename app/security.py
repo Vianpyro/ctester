@@ -133,19 +133,18 @@ def current_user(headers):
 
 
 def current_name(headers):
-    """Le `preferred_username` de Rauthy pour ce jeton, ou "".
+    """Rauthy's `preferred_username` for this token, or "".
 
-    UNE SUGGESTION, PAS UNE IDENTITÉ. Elle ne sert qu'à pré-remplir le champ
-    « Nom affiché » d'un compte qui n'en a pas encore choisi : rien n'est
-    enregistré, rien n'est affiché aux autres tant que l'étudiant n'a pas
-    enregistré ET coché la case. Synchroniser pour de bon publierait le nom
-    d'ouverture de session de quelqu'un dans un forum de classe sans qu'il l'ait
-    demandé -- et ce nom-là, chez Rauthy, est souvent le code d'accès de
-    l'école.
+    A SUGGESTION, NOT AN IDENTITY. It only pre-fills the "Display name" field
+    for an account that has not chosen one yet: nothing is stored, nothing is
+    shown to others until the student has saved AND checked the box. Syncing
+    it for real would publish someone's sign-in name into a class forum
+    without them asking -- and at Rauthy, that name is often the school's
+    access code.
 
-    LIT LE CACHE, N'APPELLE RIEN : `current_user` vient de le remplir sur la
-    même requête. Un cache vide (ou un `current_user` remplacé par un test) rend
-    "", et le champ s'ouvre vide comme avant.
+    READS THE CACHE, CALLS NOTHING: `current_user` just filled it on the same
+    request. An empty cache (or a `current_user` replaced by a test) returns
+    "", and the field opens empty as before.
     """
     header = headers.get("Authorization", "")
     if not header.startswith("Bearer "):
@@ -157,11 +156,11 @@ def current_name(headers):
 
 
 def _ask_userinfo(token):
-    """(sub, preferred_username) -- (None, "") quand le jeton ne vaut rien.
+    """(sub, preferred_username) -- (None, "") when the token is worthless.
 
-    Le second sert UNIQUEMENT de suggestion de nom (voir `current_name`), et il
-    passe par la même validation que ce qu'un étudiant taperait : un claim n'est
-    pas plus digne de confiance parce qu'il vient d'un fournisseur d'identité.
+    The second value is ONLY ever a name suggestion (see `current_name`), and
+    it goes through the same validation a student's own typing would: a claim
+    is no more trustworthy for coming from an identity provider.
     """
     url = userinfo_url()
     if not url:
@@ -175,12 +174,11 @@ def _ask_userinfo(token):
     # that is not a string. Rauthy issues a UUID, but we do not assume it.
     if not isinstance(sub, str) or not 0 < len(sub) <= 128:
         return None, ""
-    # IMPORT LOCAL, POUR CASSER UN CYCLE : `services.forum` a besoin de
-    # `is_moderator` et `oidc_enabled` d'ici, et ce seul appel a besoin de sa
-    # validation de nom. Le cycle est réel, il est minuscule, et le résoudre en
-    # déplaçant la validation chez l'appelant ferait qu'un jour quelqu'un
-    # oublierait de valider. Un claim n'est pas plus digne de confiance parce
-    # qu'il vient d'un fournisseur d'identité.
+    # LOCAL IMPORT, TO BREAK A CYCLE: `services.forum` needs `is_moderator` and
+    # `oidc_enabled` from here, and this one call needs its name validation.
+    # The cycle is real, it is tiny, and resolving it by moving validation to
+    # the caller would mean someone eventually forgets to validate. A claim is
+    # no more trustworthy for coming from an identity provider.
     from services.forum import forum_pseudo
 
     propose = claims.get("preferred_username")
@@ -188,54 +186,54 @@ def _ask_userinfo(token):
     return sub, nom or ""
 
 
-def client_id(headers, peer, poste=None):
-    """Qui compte comme « un étudiant » pour les quotas.
+def client_id(headers, peer, station=None):
+    """Who counts as "one student" for quota purposes.
 
-    CF-Connecting-IP d'abord : Cloudflare l'ÉCRASE toujours, donc un client ne
-    peut pas le forger tant qu'il passe par Cloudflare. X-Forwarded-For ne donne
-    pas cette garantie (Cloudflare y AJOUTE l'IP client à une valeur que le
-    client contrôle), il n'est là que pour un accès direct depuis le LAN.
+    CF-Connecting-IP first: Cloudflare always OVERWRITES it, so a client
+    cannot forge it as long as it goes through Cloudflare. X-Forwarded-For
+    gives no such guarantee (Cloudflare only APPENDS the client IP to a value
+    the client controls); it exists only for direct access from the LAN.
 
-    ponytail: falsifiable en tapant l'origine sans passer par Cloudflare. C'est
-    un régulateur de charge, pas un contrôle d'accès -- la clé de session est le
-    contrôle d'accès.
+    ponytail: falsifiable by hitting the origin without going through
+    Cloudflare. This is a load regulator, not access control -- the session
+    key is the access control.
     """
-    # LE COMPTE D'ABORD, L'IP EN REPLI. En labo, 27 étudiants sortent par une
-    # seule IP NATée : compter par IP y fait qu'un seul étudiant bloque toute la
-    # salle. Un `sub` validé est plus juste ET moins falsifiable que l'IP.
-    # L'anonyme, lui, n'a que son IP -- et il n'a pas de compte à protéger.
+    # THE ACCOUNT FIRST, THE IP AS A FALLBACK. In the lab, 27 students exit
+    # through a single NATed IP: counting by IP would make one student block
+    # the whole room. A validated `sub` is fairer AND harder to forge than the
+    # IP. The anonymous visitor only has their IP -- and no account to protect.
     sub = current_user(headers)
     if sub:
         return "u:" + sub[:62]
     cf = headers.get("CF-Connecting-IP")
     if cf:
-        adresse = cf.strip()[:64]
+        address = cf.strip()[:64]
     else:
         xff = headers.get("X-Forwarded-For")
-        adresse = xff.split(",")[0].strip()[:64] if xff else peer
-    # L'ANONYME EST COMPTÉ PAR POSTE, PAS PAR SALLE. Aux premiers labos personne
-    # n'est encore connecté : 27 postes sortent par une seule IP NATée, et le
-    # compteur d'IP les fait tous attendre à cause d'un seul. Le jeton vient du
-    # navigateur (localStorage), donc il ne prouve rien -- mais l'IP seule ne
-    # prouvait rien non plus dès qu'on tape l'origine.
+        address = xff.split(",")[0].strip()[:64] if xff else peer
+    # THE ANONYMOUS VISITOR IS COUNTED PER STATION, NOT PER ROOM. In the first
+    # labs nobody is signed in yet: 27 stations exit through a single NATed
+    # IP, and an IP-based counter makes all of them wait because of one. The
+    # token comes from the browser (localStorage), so it proves nothing -- but
+    # the IP alone proved nothing either once you hit the origin directly.
     #
-    # L'IP RESTE DANS LA CLÉ : un jeton rejoué ne peut pas emprunter le
-    # compteur d'un autre réseau, et un poste sans jeton retombe exactement sur
-    # l'ancien comportement.
+    # THE IP STAYS IN THE KEY: a replayed token cannot borrow another
+    # network's counter, and a station without a token falls back exactly to
+    # the old behavior.
     #
-    # ponytail: rejouable en vidant son localStorage. C'est un régulateur de
-    # charge, et `QUEUE_MAX` borne déjà le pire cas ; un plafond par IP
-    # par-dessus le jour où quelqu'un en fait un jeu.
-    if poste:
-        return (adresse + "/" + str(poste))[:128]
-    return adresse
+    # ponytail: replayable by clearing one's localStorage. This is a load
+    # regulator, and `QUEUE_MAX` already bounds the worst case; a per-IP cap
+    # on top the day someone turns it into a game.
+    if station:
+        return (address + "/" + str(station))[:128]
+    return address
 
 
 def is_moderator(sub):
-    """Le contrôle de rôle, et il est ICI -- jamais dans le navigateur.
+    """The role check, and it lives HERE -- never in the browser.
 
-    La page reçoit bien un drapeau `moderateur`, mais c'est un drapeau
-    d'AFFICHAGE : chaque route de modération le recalcule à partir du `sub`
-    authentifié. Un booléen retourné par un client n'est pas une autorisation.
+    The page does receive a `moderateur` flag, but it is a DISPLAY flag: every
+    moderation route recomputes it from the authenticated `sub`. A boolean
+    returned by a client is not an authorization.
     """
     return bool(sub) and sub in config.FORUM_MODERATORS

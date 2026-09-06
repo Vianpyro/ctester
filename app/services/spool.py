@@ -1,14 +1,14 @@
-"""Le spool : le seul canal entre l'API et le worker de l'hôte.
+"""The spool: the only channel between the API and the host's worker.
 
-L'API ÉCRIT ET LIT DES FICHIERS, elle n'exécute rien. Le worker tourne sur
-l'hôte, en root, et ne lit ce répertoire que pour lancer un conteneur jetable
-sous gVisor. C'est cette séparation qui permet d'exposer l'API à Internet sans
-lui donner le socket Docker.
+THE API WRITES AND READS FILES, it executes nothing. The worker runs on the
+host, as root, and only reads this directory to launch a disposable container
+under gVisor. This separation is what allows exposing the API to the Internet
+without handing it the Docker socket.
 
-`job.json` EST ÉCRIT EN DERNIER, par rename atomique : le worker ne déclenche
-que sur sa présence, et sans cet ordre il lirait un `submission.c` à moitié
-écrit et rendrait une erreur de compilation fantôme, une fois sur cent, à
-l'étudiant qui n'y est pour rien.
+`job.json` IS WRITTEN LAST, via an atomic rename: the worker only triggers on
+its presence, and without this ordering it would read a half-written
+`submission.c` and hand the student, one time in a hundred, a phantom
+compile error that is not their fault.
 """
 
 import json
@@ -17,15 +17,15 @@ import os
 import uuid
 
 import config
-from services.catalogue import validate_files
+from services.catalog import validate_files
 
 
 def scan_jobs():
-    """(job_id, horodatage, terminé) pour chaque job du spool.
+    """(job_id, timestamp, done) for every job in the spool.
 
-    L'horodatage vient du mtime de job.json, que le worker ne touche jamais --
-    donc l'ordre vu ici est celui que le worker consomme, et le rang affiché à
-    l'étudiant est vrai.
+    The timestamp comes from `job.json`'s mtime, which the worker never
+    touches -- so the order seen here is the order the worker consumes, and
+    the position shown to the student is true.
     """
     jobs = []
     try:
@@ -38,14 +38,14 @@ def scan_jobs():
         try:
             stamp = os.stat(os.path.join(entry.path, "job.json")).st_mtime
         except OSError:
-            continue  # répertoire en cours d'écriture : pas encore un job
+            continue  # directory still being written: not yet a job
         done = os.path.exists(os.path.join(entry.path, "result.json"))
         jobs.append((entry.name, stamp, done))
     return jobs
 
 
 def queue_position(jobs, job_id):
-    """Rang 1-based du job parmi ceux qui attendent encore. 0 s'il n'attend plus."""
+    """1-based rank of the job among those still waiting. 0 if it no longer waits."""
     pending = sorted((stamp, name) for name, stamp, done in jobs if not done)
     for rank, (_, name) in enumerate(pending, 1):
         if name == job_id:
@@ -53,14 +53,14 @@ def queue_position(jobs, job_id):
     return 0
 
 
-# Écrit par le worker (`runner.enregistrer_duree`), lu ici : {id: [moyenne, n]}.
-# Absent tant qu'aucun job n'a tourné, et effaçable sans rien casser -- l'ETA
-# retombe alors sur DUREE_INCONNUE.
+# Written by the worker (`runner.enregistrer_duree`), read here: {id: [average, n]}.
+# Absent until a job has run, and erasable without breaking anything -- the
+# ETA then falls back to DUREE_INCONNUE.
 DUREES = "durees.json"
-# Ce que coûte un job dont on n'a encore rien mesuré, quand aucun autre
-# exercice n'a de moyenne non plus. Volontairement pessimiste : compilation
-# (10 s) plus une exécution (5 s). Annoncer plus court que le réel est la seule
-# erreur qui se remarque.
+# What a job costs when nothing has been measured for it yet, and no other
+# exercise has an average either. Deliberately pessimistic: compilation
+# (10 s) plus one run (5 s). Announcing shorter than the real thing is the
+# only estimation error that gets noticed.
 DUREE_INCONNUE = 15.0
 
 
@@ -78,12 +78,12 @@ def durees_moyennes():
 
 
 def eta_secondes(jobs, job_id):
-    """Secondes avant le verdict : la somme des jobs DEVANT, plus le sien.
+    """Seconds before the verdict: the sum of jobs AHEAD, plus this one's own.
 
-    Pas un rang multiplié par une constante : un quiz se corrige instantanément
-    et un TP de dix cas paie dix exécutions, donc deux files du même rang
-    n'attendent pas la même chose. Un exercice jamais mesuré prend la moyenne
-    des autres, et à défaut DUREE_INCONNUE.
+    Not a rank times a constant: a quiz grades instantly and a ten-case
+    exercise pays for ten runs, so two queues of the same rank do not wait
+    for the same thing. An exercise never measured takes the average of the
+    others, and DUREE_INCONNUE failing that.
     """
     devant = sorted((stamp, name) for name, stamp, done in jobs if not done)
     moyennes = durees_moyennes()
@@ -96,9 +96,9 @@ def eta_secondes(jobs, job_id):
             break
     else:
         return 0
-    # Les workers dépilent en parallèle. `CTESTER_WORKERS` doit refléter le
-    # nombre d'unités `ctester-runner@` actives : trop haut, on promet plus vite
-    # que le service ne peut tenir.
+    # Workers pop off the queue in parallel. `CTESTER_WORKERS` must reflect
+    # the number of active `ctester-runner@` units: set too high, we promise
+    # faster than the service can deliver.
     return int(math.ceil(total / max(1, config.WORKERS)))
 
 
@@ -143,15 +143,15 @@ def job_sources(job_id, entry):
 
 
 def ecrire_job(exercise_id, nom, blob, owner=None):
-    """Écrit le job et rend son identifiant. `job.json` EN DERNIER, par rename.
+    """Writes the job and returns its id. `job.json` LAST, via rename.
 
-    Le worker ne déclenche que sur la présence de `job.json`. Sans cet ordre il
-    lirait un `submission.c` à moitié écrit et rendrait une erreur de
-    compilation fantôme, une fois sur cent, à l'étudiant qui n'y est pour rien.
+    The worker only triggers on `job.json`'s presence. Without this ordering
+    it would read a half-written `submission.c` and hand the student, one
+    time in a hundred, a phantom compile error that is not their fault.
 
-    `owner` VIENT DU JETON VALIDÉ, jamais du corps de la requête -- c'est ce qui
-    rattache une tentative à un compte sans qu'on puisse se rattacher à celui
-    d'un autre. Borné ici aussi : il devient la moitié d'une clé primaire.
+    `owner` COMES FROM THE VALIDATED TOKEN, never from the request body --
+    that is what attaches an attempt to an account without letting it attach
+    to someone else's. Bounded here too: it becomes half of a primary key.
     """
     job_id = uuid.uuid4().hex
     chemin = os.path.join(config.SPOOL, job_id)

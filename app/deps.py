@@ -1,20 +1,20 @@
-"""Les dépendances partagées par les routeurs : qui appelle, et à quel rythme.
+"""Dependencies shared by the routers: who is calling, and how fast.
 
-TROIS PORTES, ET AUCUNE NE LIT UN IDENTIFIANT DANS LA REQUÊTE :
+THREE GATES, AND NONE READS AN ID FROM THE REQUEST:
 
-    Sub            un compte authentifié
-    SubForum       idem, et le forum est activé sur ce déploiement
-    SubModerateur  idem, et ce `sub` est dans la liste de modération
+    Sub            an authenticated account
+    SubForum       same, and the forum is enabled on this deployment
+    SubModerateur  same, and this `sub` is on the moderation list
 
-`security.current_user()` est la seule source d'identité de toute
-l'application. Une route qui accepterait un `utilisateur` dans son corps
-laisserait n'importe qui écrire dans l'état de n'importe qui -- c'est la
-propriété que ces trois alias existent pour rendre difficile à contourner.
+`security.current_user()` is the only source of identity in the whole
+application. A route that accepted an `account` in its body would let anyone
+write into anyone else's state -- that is the property these three aliases
+exist to make hard to bypass.
 
-LES COMPTEURS SONT DES GLOBALES DE MODULE, exprès : les tests les remplacent
-(`deps.forum_quota = quotas.Quota(...)`) pour éprouver un plafond sans attendre
-une heure. Les fonctions ci-dessous les lisent par leur nom de module, jamais
-par une copie capturée à l'import -- une copie rendrait ce remplacement muet.
+THE COUNTERS ARE MODULE GLOBALS, ON PURPOSE: tests replace them
+(`deps.forum_quota = quotas.Quota(...)`) to exercise a cap without waiting an
+hour. The functions below read them by their module name, never through a
+copy captured at import time -- a copy would make that replacement silent.
 """
 
 import time
@@ -27,42 +27,42 @@ from fastapi import Depends, Request
 from services import forum as forum_service
 from services import quotas
 
-# Le verrou des compteurs. UN SEUL, global, et ça suffit : ces opérations sont
-# des accès à un `dict`, et l'API tourne avec un seul worker.
+# The counters' lock. ONE, global, and that is enough: these are `dict`
+# accesses, and the API runs with a single worker.
 verrou = Lock()
 
-# Le quota des SOUMISSIONS : une compilation coûte un cœur au Dell.
+# The SUBMISSION quota: a compilation costs one core on the Dell.
 quota = quotas.Quota(config.COOLDOWN, config.HOURLY)
 
-# LE MÊME PLAFOND HORAIRE, UN CADRAN PLUS COURT. Un compte identifie un
-# étudiant ; l'anonyme est compté par poste déclaré par son navigateur, donc
-# rejouable en ouvrant un profil neuf. Deux compteurs séparés, jamais un seul
-# avec un `if` : le quota horaire d'un étudiant ne doit pas changer selon
-# qu'il s'est connecté au milieu d'une séance.
+# THE SAME HOURLY CAP, A SHORTER WINDOW. An account identifies a student; the
+# anonymous visitor is counted by a station their browser declares, so it is
+# more easily replayed by opening a fresh profile. Two separate counters,
+# never one with an `if`: a student's hourly quota must not change depending
+# on whether they signed in midway through a session.
 quota_connecte = quotas.Quota(config.COOLDOWN_CONNECTE, config.HOURLY)
 
-# Écrire un brouillon ou un thème ne compile rien -- pas de conteneur, pas de
-# gcc -- donc son propre plafond, bien plus lâche. Il existe pour borner un
-# abus, pas pour cadencer un étudiant qui tape.
+# Saving a draft or a theme compiles nothing -- no container, no gcc -- so it
+# gets its own, much looser cap. It exists to bound abuse, not to pace a
+# typing student.
 state_quota = quotas.Quota(cooldown=1, hourly=1200)
 
-# Le forum, compté PAR COMPTE et pas par IP : deux étudiants derrière le même
-# NAT d'école n'ont pas à se gêner. Il ne couvre QUE les écritures -- un quota
-# qui empêcherait de relire un fil empêcherait de suivre la réponse qu'on
-# attend.
+# The forum, counted PER ACCOUNT and not by IP: two students behind the same
+# school NAT should not get in each other's way. It covers ONLY writes -- a
+# quota that blocked rereading a thread would block following the reply one
+# is waiting for.
 forum_quota = quotas.Quota(config.FORUM_COOLDOWN, config.FORUM_HOURLY)
 
-# Le compteur de fenêtres ouvertes. Ni base, ni compte, ni jeton.
+# The open-windows counter. No database, no account, no token.
 presence = quotas.Presence()
 
 
 class Refus(Exception):
-    """Une réponse d'erreur, portée par une exception.
+    """An error response, carried by an exception.
 
-    PAS `HTTPException` : celle-ci ne sait transporter qu'un `detail`, alors
-    qu'un 429 doit aussi rendre `retry_after` -- la page s'en sert pour dire
-    combien de temps attendre au lieu d'inviter à recliquer. Un dictionnaire
-    dans `detail` produirait `{"error": {...}}`, que `app.js` ne sait pas lire.
+    NOT `HTTPException`: that one can only carry a `detail`, while a 429 must
+    also return `retry_after` -- the page uses it to say how long to wait
+    instead of inviting a re-click. A dict in `detail` would produce
+    `{"error": {...}}`, which `app.js` does not know how to read.
     """
 
     def __init__(self, code, message, **extra):
@@ -73,11 +73,11 @@ class Refus(Exception):
 
 
 def utilisateur(request: Request) -> str:
-    """Le `sub` de l'appelant, ou 401/503.
+    """The caller's `sub`, or 401/503.
 
-    503 ET PAS 401 quand la connexion n'est pas configurée : « il n'y a pas de
-    comptes ici » et « ton jeton a expiré » demandent deux gestes différents à
-    l'étudiant, et la page les distingue.
+    503 AND NOT 401 when sign-in is not configured: "there are no accounts
+    here" and "your token expired" call for two different actions from the
+    student, and the page distinguishes them.
     """
     if not security.oidc_enabled():
         raise Refus(503, "la persistance n'est pas configurée")
@@ -88,12 +88,12 @@ def utilisateur(request: Request) -> str:
 
 
 def utilisateur_forum(request: Request) -> str:
-    """Idem, mais le forum doit être activé -- et c'est vérifié EN PREMIER.
+    """Same, but the forum must be enabled -- and that is checked FIRST.
 
-    L'ordre compte : un déploiement sans modérateur répond 503 « les discussions
-    ne sont pas activées » même sans jeton. Enchaîner sur `utilisateur` d'abord
-    répondrait 401 à un anonyme, ce qui laisserait croire que le forum existe et
-    qu'il suffit de se connecter.
+    Order matters: a deployment with no moderator answers 503 "discussions
+    are not enabled" even with no token. Chaining onto `utilisateur` first
+    would answer 401 to an anonymous visitor, which would suggest the forum
+    exists and that signing in is all it takes.
     """
     if not forum_service.forum_enabled():
         raise Refus(503, "les discussions ne sont pas activées sur ce déploiement")
@@ -101,11 +101,11 @@ def utilisateur_forum(request: Request) -> str:
 
 
 def moderateur(request: Request) -> str:
-    """Un `sub` de modérateur, ou 403.
+    """A moderator's `sub`, or 403.
 
-    LE RÔLE EST RECALCULÉ ICI, À CHAQUE APPEL, DEPUIS LE `sub` AUTHENTIFIÉ. La
-    page reçoit bien un drapeau `moderateur`, mais il ne sert qu'à décider quoi
-    dessiner : aucune route ne le croit sur parole.
+    THE ROLE IS RECOMPUTED HERE, ON EVERY CALL, FROM THE AUTHENTICATED `sub`.
+    The page does receive a `moderateur` flag, but it only decides what to
+    draw: no route takes it at face value.
     """
     sub = utilisateur_forum(request)
     if not security.is_moderator(sub):
@@ -119,7 +119,7 @@ SubModerateur = Annotated[str, Depends(moderateur)]
 
 
 def freiner_ecriture(request: Request) -> None:
-    """Le régulateur des écritures d'état (brouillon, préférences), par IP."""
+    """The state-write throttle (draft, preferences), by IP."""
     qui = security.client_id(request.headers, pair_tcp(request))
     with verrou:
         attente = state_quota.check(qui, time.time())
@@ -129,10 +129,10 @@ def freiner_ecriture(request: Request) -> None:
 
 
 def freiner_forum(sub: str) -> None:
-    """Le régulateur du forum, par COMPTE. Appelé après validation du contenu.
+    """The forum throttle, by ACCOUNT. Called after content validation.
 
-    APRÈS la validation : un message refusé parce qu'il est vide ne doit pas
-    consommer le quota de quelqu'un.
+    AFTER validation: a message refused for being empty must not consume
+    anyone's quota.
     """
     with verrou:
         attente = forum_quota.check(sub, time.time())
@@ -142,5 +142,5 @@ def freiner_forum(sub: str) -> None:
 
 
 def pair_tcp(request: Request) -> str:
-    """L'adresse du pair TCP, ou "" -- `request.client` est None sous TestClient."""
+    """The TCP peer's address, or "" -- `request.client` is None under TestClient."""
     return request.client.host if request.client else ""

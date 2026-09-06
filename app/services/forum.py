@@ -1,56 +1,56 @@
-"""Le forum d'entraide : bornes, identité choisie, et vue sans `sub`.
+"""The peer help forum: bounds, chosen identity, and a `sub`-free view.
 
-AUCUN `sub` NE FRANCHIT LA FRONTIÈRE HTTP. `forum_vue()` traduit l'auteur en
-« Vous » / « Enseignant » / le nom que l'étudiant a CHOISI d'afficher, sinon
-« Participant ». C'est la propriété la plus importante de ce module, et un test
-l'éprouve en cherchant les `sub` dans la charge JSON -- y compris dans la vue la
-plus renseignée, celle d'un modérateur.
+NO `sub` EVER CROSSES THE HTTP BOUNDARY. `forum_vue()` translates the author
+into "Vous" / "Enseignant" / the name the student CHOSE to display, else
+"Participant". This is this module's most important property, and a test
+exercises it by searching for `sub` in the JSON payload -- including in the
+most detailed view, a moderator's.
 
-LE SERVEUR NE REND RIEN ET N'ASSAINIT RIEN, IL BORNE. Les messages sont stockés
-sous leur forme SOURCE ; c'est `forum.js` qui échappe `<` avant l'analyse
-Markdown puis passe la sortie dans DOMPurify. Assainir ici figerait la règle au
-moment de l'écriture, alors qu'une règle resserrée plus tard doit s'appliquer
-aux messages déjà en base.
+THE SERVER RENDERS NOTHING AND SANITIZES NOTHING, IT BOUNDS. Messages are
+stored in their SOURCE form; it is `forum.js` that escapes `<` before Markdown
+parsing then runs the output through DOMPurify. Sanitizing here would freeze
+the rule at write time, whereas a rule tightened later must apply to messages
+already in the database.
 """
 
 import config
 from security import is_moderator, oidc_enabled
 
 
-# UN fil chronologique par exercice PUBLIÉ, privé aux comptes connectés. Rien
-# ici ne produit de valeur de jeu : pas d'XP, pas de succès, pas de compteur, et
-# la progression de la phase 1 n'est ni lue ni écrite depuis ces routes.
+# ONE chronological thread per PUBLISHED exercise, private to signed-in
+# accounts. Nothing here produces game value: no XP, no achievement, no
+# counter, and phase 1's progression is neither read nor written from these
+# routes.
 #
-# LA MODÉRATION EST HUMAINE, ET ON NE PRÉTEND PAS L'INVERSE. Il n'y a pas de
-# détecteur de solution : les seules règles automatiques sont des bornes
-# (longueur, quota) et le refus des liens, qui est une règle de la charte -- pas
-# un jugement sur le contenu. Tout le reste passe par un signalement et par
-# quelqu'un qui lit.
+# MODERATION IS HUMAN, AND WE DO NOT PRETEND OTHERWISE. There is no solution
+# detector: the only automatic rules are bounds (length, quota) and refusing
+# links, which is a charter rule -- not a judgment on content. Everything else
+# goes through a report and someone reading it.
 
 
 def forum_enabled():
-    """True quand le forum peut être offert. FAUX par défaut.
+    """True when the forum can be offered. FALSE by default.
 
-    Il faut la connexion (donc l'émetteur, le client et la base) ET au moins un
-    modérateur configuré. La seconde condition n'est pas cosmétique : le
-    signalement doit aboutir chez quelqu'un, sinon on offre un canal public sans
-    recours.
+    It requires sign-in (so the issuer, the client and the database) AND at
+    least one configured moderator. The second condition is not cosmetic: a
+    report must reach someone, or we would be offering a public channel with
+    no recourse.
     """
     return oidc_enabled() and bool(config.FORUM_MODERATORS)
 
 
 def forum_texte(brut):
-    """(texte, message d'erreur) -- du Markdown restreint, court, et rien d'autre.
+    """(text, error message) -- restricted, short Markdown, and nothing else.
 
-    CE QUI EST STOCKÉ EST LA SOURCE, PAS DU HTML. Le serveur ne rend rien et
-    n'assainit rien : il borne. Le rendu -- Markdown puis assainisseur -- se
-    fait au moment de l'AFFICHAGE, à chaque affichage, dans `forum.js`. Assainir
-    à l'écriture seulement serait la mauvaise moitié du travail : une règle
-    resserrée plus tard ne s'appliquerait pas aux messages déjà en base.
+    WHAT IS STORED IS THE SOURCE, NOT HTML. The server renders nothing and
+    sanitizes nothing: it bounds. Rendering -- Markdown then a sanitizer --
+    happens at DISPLAY time, on every display, in `forum.js`. Sanitizing only
+    at write time would be the wrong half of the work: a rule tightened later
+    would not apply to messages already in the database.
 
-    Les caractères de contrôle partent quand même : ils ne servent à rien dans
-    du Markdown, ils compliquent une relecture humaine, et ils n'ont aucune
-    raison d'attendre le navigateur pour disparaître.
+    Control characters are stripped anyway: they serve no purpose in
+    Markdown, they complicate a human proofread, and they have no reason to
+    wait for the browser to disappear.
     """
     if not isinstance(brut, str):
         return None, "message manquant"
@@ -63,32 +63,31 @@ def forum_texte(brut):
     return texte, None
 
 
-# Un nom d'affichage : court, sur une ligne, et qui ne se fait pas passer pour
-# une étiquette de l'interface.
+# A display name: short, one line, and not impersonating an interface label.
 _PSEUDOS_RESERVES = frozenset({"vous", "participant", "equipe du cours",
                                "équipe du cours", "moderateur", "modérateur",
                                "anonyme", "enseignant"})
 
 
 def forum_pseudo(brut):
-    """(nom|None, erreur) -- le nom qu'on se donne, ou rien.
+    """(name|None, error) -- the name one gives oneself, or nothing.
 
-    RIEN NE VIENT D'UN CLAIM OIDC : ce champ est saisi, donc il est borné comme
-    un message. Vide ou absent veut dire « pas de nom », pas une erreur -- c'est
-    l'état par défaut et il reste offert.
+    NOTHING COMES FROM AN OIDC CLAIM: this field is typed in, so it is bounded
+    like a message. Empty or absent means "no name", not an error -- it is
+    the default state and it remains on offer.
 
-    Les étiquettes de l'interface sont réservées : un « Enseignant » choisi
-    par un étudiant ferait passer son message pour une réponse du cours, et
-    aucune couleur ne rattrape ça. L'ancienne étiquette « Équipe du cours »
-    reste réservée elle aussi -- rien ne doit pouvoir la reprendre.
+    Interface labels are reserved: an "Enseignant" chosen by a student would
+    make their message look like a reply from the course, and no color fixes
+    that. The old label "Équipe du cours" stays reserved too -- nothing
+    should be able to reclaim it.
     """
     if brut is None:
         return None, None
     if not isinstance(brut, str):
         return None, "nom invalide"
-    # LES CARACTÈRES DE CONTRÔLE DEVIENNENT DES ESPACES, ils ne disparaissent
-    # pas : les retirer collerait un nom écrit sur deux lignes en un seul mot,
-    # c'est-à-dire en un autre nom que celui qui a été tapé.
+    # CONTROL CHARACTERS BECOME SPACES, they do not disappear: removing them
+    # would glue a name written on two lines into a single word, i.e. into a
+    # different name than the one typed.
     nom = " ".join("".join(c if c >= " " else " " for c in brut).split())
     if not nom:
         return None, None
@@ -100,10 +99,11 @@ def forum_pseudo(brut):
 
 
 def forum_groupe(brut):
-    """(numéro|None, erreur) -- le numéro de groupe, ou rien.
+    """(number|None, error) -- the group number, or nothing.
 
-    Si `CTESTER_FORUM_GROUPES` liste des groupes, seuls ceux-là passent ; sinon
-    un numéro à deux chiffres (1..99), ce qu'un plan de cours distribue.
+    If `CTESTER_FORUM_GROUPES` lists specific groups, only those pass;
+    otherwise a two-digit number (1..99), which is what a course outline
+    hands out.
     """
     if brut is None or brut == "":
         return None, None
@@ -122,12 +122,12 @@ def forum_groupe(brut):
 
 
 def forum_identite(profil, sub, auteur, moderateur_lecteur):
-    """(auteur affiché, numéro de groupe affiché, le nom est-il choisi).
+    """(displayed author, displayed group number, is the name chosen).
 
-    LA SEULE PLACE OÙ UN PROFIL DEVIENT PUBLIC. Un nom ne sort que si son
-    porteur l'a rendu visible ; le numéro de groupe sort en plus pour
-    l'enseignant, en tout temps, parce que c'est ce qui permet de rattacher un
-    problème à un groupe sans demander de nom à personne.
+    THE ONLY PLACE A PROFILE BECOMES PUBLIC. A name only comes out if its
+    owner made it visible; the group number also comes out for the
+    instructor, at all times, because that is what lets a problem be traced
+    to a group without asking anyone for a name.
     """
     profil = profil or {}
     pseudo = profil.get("pseudo")
@@ -146,17 +146,17 @@ def forum_identite(profil, sub, auteur, moderateur_lecteur):
 
 
 def forum_vue(messages, sub, moderateur, profils=None):
-    """Ce qu'un fil devient pour CET appelant. AUCUN `sub` ne franchit cette ligne.
+    """What a thread becomes for THIS caller. NO `sub` ever crosses this line.
 
-    « Vous » pour son auteur, « Enseignant » pour un modérateur, et pour
-    les autres le nom qu'ils ont CHOISI D'AFFICHER, sinon « Participant ».
-    Le nom et le numéro de groupe sont saisis par l'étudiant et n'apparaissent
-    que s'il les a rendus visibles -- l'anonymat reste l'état par défaut, et
-    deux messages ne se recollent que si leur auteur l'a voulu. Le `sub`, lui,
-    ne traverse toujours pas.
+    "Vous" for its own author, "Enseignant" for a moderator, and for
+    everyone else the name they CHOSE TO DISPLAY, else "Participant". The
+    name and group number are typed in by the student and only appear if they
+    made them visible -- anonymity stays the default, and two messages only
+    get tied together if their author wanted that. The `sub` itself still
+    never crosses.
 
-    Les messages masqués ne sortent QUE vers un modérateur : c'est lui qui doit
-    pouvoir les rétablir.
+    Hidden messages only ever go out to a moderator: they are the one who
+    must be able to restore them.
     """
     profils = profils or {}
     vus = []

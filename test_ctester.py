@@ -34,12 +34,12 @@ import publish_content  # noqa: E402
 import config     # noqa: E402
 import csp        # noqa: E402
 import state      # noqa: E402
-import politique  # noqa: E402
+import policy as politique  # noqa: E402
 import runner     # noqa: E402
 import security   # noqa: E402
-from services import catalogue    # noqa: E402
+from services import catalog as catalogue    # noqa: E402
 from services import forum        # noqa: E402
-from services import progression  # noqa: E402
+from services import progress as progression  # noqa: E402
 from services import quotas       # noqa: E402
 from services import spool        # noqa: E402
 
@@ -823,19 +823,19 @@ def test_politique_est_declarative():
     politique decorative, et c'est exactement ce que D-005 interdit.
     """
     assert politique.VERSION
-    seuils = politique.POLITIQUE["niveaux"]
+    seuils = politique.POLICY["niveaux"]
     assert seuils[0] == 0 and seuils == sorted(seuils) == list(dict.fromkeys(seuils))
     # Chaque succes a de quoi s'afficher SANS couleur ni icone : un titre et une
     # description, plus le fait dont il derive.
     ids = set()
-    for succes in politique.POLITIQUE["succes"]:
+    for succes in politique.POLICY["succes"]:
         assert succes["titre"] and succes["description"]
         assert succes["sur"] and succes["seuil"] >= 1
         assert succes["id"] not in ids
         ids.add(succes["id"])
     assert set(politique.SUCCES) == ids
     # Les bandes de maitrise s'affichent comme les succes : en toutes lettres.
-    bandes = politique.POLITIQUE["maitrise"]["bandes"]
+    bandes = politique.POLICY["maitrise"]["bandes"]
     for bande in bandes:
         assert bande["titre"] and bande["description"]
     assert set(politique.BANDES) == {b["id"] for b in bandes} == set(
@@ -844,14 +844,14 @@ def test_politique_est_declarative():
     # AUCUNE VALEUR D'EQUILIBRAGE NE S'ECRIT EN DUR DANS L'API. Sans ce
     # controle la politique deviendrait decorative : deux endroits ou changer un
     # montant, dont un que personne ne pense a relire.
-    progression = lire(os.path.join(HERE, "app", "services", "progression.py"))
-    for montant in set(politique.POLITIQUE["xp"].values()):
+    progression = lire(os.path.join(HERE, "app", "services", "progress.py"))
+    for montant in set(politique.POLICY["xp"].values()):
         assert not re.search(r"%d" % montant, progression), montant
     assert not re.search(r"%d" % politique.plafond_quotidien(), progression)
 
 
 def test_niveau_derive_du_solde():
-    seuils = politique.POLITIQUE["niveaux"]
+    seuils = politique.POLICY["niveaux"]
     assert politique.niveau(0)["rang"] == 1
     assert politique.niveau(-5)["rang"] == 1          # un solde ne recule pas
     assert politique.niveau(seuils[1])["rang"] == 2

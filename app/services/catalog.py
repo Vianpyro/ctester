@@ -1,14 +1,14 @@
-"""Le catalogue des exercices, et la liste blanche des fichiers.
+"""The exercise catalog, and the file allow-list.
 
-`find_exercise()` EST LA SEULE PORTE VERS UN EXERCICE. Le mode, le nom du
-fichier déposé dans le spool, le chemin d'un quiz servi : tout part d'ici. Un
-exercice absent du catalogue publié n'existe pas, quel que soit le contenu du
-disque -- et un exercice pas encore ouvert n'est pas « absent » mais « fermé »,
-ce qui est la même réponse ici et un cadenas daté dans le menu.
+`find_exercise()` IS THE ONLY GATE TO AN EXERCISE. The mode, the name of the
+file dropped into the spool, the path of a served quiz: everything starts
+here. An exercise absent from the published catalog does not exist, whatever
+sits on disk -- and an exercise not yet open is not "absent" but "closed",
+which is the same answer here and a dated lock in the menu.
 
-Le catalogue lui-même est une RELEASE écrite par le worker (`publish_content.py`,
-appelé par `publish_catalogue()` dans `runner.py`), qui reconstruit champ à champ
-ce qui sort. Ce module ne fait que la lire.
+The catalog itself is a RELEASE written by the worker (`publish_content.py`,
+called by `publish_catalogue()` in `runner.py`), which rebuilds field by field
+what comes out. This module only reads it.
 """
 
 import json
@@ -17,17 +17,17 @@ import re
 
 import config
 
-# Le nom d'une release EST le hachage de son contenu. Validé avant d'être joint
-# à un chemin : ce fichier est écrit par le worker, mais rien qui devienne un
-# chemin ne se lit sans être vérifié.
+# A release's name IS the hash of its content. Validated before being joined
+# into a path: this file is written by the worker, but nothing that becomes a
+# path is read without being checked.
 REVISION_RE = re.compile(r"\A[0-9a-f]{8,64}\Z")
 
 
 def release_dir():
-    """Le répertoire de la publication active, ou None (rien de publié).
+    """The active release's directory, or None (nothing published).
 
-    RELU À CHAQUE APPEL, comme le catalogue lui-même : republier ou revenir en
-    arrière est un pointeur à réécrire, pas un conteneur à recréer.
+    RE-READ ON EVERY CALL, like the catalog itself: publishing or rolling back
+    is a pointer to rewrite, not a container to recreate.
     """
     if not config.PUBLISHED:
         return None
@@ -43,7 +43,7 @@ def release_dir():
 
 
 def load_catalog():
-    """Le catalogue publié -- collections, accès, exercices. None si rien n'est publié."""
+    """The published catalog -- collections, access, exercises. None if nothing is published."""
     release = release_dir()
     if release is None:
         return None
@@ -56,12 +56,12 @@ def load_catalog():
 
 
 def source_publiee(entry, quoi):
-    """(base, nom) du fichier publié pour cet exercice, ou (None, None).
+    """(base, name) of the published file for this exercise, or (None, None).
 
-    Le nom est RECONSTRUIT depuis l'identifiant du catalogue, jamais reçu : il
-    n'y a donc pas de chemin à traverser. `None` quand le pointeur a disparu
-    entre la résolution et la lecture -- un rollback en pleine requête est un
-    404, pas une trace.
+    The name is REBUILT from the catalog id, never received: there is
+    therefore no path to traverse. `None` when the pointer disappeared
+    between resolution and reading -- a rollback mid-request is a 404, not a
+    stack trace.
     """
     release = release_dir()
     if release is None:
@@ -71,12 +71,12 @@ def source_publiee(entry, quoi):
 
 
 def exercices_ouverts():
-    """Les exercices OUVERTS du catalogue publié, dans l'ordre de publication.
+    """The OPEN exercises of the published catalog, in publication order.
 
-    La progression ne compte que ce qui est ouvert : un exercice verrouillé ne
-    doit ni gonfler un dénominateur, ni être recommandé la veille de son
-    ouverture. C'est la même liste que `find_exercise` interroge une entrée à la
-    fois -- une seule définition de « publié et ouvert ».
+    Progression only counts what is open: a locked exercise must neither
+    inflate a denominator nor be recommended the day before it opens. This is
+    the same list `find_exercise` queries one entry at a time -- a single
+    definition of "published and open".
     """
     return [entry for entry in (load_catalog() or {}).get("exercises") or ()
             if isinstance(entry, dict) and entry.get("access") == "available"
@@ -84,12 +84,13 @@ def exercices_ouverts():
 
 
 def find_exercise(exercise_id):
-    """L'entrée de catalogue de cet exercice OUVERT, ou None. La seule porte.
+    """This OPEN exercise's catalog entry, or None. The only gate.
 
-    Tout ce qui suit -- le mode, le nom de fichier écrit dans le spool, le
-    chemin d'un quiz servi -- part d'ici. Un exercice verrouillé figure bien au
-    catalogue (avec son cadenas et sa date), mais ne se résout pas : un lien
-    profond partagé en avance ne contourne rien, il ne résout pas.
+    Everything that follows -- the mode, the file name written into the
+    spool, the path of a served quiz -- starts here. A locked exercise does
+    appear in the catalog (with its lock and its date), but does not resolve:
+    a deep link shared early does not bypass anything, it just does not
+    resolve.
     """
     for entry in exercices_ouverts():
         if entry["id"] == exercise_id:

@@ -53,7 +53,7 @@ client = TestClient(main.app)
 def _modules_avec_etat():
     """Tous les modules qui ont importé `state`, pour le remplacer PARTOUT.
 
-    `security`, `services.forum`, `services.progression` et quatre routeurs
+    `security`, `services.forum`, `services.progress` et quatre routeurs
     importent `state` chacun de leur côté. En oublier un ferait
     parler un test à une VRAIE base -- absente en test, donc `enabled()` faux,
     donc des 503 partout et un contrôle qui « passe » sans rien avoir éprouvé.
@@ -642,7 +642,7 @@ def test_taille_des_fichiers_des_deux_cotes():
     les deux existent, et c'est celle-ci qui protège la base et le spool.
     """
     with contexte() as (c, _, _tmp):
-        from services import catalogue
+        from services import catalog as catalogue
         entree = catalogue.find_exercise("tp2-ex3")
         enveloppe = len(json.dumps({"submission.c": ""}).encode())
         pile = "a" * (config.MAX_CODE - enveloppe)
@@ -724,7 +724,7 @@ def test_identifiant_d_exercice_hors_forme():
     traverser mais un nom qui n'existe pas. Le chemin lu, lui, est reconstruit
     par `source_publiee` depuis l'entrée trouvée -- jamais depuis l'URL.
     """
-    from services import catalogue
+    from services import catalog as catalogue
     with contexte() as (c, _, _tmp):
         assert catalogue.find_exercise("a" * 32) is None  # bien formé, mais absent
         for hostile in ("../tps", "tp2/../../etc", "TP2-EX3", "tp2 ex3", ""):
@@ -1011,7 +1011,7 @@ def test_forum_groupe_liste_fermee_et_champ_libre():
 def test_identifiant_de_message_et_de_job_hors_forme():
     """32 hexadécimaux minuscules, ni 31, ni 33, ni majuscules."""
     from routers.forum import MSG_RE
-    from routers.soumission import JOB_RE
+    from routers.submission import JOB_RE
     for motif in (MSG_RE, JOB_RE):
         assert motif.match("0" * 32)
         assert not motif.match("0" * 31)

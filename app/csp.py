@@ -1,14 +1,14 @@
-"""La politique de sécurité du contenu. BIBLIOTHÈQUE STANDARD SEULEMENT.
+"""The content security policy. STANDARD LIBRARY ONLY.
 
-CE MODULE N'IMPORTE RIEN D'AUTRE QUE `re` ET `config`, ET CE N'EST PAS UN
-HASARD. `test_ctester.py` est lancé par `pull.sh` et par la vérification
-Ansible avec le PYTHON DE L'HÔTE -- pas celui du conteneur, donc sans
-`PYTHONPATH=/deps` et sans starlette. Le laisser dans `headers.py` faisait
-échouer le déploiement automatique toutes les cinq minutes, sur un
-`ImportError`, sans que rien ne soit déployé.
+THIS MODULE IMPORTS NOTHING BESIDES `re` AND `config`, AND THAT IS NOT AN
+ACCIDENT. `test_ctester.py` is run by `pull.sh` and by the Ansible
+verification with the HOST'S PYTHON -- not the container's, so without
+`PYTHONPATH=/deps` and without starlette. Leaving it in `headers.py` made the
+automatic deployment fail every five minutes, on an `ImportError`, with
+nothing deployed.
 
-La règle à tenir : ce que `test_ctester.py` importe doit rester exécutable sur
-le Dell sans rien installer.
+The rule to keep: whatever `test_ctester.py` imports must stay runnable on
+the Dell without installing anything.
 """
 
 import re
@@ -16,38 +16,38 @@ import re
 import config
 
 
-# AUCUN SCRIPT INLINE DANS LA PAGE, donc aucun hachage à tenir à jour. C'est ce
-# qui permet à la même politique de tenir dans un en-tête ici ET dans le
-# `<meta>` de `index.html`, que GitHub Pages sert sans pouvoir poser d'en-tête.
-# Le bootstrap du thème vit dans `web/config.js`, chargé en tête de `<head>`
-# sans `defer` : il tourne donc avant le premier rendu, comme l'inline qu'il
-# remplace. Un inline rajouté par distraction est alors bloqué bruyamment, au
-# lieu de passer par un hachage recopié qui se périme en silence.
+# NO INLINE SCRIPT ANYWHERE IN THE PAGE, so no hash to keep up to date. That
+# is what lets the same policy hold in a header here AND in `index.html`'s
+# `<meta>`, which GitHub Pages serves with no way to set a header. The theme
+# bootstrap lives in `web/config.js`, loaded at the top of `<head>` with no
+# `defer`: it therefore runs before the first paint, like the inline script
+# it replaces. An inline script added back by mistake is then blocked loudly,
+# instead of going through a copied hash that silently goes stale.
 _INLINE_SCRIPT_RE = re.compile(rb"<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>",
                                re.DOTALL | re.IGNORECASE)
 
 def csp(body, issuer=""):
-    """La politique de sécurité du contenu pour CE document HTML.
+    """The content security policy for THIS HTML document.
 
-    ELLE DOIT DIRE LA MÊME CHOSE QUE LE `<meta>` de `index.html`, à
-    `frame-ancestors` près : un `<meta>` ne peut pas le porter, et c'est la
-    seule perte réelle du passage à GitHub Pages (à reposer par une Transform
-    Rule Cloudflare, `X-Frame-Options: DENY`). Ici il reste, ce serveur pouvant
-    poser des en-têtes.
+    IT MUST SAY THE SAME THING AS `index.html`'s `<meta>`, except for
+    `frame-ancestors`: a `<meta>` cannot carry it, and that is the only real
+    loss from the move to GitHub Pages (to be restored by a Cloudflare
+    Transform Rule, `X-Frame-Options: DENY`). Here it stays, since this
+    server can set headers.
 
-    `style-src` garde `'unsafe-inline'` : la page pose des attributs `style`
-    calculés (la largeur d'une jauge, le rang d'une coche de verdict). Ce sont
-    des styles, pas des scripts, et les retirer demanderait de réécrire trois
-    composants pour un gain nul face à la menace visée ici.
+    `style-src` keeps `'unsafe-inline'`: the page sets computed `style`
+    attributes (a gauge's width, a verdict check's rank). These are styles,
+    not scripts, and removing them would require rewriting three components
+    for zero gain against the threat this targets.
 
-    `connect-src` doit contenir l'émetteur OIDC : `compte.js` va y chercher le
-    document de découverte puis le jeton. Sans lui, la connexion échoue en
-    silence -- et c'est le genre de panne qu'une CSP produit sans le dire. Il
-    doit aussi contenir l'API : pendant la bascule, ce serveur sert encore la
-    page alors que `config.js` appelle déjà `tch099`.
+    `connect-src` must contain the OIDC issuer: `compte.js` fetches the
+    discovery document there, then the token. Without it, sign-in fails
+    silently -- exactly the kind of failure a CSP produces without saying so.
+    It must also contain the API: during the move, this server still serves
+    the page while `config.js` already calls `tch099`.
 
-    `body` N'EST LU QUE POUR REFUSER UN SCRIPT INLINE. La page n'en a plus
-    aucun ; un qui reviendrait ne serait pas haché en douce, il ferait échouer
+    `body` IS READ ONLY TO REFUSE AN INLINE SCRIPT. The page no longer has
+    any; one that came back would not be hashed on the sly, it would fail
     `test_csp_du_document`.
     """
     if any(bloc.strip() for bloc in _INLINE_SCRIPT_RE.findall(body)):

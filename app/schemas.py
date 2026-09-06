@@ -1,36 +1,35 @@
-"""Les corps de requête, déclarés au lieu d'être vérifiés à la main.
+"""Request bodies, declared instead of validated by hand.
 
-CES MODÈLES NE VALIDENT QUE LA FORME -- présence et type. Les règles du domaine
-(longueur d'un message, noms de fichiers autorisés, groupe d'une session, thème
-connu) restent dans `services/` et dans `state.py`, pour deux raisons :
+THESE MODELS VALIDATE ONLY SHAPE -- presence and type. Domain rules (a
+message's length, allowed file names, a session's group, a known theme) stay
+in `services/` and in `state.py`, for two reasons:
 
-  * elles rendent des messages écrits POUR L'ÉTUDIANT (« message trop long
-    (maximum 1200 caractères) »), que Pydantic remplacerait par un 400
-    générique -- et un étudiant bloqué sans savoir pourquoi renonce ;
-  * elles sont éprouvées par appel direct dans `test_ctester.py`, sans monter
-    de serveur. Les déplacer ici les rendrait inaccessibles autrement que par
-    une requête HTTP.
+  * they produce messages written FOR THE STUDENT ("message trop long
+    (maximum 1200 caractères)"), which Pydantic would replace with a generic
+    400 -- and a student blocked without knowing why gives up;
+  * they are exercised by direct call in `test_ctester.py`, with no server to
+    stand up. Moving them here would make them reachable only through an HTTP
+    request.
 
-AUCUN MODÈLE NE PORTE DE CHAMP D'IDENTITÉ, et il ne faut jamais en ajouter :
-`utilisateur`, `sub`, `owner`, `moderateur` viennent du jeton validé et de nulle
-part ailleurs. Un champ de plus ici serait une porte pour écrire dans l'état de
-quelqu'un d'autre.
+NO MODEL CARRIES AN IDENTITY FIELD, and none should ever be added: `account`,
+`sub`, `owner`, `moderateur` come from the validated token and nowhere else.
+One more field here would be a door into writing someone else's state.
 """
 
 from pydantic import BaseModel, ConfigDict
 
-# `extra="ignore"` : un client plus récent qui envoie un champ de plus ne se
-# fait pas rejeter. `forbid` transformerait un déploiement de page en avance sur
-# l'API en panne totale, un jour où seule la page a été redéployée.
+# `extra="ignore"`: a newer client sending one extra field is not rejected.
+# `forbid` would turn a page deployed ahead of the API into a total outage,
+# on a day when only the page was redeployed.
 _CONFIG = ConfigDict(extra="ignore")
 
 
 class _AvecExercice(BaseModel):
-    """L'exercice visé, sous le nom qui vit déjà dans toutes les tables.
+    """The targeted exercise, under the name that already lives in every table.
 
-    `exercise_id` est la seule orthographe acceptée ; `extra="ignore"`
-    (ci-dessus) fait qu'une page ancienne vise l'exercice vide, que
-    `find_exercise` refuse en 404.
+    `exercise_id` is the only accepted spelling; `extra="ignore"` (above)
+    means an old cached page targets the empty exercise, which
+    `find_exercise` refuses with a 404.
     """
 
     model_config = _CONFIG
@@ -39,14 +38,14 @@ class _AvecExercice(BaseModel):
 
 
 class SoumissionIn(_AvecExercice):
-    """POST /submit -- une soumission de code, ou un quiz.
+    """POST /submit -- a code submission, or a quiz.
 
-    `key` EST LA CLÉ DE SESSION, comparée en temps constant et AVANT tout autre
-    travail : rien ne doit être mesurable depuis l'extérieur sans elle.
+    `key` IS THE SESSION KEY, compared in constant time and BEFORE any other
+    work: nothing must be measurable from the outside without it.
 
-    `files` et `answers` sont laissés en `dict` brut : c'est le catalogue qui
-    dit quels noms de fichiers existent pour CET exercice (`validate_files`), et
-    un schéma ne peut pas le savoir à l'avance.
+    `files` and `answers` are left as raw `dict`: it is the catalog that says
+    which file names exist for THIS exercise (`validate_files`), and a schema
+    cannot know that ahead of time.
     """
 
     model_config = _CONFIG
@@ -57,7 +56,7 @@ class SoumissionIn(_AvecExercice):
 
 
 class BrouillonIn(_AvecExercice):
-    """PUT /brouillon -- le code en cours."""
+    """PUT /brouillon -- the code in progress."""
 
     model_config = _CONFIG
 
@@ -65,7 +64,7 @@ class BrouillonIn(_AvecExercice):
 
 
 class PreferencesIn(BaseModel):
-    """PUT /preferences -- le thème, qui suit le COMPTE et pas l'appareil."""
+    """PUT /preferences -- the theme, which follows the ACCOUNT and not the device."""
 
     model_config = _CONFIG
 
@@ -73,7 +72,7 @@ class PreferencesIn(BaseModel):
 
 
 class ForumMessageIn(_AvecExercice):
-    """POST /forum -- publier dans le fil d'un exercice publié."""
+    """POST /forum -- post into a published exercise's thread."""
 
     model_config = _CONFIG
 
@@ -81,11 +80,11 @@ class ForumMessageIn(_AvecExercice):
 
 
 class ForumSignalementIn(BaseModel):
-    """POST /forum/signalement -- signaler un message, ou un nom affiché.
+    """POST /forum/signalement -- report a message, or a displayed name.
 
-    DEUX CIBLES, UNE ROUTE. Signaler un nom, c'est le même geste et la même
-    file : le message sert de poignée parce que le navigateur n'a aucun
-    identifiant de compte, et il n'en aura pas.
+    TWO TARGETS, ONE ROUTE. Reporting a name is the same gesture and the same
+    queue: the message serves as the handle because the browser has no
+    account id, and never will.
     """
 
     model_config = _CONFIG
@@ -95,11 +94,11 @@ class ForumSignalementIn(BaseModel):
 
 
 class ForumModerationIn(BaseModel):
-    """POST /forum/moderation -- masquer, rétablir, ou effacer un nom.
+    """POST /forum/moderation -- hide, restore, or clear a name.
 
-    Éditer un message n'en fait pas partie : un message est immuable, et un
-    modérateur qui pourrait le corriger pourrait aussi faire dire autre chose à
-    quelqu'un.
+    Editing a message is not among these: a message is immutable, and a
+    moderator who could correct it could also make someone say something
+    else.
     """
 
     model_config = _CONFIG
@@ -109,12 +108,12 @@ class ForumModerationIn(BaseModel):
 
 
 class ForumProfilIn(BaseModel):
-    """POST /forum/profil -- son nom, son groupe, et ce qui s'affiche.
+    """POST /forum/profil -- a name, a group, and what is displayed.
 
-    DEUX CASES INDÉPENDANTES, et rien n'apparaît sans que son porteur l'ait
-    cochée. `groupe` accepte un entier comme une chaîne : le formulaire envoie
-    l'un ou l'autre selon qu'il est une liste déroulante ou un champ libre, et
-    `forum_groupe()` tranche.
+    TWO INDEPENDENT CHECKBOXES, and nothing appears unless its owner checked
+    it. `groupe` accepts an integer or a string: the form sends one or the
+    other depending on whether it is a dropdown or a free-text field, and
+    `forum_groupe()` settles it.
     """
 
     model_config = _CONFIG

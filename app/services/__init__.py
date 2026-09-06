@@ -1,5 +1,5 @@
-"""La logique, sans HTTP.
+"""The logic, without HTTP.
 
-Rien ici ne connaît `Request` ni `Response`. Elles sont éprouvées par appel
-direct, pas par un client de test.
+Nothing here knows `Request` or `Response`. It is exercised by direct call,
+not by a test client.
 """

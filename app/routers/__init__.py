@@ -1,7 +1,7 @@
-"""Les routeurs : une frontière HTTP par domaine.
+"""The routers: one HTTP boundary per domain.
 
-Un routeur ne fait QUE de la traduction : lire une requête, appeler `services/`
-ou `state.py`, rendre une réponse. Aucune règle métier n'a le droit de vivre ici
--- c'est ce qui garde `test_ctester.py` capable d'éprouver les règles sans
-monter un serveur.
+A router does ONLY translation: read a request, call `services/` or
+`state.py`, return a response. No business rule has the right to live here --
+that is what keeps `test_ctester.py` able to exercise the rules without
+standing up a server.
 """

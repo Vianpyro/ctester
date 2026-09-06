@@ -1,19 +1,19 @@
-"""La page, servie par ce processus. TEMPORAIRE.
+"""The page, served by this process. TEMPORARY.
 
-Ce routeur n'est monté que si `config.PAGE` est défini, et il disparaîtra quand
-GitHub Pages servira la page pour de bon. Il reste pour deux raisons, et pas
-une de plus :
+This router is only mounted if `config.PAGE` is set, and it will disappear
+once GitHub Pages serves the page for good. It stays for two reasons, and no
+more:
 
-  * `python3 app/main.py` sert alors la page ET l'API sur la même origine, donc
-    `web/config.js` retombe sur son repli `""` et le mode « je lance et je
-    teste » continue de marcher sans déployer quoi que ce soit ;
-  * il pose la CSP en EN-TÊTE, ce que GitHub Pages ne sait pas faire -- c'est le
-    seul endroit où `frame-ancestors` existe vraiment.
+  * `python3 app/main.py` then serves the page AND the API on the same
+    origin, so `web/config.js` falls back to its `""` default and "launch and
+    test" mode keeps working with nothing deployed;
+  * it sets the CSP as a HEADER, which GitHub Pages cannot do -- this is the
+    only place `frame-ancestors` truly exists.
 
-LISTE BLANCHE EXPLICITE, PAS `StaticFiles`. Ce processus ne doit jamais pouvoir
-servir un fichier arbitraire de son système de fichiers, quelle que soit la
-créativité du chemin demandé. `StaticFiles` monte un RÉPERTOIRE ; ici, chaque
-nom servi est écrit en toutes lettres ci-dessous.
+EXPLICIT ALLOW-LIST, NOT `StaticFiles`. This process must never be able to
+serve an arbitrary file from its filesystem, however creative the requested
+path. `StaticFiles` mounts a DIRECTORY; here, every served name is spelled out
+below.
 """
 
 import config
@@ -22,9 +22,9 @@ from fastapi import APIRouter, Request
 
 router = APIRouter(include_in_schema=False)
 
-# Le nom de fichier -> son type. Une liste CLOSE : `.js` n'ouvre pas le
-# répertoire, et `/vendor/` n'est pas un répertoire ouvert non plus -- les deux
-# bibliothèques y sont nommées avec leur version.
+# File name -> its type. A CLOSED list: `.js` does not open the directory,
+# and `/vendor/` is not an open directory either -- both libraries there are
+# named with their version.
 SERVIS = dict(
     {"index.html": "text/html; charset=utf-8",
      "style.css": "text/css; charset=utf-8",
@@ -38,11 +38,11 @@ SERVIS = dict(
 
 @router.api_route("/", methods=["GET", "HEAD"])
 def racine(request: Request):
-    """Le document. `HEAD` passe par le MÊME code que `GET`, sans le corps.
+    """The document. `HEAD` goes through the SAME code as `GET`, with no body.
 
-    Un `HEAD` qui annoncerait une autre politique de cache ou une autre CSP
-    serait un piège à revalidation : le navigateur garderait une réponse validée
-    contre des en-têtes qu'elle n'a jamais eus.
+    A `HEAD` that announced a different cache policy or a different CSP
+    would be a revalidation trap: the browser would keep a validated response
+    against headers it never actually had.
     """
     return _servir(request, "index.html")
 

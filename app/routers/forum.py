@@ -1,16 +1,15 @@
-"""Le forum d'entraide : six routes, toutes derrière `SubForum`.
+"""The peer help forum: six routes, all behind `SubForum`.
 
-AUCUNE NE PREND D'IDENTIFIANT D'UTILISATEUR DANS LA REQUÊTE, et aucune ne balaye
-les données de tous les étudiants : on lit UN fil d'exercice, ou la file des
-signalements.
+NONE OF THEM TAKES A USER ID IN THE REQUEST, and none scans every student's
+data: we read ONE exercise thread, or the report queue.
 
-AUCUN `sub` NE FRANCHIT LA FRONTIÈRE. `forum_vue()` traduit l'auteur en « Vous »
-/ « Enseignant » / le nom choisi, sinon « Participant ». La file de modération
-recopie ce qui s'affiche (nom, groupe, poignée du message) et jamais la colonne
-`utilisateur` qui a servi à joindre.
+NO `sub` EVER CROSSES THE BOUNDARY. `forum_vue()` translates the author into
+"Vous" / "Enseignant" / the chosen name, else "Participant". The moderation
+queue copies what is displayed (name, group, message handle) and never the
+`account` column used to join.
 
-LE FORUM NE DOIT JAMAIS EMPÊCHER DE FAIRE UN EXERCICE. Éteint, en panne, ou base
-muette : 503 en le disant, et « Tester » continue de marcher.
+THE FORUM MUST NEVER PREVENT DOING AN EXERCISE. Disabled, down, or a mute
+database: 503 saying so, and "Tester" keeps working.
 """
 
 import re
@@ -24,37 +23,37 @@ from deps import SubForum, SubModerateur, freiner_forum
 from fastapi import APIRouter, Query, Request
 from schemas import (ForumMessageIn, ForumModerationIn, ForumProfilIn,
                      ForumSignalementIn)
-from services import catalogue
+from services.catalog import find_exercise
 from services import forum as forum_service
 
-# Les identifiants de message et d'action ont la même forme qu'un job (uuid4
-# hexadécimal), mais ce n'est pas la même chose : les confondre dans une seule
-# constante ferait qu'un jour où l'une des deux formes change, l'autre changerait
-# en silence avec elle.
+# Message and action ids have the same shape as a job (hex uuid4), but they
+# are not the same thing: folding them into a single constant would mean that
+# the day one of the two shapes changes, the other would change silently
+# along with it.
 MSG_RE = re.compile(r"\A[0-9a-f]{32}\Z")
 
 router = APIRouter(tags=["forum"])
 
 
 def _entree(brut):
-    """L'entrée de catalogue nommée, ou None.
+    """The named catalog entry, or None.
 
-    `find_exercise` est la SEULE porte : elle n'existe pas de fil pour un exercice
-    absent du catalogue, donc pas de fil à créer avec un identifiant fabriqué,
-    et pas de chemin à traverser.
+    `find_exercise` is the ONLY gate: there is no thread for an exercise
+    absent from the catalog, so no thread to create with a made-up id, and no
+    path to traverse.
     """
-    return catalogue.find_exercise(str(brut or ""))
+    return find_exercise(str(brut or ""))
 
 
 def _message_id(brut):
-    """Un identifiant de message bien formé, ou None."""
+    """A well-formed message id, or None."""
     valeur = str(brut or "")
     return valeur if MSG_RE.match(valeur) else None
 
 
 @router.get("/forum")
 def fil(sub: SubForum, ex: str = Query("")):
-    """Le fil d'un exercice, tel que CET appelant a le droit de le voir."""
+    """An exercise's thread, as THIS caller is allowed to see it."""
     entree = _entree(ex)
     if entree is None:
         return headers.erreur(400, "TP inconnu")
@@ -73,7 +72,7 @@ def fil(sub: SubForum, ex: str = Query("")):
 
 @router.post("/forum")
 def publier(sub: SubForum, corps: ForumMessageIn):
-    """Publier dans le fil d'un exercice publié."""
+    """Post into a published exercise's thread."""
     entree = _entree(corps.exercise_id)
     if entree is None:
         return headers.erreur(400, "TP inconnu")
@@ -88,10 +87,10 @@ def publier(sub: SubForum, corps: ForumMessageIn):
 
 @router.delete("/forum")
 def supprimer(sub: SubForum, id: str = Query("")):
-    """Supprimer SON message, jamais celui d'un autre.
+    """Delete THEIR OWN message, never someone else's.
 
-    LE MÊME 404 pour « ce message n'existe pas » et « il n'est pas à toi » : les
-    distinguer dirait à qui essaie qu'un identifiant existe.
+    THE SAME 404 for "this message does not exist" and "it is not yours":
+    telling them apart would tell whoever is trying that an id exists.
     """
     message_id = _message_id(id)
     if message_id is None:
@@ -106,15 +105,15 @@ def supprimer(sub: SubForum, id: str = Query("")):
 
 @router.post("/forum/signalement")
 def signaler(sub: SubForum, corps: ForumSignalementIn):
-    """Signaler un message, ou le nom affiché de son auteur.
+    """Report a message, or its author's displayed name.
 
-    LA MÊME RÉPONSE pour un signalement neuf, un doublon et un identifiant
-    inconnu : c'est déjà ce que la base impose, et l'étudiant n'a pas besoin
-    d'apprendre lequel des trois cas s'applique. Il a signalé ; quelqu'un lira.
+    THE SAME RESPONSE for a fresh report, a duplicate and an unknown id: that
+    is already what the database enforces, and the student does not need to
+    learn which of the three cases applies. They reported; someone will read.
 
-    DEUX CIBLES, UNE ROUTE. Signaler un nom, c'est le même geste et la même
-    file : le message sert de poignée parce que le navigateur n'a aucun
-    identifiant de compte, et il n'en aura pas.
+    TWO TARGETS, ONE ROUTE. Reporting a name is the same gesture and the same
+    queue: the message serves as the handle because the browser has no
+    account id, and never will.
     """
     message_id = _message_id(corps.id)
     if message_id is None:
@@ -131,14 +130,14 @@ def signaler(sub: SubForum, corps: ForumSignalementIn):
 
 @router.get("/forum/moderation")
 def file_moderation(sub: SubModerateur):
-    """Les signalements. Réservé, et le rôle est recalculé serveur."""
+    """Reports. Restricted, and the role is recomputed server-side."""
     signales = state.forum_signalements(config.FORUM_MAX_FIL)
     noms = state.forum_noms_signales(config.FORUM_MAX_FIL)
     if signales is None or noms is None:
         return headers.erreur(503, "la base ne répond pas")
-    # LE `sub` NE TRAVERSE PAS ICI NON PLUS : on recopie ce qui s'affiche (le
-    # nom signalé, le groupe, la poignée du message), jamais la colonne
-    # `utilisateur` qui a servi à les joindre.
+    # THE `sub` DOES NOT CROSS HERE EITHER: we copy what is displayed (the
+    # reported name, the group, the message handle), never the `account`
+    # column used to join them.
     return {"signalements": signales, "noms": [
         {"id": n["id"], "pseudo": n["pseudo"], "groupe": n["groupe"],
          "cree_le": n["cree_le"], "signalements": n["signalements"]}
@@ -147,11 +146,11 @@ def file_moderation(sub: SubModerateur):
 
 @router.post("/forum/moderation")
 def moderer(sub: SubModerateur, corps: ForumModerationIn):
-    """Masquer, rétablir, ou effacer un nom. Trois actions, pas une de plus.
+    """Hide, restore, or clear a name. Three actions, not one more.
 
-    Éditer un message n'en fait pas partie : un message est immuable, et un
-    modérateur qui pourrait le corriger pourrait aussi faire dire autre chose à
-    quelqu'un.
+    Editing a message is not among them: a message is immutable, and a
+    moderator who could correct it could also make someone say something
+    else.
     """
     message_id = _message_id(corps.id)
     if message_id is None:
@@ -169,15 +168,16 @@ def moderer(sub: SubModerateur, corps: ForumModerationIn):
 
 
 def _effacer_nom(message_id):
-    """Efface le NOM de l'auteur d'un message signalé. Rien d'autre.
+    """Clear the NAME of a reported message's author. Nothing else.
 
-    Le numéro de groupe et sa visibilité restent : ce qui est signalé, c'est le
-    nom. Et on ÉCRIT UNE LIGNE de plus, on n'en corrige aucune -- le journal
-    garde ce que le nom était, ce qu'une modération veut relire.
+    The group number and its visibility stay: what was reported is the name.
+    And we WRITE ONE MORE ROW, we correct none -- the journal keeps what the
+    name was, which is what a moderator wants to read back.
 
-    PAS DE LIGNE DANS `forum_moderation` : ce journal-là porte l'état `masque`
-    d'un message, et y écrire « masquer-nom » rétablirait un message caché au
-    passage. La ligne de profil `par_moderateur` EST le journal de cette action.
+    NO ROW IN `forum_moderation`: that journal carries a message's `hidden`
+    state, and writing "hide-name" there would restore a hidden message as a
+    side effect. The profile row's `set_by_moderator` IS this action's
+    journal.
     """
     auteur = state.forum_auteur(message_id)
     if not auteur:
@@ -187,24 +187,24 @@ def _effacer_nom(message_id):
         return headers.erreur(503, "la base ne répond pas")
     if not state.forum_profil_ecrire(
             uuid.uuid4().hex, auteur, None, profil.get("groupe"), False,
-            bool(profil.get("groupe_public")), par_moderateur=True):
+            bool(profil.get("groupe_public")), set_by_moderator=True):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}
 
 
 @router.get("/forum/profil")
 def lire_profil(sub: SubForum, request: Request):
-    """SON profil, en entier. Jamais celui d'un autre.
+    """THEIR OWN profile, in full. Never someone else's.
 
-    Il n'y a pas de route pour lire le profil de quelqu'un d'autre : ce qui est
-    public d'un profil arrive déjà par le fil, déjà filtré.
+    There is no route to read someone else's profile: what is public about a
+    profile already arrives through the thread, already filtered.
     """
     profil = state.forum_profil(sub)
     if profil is None:
         return headers.erreur(503, "la base ne répond pas")
-    # LA SUGGESTION N'EST PAS LE PROFIL. Elle n'accompagne un profil que tant
-    # qu'il n'a pas de nom : une fois choisi, le nom de l'étudiant a préséance
-    # sur celui du fournisseur d'identité, toujours.
+    # THE SUGGESTION IS NOT THE PROFILE. It only accompanies a profile as long
+    # as it has no name: once chosen, the student's name always takes
+    # precedence over the identity provider's.
     return dict(profil, max_pseudo=config.FORUM_PSEUDO_MAX,
                 groupes=list(config.FORUM_GROUPES),
                 suggestion=("" if profil.get("pseudo")
@@ -213,10 +213,11 @@ def lire_profil(sub: SubForum, request: Request):
 
 @router.post("/forum/profil")
 def ecrire_profil(sub: SubForum, corps: ForumProfilIn):
-    """Choisir son nom, son groupe, et ce qui s'affiche.
+    """Choose a name, a group, and what is shown.
 
-    UN CHAMP VIDE N'EST PAS UN CHAMP VISIBLE : sans ça, cocher la case sans rien
-    écrire afficherait « Participant » en croyant s'être nommé.
+    AN EMPTY FIELD IS NOT A VISIBLE FIELD: without this, checking the box
+    without writing anything would display "Participant" while believing
+    one had named oneself.
     """
     pseudo, message = forum_service.forum_pseudo(corps.pseudo)
     if message:

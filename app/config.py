@@ -1,18 +1,18 @@
-"""ctester -- tous les réglages, en un seul endroit.
+"""ctester -- all the settings, in one place.
 
-Un déploiement se pilote par variables d'environnement, et chaque valeur porte
-ici le défaut du rôle Ansible : c'est ce qui rend les contrôles exécutables sur
-le contrôleur sans rien installer ni rien déployer.
+A deployment is steered by environment variables, and every value here
+carries the Ansible role's default next to it: that is what makes the checks
+runnable on the controller without installing or deploying anything.
 
-IMPORTEZ LE MODULE, PAS SES NOMS : `import config` puis `config.KEY`, jamais
-`from config import KEY`. Un `from ... import` fige la valeur au moment de
-l'import, et les tests règlent ces constantes après coup pour éprouver un
-déploiement différent de celui de la machine qui les lance. Un import figé rend
-ces tests silencieusement inopérants -- ils passeraient en n'éprouvant rien.
+IMPORT THE MODULE, NOT ITS NAMES: `import config` then `config.KEY`, never
+`from config import KEY`. A `from ... import` freezes the value at import
+time, and the tests set these constants afterward to exercise a deployment
+different from the one running them. A frozen import makes those tests
+silently inert -- they would pass while testing nothing.
 
-BIBLIOTHÈQUE STANDARD, PAS `pydantic-settings` : ce sont vingt `os.environ.get`
-avec un défaut. Un modèle de réglages en plus n'ajouterait ici qu'une
-dépendance de plus dans le seul processus exposé à Internet.
+STANDARD LIBRARY, NOT `pydantic-settings`: this is twenty `os.environ.get`
+calls with a default. One more settings model here would only add one more
+dependency in the sole process exposed to the Internet.
 """
 
 import os
@@ -20,11 +20,11 @@ import re
 
 
 def _entier(nom, defaut):
-    """Un entier d'environnement, ou le défaut si la valeur ne l'est pas.
+    """An integer from the environment, or the default if the value is not one.
 
-    `int()` nu ferait échouer le DÉMARRAGE du conteneur sur une faute de frappe
-    dans un fichier `.env` -- une variable mal tapée doit dégrader un réglage,
-    pas rendre le service injoignable.
+    A bare `int()` would fail the container's STARTUP on a typo in a `.env`
+    file -- a mistyped variable must degrade a setting, not make the service
+    unreachable.
     """
     try:
         return int(os.environ.get(nom, defaut))
@@ -32,98 +32,96 @@ def _entier(nom, defaut):
         return int(defaut)
 
 
-# --- Système de fichiers ----------------------------------------------------
+# --- Filesystem --------------------------------------------------------------
 SPOOL = os.environ.get("CTESTER_SPOOL", "/spool")
-# LA PAGE VIT AILLEURS QUE LE CATALOGUE depuis que `web/` est publié à part.
-# TEMPORAIRE : n'existe que le temps de la bascule vers GitHub Pages.
+# THE PAGE LIVES ELSEWHERE THAN THE CATALOG since `web/` is published
+# separately. TEMPORARY: exists only for the duration of the move to GitHub
+# Pages.
 #
-# POUR ÉTEINDRE LA PAGE, IL FAUT VIDER LA VARIABLE, PAS LA SUPPRIMER
-# (`CTESTER_PAGE=` dans Compose). Absente, le défaut ci-dessous reprend la main
-# et le routeur cherche `/web` dans un conteneur qui ne le monte plus : 500
-# « fichier manquant » à chaque visite au lieu du 404 attendu. Vide -> le
-# routeur n'est pas monté du tout, et cette origine ne répond plus que sur des
-# données.
+# TO TURN THE PAGE OFF, EMPTY THE VARIABLE, DO NOT DELETE IT
+# (`CTESTER_PAGE=` in Compose). Absent, the default below takes over and the
+# router looks for `/web` in a container that no longer mounts it: a 500
+# "missing file" on every visit instead of the expected 404. Empty -> the
+# router is not mounted at all, and this origin answers only on data.
 PAGE = os.environ.get("CTESTER_PAGE", "/web")
 
-# LE CONTENU PUBLIÉ, ET C'EST DÉSORMAIS LA SEULE SOURCE DU CATALOGUE. Un
-# pointeur `current.json` et un répertoire par révision, écrits par
-# `publish_content.py`. Vide -> `/catalog.json` répond 404 et plus aucun
-# exercice ne se résout : depuis la phase 8 il n'y a plus de repli `tps.json`,
-# donc le rollback est de réécrire le pointeur, jamais de vider la variable.
+# THE PUBLISHED CONTENT, AND IT IS NOW THE CATALOG'S ONLY SOURCE. A
+# `current.json` pointer and one directory per revision, written by
+# `publish_content.py`. Empty -> `/catalog.json` answers 404 and no exercise
+# resolves any more: since phase 8 there is no more `tps.json` fallback, so
+# the rollback is to rewrite the pointer, never to empty the variable.
 #
-# LE POINTEUR EST RELU À CHAQUE REQUÊTE, comme tout le reste ici : republier
-# ne doit pas demander de recréer le conteneur.
+# THE POINTER IS RE-READ ON EVERY REQUEST, like everything else here:
+# republishing must not require recreating the container.
 PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "")
 
-# --- Frontière HTTP ---------------------------------------------------------
-# LES ORIGINES AUTORISÉES À APPELER CETTE API, jamais `*` : chaque requête
-# authentifiée porte un `Authorization`, et `*` l'ouvrirait à n'importe quelle
-# page du web. Une origine absente de cette liste ne reçoit AUCUN en-tête CORS
-# -- le navigateur bloque alors de lui-même -- plutôt qu'un 403 : on ne
-# transforme pas un réglage oublié en panne opaque côté serveur.
+# --- HTTP boundary -----------------------------------------------------------
+# ORIGINS ALLOWED TO CALL THIS API, never `*`: every authenticated request
+# carries an `Authorization` header, and `*` would open it to any page on the
+# web. An origin absent from this list receives NO CORS header at all -- the
+# browser then blocks on its own -- rather than a 403: a forgotten setting
+# must not turn into an opaque server-side outage.
 ORIGINS = tuple(o.strip().rstrip("/") for o in os.environ.get(
     "CTESTER_ORIGINS",
     "https://tch009.thevhome.com,https://vianpyro.github.io").split(",")
     if o.strip())
 
-# TRANSITION : l'origine que la PAGE appelle. Ce serveur sert encore la page
-# pendant la bascule, et sa CSP doit donc autoriser `connect-src` vers l'API --
-# sinon la fenêtre où `tch009` est encore sur le Dell mais `config.js` pointe
-# déjà `tch099` est une page morte. Disparaît avec le routeur de la page.
+# TRANSITION: the origin the PAGE calls. This server still serves the page
+# during the move, so its CSP must allow `connect-src` to the API -- otherwise
+# the window where `tch009` is still on the Dell but `config.js` already
+# points at `tch099` is a dead page. Disappears with the page's router.
 API_ORIGIN = os.environ.get("CTESTER_API_ORIGIN", "https://tch099.thevhome.com")
 
 PORT = _entier("CTESTER_PORT", "8000")
 
-# LES DEUX BIBLIOTHÈQUES DU RENDU, ÉPINGLÉES DANS LEUR NOM DE FICHIER. Elles
-# vivent dans le dépôt (`web/vendor/`, voir son README) et sont servies depuis
-# cette origine : la CSP dit `script-src 'self'`, donc un CDN serait bloqué, et
-# c'est voulu. Monter de version demande de toucher à cette liste ET à
-# `forum.js` -- une mise à jour d'assainisseur HTML ne doit pas se faire par
-# accident.
+# THE TWO RENDERING LIBRARIES, PINNED IN THEIR FILE NAME. They live in the
+# repo (`web/vendor/`, see its README) and are served from this origin: the
+# CSP says `script-src 'self'`, so a CDN would be blocked, and that is
+# intentional. Bumping a version requires touching this list AND `forum.js`
+# -- an HTML sanitizer upgrade must not happen by accident.
 VENDOR = ("vendor/marked-18.0.11.umd.js", "vendor/purify-3.4.14.min.js")
 
-# LA DOCUMENTATION AUTOMATIQUE EST ÉTEINTE PAR DÉFAUT, et ce n'est pas de la
-# pudeur. `/docs`, `/redoc` et `/openapi.json` sont publics chez FastAPI : ils
-# décrivent chaque route, chaque champ et chaque borne d'une API posée sur une
-# infra personnelle. Utile en développement, offert à l'inconnu en production.
+# AUTOMATIC DOCUMENTATION IS OFF BY DEFAULT, and this is not modesty.
+# `/docs`, `/redoc` and `/openapi.json` are public in FastAPI: they describe
+# every route, every field and every bound of an API sitting on personal
+# infrastructure. Useful in development, handed to a stranger in production.
 DOCS = os.environ.get("CTESTER_DOCS", "") == "1"
 
-# --- Soumissions ------------------------------------------------------------
+# --- Submissions --------------------------------------------------------------
 KEY = os.environ.get("CTESTER_KEY", "")
 COOLDOWN = _entier("CTESTER_COOLDOWN", "15")
-# CONNECTÉ, C'EST MOINS D'ATTENTE, et ce n'est pas une faveur : un compte est
-# une étiquette de quota juste (voir `client_id`), là où l'anonyme est compté
-# par poste déclaré, donc plus facilement rejoué. Le cadran plus serré paie
-# cette incertitude ; il n'ouvre aucune porte, le plafond horaire est le même.
+# SIGNED IN MEANS LESS WAITING, and it is not a favor: an account is a fair
+# quota label (see `client_id`), where the anonymous visitor is counted by a
+# declared station, so more easily replayed. The tighter window pays for that
+# uncertainty; it opens no extra door, the hourly cap is the same.
 COOLDOWN_CONNECTE = _entier("CTESTER_COOLDOWN_CONNECTE", "8")
 HOURLY = _entier("CTESTER_HOURLY_QUOTA", "40")
 QUEUE_MAX = _entier("CTESTER_QUEUE_MAX", "60")
-# SERT UNIQUEMENT À DIVISER L'ETA ANNONCÉ, jamais à lancer quoi que ce soit :
-# les workers sont des unités systemd de l'hôte, ce conteneur ne les voit pas.
-# Doit valoir `ctester_workers` du rôle Ansible (2) -- trop haut, la page promet
-# un verdict plus vite que le service ne peut le rendre.
+# ONLY EVER USED TO DIVIDE THE ANNOUNCED ETA, never to launch anything: the
+# workers are host systemd units, this container cannot see them. Must match
+# the Ansible role's `ctester_workers` (2) -- set too high, the page promises
+# a verdict faster than the service can deliver.
 WORKERS = _entier("CTESTER_WORKERS", "2")
 MAX_CODE = _entier("CTESTER_MAX_CODE_BYTES", "65536")
 
-# --- Comptes (facultatif) ---------------------------------------------------
-# SE CONNECTER EST FACULTATIF, ET TOUT DOIT TENIR SANS. Sans émetteur OIDC ni
-# base, `/oidc.json` répond `{}`, la page n'affiche même pas le bouton, et le
-# parcours anonyme est exactement ce qu'il était. C'est la barre de non-
-# régression de toute cette fonctionnalité.
+# --- Accounts (optional) ------------------------------------------------------
+# SIGNING IN IS OPTIONAL, AND EVERYTHING MUST HOLD WITHOUT IT. Without an
+# OIDC issuer or a database, `/oidc.json` answers `{}`, the page does not even
+# show the button, and the anonymous path is exactly what it was. This is the
+# non-regression bar for this whole feature.
 OIDC_ISSUER = os.environ.get("CTESTER_OIDC_ISSUER", "").rstrip("/")
 OIDC_CLIENT_ID = os.environ.get("CTESTER_OIDC_CLIENT_ID", "")
 OIDC_TTL = _entier("CTESTER_OIDC_CACHE_TTL", "300")
 
-# --- Forum d'entraide -------------------------------------------------------
-# ÉTEINT PAR DÉFAUT, ET C'EST LE RÉGLAGE SÛR. Sans au moins un `sub` de
-# modérateur configuré, le forum est éteint : le bouton n'apparaît pas,
-# `forum.js` n'est jamais demandé, et les routes répondent 503 en le disant. Un
-# forum sans personne pour le modérer est un canal de partage de solutions avec
-# une charte dessus -- on ne l'ouvre pas « en attendant ».
+# --- Peer help forum -----------------------------------------------------------
+# OFF BY DEFAULT, AND THAT IS THE SAFE SETTING. Without at least one
+# configured moderator `sub`, the forum is off: the button does not appear,
+# `forum.js` is never requested, and the routes answer 503 saying so. A forum
+# with nobody to moderate it is a solution-sharing channel with a charter on
+# top -- we do not open it "in the meantime".
 #
-# DES `sub` OIDC OPAQUES, séparés par virgule ou espace, JAMAIS un claim du
-# jeton : un rôle dérivé d'un claim non vérifié se réclame depuis un compte que
-# l'on contrôle.
+# OPAQUE OIDC `sub`s, comma- or space-separated, NEVER a token claim: a role
+# derived from an unverified claim can be claimed from any account.
 FORUM_MODERATORS = frozenset(
     s for s in re.split(r"[,\s]+",
                         os.environ.get("CTESTER_FORUM_MODERATORS", "")) if s)
@@ -131,19 +129,19 @@ FORUM_MAX_CHARS = _entier("CTESTER_FORUM_MAX_CHARS", "1200")
 FORUM_COOLDOWN = _entier("CTESTER_FORUM_COOLDOWN", "10")
 FORUM_HOURLY = _entier("CTESTER_FORUM_HOURLY_QUOTA", "20")
 FORUM_PSEUDO_MAX = _entier("CTESTER_FORUM_PSEUDO_MAX", "24")
-# Borne de LECTURE d'un fil et de la file de modération. Un fil d'exercice à 27
-# étudiants n'en approche pas ; la borne existe pour que la page ne puisse pas
-# recevoir un objet sans fin le jour où quelque chose tourne mal.
+# READ bound for a thread and the moderation queue. An exercise thread at 27
+# students does not come close; the bound exists so the page can never
+# receive an endless object the day something goes wrong.
 FORUM_MAX_FIL = 200
 
-# ponytail: la liste des groupes d'une session vit ici, éditée comme la
-# politique. Vide => champ libre 1..99 (l'ancien comportement). La colonne
-# reste `SMALLINT CHECK (1..99)` : la liste d'une session ne vit pas dans le
-# schéma. Une valeur non numérique est ignorée plutôt que de tuer le démarrage.
+# ponytail: a session's list of groups lives here, edited like the policy.
+# Empty => free-text field 1..99 (the old behavior). The column stays
+# `SMALLINT CHECK (1..99)`: a session's list does not live in the schema. A
+# non-numeric value is ignored rather than killing startup.
 FORUM_GROUPES = tuple(
     int(x) for x in
     os.environ.get("CTESTER_FORUM_GROUPES", "4,6").replace(",", " ").split()
     if x.lstrip("-").isdigit())
 
-# --- Présence ---------------------------------------------------------------
+# --- Presence ------------------------------------------------------------------
 PRESENCE_TTL = _entier("CTESTER_PRESENCE_TTL", "150")

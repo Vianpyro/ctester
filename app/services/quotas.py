@@ -1,19 +1,19 @@
-"""Les compteurs en mémoire : quotas de requêtes et présence.
+"""In-memory counters: request quotas and presence.
 
-TOUT CECI EST DE L'ÉTAT DE PROCESSUS, remis à zéro au redémarrage du conteneur.
-C'est pour ça que l'API tourne avec UN SEUL worker : deux processus, c'est deux
-compteurs, et chaque quota serait doublé en silence. Voir `app/main.py`.
+ALL OF THIS IS PROCESS STATE, reset to zero when the container restarts. That
+is why the API runs with a SINGLE worker: two processes means two counters,
+and every quota would silently double. See `app/main.py`.
 """
 
 import config
 
 
 class Quota:
-    """Fenêtre glissante en mémoire : {client: [horodatages]}.
+    """Sliding window in memory: {client: [timestamps]}.
 
-    ponytail: remise à zéro au redémarrage du conteneur, et un étudiant qui
-    change de réseau repart à neuf. Les deux sont acceptables pour un régulateur
-    de charge. Persister le jour où quelqu'un en fait un jeu.
+    ponytail: reset on container restart, and a student switching networks
+    starts fresh. Both are acceptable for a load regulator. Persist it the
+    day someone turns it into a game.
     """
 
     def __init__(self, cooldown, hourly):
@@ -22,10 +22,10 @@ class Quota:
         self.seen = {}
 
     def check(self, who, now):
-        """Retourne le nombre de secondes à attendre, ou 0 si la soumission passe.
+        """Returns the number of seconds to wait, or 0 if the submission passes.
 
-        Enregistre le passage UNIQUEMENT si elle passe : un étudiant qui se
-        heurte au cooldown ne doit pas le rallonger en réessayant.
+        Records the hit ONLY if it passes: a student who hits the cooldown
+        must not extend it by retrying.
         """
         hits = [t for t in self.seen.get(who, ()) if t > now - 3600]
         if hits and now - hits[-1] < self.cooldown:
@@ -42,18 +42,18 @@ class Quota:
 
 
 class Presence:
-    """Qui a une fenêtre ouverte, à la louche : {jeton de fenêtre -> vu à}.
+    """Who has an open window, roughly: {window token -> last seen at}.
 
-    ponytail: en mémoire, RAZ au redémarrage, et le jeton vient du navigateur
-    donc falsifiable. C'est un compteur affiché à tout le monde, pas un
-    contrôle -- l'authentifier ou le persister le jour où le chiffre compte.
+    ponytail: in memory, reset on restart, and the token comes from the
+    browser so it is falsifiable. This is a counter displayed to everyone, not
+    a control -- authenticate or persist it the day the number matters.
     """
 
     def __init__(self):
         self.seen = {}
 
     def touch(self, who, now):
-        """Enregistre ce battement et retourne combien de fenêtres sont vivantes."""
+        """Records this heartbeat and returns how many windows are alive."""
         self.seen[who] = now
         if len(self.seen) > 5000:
             self.seen = {k: v for k, v in self.seen.items()
