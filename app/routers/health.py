@@ -17,6 +17,7 @@ router = APIRouter(tags=["sante"])
 
 
 @router.get("/healthz")
+@router.head("/healthz")
 def healthz() -> dict[str, bool]:
     """What the container's `healthcheck` queries every 30 s.
 
