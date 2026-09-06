@@ -1,48 +1,49 @@
-// Le quiz : chargé quand un exercice de ce mode est ouvert, jamais avant.
-// Un seul TP sur cinq est un quiz, et ces 90 lignes ne servent à personne
-// d'autre. Voir le chargeur `charger()` dans app.js.
+// The quiz: loaded when an exercise of this mode is opened, never before.
+// Only one lab in five is a quiz, and these 90 lines serve nobody else. See
+// the loader `charger()` in app.js.
 //
-// SENS UNIQUE, JAMAIS DE CYCLE : ce fichier lit `window.ctester` et y dépose
-// ses entrées ; il n'appelle app.js que par ce que ce contexte lui donne.
+// ONE WAY, NEVER A CYCLE: this file reads `window.ctester` and deposits its
+// own entries into it; it only calls app.js through what that context gives
+// it.
 (function (ctester) {
 const $ = ctester.$;
 
-let pagesQuiz = [];
-let pageQuiz = 0;
-let groupeDeQuestion = {};
-let exerciceQuiz = null;
-let minuteur = null;
+let quizPages = [];
+let quizPage = 0;
+let questionGroup = {};
+let quizExercise = null;
+let timer = null;
 
-// MÊME CONTRAT QUE L'ÉDITEUR : ce qu'on a saisi se retrouve au retour. Le
-// magasin est celui de app.js, donc « Effacer mes brouillons » efface aussi
-// les réponses. Un seul écouteur, posé une fois : le module ne charge qu'une
-// fois, mais `loadQuiz` rappelle sur le même noeud.
+// SAME CONTRACT AS THE EDITOR: what was typed in is there on return. The
+// store is app.js's own, so "Effacer mes brouillons" erases the answers too.
+// One listener, set once: the module only loads once, but `loadQuiz` gets
+// called again on the same node.
 $("quiz").addEventListener("input", () => {
-  clearTimeout(minuteur);
-  minuteur = setTimeout(
-    () => ctester.enregistrerBrouillon(exerciceQuiz, answers()), 1500);
+  clearTimeout(timer);
+  timer = setTimeout(
+    () => ctester.enregistrerBrouillon(quizExercise, answers()), 1500);
 });
 
 async function loadQuiz(id) {
   const box = $("quiz");
   box.textContent = "Chargement…";
   const data = await (await fetch(API("quiz/" + id + ".json"))).json();
-  const brouillon = ctester.brouillon(id) || {};
-  exerciceQuiz = id;
+  const draft = ctester.brouillon(id) || {};
+  quizExercise = id;
   box.innerHTML = "";
-  pagesQuiz = [];
-  groupeDeQuestion = {};
-  let courante = null;
+  quizPages = [];
+  questionGroup = {};
+  let currentGroup = null;
   for (const q of data.questions) {
-    groupeDeQuestion[q.id] = q.group;
-    if (!courante || courante.titre !== q.group) {
-      courante = { titre: q.group, noeud: document.createElement("div") };
-      pagesQuiz.push(courante);
+    questionGroup[q.id] = q.group;
+    if (!currentGroup || currentGroup.titre !== q.group) {
+      currentGroup = { titre: q.group, noeud: document.createElement("div") };
+      quizPages.push(currentGroup);
       const head = document.createElement("div");
       head.className = "qgroup";
       head.textContent = q.group;
-      courante.noeud.append(head);
-      box.append(courante.noeud);
+      currentGroup.noeud.append(head);
+      box.append(currentGroup.noeud);
     }
     const row = document.createElement("div");
     row.className = "qrow";
@@ -53,67 +54,67 @@ async function loadQuiz(id) {
     input.spellcheck = false;
     input.autocomplete = "off";
     input.dataset.qid = q.id;
-    input.value = brouillon[q.id] || "";
+    input.value = draft[q.id] || "";
     row.append(label, input);
-    courante.noeud.append(row);
+    currentGroup.noeud.append(row);
   }
-  construireNavQuiz();
-  montrerPage(0);
+  buildQuizNav();
+  showPage(0);
 }
 
-function construireNavQuiz() {
+function buildQuizNav() {
   const nav = $("quiznav");
   nav.innerHTML = "";
-  nav.hidden = pagesQuiz.length <= 1;
+  nav.hidden = quizPages.length <= 1;
   if (nav.hidden) return;
-  const avant = document.createElement("button");
-  avant.type = "button";
-  avant.className = "nav";
-  avant.id = "qprev";
-  avant.textContent = "‹ Précédent";
-  avant.addEventListener("click", () => montrerPage(pageQuiz - 1));
+  const prev = document.createElement("button");
+  prev.type = "button";
+  prev.className = "nav";
+  prev.id = "qprev";
+  prev.textContent = "‹ Précédent";
+  prev.addEventListener("click", () => showPage(quizPage - 1));
   const pos = document.createElement("span");
   pos.className = "pos";
   pos.id = "qpos";
-  const apres = document.createElement("button");
-  apres.type = "button";
-  apres.className = "nav";
-  apres.id = "qnext";
-  apres.textContent = "Suivant ›";
-  apres.addEventListener("click", () => montrerPage(pageQuiz + 1));
-  nav.append(avant, pos, apres);
+  const next = document.createElement("button");
+  next.type = "button";
+  next.className = "nav";
+  next.id = "qnext";
+  next.textContent = "Suivant ›";
+  next.addEventListener("click", () => showPage(quizPage + 1));
+  nav.append(prev, pos, next);
 }
 
-function montrerPage(i) {
-  if (!pagesQuiz.length) return;
-  pageQuiz = Math.min(Math.max(i, 0), pagesQuiz.length - 1);
-  pagesQuiz.forEach((p, n) => { p.noeud.hidden = n !== pageQuiz; });
+function showPage(i) {
+  if (!quizPages.length) return;
+  quizPage = Math.min(Math.max(i, 0), quizPages.length - 1);
+  quizPages.forEach((p, n) => { p.noeud.hidden = n !== quizPage; });
   if ($("quiznav").hidden) return;
-  $("qpos").textContent = `page ${pageQuiz + 1} sur ${pagesQuiz.length}`;
-  $("qprev").disabled = pageQuiz === 0;
-  $("qnext").disabled = pageQuiz === pagesQuiz.length - 1;
+  $("qpos").textContent = `page ${quizPage + 1} sur ${quizPages.length}`;
+  $("qprev").disabled = quizPage === 0;
+  $("qnext").disabled = quizPage === quizPages.length - 1;
 }
 
 const answers = () => Object.fromEntries(
   [...$("quiz").querySelectorAll("input[data-qid]")].map(i => [i.dataset.qid, i.value])
 );
 
-// La PAGE COURANTE, c'est l'exercice courant : `construireNavQuiz` découpe
-// déjà les pages sur le groupe. « Tester l'exercice » n'a donc rien à
-// redécouper, il demande les identifiants de la page affichée.
-const pageCourante = () => {
-  const titre = pagesQuiz.length ? pagesQuiz[pageQuiz].titre : "";
+// THE CURRENT PAGE is the current exercise: `buildQuizNav` already splits
+// pages by group. "Tester l'exercice" therefore has nothing to re-split, it
+// just asks for the displayed page's ids.
+const currentPage = () => {
+  const title = quizPages.length ? quizPages[quizPage].titre : "";
   return {
-    titre: titre,
-    ids: Object.keys(groupeDeQuestion).filter(id => groupeDeQuestion[id] === titre),
+    titre: title,
+    ids: Object.keys(questionGroup).filter(id => questionGroup[id] === title),
   };
 };
 
 ctester.quiz = {
   load: loadQuiz,
   answers: answers,
-  page: pageCourante,
-  // `render` s'en sert pour nommer l'exercice d'une réponse fausse.
-  groupeDe: (qid) => groupeDeQuestion[qid] || "",
+  page: currentPage,
+  // `render` uses it to name the exercise of a wrong answer.
+  groupeDe: (qid) => questionGroup[qid] || "",
 };
 })(window.ctester);

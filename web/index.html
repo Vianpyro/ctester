@@ -71,9 +71,9 @@
 
 
 <main>
-<!-- LE CANAL DE L'ÉTAT DU SERVICE, jamais celui du code de l'étudiant. Réseau,
-     quota, file pleine, clé de session, module manquant : tout ce dont il n'est
-     pas responsable passe ici, et jamais dans #out. -->
+<!-- THE SERVICE STATE CHANNEL, never the student's code channel. Network,
+     quota, full queue, session key, missing module: everything they are not
+     responsible for goes here, and never into #out. -->
 <div id="systeme" hidden></div>
 
 <div id="travail">
@@ -85,10 +85,10 @@
   <div id="droite">
     <div id="now" class="phead" aria-live="polite"></div>
 
-    <!-- LA NAVIGATION LOCALE, celle qu'on fait vingt fois par seance : passer
-         de l'ex.2 a l'ex.3 du meme labo. Elle passait par un menu global qui
-         couvre l'ecran, pour une cible situee a un cran. Le menu reste, pour la
-         bascule entre collections -- qui, elle, est rare. -->
+    <!-- THE LOCAL NAVIGATION, the one done twenty times a session: going
+         from ex.2 to ex.3 of the same lab. It used to go through a global
+         menu that covers the screen, for a target one step away. The menu
+         stays, for switching between collections -- which is rare. -->
     <nav id="bandelabo" aria-label="Exercices de ce laboratoire" hidden></nav>
 
     <div id="editor">
@@ -96,16 +96,17 @@
         <span id="edtitle"></span>
         <div id="tabs" role="tablist" aria-label="Fichiers de la soumission"></div>
         <span class="grow"></span>
-        <!-- L'ETAT DE SAUVEGARDE VIT ICI, au-dessus du code, et PAS dans la
-             barre d'actions : la question « est-ce que je vais perdre ca ? » se
-             pose en regardant son code, pas en regardant les boutons. Il est
-             permanent -- avant, il restait vide jusqu'a la premiere frappe. -->
+        <!-- THE SAVE STATUS LIVES HERE, above the code, and NOT in the
+             action bar: the question "am I going to lose this?" comes up
+             while looking at one's code, not while looking at the buttons.
+             It is permanent -- it used to stay empty until the first
+             keystroke. -->
         <span id="sauvegarde" aria-live="polite"></span>
       </div>
-      <!-- LE PANNEAU QUE LES ONGLETS GOUVERNENT. `role="tab"` etait pose
-           sans `aria-controls` ni `tabpanel` : un lecteur d'ecran annoncait
-           un onglet dont il ne trouvait pas le panneau -- un ARIA partiel
-           est pire qu'aucun ARIA. -->
+      <!-- THE PANEL THE TABS GOVERN. `role="tab"` used to be set with
+           neither `aria-controls` nor `tabpanel`: a screen reader announced
+           a tab whose panel it could not find -- partial ARIA is worse
+           than no ARIA at all. -->
       <div id="edwrap" role="tabpanel">
         <pre id="gutter" aria-hidden="true"></pre>
         <div id="pane">
@@ -121,9 +122,9 @@
       <div id="quiznav"></div>
     </div>
 
-    <!-- APRÈS les deux volets, et jamais dedans : l'éditeur et le quiz se
-         relaient, mais on soumet dans les deux cas. Rangée à part de la grille,
-         pour que masquer un volet ne puisse pas emporter le bouton. -->
+    <!-- AFTER both panels, and never inside one: the editor and the quiz
+         take turns, but submitting applies to both. A separate grid row, so
+         hiding a panel can never take the button down with it. -->
     <div id="actions">
       <span id="filewrap">
         <input type="file" id="file" accept=".c,.txt">
@@ -145,16 +146,16 @@
 <section id="vueprogres" aria-labelledby="progrestitre" hidden></section>
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
 
-<!-- LA MODERATION EST UNE DESTINATION A PART, pas un bloc de plus dans la vue
-     etudiante. Files de signalements et de noms y etaient rendues au milieu du
-     fil que les etudiants viennent lire : deux publics dans un ecran, au
-     detriment de celui pour qui la page existe. -->
+<!-- MODERATION IS A SEPARATE DESTINATION, not one more block in the student
+     view. Report and name queues used to render in the middle of the thread
+     students come to read: two audiences in one screen, to the detriment of
+     the one the page exists for. -->
 <section id="vuemoderation" aria-labelledby="moderationtitre" hidden></section>
 
-<!-- CE QUI EST ANNONCÉ, ET RIEN D'AUTRE. Une ligne courte : « Ton code ne
-     compile pas », « 3 tests sur 4 ». Poser aria-live sur #out ferait lire la
-     sortie du compilateur en entier. Hors écran, jamais hidden : un élément
-     masqué n'est pas annoncé. -->
+<!-- WHAT GETS ANNOUNCED, AND NOTHING ELSE. One short line: "Ton code ne
+     compile pas", "3 tests sur 4". Setting aria-live on #out would read the
+     whole compiler output aloud. Off-screen, never hidden: a hidden element
+     is not announced. -->
 <div id="annonce" role="status" class="horsecran"></div>
 </main>
 

@@ -1,50 +1,50 @@
-# Bibliothèques tierces, épinglées et servies depuis ce dépôt
+# Third-party libraries, pinned and served from this repo
 
-Ces deux fichiers sont les SEULES dépendances tierces du navigateur, et ils ne
-servent qu'au forum : `forum.js` va les chercher au moment où l'on ouvre
-« Discussions », jamais avant. Ni le parcours anonyme, ni l'éditeur, ni le juge
-n'en dépendent.
+These two files are the browser's ONLY third-party dependencies, and they
+only serve the forum: `forum.js` fetches them the moment "Discussions" is
+opened, never before. Neither the anonymous path, the editor, nor the judge
+depend on them.
 
-**Servies depuis cette origine, jamais depuis un CDN.** La page déclare une CSP
-en `script-src 'self'` (voir `csp()` dans `app/csp.py`) : un script tiers chargé
-d'ailleurs serait bloqué, et c'est voulu. C'est aussi ce qui garde la propriété
-que le README annonce — *ce que le dépôt contient est ce que le navigateur
-reçoit*, sans build ni chaîne d'assemblage.
+**Served from this origin, never from a CDN.** The page declares a CSP with
+`script-src 'self'` (see `csp()` in `app/csp.py`): a third-party script loaded
+from elsewhere would be blocked, and that is intentional. It is also what
+keeps the property the README advertises -- *what the repo contains is what
+the browser receives*, with no build and no assembly chain.
 
-**La version est dans le NOM du fichier**, et elle est répétée dans
-`config.VENDOR` (servie par `app/routers/page.py`) et dans `forum.js`. Monter de version demande donc de
-toucher aux trois, ce qui est exactement le point : une mise à jour d'un
-assainisseur HTML ne doit pas pouvoir se faire par accident.
+**The version lives in the file NAME**, and it is repeated in
+`config.VENDOR` (served by `app/routers/page.py`) and in `forum.js`. Bumping a
+version therefore requires touching all three, which is exactly the point: an
+HTML sanitizer upgrade must not be able to happen by accident.
 
-| Fichier | Paquet | Version | Licence |
+| File | Package | Version | License |
 |---|---|---|---|
 | `marked-18.0.11.umd.js` | [marked](https://github.com/markedjs/marked) | 18.0.11 | MIT |
 | `purify-3.4.14.min.js` | [DOMPurify](https://github.com/cure53/DOMPurify) | 3.4.14 | Apache-2.0 / MPL-2.0 |
 
-SHA-256 des fichiers tels qu'ils sont servis :
+SHA-256 of the files as served:
 
 ```
 438eedfcf932a414d0d0bfeea32dc365c063563b8ca713b4687fc8f8b501e5e4  marked-18.0.11.umd.js
 1a83c283c3229acad7ad9f8f874572bcb031df0f79e114318a2957dc2ffcc117  purify-3.4.14.min.js
 ```
 
-## Les reproduire
+## Reproducing them
 
 ```sh
 npm pack marked@18.0.11 dompurify@3.4.14
-tar xzf marked-18.0.11.tgz && tar xzf dompurify-3.4.14.tgz   # tous deux -> package/
+tar xzf marked-18.0.11.tgz && tar xzf dompurify-3.4.14.tgz   # both -> package/
 sed '/sourceMappingURL/d' package/lib/marked.umd.js  > marked-18.0.11.umd.js
 sed '/sourceMappingURL/d' package/dist/purify.min.js > purify-3.4.14.min.js
 ```
 
-Le seul écart avec l'amont est la ligne `sourceMappingURL` retirée : la carte de
-source n'est pas dans la liste blanche servie, et l'y laisser ne produirait qu'un 404
-dans la console de qui ouvre les outils de développement.
+The only difference from upstream is the removed `sourceMappingURL` line: the
+source map is not on the served allow-list, and leaving it in would only
+produce a 404 in the console of anyone opening dev tools.
 
-## Ce qui les remplace quand elles n'arrivent pas
+## What replaces them when they do not arrive
 
-Rien de secret ne dépend d'elles, mais la SÉCURITÉ du rendu, si. Si l'une des
-deux manque — coupure réseau, déploiement à moitié copié — `forum.js` retombe
-sur `textContent`, c'est-à-dire sur du texte brut sans Markdown. Il ne rend
-JAMAIS de HTML sans assainisseur : `DOMPurify.isSupported` est vérifié à chaque
-rendu, et un `false` retombe sur le texte brut lui aussi.
+Nothing secret depends on them, but rendering SECURITY does. If either one is
+missing -- a network outage, a half-copied deploy -- `forum.js` falls back to
+`textContent`, i.e. plain text with no Markdown. It NEVER renders HTML
+without a sanitizer: `DOMPurify.isSupported` is checked on every render, and
+a `false` falls back to plain text too.

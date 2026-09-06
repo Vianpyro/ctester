@@ -1,58 +1,58 @@
 const $ = (id) => document.getElementById(id);
 
-// L'ÉTAT PARTAGÉ EST NOMMÉ, PAS IMPLICITE. Le quiz et le compte sont chargés à
-// la demande ; ils lisent ce contexte et y déposent leurs entrées. Le sens est
-// unique -- le noyau ne dépend d'aucun des deux, chacun dépend du noyau -- et
-// c'est ce qui interdit le cycle. Un module ES ferait la même chose en liant
-// en zone morte temporelle sur un import circulaire, la panne exacte que cette
-// page a déjà connue en production.
+// SHARED STATE IS NAMED, NOT IMPLICIT. The quiz and the account are loaded on
+// demand; they read this context and deposit their own entries into it. The
+// direction is one-way -- the core depends on neither, each of them depends on
+// the core -- and that is what forbids the cycle. An ES module would do the
+// same thing by linking in a temporal dead zone on a circular import, the
+// exact failure this page already saw in production.
 const ctester = window.ctester = {};
 
-const charges = {};
+const loaded = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
 const ASSET_REVISION = "20260904-catalogue-v2";
 
-// ponytail: injection de <script>, pas import(). Voir ci-dessus. Passer aux
-// modules ES le jour où l'état partagé est vraiment séparé.
-function charger(nom) {
-  if (!charges[nom]) {
-    charges[nom] = new Promise((ok, ko) => {
-      const balise = document.createElement("script");
-      balise.onload = () => ok();
-      balise.onerror = () => ko(new Error(nom));
-      balise.src = nom + "?v=" + ASSET_REVISION;
-      document.body.append(balise);
+// ponytail: <script> injection, not import(). See above. Move to ES modules
+// the day shared state is truly separated.
+function load(name) {
+  if (!loaded[name]) {
+    loaded[name] = new Promise((ok, ko) => {
+      const tag = document.createElement("script");
+      tag.onload = () => ok();
+      tag.onerror = () => ko(new Error(name));
+      tag.src = name + "?v=" + ASSET_REVISION;
+      document.body.append(tag);
     }).catch((e) => {
-      // ON OUBLIE L'ÉCHEC. Sans ça, une coupure réseau d'une seconde condamne
-      // la fonction pour toute la visite : le second clic retomberait sur la
-      // promesse rejetée sans jamais retenter.
-      delete charges[nom];
+      // THE FAILURE IS FORGOTTEN. Without this, a one-second network blip
+      // condemns the function for the whole visit: the second click would
+      // fall back onto the rejected promise without ever retrying.
+      delete loaded[name];
       throw e;
     });
   }
-  return charges[nom];
+  return loaded[name];
 }
 
-// `activerModule` et PAS `activer` : ce fichier a deja une fonction `activer`,
-// celle qui change d'onglet dans l'editeur. Deux declarations de fonction du
-// meme nom ne se signalent pas, la derniere gagne, et l'appelant recoit
-// silencieusement l'autre.
-async function activerModule(nom, quoi) {
-  if (ctester[nom]) return true;
+// `activateModule`, NOT `activate`: this file already has an `activate`
+// function, the one that switches tabs in the editor. Two function
+// declarations of the same name do not warn each other, the last one wins,
+// and the caller silently receives the other one.
+async function activateModule(name, what) {
+  if (ctester[name]) return true;
   try {
-    await charger(nom + ".js");
+    await load(name + ".js");
   } catch (e) {
-    systeme("Impossible de charger " + quoi + ". Vérifie ta connexion, "
+    announceSystem("Impossible de charger " + what + ". Vérifie ta connexion, "
           + "puis recharge la page.", true);
     return false;
   }
-  if (!ctester[nom]) {
-    // Le fichier est arrivé mais ne s'est pas déclaré : version en cache d'un
-    // ancien déploiement, coupure en plein transfert. Se taire ici rendrait le
-    // bouton inerte sans un mot.
-    systeme("Impossible d'utiliser " + quoi
+  if (!ctester[name]) {
+    // The file arrived but did not register itself: a cached version of an
+    // old deploy, a connection cut mid-transfer. Staying silent here would
+    // make the button inert without a word.
+    announceSystem("Impossible d'utiliser " + what
           + " : le fichier est arrivé incomplet. Recharge la page.", true);
     return false;
   }
@@ -72,159 +72,159 @@ if (authCode) {
   history.replaceState({}, "", location.pathname + previousSearch);
 }
 
-// LA CLÉ D'ACCÈS SURVIT À UN RECHARGEMENT SANS SA QUERY. Elle arrive par le
-// lien de Moodle (`?k=…`) ; un étudiant qui tape l'adresse de tête, suit un
-// lien partagé sans la clé, ou revient par un signet, se retrouvait sans elle
-// -- et ne l'apprenait qu'après avoir écrit son code.
+// THE ACCESS KEY SURVIVES A RELOAD WITHOUT ITS QUERY STRING. It arrives via
+// Moodle's link (`?k=…`); a student who types the address from memory,
+// follows a shared link without the key, or comes back through a bookmark,
+// used to end up without it -- and only found out after writing their code.
 //
-// `sessionStorage` ET PAS `localStorage`, délibérément : la clé meurt avec
-// l'onglet. Sur un poste de labo partagé, la laisser derrière soi la donnerait
-// au prochain étudiant qui s'assoit.
-const CLE_KEY = "ctester.cle";
-const cleDuLien = new URLSearchParams(location.search).get("k") || "";
-if (cleDuLien) sessionSet(CLE_KEY, cleDuLien);
-const key = cleDuLien || sessionGet(CLE_KEY);
+// `sessionStorage` AND NOT `localStorage`, deliberately: the key dies with
+// the tab. On a shared lab machine, leaving it behind would hand it to the
+// next student who sits down.
+const ACCESS_KEY_STORAGE = "ctester.cle";
+const keyFromLink = new URLSearchParams(location.search).get("k") || "";
+if (keyFromLink) sessionSet(ACCESS_KEY_STORAGE, keyFromLink);
+const key = keyFromLink || sessionGet(ACCESS_KEY_STORAGE);
 
-// ON LE DIT AU CHARGEMENT, PAS À LA PREMIÈRE SOUMISSION. Sans ça,
-// l'étudiant écrivait son exercice entier avant d'apprendre qu'il ne
-// pouvait pas le tester -- et il l'apprenait par « clé de session invalide
-// ou expirée », qui ne veut rien dire pour lui et ne dit pas quoi faire.
-// Non bloquant : écrire et enregistrer marchent parfaitement sans clé.
+// SAID AT LOAD TIME, NOT ON THE FIRST SUBMISSION. Without this, a student
+// would write their whole exercise before learning they could not test it --
+// and they would learn it through "clé de session invalide ou expirée",
+// which means nothing to them and does not say what to do. Non-blocking:
+// writing and saving work perfectly fine without a key.
 if (!key) {
-  systeme("Il manque ta clé d'accès. Rouvre le lien de CTester depuis Moodle "
+  announceSystem("Il manque ta clé d'accès. Rouvre le lien de CTester depuis Moodle "
         + "pour pouvoir tester ton code. Tu peux écrire en attendant : "
         + "ton brouillon est enregistré.");
 }
 const out = $("out");
-// FOCALISABLE SANS ÊTRE DANS LA TABULATION : `amenerLeResultat()` y pose le
-// focus sur petit écran, où le verdict arrive hors de l'écran.
+// FOCUSABLE WITHOUT BEING IN THE TAB ORDER: `scrollResultIntoView()` puts
+// focus on it on small screens, where the verdict lands off-screen.
 out.tabIndex = -1;
 
 const THEME_KEY = "ctester.theme";
 
-function appliquerTheme(nom) {
-  document.documentElement.dataset.theme = nom;
-  const clair = nom === "light";
-  $("theme").textContent = clair ? "☾" : "☀";
-  $("theme").title = clair ? "Passer au thème sombre" : "Passer au thème clair";
+function applyTheme(name) {
+  document.documentElement.dataset.theme = name;
+  const light = name === "light";
+  $("theme").textContent = light ? "☾" : "☀";
+  $("theme").title = light ? "Passer au thème sombre" : "Passer au thème clair";
   $("theme").setAttribute("aria-label", $("theme").title);
 }
 
-// LE STOCKAGE LOCAL RESTE LA MÉMOIRE DE L'APPAREIL, même quand le compte a le
-// dernier mot : c'est lui que le script du <head> lit avant le premier rendu,
-// et rien d'autre ne peut arriver assez tôt pour éviter le flash. Ce que le
-// serveur dit est donc recopié ici -- pas pour être relu par la page, mais
-// pour que la visite SUIVANTE parte déjà du bon thème.
-function retenirTheme(nom) {
-  try { localStorage.setItem(THEME_KEY, nom); } catch (e) {}
+// LOCAL STORAGE STAYS THE DEVICE'S MEMORY, even when the account has the
+// last word: it is what the `<head>` script reads before the first paint,
+// and nothing else can arrive early enough to avoid the flash. What the
+// server says is therefore copied here -- not to be read back by the page,
+// but so that the NEXT visit already starts from the right theme.
+function rememberTheme(name) {
+  try { localStorage.setItem(THEME_KEY, name); } catch (e) {}
 }
 
-appliquerTheme(document.documentElement.dataset.theme === "light"
+applyTheme(document.documentElement.dataset.theme === "light"
                ? "light" : "dark");
 
-const themeCourant = () =>
+const currentTheme = () =>
   document.documentElement.dataset.theme === "light" ? "light" : "dark";
 
 $("theme").addEventListener("click", () => {
-  const suivant = themeCourant() === "light" ? "dark" : "light";
-  appliquerTheme(suivant);
-  retenirTheme(suivant);
-  // ET SUR LE COMPTE, QUAND IL Y EN A UN. `compte.js` n'est chargé que pour
-  // une session en cours : l'anonyme ne déclenche aucune requête ici, et le
-  // module lui-même ne fait rien sans jeton. Rien n'est attendu -- le thème
-  // est déjà appliqué à l'écran, et un aller-retour raté ne doit pas donner
-  // l'impression que le bouton n'a pas marché.
-  if (ctester.compte) ctester.compte.enregistrerTheme(suivant);
+  const next = currentTheme() === "light" ? "dark" : "light";
+  applyTheme(next);
+  rememberTheme(next);
+  // AND ON THE ACCOUNT, WHEN THERE IS ONE. `compte.js` is only loaded for a
+  // signed-in session: the anonymous visitor triggers no request here, and
+  // the module itself does nothing without a token. Nothing is awaited --
+  // the theme is already applied on screen, and a failed round trip must not
+  // make it look like the button did not work.
+  if (ctester.compte) ctester.compte.enregistrerTheme(next);
 });
 
-// --- DEUX CANAUX, ET IL NE FAUT PLUS JAMAIS LES CONFONDRE ------------------
+// --- TWO CHANNELS, AND THEY MUST NEVER BE CONFUSED AGAIN -------------------
 //
-// LE VERDICT PARLE DU CODE DE L'ÉTUDIANT. LE BANDEAU SYSTÈME PARLE DU SERVICE.
-// Un seul `show("bad")` rouge servait aux deux : « ton fichier ne compile pas »
-// et « le serveur est injoignable » s'affichaient à l'identique, au même
-// endroit, dans la même typographie de titre. Un débutant en conclut qu'il a
-// cassé quelque chose -- une attribution d'erreur fausse, dans exactement les
-// situations où il n'y est pour rien.
+// THE VERDICT TALKS ABOUT THE STUDENT'S CODE. THE SYSTEM BANNER TALKS ABOUT
+// THE SERVICE. A single red `show("bad")` used to serve both: "your file
+// does not compile" and "the server is unreachable" displayed identically,
+// in the same place, in the same title typography. A beginner concludes they
+// broke something -- a false attribution of blame, in exactly the situations
+// where it is not their fault.
 //
-// Sur les dix-sept messages rouges d'avant, QUATRE seulement étaient un verdict.
-// Ne pas refondre ces deux fonctions en une seule.
+// Of the seventeen red messages this page used to show, only FOUR were an
+// actual verdict. Do not merge these two functions back into one.
 
-function noeud(balise, classe, texte) {
-  const n = document.createElement(balise);
-  if (classe) n.className = classe;
-  if (texte !== undefined) n.textContent = texte;
+function node(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined) n.textContent = text;
   return n;
 }
 
-// CE QUI EST ANNONCÉ AUX LECTEURS D'ÉCRAN, ET RIEN D'AUTRE : une ligne courte.
-// `#out` n'a délibérément PAS d'aria-live -- il porte la sortie du compilateur,
-// et l'annoncer en entier serait pire que le silence.
-function annoncer(texte) {
-  $("annonce").textContent = texte;
+// WHAT IS ANNOUNCED TO SCREEN READERS, AND NOTHING ELSE: one short line.
+// `#out` deliberately has NO aria-live -- it carries the compiler's output,
+// and announcing all of it would be worse than silence.
+function announce(text) {
+  $("annonce").textContent = text;
 }
 
-// --- Le canal du service ---------------------------------------------------
-// Réseau, quota, file pleine, clé de session, module manquant, connexion : tout
-// ce dont l'étudiant n'est pas responsable. Ton neutre, jamais l'emplacement du
-// verdict, et toujours une phrase qui dit ce qui N'EST PAS perdu.
-function systeme(texte, panne) {
-  const boite = $("systeme");
-  boite.textContent = texte || "";
-  boite.className = panne ? "panne" : "";
-  boite.hidden = !texte;
-  if (texte) annoncer(texte);
+// --- The service channel ----------------------------------------------------
+// Network, quota, full queue, session key, missing module, sign-in: everything
+// the student is not responsible for. Neutral tone, never in the verdict's
+// spot, and always a sentence saying what is NOT lost.
+function announceSystem(text, failed) {
+  const box = $("systeme");
+  box.textContent = text || "";
+  box.className = failed ? "panne" : "";
+  box.hidden = !text;
+  if (text) announce(text);
 }
 
-const effacerSysteme = () => systeme("");
+const clearSystem = () => announceSystem("");
 
-// --- Le canal du verdict ---------------------------------------------------
+// --- The verdict channel -----------------------------------------------------
 
-// LES TROIS ÉTAPES QU'UN DÉBUTANT DOIT APPRENDRE À DISTINGUER. Le persona ne
-// sépare pas compilation, exécution et logique ; le serveur, lui, sait toujours
-// laquelle a cassé, et la page jetait cette information. Nommer l'étape NON
-// ATTEINTE est ce qui répond à « est-ce que mon programme a seulement tourné ? ».
-// L'ACCORD SUIT L'ÉTAPE. « Tests pas atteinte » est du charabia, et cette page
-// s'adresse à des étudiants en français : les deux premières étapes sont
-// féminines singulier, la troisième masculin pluriel.
-const ETAPES = [["Compilation", "f"], ["Exécution", "f"], ["Tests", "mp"]];
-const ETAT_ETAPE = {
+// THE THREE STAGES A BEGINNER MUST LEARN TO TELL APART. The persona does not
+// separate compilation, execution and logic; the server always knows which
+// one broke, and the page used to throw that information away. Naming the
+// stage NOT REACHED is what answers "did my program even run?". AGREEMENT
+// FOLLOWS THE STAGE. "Tests pas atteinte" is gibberish, and this page speaks
+// to French-speaking students: the first two stages are feminine singular,
+// the third masculine plural.
+const STEPS = [["Compilation", "f"], ["Exécution", "f"], ["Tests", "mp"]];
+const STEP_STATE = {
   f:  { ok: "réussie",  ko: "échouée",  "": "pas atteinte" },
   mp: { ok: "réussis",  ko: "échoués",  "": "pas atteints" },
 };
 
-// LA BANDE S'ARRÊTE OÙ LE COMPTE PREND LE RELAIS. Quand le juge a noté, le
-// verdict affiche « 3 / 3 cas réussis » juste en dessous, en gros : une case
-// « Tests 3/3 » au-dessus ne fait que le redire. On ne passe donc que DEUX
-// étapes dans ce cas. Quand le juge n'a PAS noté, la troisième case porte au
-// contraire l'information qui manquait -- « pas atteints » -- et elle reste.
-function bandeEtapes(etats) {
-  const bande = noeud("div", "etapes");
-  etats.forEach((etat, i) => {
-    const [nom, genre] = ETAPES[i];
-    const pas = noeud("span", "pas " + (etat || "vide"));
-    // LE MOT, PAS SEULEMENT LA COULEUR ni seulement une coche : un état qui ne
-    // se voit qu'en teinte disparaît en noir et blanc comme sous un daltonisme,
-    // et ne se lit pas à voix haute.
-    pas.append(noeud("b", "", nom));
-    pas.append(noeud("i", "", ETAT_ETAPE[genre][etat]));
-    bande.append(pas);
+// THE STRIP STOPS WHERE THE COUNT TAKES OVER. When the judge has graded,
+// the verdict displays "3 / 3 cas réussis" right below, in large type: a
+// "Tests 3/3" box above it would only repeat that. So only TWO stages get
+// shown in that case. When the judge has NOT graded, the third box instead
+// carries the missing information -- "not reached" -- and it stays.
+function stepBar(states) {
+  const bar = node("div", "etapes");
+  states.forEach((state, i) => {
+    const [name, gender] = STEPS[i];
+    const step = node("span", "pas " + (state || "vide"));
+    // THE WORD, NOT ONLY THE COLOR nor only a check mark: a state that is
+    // only visible through a tint disappears in black and white as under
+    // color blindness, and does not read aloud.
+    step.append(node("b", "", name));
+    step.append(node("i", "", STEP_STATE[gender][state]));
+    bar.append(step);
   });
-  return bande;
+  return bar;
 }
 
-// CE QUE CHAQUE ÉTAT VEUT DIRE POUR L'ÉTUDIANT : où ça a cassé, comment le dire
-// en une ligne, et quoi faire ensuite. Tout est dérivé de ce que `/r/<id>`
-// renvoie déjà.
+// WHAT EACH STATE MEANS FOR THE STUDENT: where it broke, how to say so in one
+// line, and what to do next. Everything is derived from what `/r/<id>`
+// already returns.
 //
-//   `etapes` : "ok" réussie, "ko" échouée, "" pas atteinte.
-//   `titre`  : COURT. C'est lui qui porte la couleur et lui qui est annoncé.
-//   `suite`  : l'action suivante. Toujours exactement une.
+//   `etapes`: "ok" passed, "ko" failed, "" not reached.
+//   `titre`:  SHORT. It carries the color and it is what gets announced.
+//   `suite`:  the next action. Always exactly one.
 //
-// L'EXPLICATION N'EST PAS ICI : c'est `message`, écrit par le serveur pour
-// l'étudiant. La recopier ferait deux endroits à corriger, dont un se
-// périmerait en silence. Quand le titre ci-dessous EST le message du serveur,
-// `verdict()` ne le répète pas.
-const ETATS = {
+// THE EXPLANATION IS NOT HERE: that is `message`, written by the server for
+// the student. Copying it here would make two places to fix, one of which
+// would go stale silently. When the title below IS the server's message,
+// `renderVerdict()` does not repeat it.
+const OUTCOMES = {
   forbidden_include: {
     etapes: ["ko", "", ""],
     titre: "Un #include n'est pas autorisé",
@@ -240,15 +240,15 @@ const ETATS = {
     titre: "La compilation a été trop longue",
     suite: "Réessaie. Si ça recommence, préviens ton enseignant.",
   },
-  // « Compilation échouée » plutôt qu'une quatrième étape « Assemblage » : gcc
-  // fait les deux en une seule commande dans le cours, et ajouter un concept
-  // pour un seul état coûterait plus qu'il ne rapporte. Le message du serveur
-  // dit la nuance, et le titre ci-dessous la dit aussi.
+  // "Compilation failed" rather than a fourth "Linking" stage: gcc does both
+  // in a single command in this course, and adding a concept for a single
+  // state would cost more than it earns. The server's message says the
+  // nuance, and the title below says it too.
   link_error: {
     etapes: ["ko", "", ""],
     titre: "Ton code ne s'assemble pas avec les tests",
-    // L’ACTION AJOUTE, ELLE NE RÉPÈTE PAS. Le message du serveur dit déjà quoi
-    // vérifier ; ce qui manque à un débutant, c’est COMMENT s’y prendre.
+    // THE ACTION ADDS, IT DOES NOT REPEAT. The server's message already says
+    // what to check; what a beginner lacks is HOW to go about it.
     suite: "Compare ta signature avec celle de l’énoncé, caractère par caractère.",
   },
   memory_error: {
@@ -270,86 +270,87 @@ const ETATS = {
   },
 };
 
-// L'ACTION SUIVANTE, ET IL EN FAUT UNE PARTOUT -- succès compris. Le moment où
-// l'étudiant est le plus disponible était précisément celui où la page ne lui
-// proposait rien.
-function bandeSuite(texte, bouton) {
-  const bloc = noeud("div", "suite");
-  bloc.append(noeud("span", "", texte));
-  if (bouton) {
-    const b = noeud("button", "nav", bouton.libelle);
+// THE NEXT ACTION, AND ONE IS NEEDED EVERYWHERE -- success included. The
+// moment the student is most receptive used to be exactly the one where the
+// page offered nothing.
+function nextStepBar(text, button) {
+  const block = node("div", "suite");
+  block.append(node("span", "", text));
+  if (button) {
+    const b = node("button", "nav", button.libelle);
     b.type = "button";
-    b.addEventListener("click", bouton.faire);
-    bloc.append(b);
+    b.addEventListener("click", button.faire);
+    block.append(b);
   }
-  return bloc;
+  return block;
 }
 
-// L'AIDE S'OFFRE LÀ OÙ LE BESOIN NAÎT : devant un verdict qui échoue, pas dans
-// un bouton de la barre globale. Le fil est DÉJÀ par exercice (`forum.js` le
-// scope sur l'exercice courant) ; seul son point d'entrée était global, à
-// l'autre bout de l'écran, et ne se remarquait pas au moment utile.
+// HELP IS OFFERED WHERE THE NEED IS BORN: in front of a failing verdict, not
+// in a button on the global bar. The thread is ALREADY per exercise
+// (`forum.js` scopes it to the current exercise); only its entry point was
+// global, at the other end of the screen, and went unnoticed at the moment
+// it would have mattered.
 //
-// LES MÊMES DEUX CONDITIONS QUE LE BOUTON DE LA BARRE, et elles viennent toutes
-// deux du serveur : être connecté, et un déploiement qui a des modérateurs. Un
-// forum sans personne pour le lire ne s'ouvre pas « en attendant ».
-function boutonAide() {
+// THE SAME TWO CONDITIONS AS THE BAR'S BUTTON, and both come from the
+// server: being signed in, and a deployment that has moderators. A forum
+// with nobody to read it does not open "in the meantime".
+function helpButton() {
   if (!token || !(oidc && oidc.forum)) return null;
-  const b = noeud("button", "nav aide", "En parler dans les discussions");
+  const b = node("button", "nav aide", "En parler dans les discussions");
   b.type = "button";
   b.addEventListener("click", async () => {
-    if (!await activerModule("forum", "les discussions")) return;
+    if (!await activateModule("forum", "les discussions")) return;
     await ctester.forum.basculer();
   });
   return b;
 }
 
-// LE DERNIER VERDICT RENDU, pour le rappeler en tête d'un fil de discussion.
-// DÉCLARÉ ICI, au-dessus de la fonction qui l'écrit : un `let` posé mille
-// lignes plus bas est une zone morte temporelle, et c'est la seule panne que
-// cette page ait connue en production.
-let dernierVerdict = null;
+// THE LAST RENDERED VERDICT, to recall it at the top of a discussion thread.
+// DECLARED HERE, above the function that writes it: a `let` set a thousand
+// lines further down is a temporal dead zone, and it is the only failure
+// this page has ever seen in production.
+let lastVerdict = null;
 
-// `v` : {cls, etapes, compte, titre, texte, bar, detail, suite, bouton}
-// Seul `titre` est obligatoire.
-function verdict(v) {
-  // RETENU POUR LES DISCUSSIONS : ouvrir un fil efface le poste de travail, et
-  // ce qu'on venait raconter avec. Seuls les vrais verdicts comptent -- ni
-  // l'attente, ni le repos.
+// `v`: {cls, etapes, compte, titre, texte, bar, detail, suite, bouton}
+// Only `titre` is required.
+function renderVerdict(v) {
+  // KEPT FOR DISCUSSIONS: opening a thread clears the workbench, and what one
+  // came to talk about along with it. Only real verdicts count -- neither the
+  // wait, nor the idle state.
   if (v.cls === "ok" || v.cls === "bad") {
-    dernierVerdict = { exercice: selection, titre: v.titre };
+    lastVerdict = { exercice: selectedId, titre: v.titre };
   }
   out.className = v.cls;
   out.innerHTML = "";
-  if (v.etapes) out.append(bandeEtapes(v.etapes));
-  // LE COMPTE GARDE LA GRANDE TAILLE, le titre d'un état ne l'a plus. `3 / 4`
-  // se lit d'un coup d'oeil et le mérite ; « Ton code ne s'assemble pas avec
-  // les tests » en 2,1 rem écrasait la zone entière. Seul le chemin `ok` pose
-  // un compte, donc le drapeau sépare exactement les deux cas.
-  out.append(noeud("div", "verdict " + v.cls + (v.compte ? " compte" : ""),
+  if (v.etapes) out.append(stepBar(v.etapes));
+  // THE COUNT KEEPS THE LARGE SIZE, a state's title no longer has it. "3 / 4"
+  // reads at a glance and deserves it; "Ton code ne s'assemble pas avec les
+  // tests" at 2.1rem used to crush the whole area. Only the `ok` path sets a
+  // count, so the flag separates exactly the two cases.
+  out.append(node("div", "verdict " + v.cls + (v.compte ? " compte" : ""),
                    v.titre));
-  if (v.cls === "wait") out.append(indeterminee());
+  if (v.cls === "wait") out.append(indeterminateBar());
   if (v.bar) out.append(v.bar);
-  // EN CORPS DE TEXTE, PLUS JAMAIS EN 2,1 REM. Les messages de `link_error` et
-  // de `memory_error` font deux cents caractères : en typographie de titre, ils
-  // écrasaient toute la zone de résultat.
-  if (v.texte && v.texte !== v.titre) out.append(noeud("p", "explique", v.texte));
+  // AS BODY TEXT, NEVER AGAIN AT 2.1REM. `link_error` and `memory_error`
+  // messages run two hundred characters: in title typography, they used to
+  // crush the whole result area.
+  if (v.texte && v.texte !== v.titre) out.append(node("p", "explique", v.texte));
   if (v.detail) out.append(v.detail);
   if (v.suite) {
-    const bande = bandeSuite(v.suite, v.bouton);
-    // SEULEMENT SUR UN ÉCHEC : on ne propose pas d'aller demander de l'aide à
-    // quelqu'un dont tout vient de passer.
-    const aide = v.cls === "bad" ? boutonAide() : null;
-    if (aide) bande.append(aide);
-    out.append(bande);
+    const bar = nextStepBar(v.suite, v.bouton);
+    // ONLY ON A FAILURE: we do not offer to go ask someone for help when
+    // everything they just did passed.
+    const help = v.cls === "bad" ? helpButton() : null;
+    if (help) bar.append(help);
+    out.append(bar);
   }
-  annoncer(v.titre);
+  announce(v.titre);
 }
 
-// L'ÉTAT DE REPOS. Pas d'étapes -- rien n'a encore tourné, et une bande de
-// trois « pas atteinte » avant la première soumission annoncerait un échec.
-function repos() {
-  verdict({
+// THE IDLE STATE. No steps -- nothing has run yet, and a strip of three
+// "not reached" before the first submission would announce a failure.
+function idleState() {
+  renderVerdict({
     cls: "idle",
     titre: "En attente d'une soumission.",
     texte: "Écris ton code, puis clique sur « Tester ». Les résultats ne sont "
@@ -358,7 +359,7 @@ function repos() {
   });
 }
 
-function indeterminee() {
+function indeterminateBar() {
   const b = document.createElement("div");
   b.className = "barre";
   b.append(document.createElement("i"));
@@ -394,59 +395,59 @@ function block(text) {
   return pre;
 }
 
-// LA PREMIÈRE ERREUR, PAS LA DERNIÈRE. En C les erreurs partent en cascade :
-// un `;` oublié en produit six, dont cinq n'existent pas. Or la sortie brute
-// défile, et ce qu'un débutant lit, c'est le BAS -- donc la plus dérivée, celle
-// qui ne correspond à rien dans son code. On isole la première et on replie le
-// reste, sans rien cacher.
+// THE FIRST ERROR, NOT THE LAST. In C, errors cascade: one missing `;`
+// produces six, five of which do not really exist. The raw output scrolls,
+// and what a beginner reads is the BOTTOM -- so the most derived one, which
+// matches nothing in their code. We isolate the first and fold the rest,
+// without hiding anything.
 const DIAGNOSTIC = /(^|\s)(error|erreur|warning|attention|note)\s*:/i;
 
-function premiereErreur(sortie) {
-  const lignes = (sortie || "").split("\n");
-  const debut = lignes.findIndex(l => /(^|\s)(error|erreur)\s*:/i.test(l));
-  if (debut < 0) return null;
-  // On garde ce qui SUIT la ligne d'erreur jusqu'au diagnostic suivant : c'est
-  // l'extrait de source et le curseur `^`, qui montrent l'endroit exact.
-  let fin = debut + 1;
-  while (fin < lignes.length && !DIAGNOSTIC.test(lignes[fin])) fin++;
-  return lignes.slice(debut, fin).join("\n").replace(/\s+$/, "");
+function firstError(output) {
+  const lines = (output || "").split("\n");
+  const start = lines.findIndex(l => /(^|\s)(error|erreur)\s*:/i.test(l));
+  if (start < 0) return null;
+  // We keep what FOLLOWS the error line up to the next diagnostic: that is
+  // the source excerpt and the `^` cursor, which show the exact spot.
+  let end = start + 1;
+  while (end < lines.length && !DIAGNOSTIC.test(lines[end])) end++;
+  return lines.slice(start, end).join("\n").replace(/\s+$/, "");
 }
 
-function sortieCompilateur(gcc) {
-  const bloc = noeud("div", "gcc");
-  const premiere = premiereErreur(gcc);
-  if (!premiere) return block(gcc || "");
-  bloc.append(block(premiere));
-  // TOUT EST TOUJOURS LÀ, juste replié : cacher la suite ferait douter de ce
-  // qu'on ne montre pas, et certaines erreurs ne se comprennent qu'en chaîne.
-  const reste = document.createElement("details");
-  reste.className = "case";
-  const tete = document.createElement("summary");
-  tete.textContent = "Voir toute la sortie du compilateur";
-  reste.append(tete, block(gcc || ""));
-  bloc.append(reste);
-  return bloc;
+function compilerOutput(gcc) {
+  const box = node("div", "gcc");
+  const first = firstError(gcc);
+  if (!first) return block(gcc || "");
+  box.append(block(first));
+  // EVERYTHING IS ALWAYS THERE, just folded: hiding the rest would raise
+  // doubt about what is not shown, and some errors only make sense read as a
+  // chain.
+  const rest = document.createElement("details");
+  rest.className = "case";
+  const head = document.createElement("summary");
+  head.textContent = "Voir toute la sortie du compilateur";
+  rest.append(head, block(gcc || ""));
+  box.append(rest);
+  return box;
 }
 
-// DEUX LECTURES DU MÊME CONTENU, et c'est voulu.
-//   `collections` porte l'ARBRE DU MENU : tous les exercices, ouverts ou non,
-//     avec leur cadenas et leur date. Montrer n'est pas donner -- la v1 faisait
-//     disparaître ce qui n'était pas ouvert, ce qui ressemblait à une panne la
-//     veille du cours.
-//   `catalogue` ne porte que les exercices OUVERTS, dans la forme que « Mes
-//     exercices », l'export et les progrès lisent déjà. Un exercice verrouillé
-//     n'a rien à faire dans un décompte de progression ni dans un main.c de
-//     remise, et les garder séparés évite d'ajouter un filtre dans trois
-//     modules qui l'oublieraient chacun à leur tour.
-let catalogue = [];
+// TWO READS OF THE SAME CONTENT, and that is intentional.
+//   `collections` carries the MENU TREE: every exercise, open or not, with
+//     its lock and its date. Showing is not giving -- v1 made anything not
+//     open disappear, which looked like an outage the night before class.
+//   `catalog` only carries OPEN exercises, in the shape "Mes exercices", the
+//     export and progress already read. A locked exercise has no business in
+//     a progression count nor in a submission main.c, and keeping the two
+//     separate avoids adding a filter in three modules that would each
+//     eventually forget it.
+let catalog = [];
 let collections = [];
-// L'IDENTIFIANT CHOISI DANS LE MENU, et la seule source de cette vérité depuis
-// que les deux <select> ont disparu. `currentId` reste autre chose : ce que
-// l'ÉDITEUR tient vraiment, posé par setupFiles une fois le remplissage revenu.
-let selection = "";
-// L'exercice d'un lien profond qu'on n'a pas pu ouvrir : sa collection est
-// dépliée quand même, pour qu'on voie le cadenas et la date plutôt que rien.
-let vedette = "";
+// THE ID CHOSEN IN THE MENU, and the only source of that truth since the two
+// <select> elements disappeared. `currentId` is something else: what the
+// EDITOR actually holds, set by setupFiles once the fill-in has come back.
+let selectedId = "";
+// The exercise from a deep link that could not be opened: its collection is
+// unfolded anyway, so the lock and date show instead of nothing.
+let spotlighted = "";
 let oidc = null;
 let token = null;
 
@@ -462,12 +463,12 @@ function sessionDrop(name) {
   try { sessionStorage.removeItem(name); } catch (e) {}
 }
 
-// L'IDENTIFIANT DE POSTE, pour que le quota anonyme ne soit pas celui de toute
-// la salle : aux premiers labos, 27 postes sortent par une seule IP NATée. Il
-// est dans `localStorage` et PAS dans `sessionStorage` comme celui de /live --
-// deux onglets sont bien deux fenêtres ouvertes, mais un seul étudiant. Il ne
-// prouve rien et ne voyage que vers /submit.
-function posteId() {
+// THE STATION ID, so the anonymous quota is not the whole room's. In the
+// first labs, 27 stations exit through a single NATed IP. It lives in
+// `localStorage` and NOT in `sessionStorage` like /live's: two tabs are
+// indeed two open windows, but a single student. It proves nothing and only
+// ever travels to /submit.
+function stationId() {
   try {
     let v = localStorage.getItem("ctester.poste");
     if (!v) {
@@ -480,8 +481,8 @@ function posteId() {
   } catch (e) { return ""; }
 }
 
-// LE JETON EST AU NOYAU parce que la soumission en a besoin, et qu'une
-// soumission part bien avant que « Mes exercices » n'existe.
+// THE TOKEN LIVES IN THE CORE because submission needs it, and a submission
+// leaves well before "Mes progrès" even exists.
 function setToken(value) {
   token = value || null;
   if (token) sessionSet(TOKEN_KEY, token);
@@ -489,93 +490,96 @@ function setToken(value) {
   refreshAccount();
 }
 
-// Le bandeau doit savoir se dessiner AVANT que compte.js soit là : sinon le
-// bouton « Se connecter » n'apparaîtrait qu'après le fichier censé n'être
-// chargé que si on clique dessus.
+// The banner must know how to draw itself BEFORE compte.js is there:
+// otherwise the "Se connecter" button would only appear after the file that
+// is only supposed to load once you click it.
 function refreshAccount() {
   const on = !!token;
   $("connexion").hidden = !oidc || on;
   $("deconnexion").hidden = !on;
   $("oublier").hidden = !on;
   $("mesprogres").hidden = !on;
-  // DEUX CONDITIONS, ET LES DEUX VIENNENT DU SERVEUR : être connecté, et un
-  // déploiement qui a au moins un modérateur configuré (`oidc.forum`). Sans
-  // l'une des deux le bouton n'existe pas, donc `forum.js` n'est jamais
-  // demandé -- l'anonyme n'en télécharge rien, et un déploiement sans
-  // modérateur configuré n'ouvre pas un canal que personne ne relit.
+  // TWO CONDITIONS, AND BOTH COME FROM THE SERVER: being signed in, and a
+  // deployment with at least one configured moderator (`oidc.forum`).
+  // Without either, the button does not exist, so `forum.js` is never
+  // requested -- the anonymous visitor downloads none of it, and a
+  // deployment with no configured moderator does not open a channel nobody
+  // rereads.
   $("discussions").hidden = !on || !(oidc && oidc.forum);
-  // MÊME CONDITION QUE « Discussions » : le nom et le numéro de groupe ne
-  // servent que là, et le formulaire vit dans cette vue.
+  // SAME CONDITION AS "Discussions": the name and group number only matter
+  // there, and the form lives in that view.
   $("identite").hidden = !on || !(oidc && oidc.forum);
   $("moi").hidden = !on;
   $("moi").textContent = on ? "connecté" : "";
-  // Le menu ne s'ouvre que sur un compte : « Se connecter » reste dehors,
-  // parce qu'enterrer l'entrée dans un menu, c'est la faire disparaître.
+  // The menu only opens on an account: "Se connecter" stays outside, because
+  // burying the entry in a menu makes it disappear.
   $("menucompte").hidden = !on;
 }
 
-// UNE SEULE VUE À LA FOIS, ET L'ARBITRAGE EST ICI. « Mes progrès » et
-// « Discussions » vivent dans deux modules chargés séparément : si chacun
-// masquait l'autre de son côté, ouvrir le second par-dessus le premier
-// laisserait les deux moitiés à l'écran, ou aucune.
-let vueCourante = "";
+// ONE VIEW AT A TIME, AND THE ARBITRATION LIVES HERE. "Mes progrès" and
+// "Discussions" live in two separately loaded modules: if each hid the other
+// on its own, opening the second over the first would leave both halves on
+// screen, or neither.
+let currentView = "";
 
-function afficherVue(nom) {
-  // "" (l'exercice) | "progres" | "forum" | "moderation"
-  // « Mes exercices » a fusionné dans « Mes progrès » : deux destinations
-  // répondaient à « où j'en suis », avec deux comptes des mêmes exercices.
-  vueCourante = nom;
-  $("vueprogres").hidden = nom !== "progres";
-  $("vueforum").hidden = nom !== "forum";
-  $("vuemoderation").hidden = nom !== "moderation";
-  $("travail").hidden = nom !== "";
+function showView(name) {
+  // "" (the exercise) | "progres" | "forum" | "moderation"
+  // "Mes exercices" merged into "Mes progrès": two destinations used to
+  // answer "where do I stand", with two counts of the same exercises.
+  currentView = name;
+  $("vueprogres").hidden = name !== "progres";
+  $("vueforum").hidden = name !== "forum";
+  $("vuemoderation").hidden = name !== "moderation";
+  $("travail").hidden = name !== "";
   $("mesprogres").textContent =
-    nom === "progres" ? "Retour à l'exercice" : "Mes progrès";
+    name === "progres" ? "Retour à l'exercice" : "Mes progrès";
   $("discussions").textContent =
-    nom === "forum" ? "Retour à l'exercice" : "Discussions";
+    name === "forum" ? "Retour à l'exercice" : "Discussions";
 }
 
-// LE STATUT D'UN EXERCICE, AU NOYAU. Il ne vivait que dans « Mes exercices » :
-// ni le menu du catalogue ni le poste de travail ne disaient « déjà validé »,
-// alors que la donnée était déjà chargée. Savoir ce qu'on a fait ne devrait pas
-// demander de changer d'écran.
+// AN EXERCISE'S STATUS, IN THE CORE. It used to live only in "Mes
+// exercices": neither the catalog menu nor the workbench said "already
+// solved", even though the data was already loaded. Knowing what one has
+// done should not require switching screens.
 //
-// POUSSÉ PAR `compte.js`, jamais tiré : le sens reste unique, et l'anonyme --
-// qui n'a pas de statuts -- ne déclenche rien.
-let statuts = {};
+// PUSHED BY `compte.js`, never pulled: the direction stays one-way, and the
+// anonymous visitor -- who has no statuses -- triggers nothing.
+let statuses = {};
 
-function poserStatuts(carte) {
-  statuts = carte || {};
-  dessinerMenu();
-  dessinerBande();
+function setStatuses(map) {
+  statuses = map || {};
+  renderMenu();
+  renderStrip();
 }
 
-const STATUT_MARQUE = { valide: "✓", essaye: "•" };
-const STATUT_MOT = { valide: "validé", essaye: "essayé" };
+const STATUS_MARK = { valide: "✓", essaye: "•" };
+const STATUS_WORD = { valide: "validé", essaye: "essayé" };
 
-const current = () => catalogue.find(t => t.id === selection) || null;
+const currentExercise = () => catalog.find(t => t.id === selectedId) || null;
 
-// CE QUE LE FORMAT DE REMISE SAIT FAIRE, ET RIEN D'AUTRE. Le `main.c` d'un seul
-// tenant repose sur `#define exercice N` pour choisir LEQUEL des `main()` est
-// compilé : ça n'a de sens que pour les exercices « io », qui sont des
-// programmes complets. Un exercice « unity » est un module SANS `main()`, un
-// quiz n'a pas de code du tout, et proposer le bouton là promettrait un fichier
-// qui ne compile pas.
+// WHAT THE SUBMISSION FORMAT CAN DO, AND NOTHING ELSE. The one-piece
+// `main.c` relies on `#define exercice N` to choose WHICH `main()` gets
+// compiled: that only makes sense for "io" exercises, which are complete
+// programs. A "unity" exercise is a module WITH NO `main()`, a quiz has no
+// code at all, and offering the button there would promise a file that does
+// not compile.
 //
-// DEUX EXERCICES AU MINIMUM, parce qu'un fichier qui cumule un seul exercice ne
-// cumule rien : l'étudiant a déjà ce code sous les yeux dans l'éditeur.
+// TWO EXERCISES AT LEAST, because a file that bundles a single exercise
+// bundles nothing: the student already has that code in front of them in
+// the editor.
 //
-// LA RÈGLE EST ICI, DANS LE NOYAU, ET PAS DANS `exporter.js` : c'est elle qui
-// décide si le bouton existe, et il faut le savoir AVANT d'aller chercher le
-// module. Un second exemplaire dans le module dériverait du premier en silence.
+// THE RULE LIVES HERE, IN THE CORE, AND NOT IN `exporter.js`: it is what
+// decides whether the button exists, and that must be known BEFORE fetching
+// the module. A second copy in the module would silently drift from the
+// first.
 const EXPORT_MINIMUM = 2;
-// LES VÉRIFICATIONS N'Y SONT PAS : elles ne font pas partie de la remise, et
-// une vérification io s'y glisserait avec son propre `#if exercice == N` au
-// milieu des exercices du TP.
-const exercicesExportables = (groupe) =>
-  catalogue.filter(t => t.group === groupe && t.mode === "io" && !t.verification);
-const groupeExportable = (groupe) =>
-  exercicesExportables(groupe).length >= EXPORT_MINIMUM;
+// VERIFICATIONS ARE NOT THERE: they are not part of the submission, and an
+// io verification would sneak in with its own `#if exercice == N` among the
+// exercise's own labs.
+const exportableExercises = (group) =>
+  catalog.filter(t => t.group === group && t.mode === "io" && !t.verification);
+const isGroupExportable = (group) =>
+  exportableExercises(group).length >= EXPORT_MINIMUM;
 
 const SKILL_LABELS = {
   "number-systems": "systèmes de nombres", "binary-hexadecimal": "binaire et hexadécimal",
@@ -598,35 +602,36 @@ const DIFFICULTY_LABELS = {
   advanced: "avancé",
 };
 
-// CE QU'UN CADENAS DIT, et il doit dire une date : « pas encore ouvert » sans
-// « ouvre le 18 septembre » envoie l'étudiant écrire un courriel.
-function verrou(entry) {
+// WHAT A LOCK SAYS, and it must say a date: "not open yet" without "opens
+// September 18" sends the student off to write an email.
+function lockNote(entry) {
   if (!entry || entry.access === "available") return "";
   if (entry.access === "archived") return "archivé";
-  const quand = new Date(entry.available_from || "");
-  return isNaN(quand.getTime())
+  const when = new Date(entry.available_from || "");
+  return isNaN(when.getTime())
     ? "à venir"
-    : "ouvre le " + quand.toLocaleDateString(undefined,
+    : "ouvre le " + when.toLocaleDateString(undefined,
                                              { day: "numeric", month: "long" });
 }
 
-// LA FORME QUE LE RESTE DE LA PAGE LIT. « Mes exercices », « Mes progrès » et
-// l'export ont besoin d'une liste plate {id, mode, label, short, group, files,
-// learning} ; le catalogue, lui, est un arbre. Une seule fonction traduit, et
-// elle garde en plus l'accès et la date, qui n'existent qu'ici.
-function entree(ex, groupe) {
+// THE SHAPE THE REST OF THE PAGE READS. "Mes exercices", "Mes progrès" and
+// the export need a flat list {id, mode, label, short, group, files,
+// learning}; the catalog is a tree. One function translates, and it also
+// keeps access and the date, which only exist here.
+function catalogEntry(ex, group) {
   const learning = {};
   if (Array.isArray(ex.skills) && ex.skills.length) learning.skills = ex.skills;
   if (Array.isArray(ex.contexts) && ex.contexts.length) learning.context = ex.contexts[0];
   if (ex.difficulty) learning.difficulty = ex.difficulty;
-  // `label` QUALIFIÉ, `short` NU. « Mes exercices » montre déjà la collection
-  // dans sa propre colonne ; « Mes progrès » et l'export, eux, n'ont que cette
-  // chaîne -- et « ex.1 » tout seul désigne un exercice dans chacun des dix TP.
+  // `label` QUALIFIED, `short` BARE. "Mes exercices" already shows the
+  // collection in its own column; "Mes progrès" and the export only have
+  // this string -- and "ex.1" alone names an exercise in each of the ten
+  // labs.
   return {
-    id: ex.id, mode: ex.mode, short: ex.title, group: groupe,
-    // Absent du catalogue publié quand il est faux -- d'où le `!!`.
+    id: ex.id, mode: ex.mode, short: ex.title, group: group,
+    // Absent from the published catalog when false -- hence the `!!`.
     verification: !!ex.verification,
-    label: groupe ? groupe.replace(/\s+/g, "") + " : " + ex.title : ex.title,
+    label: group ? group.replace(/\s+/g, "") + " : " + ex.title : ex.title,
     files: (ex.files || []).map(f => ({ name: f.name })),
     learning: learning,
     access: ex.access,
@@ -634,237 +639,240 @@ function entree(ex, groupe) {
   };
 }
 
-function normaliser(catalog) {
-  const par = new Map();
-  for (const ex of catalog.exercises || []) {
-    if (ex && typeof ex.id === "string") par.set(ex.id, ex);
+function normalize(publishedCatalog) {
+  const byId = new Map();
+  for (const ex of publishedCatalog.exercises || []) {
+    if (ex && typeof ex.id === "string") byId.set(ex.id, ex);
   }
-  const arbre = [];
-  const classes = new Set();
-  for (const col of catalog.collections || []) {
-    const items = (col.items || []).filter(id => par.has(id));
+  const tree = [];
+  const classified = new Set();
+  for (const col of publishedCatalog.collections || []) {
+    const items = (col.items || []).filter(id => byId.has(id));
     if (!items.length) continue;
-    const titre = String(col.title || col.id || "");
-    for (const id of items) classes.add(id);
-    arbre.push({ titre: titre, access: col.access,
+    const title = String(col.title || col.id || "");
+    for (const id of items) classified.add(id);
+    tree.push({ titre: title, access: col.access,
                  available_from: (col.release || {}).available_from || "",
-                 items: items.map(id => entree(par.get(id), titre)) });
+                 items: items.map(id => catalogEntry(byId.get(id), title)) });
   }
-  // UN EXERCICE PEUT N'ÊTRE DANS AUCUNE COLLECTION (invariant 3 du plan). Le
-  // publier doit suffire à le rendre atteignable, sinon l'oubli d'une ligne de
-  // collection le ferait disparaître sans que rien ne le signale.
-  const orphelins = [...par.keys()].filter(id => !classes.has(id));
-  if (orphelins.length) {
-    arbre.push({ titre: "Autres", access: "available", available_from: "",
-                 items: orphelins.map(id => entree(par.get(id), "Autres")) });
+  // AN EXERCISE MAY BE IN NO COLLECTION AT ALL (invariant 3 of the plan).
+  // Publishing it must be enough to make it reachable, or forgetting one
+  // collection line would make it disappear with nothing to flag it.
+  const orphans = [...byId.keys()].filter(id => !classified.has(id));
+  if (orphans.length) {
+    tree.push({ titre: "Autres", access: "available", available_from: "",
+                 items: orphans.map(id => catalogEntry(byId.get(id), "Autres")) });
   }
-  collections = arbre;
-  // UNIQUE, ET DANS L'ORDRE DES COLLECTIONS. Un exercice partagé par deux
-  // collections s'affiche deux fois dans le menu -- c'est le but d'un parcours
-  // transversal -- mais ne compte qu'une fois dans une progression et ne
-  // s'exporte qu'une fois dans un main.c.
-  const vus = new Set();
-  catalogue = [];
-  for (const col of arbre) {
+  collections = tree;
+  // UNIQUE, AND IN COLLECTION ORDER. An exercise shared by two collections
+  // displays twice in the menu -- that is the point of a cross-cutting path
+  // -- but only counts once in a progression and only exports once into a
+  // main.c.
+  const seen = new Set();
+  catalog = [];
+  for (const col of tree) {
     for (const ex of col.items) {
-      if (ex.access !== "available" || vus.has(ex.id)) continue;
-      vus.add(ex.id);
-      catalogue.push(ex);
+      if (ex.access !== "available" || seen.has(ex.id)) continue;
+      seen.add(ex.id);
+      catalog.push(ex);
     }
   }
 }
 
-function ligneMenu(ex) {
-  const ligne = document.createElement("button");
-  ligne.type = "button";
-  ligne.className = ex.id === selection ? "exline on" : "exline";
-  ligne.dataset.id = ex.id;
-  const nom = document.createElement("span");
-  nom.className = "titre";
-  nom.textContent = ex.short;
-  ligne.append(nom);
-  // LE STATUT, LA OU ON CHOISIT.
-  // MARQUÉE, ET EN TOUTES LETTRES. Une vérification doit être reconnaissable
-  // AVANT d'être ouverte : c'est ce qui la distingue d'un exercice de pratique
-  // (docs/gamification/mastery.md), et une couleur seule ne le dirait pas.
+function menuRow(ex) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = ex.id === selectedId ? "exline on" : "exline";
+  row.dataset.id = ex.id;
+  const name = document.createElement("span");
+  name.className = "titre";
+  name.textContent = ex.short;
+  row.append(name);
+  // THE STATUS, WHERE ONE CHOOSES.
+  // MARKED, AND SPELLED OUT. A verification must be recognizable BEFORE it
+  // is opened: that is what tells it apart from a practice exercise
+  // (docs/gamification/mastery.md), and color alone would not say so.
   if (ex.verification) {
-    ligne.append(noeud("span", "verif", "vérification"));
+    row.append(node("span", "verif", "vérification"));
   }
-  const fait = statuts[ex.id];
-  if (fait) {
-    const marque = noeud("span", "etat " + fait,
-                         (STATUT_MARQUE[fait] || "") + " " + (STATUT_MOT[fait] || fait));
-    ligne.append(marque);
+  const done = statuses[ex.id];
+  if (done) {
+    const mark = node("span", "etat " + done,
+                         (STATUS_MARK[done] || "") + " " + (STATUS_WORD[done] || done));
+    row.append(mark);
   }
-  const note = verrou(ex);
+  const note = lockNote(ex);
   if (note) {
-    // `aria-disabled` ET PAS `disabled`. Un bouton `disabled` sort de l'ordre
-    // de tabulation : les dates d'ouverture n'existaient que pour la souris,
-    // alors qu'elles sont toute la raison de laisser l'exercice affiché. Il
-    // reste donc atteignable, annoncé indisponible, et sans écouteur de clic.
-    ligne.setAttribute("aria-disabled", "true");
-    ligne.className += " verrouille";
-    const marque = document.createElement("span");
-    marque.className = "cadenas";
-    marque.textContent = "🔒 " + note;
-    ligne.append(marque);
+    // `aria-disabled` AND NOT `disabled`. A `disabled` button drops out of
+    // the tab order: opening dates used to only exist for the mouse, when
+    // they are the whole reason to keep the exercise displayed. It therefore
+    // stays reachable, announced as unavailable, and with no click listener.
+    row.setAttribute("aria-disabled", "true");
+    row.className += " verrouille";
+    const mark = document.createElement("span");
+    mark.className = "cadenas";
+    mark.textContent = "🔒 " + note;
+    row.append(mark);
   } else {
-    ligne.addEventListener("click", () => {
+    row.addEventListener("click", () => {
       $("menuex").open = false;
       fillExercises(ex.id);
     });
   }
-  return ligne;
+  return row;
 }
 
-// UN <details> PAR COLLECTION, DANS LE <details> DU MENU. Le navigateur sait
-// replier : pas d'accordéon en JS, pas d'état d'ouverture à tenir ailleurs.
-// LA BANDE DU LABORATOIRE : les exercices OUVERTS de la collection affichée,
-// avec leur statut. C'est la navigation qu'un étudiant fait vingt fois par
-// séance -- passer de l'ex.2 à l'ex.3 -- et elle demandait d'ouvrir un menu
-// qui couvre l'écran pour une cible située à un cran.
+// ONE <details> PER COLLECTION, INSIDE THE MENU'S <details>. The browser
+// knows how to collapse: no JS accordion, no open/closed state to track
+// elsewhere.
+// THE LAB STRIP: the displayed collection's OPEN exercises, with their
+// status. This is the navigation a student does twenty times a session --
+// going from ex.2 to ex.3 -- and it used to require opening a menu that
+// covers the screen for a target one step away.
 //
-// ELLE NE REMPLACE PAS LE MENU : celui-ci reste la bascule entre collections,
-// qui est rare, et il garde les exercices verrouillés avec leur date. Deux
-// portées, deux mécanismes -- c'est la répartition global/local habituelle.
+// IT DOES NOT REPLACE THE MENU: that one stays the switch between
+// collections, which is rare, and it keeps locked exercises with their date.
+// Two scopes, two mechanisms -- the usual global/local split.
 //
-// MOINS DE DEUX EXERCICES, PAS DE BANDE : une bande d'un seul élément
-// n'aiderait à rien et prendrait une ligne à la consigne.
-// UNE ÉTIQUETTE COURTE, PARCE QU'IL Y EN A ONZE. `short` n'est pas nu malgré
-// son nom : le contenu écrit « TP5 : ex.1 celcius_to_fahrenheit » dans le titre
-// lui-même. Onze puces de trente caractères remplissent trois lignes et volent
-// à la consigne la place qu'elle réclame -- alors que le nom complet est déjà
-// affiché juste au-dessus, dans `#now`.
+// FEWER THAN TWO EXERCISES, NO STRIP: a strip of one item would help nothing
+// and would steal a line from the statement.
+// A SHORT LABEL, BECAUSE THERE ARE ELEVEN OF THEM. `short` is not bare
+// despite its name: the content itself writes "TP5 : ex.1
+// celcius_to_fahrenheit" in the title. Eleven thirty-character pills fill
+// three lines and steal from the statement the room it needs -- when the
+// full name is already shown right above, in `#now`.
 //
-// On garde le numéro, qui est la façon dont l'énoncé du cours les désigne.
-function etiquetteBande(ex) {
-  const nu = (ex.short || "").replace(/^[^:]*:\s*/, "");
-  const numero = nu.match(/^ex\.?\s*(\d+)/i);
-  if (numero) return "ex." + numero[1];
-  // LES POINTS DE SUSPENSION SONT LOAD-BEARING : « convertir_en_radia »
-  // coupé net se lit comme un bug d'affichage, pas comme un raccourci.
-  return nu.length > 20 ? nu.slice(0, 19) + "…" : nu;
+// The number is kept, since it is how the course statement names them.
+function stripLabel(ex) {
+  const bare = (ex.short || "").replace(/^[^:]*:\s*/, "");
+  const number = bare.match(/^ex\.?\s*(\d+)/i);
+  if (number) return "ex." + number[1];
+  // THE ELLIPSIS IS LOAD-BEARING: "convertir_en_radia" cut off flat reads
+  // like a display bug, not like a shortcut.
+  return bare.length > 20 ? bare.slice(0, 19) + "…" : bare;
 }
 
-function dessinerBande() {
-  const boite = $("bandelabo");
-  boite.innerHTML = "";
-  const tp = current();
-  const voisins = tp ? catalogue.filter(t => t.group === tp.group) : [];
-  boite.hidden = voisins.length < 2;
-  if (boite.hidden) return;
-  for (const ex of voisins) {
-    const courant = ex.id === selection;
-    const statut = statuts[ex.id] || "";
-    const puce = noeud("button", "puce" + (courant ? " on" : "")
-                                 + (statut ? " " + statut : ""),
-                       etiquetteBande(ex));
-    puce.type = "button";
-    // LE NOM ENTIER RESTE ATTEIGNABLE : au survol pour la souris, et dans le
-    // texte hors écran pour un lecteur -- la puce ne dit que « ex.3 ».
-    puce.setAttribute("title", ex.short);
-    puce.append(noeud("span", "horsecran", " — " + ex.short));
-    // `aria-current` PLUTÔT QU'UNE COULEUR : c'est ce qui dit « vous êtes ici »
-    // à un lecteur d'écran, et la classe `on` ne dit rien à personne d'autre.
-    if (courant) puce.setAttribute("aria-current", "true");
-    if (statut) {
-      // LE MOT EN PLUS DU SIGNE. Une coche verte seule disparaît en noir et
-      // blanc, sous un daltonisme, et ne se lit pas à voix haute.
-      puce.append(noeud("i", "marque", STATUT_MARQUE[statut] || ""));
-      puce.setAttribute("title", ex.short + " — " + (STATUT_MOT[statut] || statut));
-      puce.append(noeud("span", "horsecran", " — " + (STATUT_MOT[statut] || statut)));
+function renderStrip() {
+  const box = $("bandelabo");
+  box.innerHTML = "";
+  const tp = currentExercise();
+  const neighbors = tp ? catalog.filter(t => t.group === tp.group) : [];
+  box.hidden = neighbors.length < 2;
+  if (box.hidden) return;
+  for (const ex of neighbors) {
+    const isCurrent = ex.id === selectedId;
+    const status = statuses[ex.id] || "";
+    const pill = node("button", "puce" + (isCurrent ? " on" : "")
+                                 + (status ? " " + status : ""),
+                       stripLabel(ex));
+    pill.type = "button";
+    // THE FULL NAME STAYS REACHABLE: on hover for the mouse, and in
+    // off-screen text for a reader -- the pill itself only says "ex.3".
+    pill.setAttribute("title", ex.short);
+    pill.append(node("span", "horsecran", " — " + ex.short));
+    // `aria-current` RATHER THAN A COLOR: that is what says "you are here"
+    // to a screen reader, and the `on` class means nothing to anyone else.
+    if (isCurrent) pill.setAttribute("aria-current", "true");
+    if (status) {
+      // THE WORD IN ADDITION TO THE SIGN. A green check mark alone
+      // disappears in black and white, under color blindness, and does not
+      // read aloud.
+      pill.append(node("i", "marque", STATUS_MARK[status] || ""));
+      pill.setAttribute("title", ex.short + " — " + (STATUS_WORD[status] || status));
+      pill.append(node("span", "horsecran", " — " + (STATUS_WORD[status] || status)));
     }
-    puce.addEventListener("click", () => {
-      if (ex.id !== selection) fillExercises(ex.id);
+    pill.addEventListener("click", () => {
+      if (ex.id !== selectedId) fillExercises(ex.id);
     });
-    boite.append(puce);
+    box.append(pill);
   }
 }
 
-function dessinerMenu() {
-  const boite = $("exliste");
-  boite.innerHTML = "";
+function renderMenu() {
+  const box = $("exliste");
+  box.innerHTML = "";
   for (const col of collections) {
-    const bloc = document.createElement("details");
-    bloc.className = "col";
-    // REPLIÉ SAUF CELLE OÙ L'ON TRAVAILLE : à onze collections et soixante-treize
-    // exercices, tout déplier revient à n'avoir rien rangé.
-    bloc.open = col.items.some(ex => ex.id === selection || ex.id === vedette);
-    const tete = document.createElement("summary");
-    const titre = document.createElement("span");
-    titre.textContent = col.titre;
-    tete.append(titre);
-    const note = verrou(col);
+    const block = document.createElement("details");
+    block.className = "col";
+    // COLLAPSED EXCEPT THE ONE BEING WORKED ON: with eleven collections and
+    // seventy-three exercises, unfolding all of them is the same as not
+    // organizing anything.
+    block.open = col.items.some(ex => ex.id === selectedId || ex.id === spotlighted);
+    const head = document.createElement("summary");
+    const title = document.createElement("span");
+    title.textContent = col.titre;
+    head.append(title);
+    const note = lockNote(col);
     if (note) {
-      const marque = document.createElement("span");
-      marque.className = "cadenas";
-      marque.textContent = "🔒 " + note;
-      tete.append(marque);
+      const mark = document.createElement("span");
+      mark.className = "cadenas";
+      mark.textContent = "🔒 " + note;
+      head.append(mark);
     }
-    bloc.append(tete);
-    for (const ex of col.items) bloc.append(ligneMenu(ex));
-    boite.append(bloc);
+    block.append(head);
+    for (const ex of col.items) block.append(menuRow(ex));
+    box.append(block);
   }
-  const ouvert = current();
-  $("excourant").textContent = ouvert ? ouvert.short : "Exercices";
+  const open = currentExercise();
+  $("excourant").textContent = open ? open.short : "Exercices";
 }
 
-// `/catalog.json` EST LA SEULE SOURCE depuis la phase 8. Le repli `tps.json`
-// existait pour les pages restées dans le cache d'un étudiant pendant la
-// bascule ; cette fenêtre est refermée, et le rollback est redevenu ce qu'il
-// est côté serveur : un pointeur `current.json` à réécrire.
+// `/catalog.json` IS THE ONLY SOURCE since phase 8. The `tps.json` fallback
+// existed for pages left in a student's cache during the switch; that
+// window is closed, and the rollback is once again what it is server-side: a
+// `current.json` pointer to rewrite.
 (async () => {
-  let publie = null;
+  let published = null;
   try {
     const r = await fetch(API("catalog.json"));
-    if (r.ok) publie = await r.json();
-  } catch (e) { /* réseau, ou rien de publié : le message ci-dessous tranche */ }
-  if (!publie || !Array.isArray(publie.exercises)) {
-    systeme("La liste des exercices n'a pas pu être chargée. Recharge la "
+    if (r.ok) published = await r.json();
+  } catch (e) { /* network, or nothing published: the message below settles it */ }
+  if (!published || !Array.isArray(published.exercises)) {
+    announceSystem("La liste des exercices n'a pas pu être chargée. Recharge la "
           + "page ; si ça recommence, préviens ton enseignant.", true);
     return;
   }
-  normaliser(publie);
+  normalize(published);
   if (!collections.length) {
-    systeme("Aucun exercice n'est publié pour l'instant.");
+    announceSystem("Aucun exercice n'est publié pour l'instant.");
     return;
   }
-  // UN LIEN PROFOND VERS UN EXERCICE VERROUILLÉ N'OUVRE PAS L'EXERCICE : il
-  // ouvre le menu sur son cadenas et sa date. Le partager en avance ne
-  // contourne donc rien, et ne ressemble pas non plus à un lien mort.
-  const vise = new URLSearchParams(location.search).get("tp") || "";
-  const ouvrable = catalogue.some(t => t.id === vise);
-  if (vise && !ouvrable
-      && collections.some(c => c.items.some(e => e.id === vise))) {
-    vedette = vise;
+  // A DEEP LINK TO A LOCKED EXERCISE DOES NOT OPEN THE EXERCISE: it opens the
+  // menu on its lock and its date. Sharing it early therefore bypasses
+  // nothing, and does not look like a dead link either.
+  const target = new URLSearchParams(location.search).get("tp") || "";
+  const openable = catalog.some(t => t.id === target);
+  if (target && !openable
+      && collections.some(c => c.items.some(e => e.id === target))) {
+    spotlighted = target;
     $("menuex").open = true;
   }
-  fillExercises(ouvrable ? vise : (catalogue[0] || {}).id || "");
-  // TOUT EST PUBLIÉ, RIEN N'EST ENCORE OUVERT : c'est l'état normal d'un début
-  // de session, pas une panne, et le menu porte les dates -- autant l'ouvrir.
-  if (!catalogue.length) {
+  fillExercises(openable ? target : (catalog[0] || {}).id || "");
+  // EVERYTHING IS PUBLISHED, NOTHING IS OPEN YET: this is the normal state at
+  // the start of a term, not an outage, and the menu carries the dates --
+  // might as well open it.
+  if (!catalog.length) {
     $("menuex").open = true;
-    verdict({ cls: "idle", titre: "Aucun exercice n'est encore ouvert.",
+    renderVerdict({ cls: "idle", titre: "Aucun exercice n'est encore ouvert.",
               texte: "Le menu « Exercices » donne la date d'ouverture de chacun." });
   }
 })();
 
-function aller(pas) {
-  const i = catalogue.findIndex(t => t.id === selection);
-  const cible = catalogue[i + pas];
-  if (!cible) return;
-  fillExercises(cible.id);
+function navigate(step) {
+  const i = catalog.findIndex(t => t.id === selectedId);
+  const target = catalog[i + step];
+  if (!target) return;
+  fillExercises(target.id);
 }
-$("prev").addEventListener("click", () => aller(-1));
-$("next").addEventListener("click", () => aller(1));
+$("prev").addEventListener("click", () => navigate(-1));
+$("next").addEventListener("click", () => navigate(1));
 
-// LE NOM RESTE : `progres.js` l'appelle pour ouvrir un exercice depuis sa
-// liste, et le renommer ferait deux modules à éditer pour zéro comportement
-// de plus.
+// THE NAME STAYS: `progres.js` calls it to open an exercise from its list,
+// and renaming it would mean editing two modules for zero added behavior.
 function fillExercises(preselect) {
-  if (preselect) selection = preselect;
-  dessinerMenu();
-  dessinerBande();
+  if (preselect) selectedId = preselect;
+  renderMenu();
+  renderStrip();
   switchMode();
 }
 
@@ -897,35 +905,35 @@ let currentId = null;
 let saveTimer = null;
 let loadToken = 0;
 
-// L'ÉTAT DE SAUVEGARDE, ET IL EST PERMANENT. Il restait VIDE tant que
-// l'étudiant n'avait pas tapé pendant une seconde et demie : celui qui vient
-// d'ouvrir un exercice, ou qui vient de coller son code sans le retoucher,
-// n'avait aucun moyen de savoir si son travail était à l'abri.
+// THE SAVE STATUS, AND IT IS PERMANENT. It used to stay EMPTY until the
+// student had typed for a second and a half: someone who just opened an
+// exercise, or just pasted their code without touching it again, had no way
+// to know whether their work was safe.
 //
-// ET IL DIT OÙ, pas seulement quand. « enregistré à 14:32 » ne répond pas à la
-// vraie question, qui est « est-ce que je retrouve ça sur l'autre poste ? ».
+// AND IT SAYS WHERE, not only when. "saved at 14:32" does not answer the real
+// question, which is "will I find this again on the other machine?".
 function showDraftStatus(text, failed) {
   $("sauvegarde").textContent = text;
   $("sauvegarde").className = failed ? "rate" : "";
 }
 
-// L'EXPORT GARDE SON PROPRE EMPLACEMENT, dans la barre d'actions, à côté de son
-// bouton. Les deux messages partageaient un slot et s'effaçaient l'un l'autre :
-// « main.c exporté » remplaçait « brouillon NON enregistré », qui était le seul
-// avertissement de perte de données de toute la page.
-function annoncerExport(texte, rate) {
-  $("brouillon").textContent = texte;
-  $("brouillon").className = rate ? "rate" : "";
+// THE EXPORT KEEPS ITS OWN SPOT, in the action bar, next to its button. The
+// two messages used to share a slot and erase each other: "main.c exported"
+// would replace "draft NOT saved", which was the page's only data-loss
+// warning.
+function announceExport(text, failed) {
+  $("brouillon").textContent = text;
+  $("brouillon").className = failed ? "rate" : "";
 }
 
 const twoDigits = (n) => String(n).padStart(2, "0");
-const maintenant = () => {
+const now = () => {
   const t = new Date();
   return twoDigits(t.getHours()) + ":" + twoDigits(t.getMinutes());
 };
 
-// L'ÉCRITURE SEULE, partagée avec le quiz : lui aussi a un brouillon, de la
-// même forme `{clé: texte}`, et il n'a ni onglet ni gabarit à traverser.
+// THE WRITE ALONE, shared with the quiz: it too has a draft, of the same
+// `{key: text}` shape, and it has neither tabs nor a template to cross.
 function persistDrafts() {
   try {
     localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
@@ -933,18 +941,19 @@ function persistDrafts() {
     showDraftStatus("NON enregistré — garde une copie de ton code", true);
     return false;
   }
-  // « SUR CET APPAREIL » EST LA MOITIÉ QUI MANQUAIT. Sans compte, le travail ne
-  // suit pas d'un poste à l'autre, et c'est exactement ce qu'un étudiant du
-  // labo doit savoir AVANT de rentrer chez lui -- pas en le découvrant.
-  // `syncDraft` remplacera ce texte par « sur ton compte » si la copie passe.
-  showDraftStatus("enregistré sur cet appareil · " + maintenant());
+  // "ON THIS DEVICE" IS THE HALF THAT WAS MISSING. Without an account, work
+  // does not follow from one machine to another, and that is exactly what a
+  // lab student must know BEFORE going home -- not discover on their own.
+  // `syncDraft` will replace this text with "on your account" if the copy
+  // succeeds.
+  showDraftStatus("enregistré sur cet appareil · " + now());
   $("purger").hidden = false;
   return true;
 }
 
 function saveDraft() {
-  if (currentId === null || actif === null) return;
-  sources[actif] = $("code").value;
+  if (currentId === null || activeFile === null) return;
+  sources[activeFile] = $("code").value;
   drafts[currentId] = sources;
   if (!persistDrafts()) return;
   if (ctester.compte) ctester.compte.syncDraft(currentId, sources);
@@ -962,49 +971,49 @@ $("purger").addEventListener("click", () => {
 function switchMode() {
   clearTimeout(saveTimer);
   saveDraft();
-  const tp = current();
-  // `currentId` EST CE QUE L'EDITEUR TIENT, pas ce que le menu montre. Le
-  // remplissage passe par le reseau depuis que le detail est charge a la
-  // demande : le poser ici ferait attribuer le code de l'exercice precedent,
-  // toujours affiche, a l'identifiant du nouveau des le prochain saveDraft().
-  // C'est setupFiles qui le pose, une fois l'editeur vraiment rempli.
+  const tp = currentExercise();
+  // `currentId` IS WHAT THE EDITOR HOLDS, not what the menu shows. Filling it
+  // in goes through the network since the detail loads on demand: setting it
+  // here would attribute the previous exercise's code, still displayed, to
+  // the new id as soon as the next saveDraft() runs. It is setupFiles that
+  // sets it, once the editor is truly filled in.
   currentId = null;
   const quiz = tp && tp.mode === "quiz";
-  const i = catalogue.findIndex(t => t.id === selection);
+  const i = catalog.findIndex(t => t.id === selectedId);
   $("prev").disabled = i <= 0;
-  $("next").disabled = i < 0 || i >= catalogue.length - 1;
+  $("next").disabled = i < 0 || i >= catalog.length - 1;
   $("editor").hidden = quiz;
   $("filewrap").hidden = quiz;
   $("quizwrap").hidden = !quiz;
-  // L'EXPORT SUIT LE TP AFFICHÉ, PAS L'EXERCICE : le fichier de remise couvre
-  // tout le laboratoire. Le bouton n'existe donc que sur un TP dont le format
-  // sait faire quelque chose, et le module ne descend qu'au clic.
-  $("exporttp").hidden = !groupeExportable(tp && tp.group);
-  // Hors quiz il n'y a qu'un bouton et il est primaire. En quiz, l'action
-  // courante est l'exercice affiche : tester les 40 questions reste possible,
-  // mais cesse d'etre ce sur quoi on tombe par defaut.
+  // THE EXPORT FOLLOWS THE DISPLAYED LAB, NOT THE EXERCISE: the submission
+  // file covers the whole lab. The button therefore only exists on a lab
+  // whose format can do something, and the module only loads on click.
+  $("exporttp").hidden = !isGroupExportable(tp && tp.group);
+  // Outside a quiz there is only one button and it is primary. In a quiz,
+  // the current action is the displayed exercise: testing all 40 questions
+  // stays possible, but stops being the default landing action.
   $("goex").hidden = !quiz;
-  // LE LIBELLÉ DE REPOS PASSE PAR `occupe()`, qui est aussi celui qui le
-  // remplace par « Test en cours… ». Deux endroits qui écrivent le même bouton
-  // finiraient par se contredire -- typiquement, changer d'exercice pendant un
-  // test remettrait « Tester » sur un bouton encore occupé.
-  goSecondaire = quiz;
-  libelleGo = quiz ? "Tester tout le quiz" : "Tester";
-  occupe(occupation);
+  // THE IDLE LABEL GOES THROUGH `setBusy()`, which is also what replaces it
+  // with "Test en cours…". Two places writing the same button would
+  // eventually contradict each other -- typically, switching exercises
+  // during a test would put "Tester" back on a button still busy.
+  goSecondary = quiz;
+  goLabel = quiz ? "Tester tout le quiz" : "Tester";
+  setBusy(busy);
 
   $("now").innerHTML = "";
   if (tp) {
-    const titre = document.createElement("b");
-    titre.textContent = tp.label;
-    const pastille = document.createElement("span");
-    pastille.className = "badge";
-    pastille.textContent = ATTENDU[tp.mode] || "";
-    $("now").append(titre, pastille);
-    // MARQUÉE ICI AUSSI, et pas seulement au menu. Une vérification doit rester
-    // reconnaissable une fois OUVERTE : c'est là qu'on décide de la commencer,
-    // et le seul autre signal était une phrase de consigne qu'on peut replier.
+    const title = document.createElement("b");
+    title.textContent = tp.label;
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = EXPECTED[tp.mode] || "";
+    $("now").append(title, badge);
+    // MARKED HERE TOO, not only in the menu. A verification must stay
+    // recognizable once OPENED: this is where one decides to start it, and
+    // the only other signal was a statement sentence that can be folded away.
     if (tp.verification) {
-      $("now").append(noeud("span", "badge verif", "vérification — sans XP"));
+      $("now").append(node("span", "badge verif", "vérification — sans XP"));
     }
     const learning = tp.learning || {};
     const details = [];
@@ -1022,51 +1031,51 @@ function switchMode() {
     }
   }
 
-  afficherConsigne(null);
-  repos();
-  preparer(tp, quiz, ++loadToken);
+  showStatement(null);
+  idleState();
+  prepareExercise(tp, quiz, ++loadToken);
 }
 
-// TROIS ÉTATS, ET PAS DEUX. « Pas de consigne en ligne » et « la consigne n'est
-// pas arrivée » s'affichaient à l'identique : l'étudiant croyait à une
-// propriété de l'exercice, donc il ne réessayait jamais -- alors qu'un
-// rechargement aurait suffi. `chargerDetail` ne met d'ailleurs pas ce repli en
-// cache, exprès, pour que réessayer marche.
-function afficherConsigne(texte, panne) {
-  const boite = $("consignetexte");
-  if (texte === null) {
-    boite.textContent = "Chargement…";
-    boite.className = "vide";
+// THREE STATES, NOT TWO. "No statement online" and "the statement has not
+// arrived" used to display identically: the student believed it was a
+// property of the exercise, so they never retried -- when a reload would
+// have been enough. `loadDetail` deliberately does not cache this fallback,
+// so that retrying works.
+function showStatement(text, failed) {
+  const box = $("consignetexte");
+  if (text === null) {
+    box.textContent = "Chargement…";
+    box.className = "vide";
     return;
   }
-  boite.textContent = panne
+  box.textContent = failed
     ? "La consigne n'a pas pu être chargée. Tu peux quand même écrire et "
       + "tester : les noms de fichiers attendus, eux, sont déjà là."
-    : texte
+    : text
       || "Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du "
        + "TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.";
-  boite.className = texte && !panne ? "" : "vide";
-  if (!panne) return;
-  // UN BOUTON, PAS UNE INVITATION À RECHARGER LA PAGE : recharger fait perdre
-  // le code non encore enregistré de celui qui vient de coller son fichier.
-  const reessayer = noeud("button", "nav", "Réessayer");
-  reessayer.type = "button";
-  reessayer.addEventListener("click", () => {
-    const tp = current();
+  box.className = text && !failed ? "" : "vide";
+  if (!failed) return;
+  // A BUTTON, NOT AN INVITATION TO RELOAD THE PAGE: reloading would lose the
+  // not-yet-saved code of someone who just pasted their file.
+  const retry = node("button", "nav", "Réessayer");
+  retry.type = "button";
+  retry.addEventListener("click", () => {
+    const tp = currentExercise();
     if (!tp) return;
-    afficherConsigne(null);
-    preparer(tp, tp.mode === "quiz", ++loadToken);
+    showStatement(null);
+    prepareExercise(tp, tp.mode === "quiz", ++loadToken);
   });
-  boite.append(reessayer);
+  box.append(retry);
 }
 
 const details = {};
 
-// LE DÉTAIL D'UN EXERCICE, chargé quand on l'ouvre. La consigne et les gabarits
-// feraient les trois quarts du catalogue pour 73 exercices dont un seul est
-// affiché ; `/catalog.json` ne porte qu'un menu. Gardé en mémoire : revenir sur
-// un exercice déjà vu ne redemande rien.
-async function chargerDetail(id) {
+// AN EXERCISE'S DETAIL, loaded when it is opened. The statement and the
+// templates would make up three quarters of the catalog for 73 exercises of
+// which only one is displayed; `/catalog.json` only carries a menu. Kept in
+// memory: coming back to an already-seen exercise asks for nothing again.
+async function loadDetail(id) {
   if (details[id]) return details[id];
   try {
     const r = await fetch(API("tp/" + id + ".json"));
@@ -1078,22 +1087,22 @@ async function chargerDetail(id) {
     };
     return details[id];
   } catch (e) {
-    // Réseau coupé, détail manquant : on ne bloque pas la page. La consigne
-    // retombe sur son message de repli, l'éditeur sur des gabarits vides -- les
-    // NOMS de fichiers viennent du catalogue et sont donc toujours là, donc on
-    // peut coller son code et soumettre. Le repli n'est PAS mis en cache : un
-    // réseau qui revient doit pouvoir réessayer.
+    // Network down, missing detail: the page is not blocked. The statement
+    // falls back to its default message, the editor to empty templates --
+    // file NAMES come from the catalog and are therefore always there, so
+    // one can still paste code and submit. The fallback is NOT cached: a
+    // network that comes back must be able to retry.
     return { statement: "", files: [], panne: true };
   }
 }
 
-async function preparer(tp, quiz, thisLoad) {
-  if (!tp) { afficherConsigne(""); return; }
-  const detail = await chargerDetail(tp.id);
+async function prepareExercise(tp, quiz, thisLoad) {
+  if (!tp) { showStatement(""); return; }
+  const detail = await loadDetail(tp.id);
   if (thisLoad !== loadToken) return;
-  afficherConsigne(detail.statement, detail.panne);
+  showStatement(detail.statement, detail.panne);
   if (quiz) {
-    if (await activerModule("quiz", "le quiz")) ctester.quiz.load(tp.id);
+    if (await activateModule("quiz", "le quiz")) ctester.quiz.load(tp.id);
     return;
   }
   if (ctester.compte) {
@@ -1138,11 +1147,11 @@ function highlight(src) {
   return out + esc(src.slice(last)) + "\n";
 }
 
-let lignesAffichees = -1;
+let displayedLineCount = -1;
 
-function gouttiere(n) {
-  if (n === lignesAffichees) return;
-  lignesAffichees = n;
+function gutter(n) {
+  if (n === displayedLineCount) return;
+  displayedLineCount = n;
   let s = "";
   for (let i = 1; i <= n; i++) s += i + "\n";
   $("gutter").textContent = s;
@@ -1150,7 +1159,7 @@ function gouttiere(n) {
 
 function paint() {
   $("hlcode").innerHTML = highlight($("code").value);
-  gouttiere($("code").value.split("\n").length);
+  gutter($("code").value.split("\n").length);
   $("hl").scrollTop = $("code").scrollTop;
   $("gutter").scrollTop = $("code").scrollTop;
   $("hl").scrollLeft = $("code").scrollLeft;
@@ -1167,49 +1176,49 @@ $("connexion").addEventListener("click", () => { $("consentement").hidden = fals
 $("consentnon").addEventListener("click", () => { $("consentement").hidden = true; });
 $("consentok").addEventListener("click", async () => {
   $("consentement").hidden = true;
-  if (!await activerModule("compte", "la partie « compte »")) return;
-  // ATTENDU, ET PAS LANCÉ DANS LE VIDE. `startSignIn` fait une découverte
-  // réseau puis un défi PKCE : sans ce `await`, un échec devient une promesse
-  // rejetée que personne ne lit, et le bouton ne fait RIEN — ni redirection,
-  // ni message. C'est précisément la panne qu'on a vue.
+  if (!await activateModule("compte", "la partie « compte »")) return;
+  // AWAITED, NOT FIRED INTO THE VOID. `startSignIn` does a network discovery
+  // then a PKCE challenge: without this `await`, a failure becomes a
+  // rejected promise nobody reads, and the button does NOTHING -- no
+  // redirect, no message. That is exactly the failure that was observed.
   try {
     await ctester.compte.startSignIn();
   } catch (e) {
-    systeme("La connexion n'a pas pu démarrer : " + e.message
+    announceSystem("La connexion n'a pas pu démarrer : " + e.message
           + ". Tu peux continuer sans compte : tout fonctionne pareil.", true);
   }
 });
-// Un <details> ne se referme pas tout seul quand on clique dedans.
+// A <details> does not close itself when clicked inside.
 $("menucompte").addEventListener("click", (e) => {
   if (e.target && e.target.tagName === "BUTTON") $("menucompte").open = false;
 });
-// L'EXPORT MARCHE SANS COMPTE, et c'est voulu : les brouillons de cet appareil
-// suffisent à assembler le fichier. Le compte n'ajoute qu'une chose -- aller
-// chercher les exercices travaillés sur un AUTRE poste -- et `exporter.js` s'en
-// occupe tout seul s'il y a un jeton. Le message part sur la ligne du
-// brouillon : c'est celle qui est juste à côté du bouton.
+// THE EXPORT WORKS WITH NO ACCOUNT, and that is intentional: this device's
+// drafts are enough to assemble the file. The account only adds one thing --
+// fetching exercises worked on from ANOTHER machine -- and `exporter.js`
+// handles that on its own if there is a token. The message goes on the
+// draft's line: it is the one right next to the button.
 $("exporttp").addEventListener("click", async () => {
-  if (!await activerModule("exporter", "l'export du TP")) return;
-  const tp = current();
-  if (tp) await ctester.exporter.exporter(tp.group, annoncerExport);
+  if (!await activateModule("exporter", "l'export du TP")) return;
+  const tp = currentExercise();
+  if (tp) await ctester.exporter.exporter(tp.group, announceExport);
 });
-// LE BOUTON N'EXISTE QUE CONNECTÉ (refreshAccount), et le fichier n'arrive
-// qu'au clic : même contrat que compte.js. Un étudiant connecté qui n'ouvre
-// jamais ses progrès n'en télécharge rien non plus.
+// THE BUTTON ONLY EXISTS SIGNED IN (refreshAccount), and the file only
+// arrives on click: same contract as compte.js. A signed-in student who
+// never opens their progress downloads none of it either.
 $("mesprogres").addEventListener("click", async () => {
-  if (!await activerModule("progres", "« Mes progrès »")) return;
+  if (!await activateModule("progres", "« Mes progrès »")) return;
   await ctester.progres.basculer();
 });
-// MÊME CONTRAT QUE « Mes progrès » : le bouton n'existe que connecté ET que si
-// le déploiement a des modérateurs, et le fichier ne descend qu'au clic.
-// Un raccourci vers le formulaire de la vue Discussions, pas un second
-// formulaire : c'est là qu'on cherche son nom quand on ne pense pas au forum.
+// SAME CONTRACT AS "Mes progrès": the button only exists signed in AND if
+// the deployment has moderators, and the file only comes down on click. A
+// shortcut to the Discussions view's form, not a second form: this is where
+// one looks for their name when not thinking about the forum.
 $("identite").addEventListener("click", async () => {
-  if (!await activerModule("forum", "les discussions")) return;
+  if (!await activateModule("forum", "les discussions")) return;
   await ctester.forum.ouvrirIdentite();
 });
 $("discussions").addEventListener("click", async () => {
-  if (!await activerModule("forum", "les discussions")) return;
+  if (!await activateModule("forum", "les discussions")) return;
   await ctester.forum.basculer();
 });
 $("deconnexion").addEventListener("click", () => {
@@ -1219,54 +1228,54 @@ $("oublier").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.oublier();
 });
 
-// LE PARCOURS ANONYME NE TÉLÉCHARGE RIEN DU COMPTE. On ne va chercher compte.js
-// que s'il y a une session en cours, un retour de connexion, ou un clic sur
-// « Se connecter » : c'est-à-dire jamais pour l'étudiant qui passe sans compte,
-// et c'est lui le parcours par défaut.
+// THE ANONYMOUS PATH DOWNLOADS NOTHING ACCOUNT-RELATED. compte.js is only
+// fetched if there is a session in progress, a sign-in return, or a click on
+// "Se connecter": that is, never for the student passing through with no
+// account, and that is the default path.
 fetch(API("oidc.json")).then(r => r.json()).then(async (config) => {
   if (!config || !config.issuer || !config.client_id) return;
   oidc = config;
-  const jeton = sessionGet(TOKEN_KEY);
-  token = jeton || null;
+  const savedToken = sessionGet(TOKEN_KEY);
+  token = savedToken || null;
   refreshAccount();
-  if (!jeton && !authCode) return;
-  if (await activerModule("compte", "la partie « compte »")) await ctester.compte.demarrer();
+  if (!savedToken && !authCode) return;
+  if (await activateModule("compte", "la partie « compte »")) await ctester.compte.demarrer();
 }).catch(() => {});
 
 Object.assign(ctester, {
   $: $,
-  // `systeme` ET PAS `show` : le canal du service. Les deux seuls appels des
-  // modules -- une connexion qui échoue, une suppression de compte confirmée --
-  // parlent du service, jamais du code de l'étudiant. Le verdict, lui, n'a
-  // aucune raison d'être écrit depuis un module.
-  systeme: systeme,
+  // `systeme` AND NOT `show`: the service channel. The modules' only two
+  // calls -- a failed sign-in, a confirmed account deletion -- talk about
+  // the service, never about the student's code. The verdict itself has no
+  // reason to ever be written from a module.
+  systeme: announceSystem,
   sessionGet: sessionGet,
   sessionSet: sessionSet,
   sessionDrop: sessionDrop,
   authCode: authCode,
   authState: authState,
-  // Le chargeur de scripts, exposé pour les DEUX bibliothèques du rendu du
-  // forum (`web/vendor/`). Même mécanique que les modules, mêmes garanties :
-  // une promesse par fichier, un échec jamais gardé, et l'appelant décide quoi
-  // faire quand ça n'arrive pas -- pour le forum, retomber sur du texte brut.
-  charger: charger,
-  // Le chargeur de MODULES, celui qui dit à l'étudiant ce qui n'est pas
-  // arrivé. Exposé parce que « Mes progrès » (progres.js) offre lui aussi
-  // l'export : sans lui, progres.js réécrirait `charger()` plus ses deux
-  // messages d'erreur, et la moitié qui manquerait serait toujours ceux-là.
-  activerModule: activerModule,
-  // Le thème : le noyau le pose (le bouton est dans la barre, et il
-  // existe pour l'anonyme), `compte.js` le synchronise avec le compte.
-  appliquerTheme: appliquerTheme,
-  retenirTheme: retenirTheme,
-  themeCourant: themeCourant,
-  // DES FONCTIONS, PAS DES `get`. `catalogue`, `token` et `oidc` sont
-  // réaffectés après le chargement, donc une copie mentirait -- et
-  // `Object.assign` copie justement la VALEUR d'un getter, pas le getter :
-  // `ctester.token` serait resté figé à null pour toute la visite, et tout ce
-  // qui suit un compte (états, pratique, synchronisation des brouillons)
-  // serait tombé en silence. C'est arrivé.
-  catalogue: () => catalogue,
+  // The script loader, exposed for the forum's TWO rendering libraries
+  // (`web/vendor/`). Same mechanism as the modules, same guarantees: one
+  // promise per file, a failure never kept, and the caller decides what to
+  // do when it does not arrive -- for the forum, falling back to plain text.
+  charger: load,
+  // The MODULE loader, the one that tells the student what did not arrive.
+  // Exposed because "Mes progrès" (progres.js) also offers the export:
+  // without it, progres.js would rewrite `load()` plus its two error
+  // messages, and the missing half would always be those.
+  activerModule: activateModule,
+  // The theme: the core sets it (the button lives in the bar, and it exists
+  // for the anonymous visitor too), `compte.js` syncs it with the account.
+  appliquerTheme: applyTheme,
+  retenirTheme: rememberTheme,
+  themeCourant: currentTheme,
+  // FUNCTIONS, NOT `get`s. `catalogue`, `token` and `oidc` are reassigned
+  // after loading, so a copy would lie -- and `Object.assign` copies exactly
+  // the VALUE of a getter, not the getter itself: `ctester.token` would have
+  // stayed frozen at null for the whole visit, and everything that follows
+  // an account (states, practice, draft syncing) would have failed
+  // silently. This happened.
+  catalogue: () => catalog,
   token: () => token,
   oidc: () => oidc,
   setToken: setToken,
@@ -1274,193 +1283,193 @@ Object.assign(ctester, {
   switchMode: switchMode,
   fillExercises: fillExercises,
   showDraftStatus: showDraftStatus,
-  maintenant: maintenant,
-  poserStatuts: poserStatuts,
-  dernierVerdict: () => dernierVerdict,
-  // LE BROUILLON DU QUIZ, local seulement : `/brouillon` valide les noms de
-  // fichiers déclarés par l'exercice, et un identifiant de question n'en est
-  // pas un. Même magasin, même bouton « Effacer mes brouillons ».
+  maintenant: now,
+  poserStatuts: setStatuses,
+  dernierVerdict: () => lastVerdict,
+  // THE QUIZ'S DRAFT, local only: `/brouillon` validates the file names an
+  // exercise declares, and a question id is not one of them. Same store,
+  // same "Effacer mes brouillons" button.
   brouillon: (id) => drafts[id] || null,
-  enregistrerBrouillon: (id, valeurs) => {
+  enregistrerBrouillon: (id, values) => {
     if (!id) return;
-    drafts[id] = valeurs;
+    drafts[id] = values;
     persistDrafts();
   },
   exerciceOuvert: () => currentId,
-  // CE QUE LE MENU MONTRE, quand `currentId` n'est pas encore posé : le
-  // remplissage de l'éditeur passe par le réseau, et le forum sait s'ouvrir
-  // avant qu'il ne soit revenu.
-  exerciceChoisi: () => selection,
-  // L'EXPORT, VU DU NOYAU : qui a le droit à un bouton (`groupeExportable`) et
-  // ce qu'il faut assembler (`exercicesExportables`). `exporter.js` et
-  // `compte.js` lisent tous les deux ici -- une seule règle, un seul endroit.
-  exercicesExportables: exercicesExportables,
-  groupeExportable: groupeExportable,
-  afficherVue: afficherVue,
-  vue: () => vueCourante,
-  // Les libellés de compétence sont déjà ici pour la barre de contexte : les
-  // recopier dans progres.js ferait deux tables à tenir à jour, dont une se
-  // périmerait en silence.
+  // WHAT THE MENU SHOWS, when `currentId` is not yet set: the editor's fill-in
+  // goes through the network, and the forum knows how to open before it has
+  // come back.
+  exerciceChoisi: () => selectedId,
+  // THE EXPORT, AS SEEN FROM THE CORE: who gets a button (`groupeExportable`)
+  // and what must be assembled (`exercicesExportables`). Both `exporter.js`
+  // and `compte.js` read from here -- one rule, one place.
+  exercicesExportables: exportableExercises,
+  groupeExportable: isGroupExportable,
+  afficherVue: showView,
+  vue: () => currentView,
+  // Skill labels are already here for the context bar: copying them into
+  // progres.js would make two tables to keep in sync, one of which would go
+  // stale silently.
   skillLabel: (id) => SKILL_LABELS[id] || id,
 });
 
-let sortieClavier = false;
+let keyboardEscape = false;
 $("code").addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { sortieClavier = true; return; }
+  if (e.key === "Escape") { keyboardEscape = true; return; }
   if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey) {
-    sortieClavier = false;
+    keyboardEscape = false;
     return;
   }
-  if (sortieClavier) { sortieClavier = false; return; }
+  if (keyboardEscape) { keyboardEscape = false; return; }
   e.preventDefault();
   const zone = $("code");
-  const debut = zone.selectionStart, fin = zone.selectionEnd;
-  zone.value = zone.value.slice(0, debut) + "    " + zone.value.slice(fin);
-  zone.selectionStart = zone.selectionEnd = debut + 4;
+  const start = zone.selectionStart, end = zone.selectionEnd;
+  zone.value = zone.value.slice(0, start) + "    " + zone.value.slice(end);
+  zone.selectionStart = zone.selectionEnd = start + 4;
   paint();
 });
 
 let sources = {};
-let actif = null;
+let activeFile = null;
 
-function setupFiles(tp, gabarits) {
-  // Les NOMS font foi et viennent du catalogue -- c'est la liste blanche que
-  // l'API oppose à la soumission. Les gabarits, eux, viennent du détail et
-  // peuvent manquer : un onglet sans gabarit s'ouvre vide.
-  const modeles = Object.fromEntries(
-    (gabarits || []).map(f => [f.name, f.template || ""]));
+function setupFiles(tp, templateFiles) {
+  // NAMES are authoritative and come from the catalog -- the allow-list the
+  // API checks a submission against. Templates come from the detail and may
+  // be missing: a tab with no template opens empty.
+  const templates = Object.fromEntries(
+    (templateFiles || []).map(f => [f.name, f.template || ""]));
   const files = ((tp && tp.files && tp.files.length)
     ? tp.files : [{ name: "submission.c" }])
-    .map(f => ({ name: f.name, template: modeles[f.name] || "" }));
+    .map(f => ({ name: f.name, template: templates[f.name] || "" }));
   sources = (tp && drafts[tp.id]) || null;
-  // L'ÉTAT DE DÉPART SE DIT, LUI AUSSI. « Brouillon retrouvé » répond à la
-  // tâche « je reviens après une pause » AVANT qu'on ait à chercher si le code
-  // est bien celui qu'on avait laissé ; et sur un exercice neuf, annoncer que
-  // l'enregistrement est automatique évite de se demander où est le bouton
-  // « Enregistrer » qui n'existe pas.
+  // THE STARTING STATE IS SAID TOO. "Draft found" answers the "I'm coming
+  // back after a break" task BEFORE one has to check whether the code is
+  // really the one left behind; and on a fresh exercise, announcing that
+  // saving is automatic avoids wondering where the missing "Enregistrer"
+  // button is.
   showDraftStatus(sources ? "brouillon retrouvé" : "enregistrement automatique");
   if (!sources) {
     sources = {};
     for (const f of files) sources[f.name] = f.template || "";
   }
-  actif = null;
+  activeFile = null;
   currentId = tp ? tp.id : null;
   $("tabs").innerHTML = "";
   for (const f of files) {
-    const onglet = document.createElement("button");
-    onglet.type = "button";
-    onglet.className = "tab";
-    onglet.textContent = f.name;
-    onglet.dataset.name = f.name;
-    onglet.setAttribute("role", "tab");
-    onglet.setAttribute("aria-controls", "edwrap");
-    onglet.addEventListener("click", () => activer(f.name));
-    $("tabs").append(onglet);
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = "tab";
+    tab.textContent = f.name;
+    tab.dataset.name = f.name;
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-controls", "edwrap");
+    tab.addEventListener("click", () => activateTab(f.name));
+    $("tabs").append(tab);
   }
   $("tabs").hidden = files.length <= 1;
   $("edtitle").hidden = files.length > 1;
-  activer(files[0].name);
+  activateTab(files[0].name);
 }
 
-function activer(nom) {
-  if (actif !== null) sources[actif] = $("code").value;
-  actif = nom;
-  $("edtitle").textContent = nom;
-  // LE CHAMP N'AVAIT AUCUN NOM ACCESSIBLE : `#edtitle` est un <span>, pas un
-  // <label>. Un lecteur d'écran annonçait « zone de texte », sans dire lequel
-  // des deux fichiers du module on était en train d'éditer.
-  $("code").setAttribute("aria-label", "Code de " + nom);
-  $("code").value = sources[nom] || "";
-  for (const onglet of $("tabs").children) {
-    const courant = onglet.dataset.name === nom;
-    onglet.className = courant ? "tab on" : "tab";
-    onglet.setAttribute("aria-selected", courant ? "true" : "false");
-    onglet.tabIndex = courant ? 0 : -1;
+function activateTab(name) {
+  if (activeFile !== null) sources[activeFile] = $("code").value;
+  activeFile = name;
+  $("edtitle").textContent = name;
+  // THE FIELD HAD NO ACCESSIBLE NAME: `#edtitle` is a <span>, not a <label>.
+  // A screen reader announced "text area", without saying which of the
+  // module's two files was being edited.
+  $("code").setAttribute("aria-label", "Code de " + name);
+  $("code").value = sources[name] || "";
+  for (const tab of $("tabs").children) {
+    const isCurrent = tab.dataset.name === name;
+    tab.className = isCurrent ? "tab on" : "tab";
+    tab.setAttribute("aria-selected", isCurrent ? "true" : "false");
+    tab.tabIndex = isCurrent ? 0 : -1;
   }
   paint();
 }
 
 $("tabs").addEventListener("keydown", (e) => {
-  const pas = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-  if (!pas) return;
-  const noms = [...$("tabs").children].map(o => o.dataset.name);
-  const i = noms.indexOf(actif);
-  if (i >= 0) activer(noms[(i + pas + noms.length) % noms.length]);
+  const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+  if (!step) return;
+  const names = [...$("tabs").children].map(o => o.dataset.name);
+  const i = names.indexOf(activeFile);
+  if (i >= 0) activateTab(names[(i + step + names.length) % names.length]);
 });
 
-// L'IMPORT PERDAIT LE FICHIER IMPORTÉ. `saveDraft` n'était appelé que sur
-// l'événement `input`, et `input` NE SE DÉCLENCHE PAS quand un script écrit
-// dans un `<textarea>` : le fichier n'existait que dans le DOM, et un
-// rechargement -- ou un onglet fermé par erreur -- l'emportait sans un mot.
-// C'est la perte de code la plus facile à provoquer de toute la page.
+// IMPORT USED TO LOSE THE IMPORTED FILE. `saveDraft` was only called on the
+// `input` event, and `input` DOES NOT FIRE when a script writes into a
+// `<textarea>`: the file only existed in the DOM, and a reload -- or a tab
+// closed by mistake -- would take it away without a word. It is the easiest
+// way to lose code on the whole page.
 $("file").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   if (!f) return;
-  const texte = await f.text();
-  // LE FICHIER VA DANS L'ONGLET QUI PORTE SON NOM, quand il y en a un. Importer
-  // `calendrier.c` par-dessus `calendrier.h` parce que c'est l'onglet ouvert
-  // est un écrasement silencieux, au moment précis où l'étudiant regarde
-  // ailleurs -- il vient de choisir un fichier dans une boîte système.
-  const cible = Object.prototype.hasOwnProperty.call(sources, f.name)
-    ? f.name : actif;
-  if (cible !== actif) activer(cible);
-  // ON DEMANDE AVANT D'ÉCRASER DU TRAVAIL : il n'y a pas d'annulation dans cet
-  // éditeur, le code remplacé est parti pour de bon. Un onglet vide, ou resté
-  // au gabarit, ne vaut pas une question.
-  const remplace = ($("code").value || "").trim();
-  if (remplace && typeof confirm === "function"
-      && !confirm("Remplacer le contenu de « " + cible + " » par « " + f.name
+  const text = await f.text();
+  // THE FILE GOES INTO THE TAB CARRYING ITS NAME, when there is one.
+  // Importing `calendrier.c` over `calendrier.h` just because that is the
+  // open tab is a silent overwrite, at the exact moment the student is
+  // looking elsewhere -- they just picked a file in a system dialog.
+  const target = Object.prototype.hasOwnProperty.call(sources, f.name)
+    ? f.name : activeFile;
+  if (target !== activeFile) activateTab(target);
+  // WE ASK BEFORE OVERWRITING WORK: there is no undo in this editor, replaced
+  // code is gone for good. An empty tab, or one still at its template, is not
+  // worth a question.
+  const replaced = ($("code").value || "").trim();
+  if (replaced && typeof confirm === "function"
+      && !confirm("Remplacer le contenu de « " + target + " » par « " + f.name
                   + " » ? Ce qui est écrit dans cet onglet sera perdu.")) {
     e.target.value = "";
     return;
   }
-  $("code").value = texte;
+  $("code").value = text;
   paint();
   clearTimeout(saveTimer);
   saveDraft();
-  // REMETTRE LE CHAMP À ZÉRO : sans ça, réimporter le MÊME fichier après l'avoir
-  // corrigé sur son disque ne déclenche pas `change`, et le bouton semble mort.
+  // RESET THE FIELD TO EMPTY: without this, reimporting the SAME file after
+  // fixing it on disk does not trigger `change`, and the button looks dead.
   e.target.value = "";
 });
 
-// LA CLASSE D'ERREUR, tirée de la raison écrite par le serveur. Un résumé qui
-// reprenait la phrase entière (« Cas 1 : ta sortie contient inf ou nan :
-// division par zéro, ou une variable utilisée alors que… ») ne se survolait
-// pas : avec trois cas repliés, on ne pouvait pas voir d'un coup d'oeil si le
-// programme avait planté ou simplement mal calculé.
-function classeDuCas(raison) {
-  const r = raison || "";
+// THE ERROR CLASS, drawn from the reason the server wrote. A summary that
+// repeated the whole sentence ("Cas 1 : ta sortie contient inf ou nan :
+// division par zéro, ou une variable utilisée alors que…") did not scan at a
+// glance: with three cases folded, one could not tell at a glance whether
+// the program had crashed or simply miscalculated.
+function caseClass(reason) {
+  const r = reason || "";
   if (/n'a pas terminé|interrompu/.test(r)) return "n'a pas fini";
   if (/débordé de la mémoire/.test(r)) return "débordement mémoire";
   if (/terminé anormalement/.test(r)) return "a planté";
   return "mauvaise sortie";
 }
 
-// LE CONTRAT DE CORRECTION, ÉCRIT. Le juge est BEAUCOUP plus permissif que ce
-// que l'étudiant croit -- `match_subsequence` accepte n'importe quel texte
-// autour des valeurs attendues -- et personne ne le lui disait. Il passait donc
-// du temps à deviner un format de sortie qui n'a jamais été imposé.
+// THE GRADING CONTRACT, WRITTEN OUT. The judge is MUCH more permissive than
+// the student thinks -- `match_subsequence` accepts any text around the
+// expected values -- and nobody told them. So they used to spend time
+// guessing an output format that was never imposed.
 //
-// Ça ne révèle aucune réponse : ça dit COMMENT on compare, pas À QUOI.
-// L'EXEMPLE EST TOUJOURS LE MÊME, sur tous les exercices, et il porte une
-// valeur qui n'est celle d'aucun d'eux : un exemple qui varierait avec
-// l'exercice se lirait comme un indice sur la réponse attendue.
+// This reveals no answer: it says HOW the comparison works, not WHAT it
+// compares against. THE EXAMPLE IS ALWAYS THE SAME, across every exercise,
+// and it carries a value that is nobody's actual answer: an example that
+// varied with the exercise would read as a hint about the expected answer.
 const CONTRAT = "On lit les NOMBRES de ta sortie, dans l'ordre ; le texte autour "
               + "est libre. Par exemple, « Aire = 42 cm2 » et « 42 » sont lus de "
               + "la même façon.";
 
-// Les ENTRÉES telles que le programme les reçoit, une par ligne. « stdin » ne
-// veut rien dire pour un débutant ; « ton programme reçoit 12 puis 7 » décrit
-// exactement ce que font ses deux scanf.
-function entreesDuCas(stdin) {
+// The INPUTS as the program receives them, one per line. "stdin" means
+// nothing to a beginner; "ton programme reçoit 12 puis 7" describes exactly
+// what its two scanf calls do.
+function caseInputs(stdin) {
   return (stdin || "").split("\n").map(v => v.trim()).filter(v => v !== "");
 }
 
-function ligneCas(etiquette, valeur, classe) {
-  const bloc = noeud("div", "champ" + (classe ? " " + classe : ""));
-  bloc.append(noeud("span", "quoi", etiquette));
-  bloc.append(noeud("pre", "valeur", valeur));
-  return bloc;
+function caseRow(label, value, className) {
+  const block = node("div", "champ" + (className ? " " + className : ""));
+  block.append(node("span", "quoi", label));
+  block.append(node("pre", "valeur", value));
+  return block;
 }
 
 function cases(items) {
@@ -1469,370 +1478,372 @@ function cases(items) {
     const wrap = document.createElement("details");
     wrap.className = "case";
     wrap.open = !box.children.length;
-    const classe = classeDuCas(c.reason);
+    const className = caseClass(c.reason);
     const why = document.createElement("summary");
-    why.textContent = `Cas ${c.case} — ${classe}`;
-    const corps = noeud("div", "corps");
+    why.textContent = `Cas ${c.case} — ${className}`;
+    const body = node("div", "corps");
 
-    const recues = entreesDuCas(c.stdin);
-    corps.append(ligneCas(
-      recues.length === 1 ? "Ton programme reçoit :"
+    const received = caseInputs(c.stdin);
+    body.append(caseRow(
+      received.length === 1 ? "Ton programme reçoit :"
                           : "Ton programme reçoit, dans cet ordre :",
-      recues.length ? recues.join("   puis   ")
+      received.length ? received.join("   puis   ")
                     : "rien — ce cas ne lui fournit aucune entrée"));
 
-    corps.append(ligneCas("Ce qu'il a affiché :", c.stdout || "(rien)"));
+    body.append(caseRow("Ce qu'il a affiché :", c.stdout || "(rien)"));
 
-    // LES NOMBRES QUE LE JUGE A LUS, REMONTÉS AU MÊME RANG que la sortie. C'est
-    // l'information la plus actionnable du bloc -- elle démonte la boîte noire
-    // de l'appariement -- et elle vivait en gris de 12 px sous le reste.
+    // THE NUMBERS THE JUDGE READ, surfaced at the same rank as the output.
+    // This is the block's single most actionable piece of information -- it
+    // takes apart the matching black box -- and it used to live in 12px gray
+    // under everything else.
     if (c.nombres) {
-      corps.append(ligneCas(
+      body.append(caseRow(
         "Les nombres que le juge y a lus :",
         c.nombres.length ? c.nombres.join(", ") : "aucun"));
     }
 
-    if (c.stderr) corps.append(ligneCas("Sa sortie d'erreur :", c.stderr));
+    if (c.stderr) body.append(caseRow("Sa sortie d'erreur :", c.stderr));
 
-    // La raison du serveur, en toutes lettres : c'est elle qui porte les
-    // diagnostics vraiment utiles (« inf ou nan », « aucun nombre »).
-    corps.append(noeud("p", "pourquoi", c.reason));
-    // Le contrat n'a de sens que pour une comparaison de VALEURS : un programme
-    // qui a planté, ou un cas qui cherche un mot, ne se corrige pas en
-    // reformatant sa sortie.
-    if (classe === "mauvaise sortie" && !/mot attendu|mentionne/.test(c.reason || "")) {
-      corps.append(noeud("p", "contrat", CONTRAT));
+    // The server's reason, spelled out: it carries the diagnostics that are
+    // actually useful ("inf ou nan", "aucun nombre").
+    body.append(node("p", "pourquoi", c.reason));
+    // The contract only makes sense for a VALUE comparison: a program that
+    // crashed, or a case looking for a word, is not fixed by reformatting
+    // its output.
+    if (className === "mauvaise sortie" && !/mot attendu|mentionne/.test(c.reason || "")) {
+      body.append(node("p", "contrat", CONTRAT));
     }
-    wrap.append(why, corps);
+    wrap.append(why, body);
     box.append(wrap);
   }
   return box;
 }
 
-function avertissements(texte) {
-  const bloc = document.createElement("div");
-  bloc.className = "avert";
-  const titre = document.createElement("div");
-  titre.className = "titre";
-  titre.textContent = "Avertissements du compilateur";
-  const quoi = document.createElement("div");
-  quoi.className = "quoi";
-  quoi.textContent = "Ce n'est pas une erreur : ton programme compile. "
+function warningsBlock(text) {
+  const block = document.createElement("div");
+  block.className = "avert";
+  const title = document.createElement("div");
+  title.className = "titre";
+  title.textContent = "Avertissements du compilateur";
+  const what = document.createElement("div");
+  what.className = "quoi";
+  what.textContent = "Ce n'est pas une erreur : ton programme compile. "
                    + "Mais gcc a remarqué ceci, et ça vaut le coup d'œil.";
-  const corps = document.createElement("pre");
-  corps.textContent = texte;
-  bloc.append(titre, quoi, corps);
-  return bloc;
+  const body = document.createElement("pre");
+  body.textContent = text;
+  block.append(title, what, body);
+  return block;
 }
 
 const UNITS = {quiz: "réponses justes", io: "cas réussis", unity: "tests réussis"};
 
-// CE QU'ON ATTEND COMME SOUMISSION, par mode. Les TROIS modes, et pas
-// « quiz ou le reste » : un exercice unity attend un module SANS main(), et
-// promettre l'inverse envoie 42 des 72 exercices droit dans une erreur
-// d'édition de liens que l'étudiant n'a aucun moyen de rattacher à la
-// pastille qui la lui a demandée.
-const ATTENDU = {
+// WHAT IS EXPECTED AS A SUBMISSION, by mode. All THREE modes, and not "quiz
+// or the rest": a unity exercise expects a module with NO main(), and
+// promising the opposite sends 42 of the 72 exercises straight into a
+// linking error the student has no way to connect to the badge that asked
+// for it.
+const EXPECTED = {
   quiz: "réponses à saisir",
   io: "programme complet, avec son main()",
   unity: "module seul, sans main()",
 };
 
-// « Tester l'exercice » ne change RIEN a la correction : le juge garde le
-// corrige et note le quiz entier, et c'est de ce verdict complet que l'API
-// derive « valide ». Seule la LECTURE est restreinte -- les questions des
-// autres exercices sortent du decompte et de la liste. Un exercice juste ne
-// peut donc pas valider un TP a moitie rempli.
-function restreindre(r, portee) {
-  const wrong = (r.wrong || []).filter(w => portee.ids.indexOf(w.id) >= 0);
+// "Tester l'exercice" changes NOTHING about grading: the judge keeps the
+// reference solution and grades the whole quiz, and it is from that
+// complete verdict that the API derives "valide". Only the READING is
+// restricted -- other exercises' questions leave the count and the list.
+// A correct exercise therefore cannot validate a half-filled lab.
+function restrictToScope(r, scope) {
+  const wrong = (r.wrong || []).filter(w => scope.ids.indexOf(w.id) >= 0);
   return Object.assign({}, r, {
-    total: portee.ids.length,
-    passed: portee.ids.length - wrong.length,
+    total: scope.ids.length,
+    passed: scope.ids.length - wrong.length,
     wrong: wrong,
   });
 }
 
-// L'EXERCICE OUVERT SUIVANT, pour l'action qui suit une réussite. `catalogue`
-// ne porte que les exercices ouverts : il n'y a donc pas de cadenas à éviter.
-function suivantOuvrable() {
-  const i = catalogue.findIndex(t => t.id === selection);
-  return i >= 0 ? catalogue[i + 1] || null : null;
+// THE NEXT OPEN EXERCISE, for the action following a success. `catalog` only
+// carries open exercises: there is therefore no lock to sidestep.
+function nextOpenExercise() {
+  const i = catalog.findIndex(t => t.id === selectedId);
+  return i >= 0 ? catalog[i + 1] || null : null;
 }
 
-// CE QU'ON PROPOSE APRÈS UNE RÉUSSITE COMPLÈTE. Un bouton, pas une phrase :
-// c'est le seul moment de la boucle où l'étudiant n'a plus rien à corriger, et
-// la page ne lui offrait rien.
-function apresReussite() {
-  const apres = suivantOuvrable();
-  if (!apres) {
+// WHAT IS OFFERED AFTER A COMPLETE SUCCESS. A button, not a sentence: it is
+// the only moment in the loop where the student has nothing left to fix, and
+// the page used to offer them nothing.
+function afterSuccess() {
+  const next = nextOpenExercise();
+  if (!next) {
     return { suite: "C'est le dernier exercice ouvert pour l'instant." };
   }
   return {
     suite: "Tu peux passer à la suite.",
-    bouton: { libelle: "Ouvrir « " + apres.short + " »",
-              faire: () => fillExercises(apres.id) },
+    bouton: { libelle: "Ouvrir « " + next.short + " »",
+              faire: () => fillExercises(next.id) },
   };
 }
 
-// CE QU'ON DIT APRÈS UN ÉCHEC DE TESTS, par mode. Le juge a exécuté le
-// programme : ce qui reste à faire n'est plus de le faire tourner, c'est de
-// lire ce qu'il a produit.
-const APRES_ECHEC = {
+// WHAT IS SAID AFTER A TEST FAILURE, by mode. The judge ran the program: what
+// is left to do is no longer making it run, it is reading what it produced.
+const AFTER_FAILURE = {
   io: "Ouvre le cas qui échoue : il montre ce que ton programme a reçu et ce "
     + "qu'il a affiché.",
   unity: "Le nom de chaque vérification décrit le cas qu'elle teste.",
   quiz: "Corrige les réponses ci-dessus, puis relance le test.",
 };
 
-// LES NOMS DE TESTS SONT ÉCRITS POUR L'ÉTUDIANT -- encore faut-il le lui dire.
-// Une liste d'identifiants nus (`test_pop_pile_vide`) ne s'annonce pas comme du
-// français ; et le silence sur ce qu'on ne montre pas se lit comme un manque
-// d'information plutôt que comme une décision.
-function testsRates(noms) {
-  const bloc = noeud("div", "rates");
-  bloc.append(noeud("p", "quoi", noms.length === 1
+// TEST NAMES ARE WRITTEN FOR THE STUDENT -- one still has to say so. A list
+// of bare ids (`test_pop_pile_vide`) does not announce itself as French; and
+// silence about what is not shown reads as a lack of information rather than
+// a decision.
+function failedTests(names) {
+  const block = node("div", "rates");
+  block.append(node("p", "quoi", names.length === 1
     ? "Cette vérification a échoué. Son nom décrit le cas qu'elle teste :"
     : "Ces vérifications ont échoué. Leur nom décrit le cas qu'elles testent :"));
-  bloc.append(list(noms));
-  bloc.append(noeud("p", "contrat",
+  block.append(list(names));
+  block.append(node("p", "contrat",
     "Les valeurs attendues ne sont pas montrées : les trouver EST l'exercice."));
-  return bloc;
+  return block;
 }
 
-function render(r, portee) {
-  // UN VERDICT EFFACE LE BANDEAU SYSTÈME. Laisser « le serveur est injoignable »
-  // au-dessus d'un résultat qui vient d'arriver dirait deux choses opposées.
-  effacerSysteme();
+function render(r, scope) {
+  // A VERDICT CLEARS THE SYSTEM BANNER. Leaving "the server is unreachable"
+  // above a result that just arrived would say two contradictory things.
+  clearSystem();
   if (r.status !== "ok") {
-    // UNE PANNE DU JUGE N'EST PAS UN VERDICT. `error` couvre deux choses très
-    // différentes côté serveur : un programme étudiant qui plante (des étapes à
-    // montrer) et une erreur interne (« Erreur interne du juge », « Le juge a
-    // été interrompu »), qui ne parle pas du code et n'a rien à faire ici.
+    // A JUDGE FAILURE IS NOT A VERDICT. `error` covers two very different
+    // things server-side: a student program crashing (steps to show) and an
+    // internal error ("Erreur interne du juge", "Le juge a été interrompu"),
+    // which is not about the code and has no business here.
     if (r.status === "error" && /juge/.test(r.message || "")) {
-      systeme(r.message + " Ton code est enregistré.", true);
-      // ET ON REPART DU REPOS : sans ça, le verdict restait figé sur « Envoi… »
-      // pendant que le bandeau annonçait une panne -- deux écrans qui disent
-      // deux choses différentes au même moment.
-      repos();
+      announceSystem(r.message + " Ton code est enregistré.", true);
+      // AND WE GO BACK TO IDLE: without this, the verdict stayed frozen on
+      // "Envoi…" while the banner announced a failure -- two screens saying
+      // two different things at the same time.
+      idleState();
       return;
     }
-    const etat = ETATS[r.status] || ETATS.error;
-    verdict({
+    const outcome = OUTCOMES[r.status] || OUTCOMES.error;
+    renderVerdict({
       cls: "bad",
-      etapes: etat.etapes,
-      titre: etat.titre,
+      etapes: outcome.etapes,
+      titre: outcome.titre,
       texte: r.message || "",
-      detail: r.status === "compile_error" ? sortieCompilateur(r.gcc) : null,
-      suite: etat.suite,
+      detail: r.status === "compile_error" ? compilerOutput(r.gcc) : null,
+      suite: outcome.suite,
     });
   } else {
-    const cadre = portee && r.kind === "quiz" ? " — " + portee.titre : "";
-    if (portee && r.kind === "quiz") r = restreindre(r, portee);
+    const frame = scope && r.kind === "quiz" ? " — " + scope.titre : "";
+    if (scope && r.kind === "quiz") r = restrictToScope(r, scope);
     const all = r.passed === r.total;
-    const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}${cadre}`;
+    const title = `${r.passed} / ${r.total} ${UNITS[r.kind] || "réussis"}${frame}`;
     const bar = r.total > 0 ? ticks(r.passed, r.total) : null;
-    // LE PROGRAMME A COMPILÉ ET IL A TOURNÉ : les deux premières étapes sont
-    // réussies par construction, on n'est ici que parce que le juge a pu noter.
-    // DEUX ETAPES SEULEMENT quand le juge a note : le compte affiche juste
-    // en dessous EST le resultat des tests, une troisieme case le redirait.
-    const etapes = ["ok", "ok"];
+    // THE PROGRAM COMPILED AND IT RAN: the first two steps pass by
+    // construction, we are only here because the judge could grade it.
+    // ONLY TWO STEPS when the judge has graded: the count displayed right
+    // below IS the tests' result, a third box would only repeat it.
+    const steps = ["ok", "ok"];
     if (all) {
-      const apres = apresReussite();
-      verdict({ cls: "ok", etapes: etapes, compte: true, titre: title, bar: bar,
-                suite: apres.suite, bouton: apres.bouton });
+      const next = afterSuccess();
+      renderVerdict({ cls: "ok", etapes: steps, compte: true, titre: title, bar: bar,
+                suite: next.suite, bouton: next.bouton });
     } else if (r.kind === "quiz") {
-      verdict({ cls: "bad", etapes: etapes, compte: true, titre: title, bar: bar,
-                suite: APRES_ECHEC.quiz,
+      renderVerdict({ cls: "bad", etapes: steps, compte: true, titre: title, bar: bar,
+                suite: AFTER_FAILURE.quiz,
                 detail: list(r.wrong.map(w => {
-        const groupe = ctester.quiz ? ctester.quiz.groupeDe(w.id) : "";
-        const ex = groupe.match(/Exercice\s*\d+/i);
-        const vide = !(w.given && w.given.trim());
-        const saisi = vide ? "" : ` (tu as répondu « ${w.given} »)`;
-        // Pas repondu n'est pas faux : le rouge est reserve aux erreurs.
+        const group = ctester.quiz ? ctester.quiz.groupeDe(w.id) : "";
+        const ex = group.match(/Exercice\s*\d+/i);
+        const empty = !(w.given && w.given.trim());
+        const given = empty ? "" : ` (tu as répondu « ${w.given} »)`;
+        // Not answered is not wrong: red is reserved for actual errors.
         return {
-          text: (ex ? ex[0] + " — " : "") + w.label + saisi
+          text: (ex ? ex[0] + " — " : "") + w.label + given
               + (w.hint ? " — " + w.hint : ""),
-          cls: vide ? "rien" : "",
+          cls: empty ? "rien" : "",
         };
       })) });
     } else if (r.kind === "io") {
-      verdict({ cls: "bad", etapes: etapes, compte: true, titre: title, bar: bar,
-                detail: cases(r.cases), suite: APRES_ECHEC.io });
+      renderVerdict({ cls: "bad", etapes: steps, compte: true, titre: title, bar: bar,
+                detail: cases(r.cases), suite: AFTER_FAILURE.io });
     } else {
-      verdict({ cls: "bad", etapes: etapes, compte: true, titre: title, bar: bar,
-                detail: r.failed.length ? testsRates(r.failed) : null,
-                suite: APRES_ECHEC.unity });
+      renderVerdict({ cls: "bad", etapes: steps, compte: true, titre: title, bar: bar,
+                detail: r.failed.length ? failedTests(r.failed) : null,
+                suite: AFTER_FAILURE.unity });
     }
   }
-  if (r.warnings) out.append(avertissements(r.warnings));
-  amenerLeResultat();
+  if (r.warnings) out.append(warningsBlock(r.warnings));
+  scrollResultIntoView();
 }
 
-// SUR PETIT ÉCRAN, LE RÉSULTAT EST SOUS L'ÉDITEUR ET HORS DE L'ÉCRAN : cliquer
-// « Tester » n'y produisait visiblement RIEN. On l'y amène et on y pose le
-// focus. Sur grand écran il est déjà dans la grille, à côté de l'éditeur, et
-// voler le focus en pleine correction serait pire que le mal.
-function amenerLeResultat() {
-  const etroit = typeof matchMedia === "function"
+// ON A SMALL SCREEN, THE RESULT SITS BELOW THE EDITOR AND OFF-SCREEN:
+// clicking "Tester" visibly produced NOTHING there. We scroll it into view and
+// put focus on it. On a large screen it is already in the grid, next to the
+// editor, and stealing focus mid-correction would be worse than the problem.
+function scrollResultIntoView() {
+  const narrow = typeof matchMedia === "function"
               && matchMedia("(max-width: 900px)").matches;
-  if (!etroit) return;
+  if (!narrow) return;
   if (out.scrollIntoView) out.scrollIntoView({ block: "start", behavior: "smooth" });
   if (out.focus) out.focus();
 }
 
-// PAS `disabled`, ET C'EST DÉLIBÉRÉ. Désactiver le bouton qui a le focus le
-// fait tomber sur <body> : au clavier, il fallait re-tabuler toute la page
-// après CHAQUE soumission. Et un bouton grisé sans un mot se lit « cassé »
-// plutôt que « en cours ». Il reste donc focalisable, et il DIT ce qu'il fait.
+// NOT `disabled`, AND THAT IS DELIBERATE. Disabling the button that has
+// focus drops it onto <body>: with a keyboard, one had to tab through the
+// whole page again after EVERY submission. And a grayed-out button with no
+// word reads as "broken" rather than "in progress". It therefore stays
+// focusable, and it SAYS what it is doing.
 //
-// IL RESTE AUSSI CLIQUABLE, et ce n'est pas un oubli : un sondage qui n'aboutit
-// jamais -- file bloquée, réseau qui tombe entre deux battements -- laissait
-// l'étudiant devant un bouton mort, sans un mot et sans issue. Recliquer est
-// une intention sans ambiguïté : le nouveau test REMPLACE l'ancien, dont le
-// verdict ne l'intéresse plus. Le vrai garde-fou contre le martèlement est le
-// quota du serveur (8 s connecté, 15 s sinon), et il est déjà là.
-let occupation = false;
-let libelleGo = "Tester";
-let goSecondaire = false;
+// IT ALSO STAYS CLICKABLE, and that is not an oversight: a poll that never
+// completes -- a stuck queue, a network drop between two heartbeats -- used
+// to leave the student in front of a dead button, with no word and no way
+// out. Clicking again is an unambiguous intent: the new test REPLACES the
+// old one, whose verdict no longer matters. The real safeguard against
+// hammering it is the server's quota (8s signed in, 15s otherwise), and it
+// is already there.
+let busy = false;
+let goLabel = "Tester";
+let goSecondary = false;
 
-function occupe(oui, texte) {
-  occupation = oui;
-  const dire = texte || "Test en cours…";
-  $("go").textContent = oui ? dire : libelleGo;
-  $("goex").textContent = oui ? dire : "Tester l'exercice";
+function setBusy(isBusy, text) {
+  busy = isBusy;
+  const say = text || "Test en cours…";
+  $("go").textContent = isBusy ? say : goLabel;
+  $("goex").textContent = isBusy ? say : "Tester l'exercice";
   for (const id of ["go", "goex"]) {
-    // `aria-busy` seulement quand ça TRAVAILLE : pendant un compte à rebours de
-    // quota, rien ne tourne, et l'annoncer occupé serait faux.
-    $(id).setAttribute("aria-busy", oui && !texte ? "true" : "false");
+    // `aria-busy` only when it is ACTUALLY WORKING: during a quota countdown,
+    // nothing is running, and announcing busy would be false.
+    $(id).setAttribute("aria-busy", isBusy && !text ? "true" : "false");
   }
-  $("go").className = (goSecondaire ? "secondaire" : "") + (oui ? " occupe" : "");
-  $("goex").className = oui ? "occupe" : "";
+  $("go").className = (goSecondary ? "secondaire" : "") + (isBusy ? " occupe" : "");
+  $("goex").className = isBusy ? "occupe" : "";
 }
 
-// LE SONDAGE PÉRIMÉ SE TAIT. Sans ce jeton, le verdict d'un test abandonné
-// écraserait celui du test qu'on vient de lancer -- et il arriverait EN
-// DERNIER, donc c'est lui qu'on lirait. Même mécanique que `loadToken` pour le
-// chargement d'un exercice, et pour la même raison.
-let soumissionCourante = 0;
+// A STALE POLL STAYS SILENT. Without this token, an abandoned test's verdict
+// would overwrite the one for the test just launched -- and it would arrive
+// LAST, so it is the one that would be read. Same mechanism as `loadToken`
+// for loading an exercise, for the same reason.
+let currentSubmissionToken = 0;
 
-// --- Ne pas redemander ce qu'on vient de demander -------------------------
-// Renvoyer un code identique coûte une place de file, un cooldown et une
-// attente, pour un verdict qu'on tient déjà à l'écran. La page ne l'envoie donc
-// pas : elle réaffiche.
+// --- Do not ask again for what was just asked -------------------------------
+// Resending identical code costs a queue slot, a cooldown and a wait, for a
+// verdict already on screen. So the page does not send it: it redisplays.
 //
-// ELLE N'AFFIRME RIEN AU SERVEUR, et c'est la seule raison pour laquelle ce
-// raccourci est permis ici. Un hachage envoyé dans la requête, lui, CHOISIRAIT
-// quel verdict stocké on reçoit -- du code cassé plus le hachage d'une
-// soumission réussie donnerait `passed == total`, que l'API transforme en
-// « validé » et en XP. Décider de ne pas déranger le serveur ne demande aucune
-// confiance ; lui dicter sa réponse en demanderait toute.
+// IT ASSERTS NOTHING TO THE SERVER, and that is the only reason this
+// shortcut is allowed here. A hash sent in the request, on the other hand,
+// would CHOOSE which stored verdict comes back -- broken code plus the hash
+// of a successful submission would yield `passed == total`, which the API
+// turns into "validé" and into XP. Deciding not to bother the server needs no
+// trust; dictating its answer would need all of it.
 //
-// `rejouer` VIENT DU SERVEUR : le worker le pose sur tout verdict qu'il refuse
-// de mettre en cache lui-même -- timeout, panne du juge, et les exercices dont
-// le programme est aléatoire, que la page n'a aucun moyen de reconnaître seule.
-// La règle vit donc à un seul endroit.
+// `rejouer` COMES FROM THE SERVER: the worker sets it on any verdict it
+// refuses to cache itself -- timeout, judge failure, and exercises whose
+// program is randomized, which the page has no way to recognize on its own.
+// The rule therefore lives in exactly one place.
 //
-// EN MÉMOIRE SEULEMENT : un rechargement de page refait juger, ce qui est le
-// bon défaut. C'est un raccourci de session, pas un cache.
-const dejaSoumis = {};    // exercice -> {cle, verdict}
-let renvoiForce = null;   // la clé qu'un second clic doit renvoyer quand même
-let enVol = null;         // {jeton, exercice, cle} de la soumission en cours
+// IN MEMORY ONLY: a page reload re-judges, which is the right default. It is
+// a session shortcut, not a cache.
+const alreadySubmitted = {};    // exercise -> {cle, verdict}
+let forcedResend = null;   // the key a second click must resend anyway
+let inFlight = null;         // {jeton, exercice, cle} of the submission in progress
 
-// L'ETA VIENT DU SERVEUR (`eta`, en secondes) : lui seul sait ce que chaque
-// exercice coûte et ce qu'il y a devant. La page ne fait que le mettre en
-// français. Une API plus ancienne, ou un `eta` à 0, ne rend rien plutôt que
-// d'inventer un chiffre -- le rang seul reste affiché.
-function attenteEstimee(secondes) {
-  if (!(secondes > 0)) return "";
-  if (secondes < 60) return ` (environ ${Math.ceil(secondes / 5) * 5} s)`;
-  return ` (environ ${Math.ceil(secondes / 60)} min)`;
+// THE ETA COMES FROM THE SERVER (`eta`, in seconds): only it knows what each
+// exercise costs and what is ahead of it. The page only puts it into French.
+// An older API, or an `eta` of 0, returns nothing rather than inventing a
+// number -- only the rank stays displayed.
+function estimatedWait(seconds) {
+  if (!(seconds > 0)) return "";
+  if (seconds < 60) return ` (environ ${Math.ceil(seconds / 5) * 5} s)`;
+  return ` (environ ${Math.ceil(seconds / 60)} min)`;
 }
 
-async function poll(id, tries, portee, jeton) {
-  if (jeton !== soumissionCourante) return;
+async function poll(id, tries, scope, submissionToken) {
+  if (submissionToken !== currentSubmissionToken) return;
   const r = await fetch(API("r/" + id));
-  if (jeton !== soumissionCourante) return;
+  if (submissionToken !== currentSubmissionToken) return;
   const body = await r.json().catch(() => ({state: "error"}));
   if (body.state === "done") {
-    render(body, portee);
-    // ON NE GARDE QUE CE QUE LE SERVEUR ACCEPTE DE GARDER LUI-MÊME.
-    if (enVol && enVol.jeton === jeton && !body.rejouer
+    render(body, scope);
+    // WE ONLY KEEP WHAT THE SERVER AGREES TO KEEP ITSELF.
+    if (inFlight && inFlight.jeton === submissionToken && !body.rejouer
         && body.status !== "error") {
-      dejaSoumis[enVol.exercice] = { cle: enVol.cle, verdict: body };
+      alreadySubmitted[inFlight.exercice] = { cle: inFlight.cle, verdict: body };
     }
-    // L'API vient de dériver le statut de ce verdict : on RELIT les
-    // projections, la page n'en déclare aucune.
-    // LE VERDICT EST DÉJÀ À L'ÉCRAN, et rien de ce qui suit ne doit pouvoir le
-    // gâter : d'où le `finally`. Sans lui, une projection privée qui lèverait
-    // laisserait les deux boutons « Tester » bloqués sur un résultat correct.
+    // The API just derived this verdict's status: we REREAD the projections,
+    // the page declares none of them.
+    // THE VERDICT IS ALREADY ON SCREEN, and nothing that follows must be able
+    // to spoil it: hence the `finally`. Without it, a private projection that
+    // raised would leave both "Tester" buttons stuck on a perfectly correct
+    // result.
     try {
       if (ctester.compte) {
         await Promise.all([ctester.compte.loadStates(),
                            ctester.compte.loadPractice()]);
       }
-      // L'API vient peut-être d'accorder l'XP d'une première réussite. On
-      // REDEMANDE la projection au serveur -- la page n'en calcule aucune part.
-      // Rien à rafraîchir tant que le module n'a jamais été ouvert : il ira
-      // chercher l'état frais à son premier affichage.
+      // The API may have just granted a first solve's XP. We REQUEST the
+      // projection again from the server -- the page computes none of it.
+      // Nothing to refresh as long as the module has never been opened: it
+      // will fetch fresh state on its first display.
       if (ctester.progres) await ctester.progres.rafraichir();
     } finally {
-      occupe(false);
+      setBusy(false);
     }
     return;
   }
   if (r.status === 404 || tries <= 0) {
-    // PERDRE UN VERDICT EST UNE PANNE DE SERVICE, pas un jugement sur le code.
-    systeme("Le résultat de ce test s'est perdu. Ton code est enregistré — "
+    // LOSING A VERDICT IS A SERVICE FAILURE, not a judgment on the code.
+    announceSystem("Le résultat de ce test s'est perdu. Ton code est enregistré — "
           + "relance simplement le test.", true);
-    occupe(false);
+    setBusy(false);
     return;
   }
-  // « COMPILATION EN COURS » ÉTAIT FAUX LA MOITIÉ DU TEMPS : `running` couvre
-  // la compilation, l'exécution ET les tests -- le worker ne rapporte pas de
-  // sous-état. Annoncer une étape qu'on ne connaît pas forme précisément le
-  // modèle mental erroné chez celui qui en a le moins.
-  verdict({
+  // "COMPILATION EN COURS" WAS WRONG HALF THE TIME: `running` covers
+  // compilation, execution AND tests -- the worker does not report a
+  // sub-state. Announcing a stage we do not know precisely shapes the wrong
+  // mental model in the person who has the least of it.
+  renderVerdict({
     cls: "wait",
     titre: body.state === "running"
       ? "Test en cours…"
       : `En file d'attente — ${body.position}${body.position === 1 ? "er" : "e"}`
-        + attenteEstimee(body.eta),
+        + estimatedWait(body.eta),
   });
-  setTimeout(() => poll(id, tries - 1, portee, jeton), 2000);
+  setTimeout(() => poll(id, tries - 1, scope, submissionToken), 2000);
 }
 
-// LE QUOTA N'EST PAS UN REFUS DU CODE. L'API renvoie déjà `retry_after` ; la
-// page l'ignorait et affichait le message brut en rouge, à l'emplacement du
-// verdict -- « mon code a été refusé ». On le met dans le canal du service, on
-// décompte sur le bouton, et on rouvre tout seul : recliquer ne servait qu'à
-// s'agacer.
-let rebours = null;
+// A QUOTA IS NOT A REFUSAL OF THE CODE. The API already returns
+// `retry_after`; the page used to ignore it and display the raw message in
+// red, where the verdict goes -- "my code was refused". We put it in the
+// service channel, count it down on the button, and reopen on our own:
+// re-clicking only used to be a way to get annoyed.
+let countdown = null;
 
-function attendreQuota(secondes) {
-  clearTimeout(rebours);
-  let reste = Math.max(1, Math.round(secondes));
-  (function tic() {
-    if (reste <= 0) {
-      occupe(false);
-      effacerSysteme();
+function waitForQuota(seconds) {
+  clearTimeout(countdown);
+  let remaining = Math.max(1, Math.round(seconds));
+  (function tick() {
+    if (remaining <= 0) {
+      setBusy(false);
+      clearSystem();
       return;
     }
-    occupe(true, "Nouveau test dans " + reste + " s");
-    systeme("Tu as lancé plusieurs tests coup sur coup. Le prochain part dans "
-          + reste + " s — ton code est enregistré, tu peux continuer à l'écrire.");
-    reste--;
-    rebours = setTimeout(tic, 1000);
+    setBusy(true, "Nouveau test dans " + remaining + " s");
+    announceSystem("Tu as lancé plusieurs tests coup sur coup. Le prochain part dans "
+          + remaining + " s — ton code est enregistré, tu peux continuer à l'écrire.");
+    remaining--;
+    countdown = setTimeout(tick, 1000);
   })();
 }
 
-// `portee` : les identifiants de l'exercice affiche, ou null pour tout le TP.
-async function soumettre(portee) {
-  const tp = current();
-  if (!tp) { systeme("Choisis un exercice dans le menu pour commencer."); return; }
-  // ON N'ENVOIE PAS UNE SOUMISSION QU'ON SAIT REFUSÉE : le 403 du serveur dit
-  // « clé de session invalide ou expirée », ce qui n'aide personne.
+// `scope`: the displayed exercise's ids, or null for the whole lab.
+async function submitCode(scope) {
+  const tp = currentExercise();
+  if (!tp) { announceSystem("Choisis un exercice dans le menu pour commencer."); return; }
+  // WE DO NOT SEND A SUBMISSION WE KNOW WILL BE REFUSED: the server's 403
+  // says "clé de session invalide ou expirée", which helps nobody.
   if (!key) {
-    systeme("Il manque ta clé d'accès. Rouvre le lien de CTester depuis Moodle "
+    announceSystem("Il manque ta clé d'accès. Rouvre le lien de CTester depuis Moodle "
         + "pour pouvoir tester ton code. Tu peux écrire en attendant : "
         + "ton brouillon est enregistré.");
     return;
@@ -1840,99 +1851,100 @@ async function soumettre(portee) {
   const body = {key, exercise_id: tp.id};
   if (tp.mode === "quiz") {
     if (!ctester.quiz) {
-      systeme("Le quiz n'a pas pu être chargé. Recharge la page.", true);
+      announceSystem("Le quiz n'a pas pu être chargé. Recharge la page.", true);
       return;
     }
     body.answers = ctester.quiz.answers();
-    // RIEN À TESTER N'EST PAS UN ÉCHEC. En rouge, en 2,1 rem, à l'emplacement
-    // du verdict, ça grondait quelqu'un qui venait juste d'ouvrir l'exercice et
-    // cliquait pour voir ce que fait le bouton.
+    // NOTHING TO TEST IS NOT A FAILURE. In red, at 2.1rem, where the verdict
+    // goes, it used to scold someone who had just opened the exercise and
+    // clicked to see what the button does.
     if (!Object.values(body.answers).some(v => v.trim())) {
-      systeme("Saisis au moins une réponse avant de tester."); return;
+      announceSystem("Saisis au moins une réponse avant de tester."); return;
     }
   } else {
-    sources[actif] = $("code").value;
+    sources[activeFile] = $("code").value;
     body.files = sources;
     if (!Object.values(sources).some(v => v.trim())) {
-      systeme("Il n'y a encore rien à tester : écris ou colle ton code d'abord.");
+      announceSystem("Il n'y a encore rien à tester : écris ou colle ton code d'abord.");
       return;
     }
   }
-  // LE MÊME CODE QUE LA DERNIÈRE FOIS N'A RIEN À REDEMANDER. Aucune requête
-  // ne part, donc ni cooldown, ni place de file, ni attente.
-  const cle = JSON.stringify(body.answers || body.files);
-  const connu = dejaSoumis[tp.id];
-  if (connu && connu.cle === cle && renvoiForce !== cle) {
-    // LE SECOND CLIC RENVOIE, et cette échappatoire n'est pas optionnelle : un
-    // cas de test corrigé par le tick de cinq minutes rendrait le verdict gardé
-    // faux, et la page n'a aucun moyen de l'apprendre. Sans elle, c'est le
-    // bouton qui aurait l'air cassé.
-    renvoiForce = cle;
-    render(connu.verdict, portee);
-    systeme("Même code que ta dernière soumission — voici son verdict, sans "
+  // THE SAME CODE AS LAST TIME HAS NOTHING TO ASK AGAIN. No request goes out
+  // at all, so neither cooldown, nor queue slot, nor wait.
+  const submissionKey = JSON.stringify(body.answers || body.files);
+  const known = alreadySubmitted[tp.id];
+  if (known && known.cle === submissionKey && forcedResend !== submissionKey) {
+    // THE SECOND CLICK RESENDS, and this escape hatch is not optional: a test
+    // case fixed by the five-minute tick would make the kept verdict wrong,
+    // and the page has no way to learn that. Without it, the button would
+    // look broken.
+    forcedResend = submissionKey;
+    render(known.verdict, scope);
+    announceSystem("Même code que ta dernière soumission — voici son verdict, sans "
           + "reprendre de place dans la file. Clique encore pour le renvoyer "
           + "au juge.");
     return;
   }
-  renvoiForce = null;
-  const jeton = ++soumissionCourante;
-  enVol = { jeton: jeton, exercice: tp.id, cle: cle };
-  effacerSysteme();
-  occupe(true);
-  verdict({ cls: "wait", titre: "Envoi…" });
+  forcedResend = null;
+  const submissionToken = ++currentSubmissionToken;
+  inFlight = { jeton: submissionToken, exercice: tp.id, cle: submissionKey };
+  clearSystem();
+  setBusy(true);
+  renderVerdict({ cls: "wait", titre: "Envoi…" });
   try {
-    const r = await fetch(API("submit?poste=" + encodeURIComponent(posteId())), {
+    const r = await fetch(API("submit?poste=" + encodeURIComponent(stationId())), {
       method: "POST",
-      // La connexion est facultative : sans jeton, la soumission reste
-      // anonyme. Avec lui, l'API peut rattacher le job au compte et enregistrer
-      // la pratique/le statut à partir de son propre verdict.
+      // Signing in is optional: with no token, the submission stays
+      // anonymous. With one, the API can attach the job to the account and
+      // record practice/status from its own verdict.
       headers: Object.assign({"Content-Type": "application/json"},
                              token ? {Authorization: "Bearer " + token} : {}),
       body: JSON.stringify(body)
     });
     let out = null;
     try { out = await r.json(); } catch (parseError) { out = null; }
-    // LE QUOTA A SON PROPRE CHEMIN : `retry_after` était envoyé par l'API et
-    // jeté par la page depuis toujours.
+    // THE QUOTA HAS ITS OWN PATH: `retry_after` was always sent by the API
+    // and always discarded by the page.
     if (r.status === 429 && out && out.retry_after) {
-      // La soumission n'est jamais partie : le verdict repart du repos plutôt
-      // que de rester sur « Envoi… », qui serait faux.
-      repos();
-      attendreQuota(out.retry_after);
+      // The submission never actually left: the verdict goes back to idle
+      // rather than staying on "Envoi…", which would be false.
+      idleState();
+      waitForQuota(out.retry_after);
       return;
     }
     if (!r.ok || !out) {
-      systeme((out && out.error)
+      announceSystem((out && out.error)
               || `Le serveur a répondu ${r.status} et n'a pas pris ta `
                  + `soumission. Ton code est enregistré — réessaie dans un instant.`,
               true);
-      occupe(false);
+      setBusy(false);
       return;
     }
-    poll(out.id, 150, portee, jeton);
+    poll(out.id, 150, scope, submissionToken);
   } catch (e) {
-    systeme("Le serveur ne répond pas. Ton code est enregistré sur cet "
+    announceSystem("Le serveur ne répond pas. Ton code est enregistré sur cet "
           + "appareil ; réessaie dans un instant.", true);
-    occupe(false);
+    setBusy(false);
   }
 }
 
-// LE CLIC EST IGNORÉ PENDANT UN TEST, et c'est ce qui remplace `disabled` :
-// voir `occupe()`. Le bouton reste focalisable, donc la tabulation ne repart
-// pas du haut de la page à chaque soumission.
-// LA PROMESSE EST RENDUE, et ce n'est pas cosmétique : le harnais attend le
-// clic pour savoir que la soumission est partie. Un garde en corps de bloc
-// rendrait `undefined`, et tout ce qui suit s'exécuterait avant le fetch.
-$("go").addEventListener("click", () => soumettre(null));
+// THE CLICK IS IGNORED DURING A TEST, and that is what replaces `disabled`:
+// see `setBusy()`. The button stays focusable, so tabbing does not restart
+// from the top of the page on every submission.
+// THE PROMISE IS RETURNED, and that is not cosmetic: the test harness waits
+// for the click to know the submission left. A guard in a block body would
+// return `undefined`, and everything that follows would run before the
+// fetch.
+$("go").addEventListener("click", () => submitCode(null));
 $("goex").addEventListener("click", () =>
-  soumettre(ctester.quiz ? ctester.quiz.page() : null));
+  submitCode(ctester.quiz ? ctester.quiz.page() : null));
 
-// --- Compteur de présence, pour tout le monde -----------------------------
-// Un battement toutes les 60 s vers /live, qui ne touche qu'un dict en mémoire
-// côté serveur (ni base, ni compte). C'est la SEULE requête que le parcours
-// anonyme émet. ponytail: un identifiant de fenêtre tiré au hasard et gardé le
-// temps de l'onglet -- falsifiable, mais c'est un chiffre affiché, pas un
-// verrou. Une panne du compteur ne se voit pas : il reste caché.
+// --- Presence counter, for everyone -----------------------------------------
+// One heartbeat every 60s to /live, which only touches an in-memory dict
+// server-side (no database, no account). This is the ONLY request the
+// anonymous path ever emits. ponytail: a randomly drawn window id kept for
+// the life of the tab -- falsifiable, but it is a displayed number, not a
+// lock. A failure of the counter is invisible: it just stays hidden.
 let liveId = sessionGet("ctester.live");
 if (!liveId) {
   liveId = (typeof crypto !== "undefined" && crypto.randomUUID)
@@ -1940,7 +1952,7 @@ if (!liveId) {
     : String(Math.random()).slice(2) + Date.now();
   sessionSet("ctester.live", liveId);
 }
-async function battement() {
+async function heartbeat() {
   try {
     const r = await fetch(API("live?id=" + encodeURIComponent(liveId)));
     const d = await r.json();
@@ -1949,7 +1961,7 @@ async function battement() {
         d.n > 1 ? d.n + " personnes en ligne" : "1 personne en ligne";
       $("live").hidden = false;
     }
-  } catch (e) { /* cosmétique : on ne dérange personne si /live tombe */ }
+  } catch (e) { /* cosmetic: /live going down bothers nobody */ }
 }
-battement();
-setInterval(battement, 60000);
+heartbeat();
+setInterval(heartbeat, 60000);

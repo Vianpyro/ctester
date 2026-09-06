@@ -1,10 +1,10 @@
-// Le compte : OIDC, états, pratique, thème. Chargé seulement
-// si une session est en cours ou si l'étudiant demande à se connecter --
-// l'anonyme, qui reste le parcours par défaut, n'en télécharge rien.
+// The account: OIDC, states, practice, theme. Only loaded if a session is
+// in progress or the student asks to sign in -- the anonymous visitor, who
+// remains the default path, downloads none of it.
 //
-// SENS UNIQUE, JAMAIS DE CYCLE : `window.ctester` porte l'état partagé (le
-// jeton, le catalogue, les brouillons) et les fonctions du noyau ; ce fichier
-// n'est jamais importé par app.js, il s'y déclare.
+// ONE WAY, NEVER A CYCLE: `window.ctester` carries the shared state (the
+// token, the catalog, the drafts) and the core's functions; this file is
+// never imported by app.js, it registers itself into it.
 (function (ctester) {
 const $ = ctester.$;
 const systeme = ctester.systeme;
@@ -14,16 +14,17 @@ const sessionDrop = ctester.sessionDrop;
 const authCode = ctester.authCode;
 const authState = ctester.authState;
 
-// `oidc` et `token` restent au noyau : c'est lui qui lit oidc.json avant de
-// savoir s'il faut ce fichier, et c'est lui qui pose l'en-tête Authorization
-// d'une soumission. Ici on ne fait que les lire et les poser par le contexte.
+// `oidc` and `token` stay in the core: it is the one that reads oidc.json
+// before knowing whether this file is even needed, and it is the one that
+// sets a submission's Authorization header. Here we only read them and set
+// them through the shared context.
 //
-// LU A CHAQUE APPEL, JAMAIS AU CHARGEMENT. `const oidc = ctester.oidc()` en
-// tête de fichier était un instantané : ce module peut être évalué avant que
-// `oidc.json` soit revenu -- ou n'être jamais revenu du tout, un bloqueur de
-// publicité suffit -- et la config restait `null` pour toute la visite. Le
-// bouton de connexion levait alors « reading 'issuer' of null », dans une
-// promesse que personne ne lisait.
+// READ ON EVERY CALL, NEVER AT LOAD TIME. `const oidc = ctester.oidc()` at
+// the top of the file used to be a snapshot: this module can be evaluated
+// before `oidc.json` has come back -- or never comes back at all, an ad
+// blocker is enough -- and the config would stay `null` for the whole visit.
+// The sign-in button would then throw "reading 'issuer' of null", inside a
+// promise nobody read.
 function config() {
   const c = ctester.oidc();
   if (!c || !c.issuer || !c.client_id) {
@@ -34,11 +35,11 @@ function config() {
 let states = {};
 let practice = {};
 
-// LE SEUL POINT DE PASSAGE des appels authentifies, donc le seul endroit ou
-// `API()` a besoin d'etre pose : etats, pratique, brouillon, preferences,
-// progres et forum passent tous par ici. Les DEUX autres `fetch` de ce
-// fichier -- la decouverte OIDC et le token endpoint -- portent des URL
-// absolues venues de l'emetteur : les prefixer les enverrait sur l'API.
+// THE ONLY PASSAGE POINT for authenticated calls, so the only place `API()`
+// needs to be set: states, practice, draft, preferences, progress and forum
+// all go through here. This file's TWO OTHER `fetch` calls -- OIDC discovery
+// and the token endpoint -- carry absolute URLs coming from the issuer:
+// prefixing them would send them to the API instead.
 const authFetch = (url, options) => fetch(API(url), Object.assign({}, options, {
   headers: Object.assign({}, (options && options.headers) || {},
                          { Authorization: "Bearer " + ctester.token() }),
@@ -55,15 +56,15 @@ async function getJson(path) {
   }
 }
 
-// UNE ÉCRITURE AUTHENTIFIÉE, ET SON CORPS D'ERREUR. Le forum a besoin du
-// message que l'API renvoie -- « message trop long », « trop de messages d'un
-// coup » -- et pas seulement d'un booléen : afficher « ça n'a pas marché » sur
-// une règle qu'on peut respecter est la façon la plus sûre de faire recommencer
-// quelqu'un à l'identique.
+// AN AUTHENTICATED WRITE, AND ITS ERROR BODY. The forum needs the message
+// the API returns -- "message trop long", "trop de messages d'un coup" --
+// not just a boolean: showing "that didn't work" over a rule one can
+// actually follow is the surest way to make someone try the exact same
+// thing again.
 //
-// Rend null quand il n'y a pas de session ou que le réseau a lâché, sinon
-// {ok, status, corps}. `corps` peut être null : une page de blocage Cloudflare
-// ou une erreur nginx en HTML n'est pas du JSON.
+// Returns null when there is no session or the network dropped, otherwise
+// {ok, status, corps}. `corps` can be null: a Cloudflare block page or an
+// nginx error in HTML is not JSON.
 async function sendJson(path, method, payload) {
   if (!ctester.token()) return null;
   try {
@@ -82,49 +83,49 @@ async function sendJson(path, method, payload) {
 }
 
 async function putJson(path, payload) {
-  const reponse = await sendJson(path, "PUT", payload);
-  return !!(reponse && reponse.ok);
+  const response = await sendJson(path, "PUT", payload);
+  return !!(response && response.ok);
 }
 
-// --- LE THÈME SUIT LE COMPTE, PAS L'APPAREIL -------------------------------
-// Le stockage local garde le thème de CE navigateur ; le serveur garde celui du
-// compte. Au démarrage d'une session, c'est le compte qui a le dernier mot : un
-// étudiant qui passe du labo à son portable doit retrouver son écran, pas le
-// défaut de la machine où il vient de s'asseoir.
+// --- THE THEME FOLLOWS THE ACCOUNT, NOT THE DEVICE --------------------------
+// Local storage keeps THIS browser's theme; the server keeps the account's.
+// At the start of a session, the account has the last word: a student
+// moving from the lab to their laptop must find their own screen again, not
+// the default of the machine they just sat down at.
 //
-// SEULEMENT S'IL A DÉJÀ CHOISI. Un thème vide veut dire « aucun choix
-// enregistré » (et une lecture ratée rend `null`) : dans les deux cas on garde
-// ce que l'appareil affiche déjà, et on lui envoie ce choix pour que le compte
-// en ait un. Écraser par un défaut à la première panne ferait clignoter la page
-// de quelqu'un chaque fois que Postgres tousse.
+// ONLY IF ONE WAS ALREADY CHOSEN. An empty theme means "no choice recorded"
+// (and a failed read returns `null`): in both cases we keep what the device
+// already shows, and send that choice back so the account has one. Falling
+// back to a default at the first outage would flash someone's page every
+// time Postgres coughs.
 async function chargerTheme() {
   const prefs = await getJson("preferences");
-  if (!prefs) return;                       // base muette : l'appareil décide
-  if (!prefs.theme) {                       // premier compte, aucun choix
+  if (!prefs) return;                       // mute database: the device decides
+  if (!prefs.theme) {                       // fresh account, no choice yet
     await enregistrerTheme(ctester.themeCourant());
     return;
   }
   ctester.appliquerTheme(prefs.theme);
-  // Recopié localement pour que la PROCHAINE visite parte du bon thème avant
-  // le premier rendu : le serveur, lui, répond toujours après la peinture.
+  // Copied locally so the NEXT visit starts from the right theme before the
+  // first paint: the server itself always answers after the paint.
   ctester.retenirTheme(prefs.theme);
 }
 
-// Appelé par le bouton du noyau, sans être attendu. Silencieux à dessein : le
-// thème est déjà à l'écran et gardé sur cet appareil, et annoncer une panne de
-// synchronisation par-dessus un verdict de compilation coûterait plus qu'elle.
-async function enregistrerTheme(nom) {
-  await putJson("preferences", { theme: nom });
+// Called by the core's button, without being awaited. Deliberately silent:
+// the theme is already on screen and kept on this device, and announcing a
+// sync failure over a compile verdict would cost more than it is worth.
+async function enregistrerTheme(name) {
+  await putJson("preferences", { theme: name });
 }
 
-// LE SUCCÈS SE DIT AUSSI, PAS SEULEMENT L'ÉCHEC. « Sur ton compte » est la
-// seule chose qui réponde à « est-ce que je retrouve mon code chez moi ? », et
-// c'est la question que l'étudiant du labo se pose en partant. Avant, seul
-// l'échec parlait : le cas qui marche restait muet sur ce qu'il avait garanti.
+// SUCCESS IS ALSO SAID, NOT ONLY FAILURE. "On your account" is the only
+// thing that answers "will I find my code again at home?", and that is the
+// question a lab student asks on their way out. Before, only failure spoke:
+// the case that works stayed silent about what it had just guaranteed.
 async function syncDraft(exerciseId, files) {
   const ok = await putJson("brouillon", { exercise_id: exerciseId, files });
-  // L'EXERCICE A PU CHANGER PENDANT L'ALLER-RETOUR : n'annoncer que sur celui
-  // qui est encore à l'écran, sinon l'indicateur parle d'un autre fichier.
+  // THE EXERCISE MAY HAVE CHANGED DURING THE ROUND TRIP: only announce for
+  // the one still on screen, or the indicator would talk about another file.
   if (exerciseId !== ctester.exerciceOuvert()) return;
   ctester.showDraftStatus(
     ok ? "enregistré sur ton compte · " + ctester.maintenant()
@@ -208,16 +209,16 @@ function setToken(value) {
 function signOut() {
   states = {};
   practice = {};
-  // LES MARQUES PARTENT AVEC LA SESSION : laisser les coches « validé » dans le
-  // menu et la bande montrerait les progrès de quelqu'un qui vient de partir.
+  // MARKS LEAVE WITH THE SESSION: leaving "validated" check marks in the
+  // menu and the strip would show the progress of someone who just left.
   ctester.poserStatuts({});
   ctester.setToken(null);
-  // La projection privée part avec la session : la laisser à l'écran
-  // montrerait les progrès de quelqu'un qui vient de se déconnecter.
+  // The private projection leaves with the session: leaving it on screen
+  // would show the progress of someone who just signed out.
   if (ctester.progres) ctester.progres.oublier();
-  // Le fil part avec la session pour la même raison : il n'est lisible que
-  // connecté, et le laisser à l'écran montrerait des messages à quelqu'un que
-  // le serveur ne reconnaît plus.
+  // The thread leaves with the session for the same reason: it is only
+  // readable signed in, and leaving it on screen would show messages to
+  // someone the server no longer recognizes.
   if (ctester.forum) ctester.forum.oublier();
 }
 
@@ -231,10 +232,10 @@ async function loadStates() {
       }
     }
   }
-  // POUSSÉ AU NOYAU, jamais tiré par lui : le menu du catalogue et la bande du
-  // laboratoire montrent le statut, et ils vivent dans app.js. Une panne de
-  // lecture rend une carte VIDE, pas un statut faux -- « à faire » sur un
-  // exercice réussi vaut mieux que l'inverse.
+  // PUSHED TO THE CORE, never pulled by it: the catalog menu and the lab
+  // strip show the status, and they live in app.js. A read failure produces
+  // an EMPTY map, not a false status -- "to do" on a solved exercise beats
+  // the opposite.
   ctester.poserStatuts(states);
 }
 
@@ -258,23 +259,23 @@ async function oublier() {
   } catch (e) {
     ok = false;
   }
-  // SE DECONNECTER D'ABORD, ANNONCER ENSUITE. `signOut` repasse par la vue
-  // exercice, qui réécrit `#out` avec son message d'attente : annoncée avant,
-  // la confirmation de suppression était effacée dans la milliseconde et
-  // l'étudiant ne voyait jamais que sa demande avait abouti.
+  // SIGN OUT FIRST, ANNOUNCE AFTER. `signOut` goes back through the exercise
+  // view, which rewrites `#out` with its waiting message: announced before,
+  // the deletion confirmation used to get erased within a millisecond and the
+  // student never saw that their request had gone through.
   if (ok) signOut();
   systeme(ok ? "Tes données ont été supprimées du serveur."
              : "Suppression impossible pour l'instant : réessaie plus tard.", !ok);
 }
 
-// Le noyau a deja lu oidc.json et repere une session (ou un retour de
-// connexion) : il ne charge ce fichier que dans ce cas, et lui passe la main.
+// The core has already read oidc.json and spotted a session (or a sign-in
+// return): it only loads this file in that case, and hands off to it.
 async function demarrer() {
   if (authCode) await finishSignIn();
   ctester.refreshAccount();
   if (!ctester.token()) return;
-  // AVANT les projections : c'est l'écran qu'on répare, et il doit l'être le
-  // plus tôt possible dans la session.
+  // BEFORE the projections: this is the screen being fixed, and it must
+  // happen as early as possible in the session.
   await chargerTheme();
   await loadStates();
   await loadPractice();
@@ -290,7 +291,7 @@ ctester.compte = {
   syncDraft: syncDraft,
   loadStates: loadStates,
   loadPractice: loadPractice,
-  // LES DONNÉES, PAS LEUR RENDU : la liste est dessinée par `progres.js`.
+  // THE DATA, NOT ITS RENDERING: the list is drawn by `progres.js`.
   etats: () => states,
   pratique: () => practice,
   chargerTheme: chargerTheme,

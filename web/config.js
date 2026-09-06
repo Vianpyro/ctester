@@ -1,51 +1,52 @@
-// LE PREMIER SCRIPT DE LA PAGE, ET LE SEUL QUI TOURNE AVANT LE PREMIER RENDU.
-// Il porte deux reglages de demarrage : le theme et l'adresse de l'API.
+// THE PAGE'S FIRST SCRIPT, AND THE ONLY ONE THAT RUNS BEFORE THE FIRST PAINT.
+// It carries two startup settings: the theme and the API's address.
 //
-// IL EST EXTERNE ET PAS INLINE, ET C'EST DELIBERE. Servi par GitHub Pages, ce
-// document ne peut porter aucun en-tete : sa CSP passe donc en <meta>, et un
-// <meta> ne peut pas porter un hachage calcule sur le corps servi comme
-// `csp()` le faisait. Le choix etait entre recopier un hachage a la main --
-// qui se perime a la premiere virgule changee, en silence, et emporte le theme
-// avec lui -- et n'avoir plus aucun script inline. La deuxieme option supprime
-// le probleme au lieu d'ajouter un test pour le surveiller : `script-src
-// 'self'` suffit, sans hachage, et un inline ajoute par distraction est ALORS
-// bloque bruyamment.
+// IT IS EXTERNAL AND NOT INLINE, AND THAT IS DELIBERATE. Served by GitHub
+// Pages, this document can carry no header: its CSP therefore goes into a
+// <meta>, and a <meta> cannot carry a hash computed on the served body the
+// way `csp()` used to. The choice was between copying a hash by hand --
+// which goes stale silently at the first changed comma, and takes the theme
+// down with it -- and having no inline script left at all. The second option
+// removes the problem instead of adding a test to watch it: `script-src
+// 'self'` is enough, no hash needed, and an inline script added by mistake
+// is THEN blocked loudly.
 //
-// Charge SANS `defer` en tout debut de <head> : un <script src> classique
-// bloque le rendu jusqu'a son execution, donc le theme est pose avant la
-// premiere peinture exactement comme le faisait l'inline. Ce qu'il en coute est
-// une requete sur une connexion deja ouverte, pour un fichier d'un kilo-octet.
+// Loaded WITHOUT `defer` at the very top of <head>: a plain <script src>
+// blocks rendering until it runs, so the theme is set before the first paint
+// exactly as the inline script used to do it. What it costs is one request
+// on an already-open connection, for a one-kilobyte file.
 try {
   var t = localStorage.getItem("ctester.theme");
   if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
 } catch (e) {}
 
-// L'ADRESSE DE L'API, UN SEUL ENDROIT. Pas de build, pas de substitution : ce
-// que le dépôt contient est ce que le navigateur reçoit.
+// THE API'S ADDRESS, ONE SINGLE PLACE. No build step, no substitution: what
+// the repo contains is what the browser gets.
 //
-// La page part de GitHub Pages sous `tch009.thevhome.com` -- le nom que les
-// étudiants connaissent, inchangé, donc leurs brouillons `localStorage` et la
-// `redirect_uri` de Rauthy le sont aussi. Seule l'API déménage, sous un nom
-// qu'elle seule connaît.
+// The page ships from GitHub Pages under `tch009.thevhome.com` -- the name
+// students know, unchanged, so their `localStorage` drafts and Rauthy's
+// `redirect_uri` stay unchanged too. Only the API moves, under a name only
+// it knows.
 //
-// `tch099` et non `api.tch009` : le certificat universel de Cloudflare couvre
-// `thevhome.com` et `*.thevhome.com`, UNE seule étiquette. `api.tch009` en fait
-// deux et n'aurait pas de certificat valide sans Advanced Certificate Manager.
+// `tch099` and not `api.tch009`: Cloudflare's universal certificate covers
+// `thevhome.com` and `*.thevhome.com`, ONE single label. `api.tch009` makes
+// two and would have no valid certificate without Advanced Certificate
+// Manager.
 window.CTESTER_API = (() => {
   const h = location.hostname;
-  // LES DEUX ORIGINES DE LA PAGE pointent la meme API. `tch009` est le nom que
-  // les etudiants connaissent, servi par GitHub Pages ; `github.io` est le
-  // deploiement de preparation, qui sert a eprouver la page avant le DNS.
+  // THE PAGE'S TWO ORIGINS both point at the same API. `tch009` is the name
+  // students know, served by GitHub Pages; `github.io` is the staging
+  // deployment, used to exercise the page before the DNS switch.
   if (h === "tch009.thevhome.com") return "https://tch099.thevhome.com";
   if (h.endsWith(".github.io")) return "https://tch099.thevhome.com";
-  // Développement local : `app/main.py` sert encore la page, donc chemins
-  // relatifs. C'est ce repli qui garde `CTESTER_PAGE=web python3 app/main.py`
-  // vivant, et qui rend la bascule réversible en changeant une ligne.
+  // Local development: `app/main.py` still serves the page, so relative
+  // paths. This fallback is what keeps `CTESTER_PAGE=web python3 app/main.py`
+  // alive, and what makes the switch reversible by changing one line.
   return "";
 })();
 
-// Le préfixe des appels d'API, et rien d'autre. Les modules chargés à la
-// demande et les deux bibliothèques vendor sont sur Pages, à côté de cette
-// page : ils restent relatifs, `charger()` ne change pas.
-window.API = (chemin) => window.CTESTER_API ? window.CTESTER_API + "/" + chemin
-                                            : chemin;
+// The prefix for API calls, and nothing else. The on-demand modules and the
+// two vendor libraries live on Pages, next to this page: they stay relative,
+// `charger()` does not change.
+window.API = (path) => window.CTESTER_API ? window.CTESTER_API + "/" + path
+                                          : path;

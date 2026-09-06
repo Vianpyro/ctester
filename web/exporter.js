@@ -1,184 +1,186 @@
-// L'EXPORT D'UN TP EN UN SEUL `main.c`, au format de remise : un
-// `#define exercice N` en tête qui choisit l'exercice compilé, un
-// `#if exercice == N ... #endif` par exercice, et les `#include` remontés une
-// seule fois au-dessus de tout. C'est le format que l'enseignant distribue et
-// attend en retour ; CTester, lui, garde un exercice par brouillon, et sans ce
-// bouton l'étudiant recopie huit fois à la main la veille de la remise.
+// EXPORTING A LAB AS A SINGLE `main.c`, in the hand-in format: a
+// `#define exercice N` at the top choosing the compiled exercise, one
+// `#if exercice == N ... #endif` per exercise, and `#include` directives
+// hoisted once above everything. This is the format the instructor hands out
+// and expects back; CTester itself keeps one exercise per draft, and without
+// this button the student copy-pastes eight times by hand the night before
+// the deadline.
 //
-// CHARGÉ À LA DEMANDE, comme les autres modules : ni l'anonyme, ni l'étudiant
-// qui travaille un exercice sans rien remettre ne le téléchargent.
+// LOADED ON DEMAND, like the other modules: neither the anonymous visitor
+// nor a student working an exercise with nothing to hand in downloads it.
 //
-// SENS UNIQUE, JAMAIS DE CYCLE : `window.ctester` porte l'état partagé (le
-// catalogue, les brouillons, le jeton) et les fonctions du noyau ; ce fichier
-// n'est jamais importé par app.js, il s'y déclare.
+// ONE WAY, NEVER A CYCLE: `window.ctester` carries the shared state (the
+// catalog, the drafts, the token) and the core's functions; this file is
+// never imported by app.js, it registers itself into it.
 (function (ctester) {
 
-// LE FICHIER PART EN UTF-8 AVEC SA MARQUE D'ORDRE. Sans elle, Visual Studio
-// lit un fichier sans en-tête dans la page de code du système (cp1252 sur les
-// postes Windows du labo) et tous les accents des commentaires -- ceux que
-// l'étudiant a écrits, pas les nôtres -- deviennent du charabia à l'ouverture.
-// C'est exactement ce qu'on voit dans le fichier d'origine du cours. gcc et
-// CLion, eux, sautent la marque sans rien dire.
-const MARQUE_UTF8 = "﻿";
+// THE FILE SHIPS IN UTF-8 WITH ITS BYTE ORDER MARK. Without it, Visual
+// Studio reads a header-less file in the system code page (cp1252 on the
+// lab's Windows machines) and every accented character in the comments --
+// the student's own, not ours -- turns to gibberish on open. This is exactly
+// what shows up in the course's own template file. gcc and CLion skip the
+// mark without a word.
+const UTF8_BOM = "﻿";
 
 const NUM_RE = /-ex(\d+)$/;
 const INCLUDE_RE = /^[ \t]*#[ \t]*include\b/;
-// L'EN-TÊTE INCLUS, ET PAS LA LIGNE ENTIÈRE. C'est lui qui sert de clé au
-// dédoublonnage : `#include <stdio.h>  // pour printf` et `#include <stdio.h>`
-// sont le MÊME include, et les garder tous les deux parce qu'un étudiant a
-// commenté le sien rate exactement ce que le bouton promet.
-const ENTETE_RE = /^[ \t]*#[ \t]*include[ \t]*(<[^>]*>|"[^"]*")/;
-const OUVRE_RE = /^[ \t]*#[ \t]*(if|ifdef|ifndef)\b/;
-const FERME_RE = /^[ \t]*#[ \t]*endif\b/;
+// THE INCLUDED HEADER, NOT THE WHOLE LINE. This is the deduplication key:
+// `#include <stdio.h>  // pour printf` and `#include <stdio.h>` are the SAME
+// include, and keeping both because a student commented theirs would defeat
+// exactly what the button promises.
+const HEADER_RE = /^[ \t]*#[ \t]*include[ \t]*(<[^>]*>|"[^"]*")/;
+const OPEN_RE = /^[ \t]*#[ \t]*(if|ifdef|ifndef)\b/;
+const CLOSE_RE = /^[ \t]*#[ \t]*endif\b/;
 const CRT_RE = /^[ \t]*#[ \t]*define[ \t]+_CRT_SECURE_NO_WARNINGS\b/;
 
-const AUCUN_CODE =
+const NO_CODE =
   "    /* Aucun code enregistré pour cet exercice dans CTester :\n"
 + "       rien n'y a été écrit, ou le brouillon est resté sur un autre poste\n"
 + "       parce qu'il n'était pas connecté. */";
 
-const deuxChiffres = (n) => String(n).padStart(2, "0");
+const twoDigits = (n) => String(n).padStart(2, "0");
 
-// LA DATE DU LECTEUR, PAS CELLE D'UTC. `toISOString()` en soirée à Montréal
-// date le fichier du lendemain, et une remise datée d'un jour en avance est
-// exactement le genre de détail qui se discute à l'oral.
-function aujourdhui() {
+// THE READER'S DATE, NOT UTC'S. `toISOString()` in the evening in Montreal
+// dates the file to the next day, and a hand-in dated one day ahead is
+// exactly the kind of detail that comes up out loud.
+function today() {
   const t = new Date();
-  return t.getFullYear() + "-" + deuxChiffres(t.getMonth() + 1)
-       + "-" + deuxChiffres(t.getDate());
+  return t.getFullYear() + "-" + twoDigits(t.getMonth() + 1)
+       + "-" + twoDigits(t.getDate());
 }
 
-// LE NUMÉRO VIENT DE L'IDENTIFIANT, pas du rang : `tp2-ex0` est le préambule et
-// il doit rester le 0 de l'énoncé, sinon tout le fichier est décalé d'un cran
-// par rapport à ce que l'enseignant lit. Le rang ne sert que de filet pour un
-// identifiant qui ne finirait pas par `-exN` -- aucun aujourd'hui, et tous les
-// exercices « io » en ont un.
-function numeroDe(tp, rang) {
-  const trouve = NUM_RE.exec(tp.id);
-  return trouve ? Number(trouve[1]) : rang;
+// THE NUMBER COMES FROM THE ID, not from the rank: `tp2-ex0` is the preamble
+// and it must stay the statement's 0, or the whole file shifts by one
+// compared to what the instructor reads. The rank is only a safety net for
+// an id that would not end in `-exN` -- none today, and every "io" exercise
+// has one.
+function numberOf(tp, rank) {
+  const found = NUM_RE.exec(tp.id);
+  return found ? Number(found[1]) : rank;
 }
 
-function libelleDesNumeros(numeros) {
-  if (!numeros.length) return "Aucun exercice";
-  if (numeros.length === 1) return "Exercice " + numeros[0];
-  const contigu = numeros.every((n, i) => i === 0 || n === numeros[i - 1] + 1);
-  return contigu
-    ? "Exercices " + numeros[0] + " à " + numeros[numeros.length - 1]
-    : "Exercices " + numeros.join(", ");
+function labelForNumbers(numbers) {
+  if (!numbers.length) return "Aucun exercice";
+  if (numbers.length === 1) return "Exercice " + numbers[0];
+  const contiguous = numbers.every((n, i) => i === 0 || n === numbers[i - 1] + 1);
+  return contiguous
+    ? "Exercices " + numbers[0] + " à " + numbers[numbers.length - 1]
+    : "Exercices " + numbers.join(", ");
 }
 
-// SÉPARER CE QUI REMONTE DE CE QUI RESTE. Les `#include` sont remontés en tête
-// du fichier et dédoublonnés -- c'est ce que le format demande, et deux
-// `#include <stdio.h>` dans deux blocs `#if` ne gênent personne mais huit fois
-// le même en-tête rend le fichier illisible.
+// SEPARATING WHAT GETS HOISTED FROM WHAT STAYS. `#include` directives are
+// hoisted to the top of the file and deduplicated -- that is what the format
+// asks for, and two `#include <stdio.h>` in two `#if` blocks bother nobody
+// but the same header eight times makes the file unreadable.
 //
-// SEULEMENT AU PREMIER NIVEAU, ET C'EST LA SUBTILITÉ. Un `#include` déjà pris
-// dans un `#if` de l'étudiant est là POUR cette condition : le remonter le
-// rendrait inconditionnel et changerait le sens de son code. On compte donc la
-// profondeur des conditionnelles au lieu de balayer le texte à l'aveugle.
+// ONLY AT THE TOP LEVEL, AND THAT IS THE SUBTLETY. A `#include` already
+// inside a student `#if` is there FOR that condition: hoisting it would make
+// it unconditional and change the meaning of their code. So we count
+// conditional nesting depth instead of scanning the text blindly.
 //
-// Les `#define` restent où ils sont, eux : deux exercices du même TP définissent
-// couramment les mêmes constantes (`DIMANCHE`, `LUNDI`, ...) et c'est justement
-// le `#if` qui les empêche de se marcher dessus. Seul
-// `_CRT_SECURE_NO_WARNINGS` s'en va, parce que le fichier le pose déjà en tête.
-function demonter(code) {
+// `#define` directives stay where they are: two exercises in the same lab
+// commonly define the same constants (`DIMANCHE`, `LUNDI`, ...) and it is
+// precisely the `#if` that keeps them from clashing. Only
+// `_CRT_SECURE_NO_WARNINGS` leaves, because the file already sets it at the
+// top.
+function disassemble(code) {
   const includes = [];
-  const lignes = [];
-  let profondeur = 0;
-  for (const ligne of code.split(/\r?\n/)) {
-    if (FERME_RE.test(ligne)) {
-      profondeur = Math.max(0, profondeur - 1);
-      lignes.push(ligne);
+  const lines = [];
+  let depth = 0;
+  for (const line of code.split(/\r?\n/)) {
+    if (CLOSE_RE.test(line)) {
+      depth = Math.max(0, depth - 1);
+      lines.push(line);
       continue;
     }
-    if (profondeur === 0 && INCLUDE_RE.test(ligne)) {
-      // La LIGNE est gardée telle quelle -- son commentaire appartient à
-      // l'étudiant -- mais c'est l'en-tête qui identifie le doublon.
-      const trouve = ENTETE_RE.exec(ligne);
-      includes.push({ cle: trouve ? trouve[1] : ligne.trim(),
-                      ligne: ligne.trim() });
+    if (depth === 0 && INCLUDE_RE.test(line)) {
+      // The LINE is kept as-is -- its comment belongs to the student -- but
+      // it is the header that identifies the duplicate.
+      const found = HEADER_RE.exec(line);
+      includes.push({ cle: found ? found[1] : line.trim(),
+                      ligne: line.trim() });
       continue;
     }
-    if (profondeur === 0 && CRT_RE.test(ligne)) continue;
-    if (OUVRE_RE.test(ligne)) profondeur += 1;
-    lignes.push(ligne);
+    if (depth === 0 && CRT_RE.test(line)) continue;
+    if (OPEN_RE.test(line)) depth += 1;
+    lines.push(line);
   }
-  return { includes: includes, corps: lignes.join("\n") };
+  return { includes: includes, corps: lines.join("\n") };
 }
 
-// LE TROU QUE LES INCLUDES LAISSENT DERRIÈRE EUX. Retirer trois lignes d'un
-// bloc d'en-têtes laisse trois lignes vides à leur place, et le fichier remis
-// s'ouvre sur un accordéon de blancs. On rabat les suites de lignes vides à
-// une seule, en plus des blancs de tête et de queue.
-const rogner = (texte) => texte
+// THE HOLE INCLUDES LEAVE BEHIND. Removing three lines from a header block
+// leaves three blank lines in their place, and the handed-in file opens on
+// an accordion of blanks. Runs of blank lines are folded to one, along with
+// leading and trailing blanks.
+const trim = (text) => text
   .replace(/^(?:[ \t]*\r?\n)+/, "")
   .replace(/\s+$/, "")
   .replace(/\n(?:[ \t]*\n){2,}/g, "\n\n");
 
-// Le code d'UN exercice, dans l'ordre de ses fichiers déclarés. Un exercice
-// « io » tient dans un seul fichier (`submission.c`) et c'est le cas normal ; le
-// jour où il en aurait deux, ils sont recollés avec leur nom en commentaire
-// plutôt que perdus en silence.
-function codeDe(tp, sources) {
-  const fichiers = (tp.files && tp.files.length)
+// The code for ONE exercise, in its declared files' order. An "io" exercise
+// fits in a single file (`submission.c`) and that is the normal case; the
+// day it has two, they get glued back together with their name as a
+// comment rather than silently dropped.
+function codeOf(tp, sources) {
+  const files = (tp.files && tp.files.length)
     ? tp.files : [{ name: "submission.c" }];
-  const morceaux = [];
-  for (const fichier of fichiers) {
-    const texte = sources && sources[fichier.name];
-    if (typeof texte !== "string" || !texte.trim()) continue;
-    morceaux.push(fichiers.length > 1
-      ? "/* " + fichier.name + " */\n" + texte : texte);
+  const pieces = [];
+  for (const file of files) {
+    const text = sources && sources[file.name];
+    if (typeof text !== "string" || !text.trim()) continue;
+    pieces.push(files.length > 1
+      ? "/* " + file.name + " */\n" + text : text);
   }
-  return morceaux.join("\n\n");
+  return pieces.join("\n\n");
 }
 
-// LE BROUILLON LOCAL D'ABORD, LE COMPTE ENSUITE. `localStorage` a tout ce que
-// cet appareil a vu, et c'est le cas de l'immense majorité ; les exercices
-// travaillés ailleurs, eux, ne sont que sur le compte.
+// THE LOCAL DRAFT FIRST, THE ACCOUNT NEXT. `localStorage` has everything
+// this device has seen, which covers the vast majority of cases; exercises
+// worked on elsewhere only live on the account.
 //
-// UN PAR UN, ET PAS EN PARALLÈLE : `/brouillon` passe par la connexion Postgres
-// unique d'`etat.py`, derrière son verrou global. Dix requêtes lancées d'un coup
-// n'iraient pas plus vite et prendraient la file à tout le monde pendant qu'un
-// autre étudiant soumet. Au pire c'est une seconde sur un bouton de
-// téléchargement.
-async function rassembler(exercices) {
-  const trouves = {};
-  const manquants = [];
-  for (const tp of exercices) {
+// ONE AT A TIME, NOT IN PARALLEL: `/brouillon` goes through `state.py`'s
+// single Postgres connection, behind its global lock. Firing ten requests at
+// once would not go any faster and would take the queue away from everyone
+// while another student submits. Worst case, it costs one second on a
+// download button.
+async function gather(exercises) {
+  const found = {};
+  const missing = [];
+  for (const tp of exercises) {
     const local = ctester.brouillon(tp.id);
-    if (local && codeDe(tp, local)) trouves[tp.id] = local;
-    else manquants.push(tp);
+    if (local && codeOf(tp, local)) found[tp.id] = local;
+    else missing.push(tp);
   }
-  if (!manquants.length || !ctester.token() || !ctester.compte) return trouves;
-  for (const tp of manquants) {
-    const reponse = await ctester.compte.getJson(
+  if (!missing.length || !ctester.token() || !ctester.compte) return found;
+  for (const tp of missing) {
+    const response = await ctester.compte.getJson(
       "brouillon?ex=" + encodeURIComponent(tp.id));
-    if (reponse && reponse.sources) trouves[tp.id] = reponse.sources;
+    if (response && response.sources) found[tp.id] = response.sources;
   }
-  return trouves;
+  return found;
 }
 
-// LE NOM PRÉ-REMPLIT, IL NE S'IMPOSE PAS. CTester ne connaît de l'étudiant
-// qu'un `sub` opaque : le seul nom qu'il ait jamais est celui qu'il a saisi
-// dans « Mon identité », ou la proposition que Rauthy rapporte. Même traitement
-// que le formulaire d'identité -- on pré-remplit un champ que l'étudiant relit
-// avant de remettre, dans un fichier qui va sur SON disque et nulle part
-// ailleurs. Rien n'est publié, et le champ reste vide si on ne sait pas.
-async function auteur() {
+// THE NAME PRE-FILLS, IT DOES NOT IMPOSE ITSELF. CTester only ever knows a
+// student by an opaque `sub`: the only name it ever has is the one typed
+// into "Mon identité", or the suggestion Rauthy reports. Same treatment as
+// the identity form -- a field the student rereads before handing it in is
+// pre-filled, in a file that goes onto THEIR OWN disk and nowhere else.
+// Nothing is published, and the field stays empty when unknown.
+async function author() {
   const config = ctester.oidc();
   if (!ctester.token() || !ctester.compte || !(config && config.forum)) return "";
-  const profil = await ctester.compte.getJson("forum/profil");
-  if (!profil || typeof profil !== "object") return "";
-  return String(profil.pseudo || profil.suggestion || "").trim();
+  const profile = await ctester.compte.getJson("forum/profil");
+  if (!profile || typeof profile !== "object") return "";
+  return String(profile.pseudo || profile.suggestion || "").trim();
 }
 
-function entete(nom, groupe, numeros, premier) {
+function header(name, group, numbers, first) {
   return [
     "/*",
     "Fichier : main.c",
-    "Auteur : " + nom,
-    "Date : " + aujourdhui(),
-    "Description : " + libelleDesNumeros(numeros) + " — " + groupe + " — TCH009",
+    "Auteur : " + name,
+    "Date : " + today(),
+    "Description : " + labelForNumbers(numbers) + " — " + group + " — TCH009",
     "*/",
     "/* *******************************************************",
     "* Commande de preprocesseur",
@@ -186,108 +188,107 @@ function entete(nom, groupe, numeros, premier) {
     "#define _CRT_SECURE_NO_WARNINGS",
     "/* Ce numéro choisit l'exercice qui sera compilé : change-le pour tester",
     "   un autre exercice de ce fichier. */",
-    "#define exercice " + premier,
+    "#define exercice " + first,
   ].join("\n");
 }
 
-// LE FICHIER ENTIER, à partir du catalogue et des brouillons. Rendu séparément
-// du téléchargement pour être éprouvable : c'est le texte qu'on vérifie dans
-// `test_page.js`, pas le clic.
-function construire(exercices, sources, nom, groupe) {
+// THE WHOLE FILE, from the catalog and the drafts. Rendered separately from
+// the download so it can be tested: this is the text checked in
+// `test_page.js`, not the click.
+function build(exercises, sources, name, group) {
   const includes = [];
-  const blocs = [];
-  const numeros = [];
-  const vides = [];
-  // `null`, ET SURTOUT PAS `0`. Le préambule du laboratoire 2 est l'exercice
-  // NUMÉRO 0 : avec un compteur initialisé à zéro, `if (!premier)` le prend
-  // pour « rien trouvé » et le fichier s'ouvre sur le bloc suivant.
-  let premier = null;
-  exercices.forEach((tp, rang) => {
-    const numero = numeroDe(tp, rang + 1);
-    numeros.push(numero);
-    const code = codeDe(tp, sources[tp.id]);
-    const titre = "/* Exercice " + numero + " — " + (tp.short || tp.id) + " */";
+  const blocks = [];
+  const numbers = [];
+  const empty = [];
+  // `null`, AND ESPECIALLY NOT `0`. Lab 2's preamble is exercise NUMBER 0:
+  // with a counter starting at zero, `if (!first)` would take it for
+  // "nothing found yet" and the file would open on the following block.
+  let first = null;
+  exercises.forEach((tp, rank) => {
+    const number = numberOf(tp, rank + 1);
+    numbers.push(number);
+    const code = codeOf(tp, sources[tp.id]);
+    const title = "/* Exercice " + number + " — " + (tp.short || tp.id) + " */";
     if (!code) {
-      vides.push(numero);
-      blocs.push(titre + "\n#if exercice == " + numero
-               + "\n" + AUCUN_CODE + "\n#endif");
+      empty.push(number);
+      blocks.push(title + "\n#if exercice == " + number
+               + "\n" + NO_CODE + "\n#endif");
       return;
     }
-    // LE PREMIER EXERCICE QUI A DU CODE, et pas le premier tout court : un
-    // fichier qui s'ouvre sur un bloc vide ne compile pas, et l'étudiant en
-    // conclut que l'export est cassé.
-    if (premier === null) premier = numero;
-    const piece = demonter(code);
+    // THE FIRST EXERCISE THAT HAS CODE, not simply the first one: a file
+    // that opens on an empty block does not compile, and the student
+    // concludes the export is broken.
+    if (first === null) first = number;
+    const piece = disassemble(code);
     for (const inc of piece.includes) {
-      if (!includes.some((vu) => vu.cle === inc.cle)) includes.push(inc);
+      if (!includes.some((seen) => seen.cle === inc.cle)) includes.push(inc);
     }
-    blocs.push(titre + "\n#if exercice == " + numero
-             + "\n" + rogner(piece.corps) + "\n#endif");
+    blocks.push(title + "\n#if exercice == " + number
+             + "\n" + trim(piece.corps) + "\n#endif");
   });
-  const texte = [
-    entete(nom, groupe, numeros,
-           premier === null ? (numeros[0] === undefined ? 1 : numeros[0]) : premier),
+  const text = [
+    header(name, group, numbers,
+           first === null ? (numbers[0] === undefined ? 1 : numbers[0]) : first),
     includes.map((inc) => inc.ligne).join("\n"),
-    blocs.join("\n\n"),
+    blocks.join("\n\n"),
   ].filter(Boolean).join("\n\n") + "\n";
-  return { texte: texte, vides: vides, total: exercices.length };
+  return { texte: text, vides: empty, total: exercises.length };
 }
 
-// UNE SEULE URL VIVANTE À LA FOIS. `revokeObjectURL` juste après le clic court
-// après le téléchargement que le navigateur vient de lancer ; le poser dans un
-// minuteur marche mais laisse traîner un minuteur. On révoque la PRÉCÉDENTE au
-// début du prochain export : jamais de course, jamais plus d'un blob en vie.
-let urlPrecedente = null;
+// ONLY ONE LIVE URL AT A TIME. `revokeObjectURL` right after the click
+// chases the download the browser just started; putting it on a timer works
+// but leaves a timer lying around. We revoke the PREVIOUS one at the start
+// of the next export: never a race, never more than one live blob.
+let previousUrl = null;
 
-function telecharger(fichier, texte) {
-  if (urlPrecedente) URL.revokeObjectURL(urlPrecedente);
-  const blob = new Blob([MARQUE_UTF8 + texte], { type: "text/plain;charset=utf-8" });
-  urlPrecedente = URL.createObjectURL(blob);
-  const lien = document.createElement("a");
-  lien.href = urlPrecedente;
-  lien.download = fichier;
-  document.body.append(lien);
-  lien.click();
-  lien.remove();
+function download(file, text) {
+  if (previousUrl) URL.revokeObjectURL(previousUrl);
+  const blob = new Blob([UTF8_BOM + text], { type: "text/plain;charset=utf-8" });
+  previousUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = previousUrl;
+  link.download = file;
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
-// `annoncer(texte, rate)` : L'APPELANT DIT OÙ ÇA S'AFFICHE. Le bouton de la
-// barre d'actions écrit sur la ligne du brouillon, celui de « Mes progrès »
-// à côté de lui-même -- et `#brouillon` n'est même pas à l'écran depuis la vue
-// liste. Un module qui choisirait lui-même écrirait dans le vide une fois sur
-// deux.
-async function exporter(groupe, annoncer) {
-  const exercices = ctester.exercicesExportables(groupe);
-  if (!exercices.length) {
-    annoncer("rien à exporter pour " + groupe, true);
+// `announce(text, failed)`: THE CALLER SAYS WHERE IT DISPLAYS. The action
+// bar's button writes on the draft's line, "Mes progrès"'s button next to
+// itself -- and `#brouillon` is not even on screen from the list view. A
+// module choosing its own spot would write into the void half the time.
+async function exportGroup(group, announce) {
+  const exercises = ctester.exercicesExportables(group);
+  if (!exercises.length) {
+    announce("rien à exporter pour " + group, true);
     return null;
   }
-  annoncer("assemblage de " + groupe + "…");
-  const sources = await rassembler(exercices);
-  const fait = construire(exercices, sources, await auteur(), groupe);
-  if (fait.vides.length === fait.total) {
-    annoncer("aucun code enregistré pour " + groupe + " : rien à exporter", true);
-    return fait;
+  announce("assemblage de " + group + "…");
+  const sources = await gather(exercises);
+  const built = build(exercises, sources, await author(), group);
+  if (built.vides.length === built.total) {
+    announce("aucun code enregistré pour " + group + " : rien à exporter", true);
+    return built;
   }
   try {
-    telecharger("main.c", fait.texte);
+    download("main.c", built.texte);
   } catch (e) {
-    annoncer("le téléchargement a échoué — copie ton code à la main", true);
-    return fait;
+    announce("le téléchargement a échoué — copie ton code à la main", true);
+    return built;
   }
-  const ecrits = fait.total - fait.vides.length;
-  annoncer("main.c exporté — " + ecrits + " exercice"
-         + (ecrits > 1 ? "s" : "") + " sur " + fait.total
-         + (fait.vides.length
-            ? " (rien pour : " + fait.vides.join(", ") + ")" : ""));
-  return fait;
+  const written = built.total - built.vides.length;
+  announce("main.c exporté — " + written + " exercice"
+         + (written > 1 ? "s" : "") + " sur " + built.total
+         + (built.vides.length
+            ? " (rien pour : " + built.vides.join(", ") + ")" : ""));
+  return built;
 }
 
 ctester.exporter = {
-  exporter: exporter,
-  // Exposés pour le harnais : le texte produit est ce qui compte, et il doit
-  // pouvoir être éprouvé sans passer par un clic ni par un blob.
-  construire: construire,
-  demonter: demonter,
+  exporter: exportGroup,
+  // Exposed for the test harness: the produced text is what matters, and it
+  // must be testable with no click and no blob involved.
+  construire: build,
+  demonter: disassemble,
 };
 })(window.ctester);

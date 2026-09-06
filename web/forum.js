@@ -1,25 +1,27 @@
-// « Discussions » : un fil d'entraide par exercice, pour les comptes connectés.
-// Chargé AU CLIC, jamais avant -- l'anonyme n'en télécharge rien, et un
-// étudiant connecté qui ne l'ouvre pas non plus. Même contrat que progres.js,
-// mêmes raisons.
+// "Discussions": one peer-help thread per exercise, for signed-in accounts.
+// Loaded ON CLICK, never before -- the anonymous visitor downloads none of
+// it, and neither does a signed-in student who never opens it. Same
+// contract as progres.js, same reasons.
 //
-// SENS UNIQUE : ce fichier lit `window.ctester` et y dépose son entrée ; le
-// noyau ne le connaît que par `ctester.forum`, jamais par un import.
+// ONE WAY: this file reads `window.ctester` and deposits its own entry into
+// it; the core only ever knows it through `ctester.forum`, never through an
+// import.
 //
-// CE FICHIER NE DÉCIDE DE RIEN sur les droits. Qui est modérateur, quels
-// messages sont visibles, qui a le droit de supprimer ou de masquer : tout est
-// tranché par l'API à partir du `sub` authentifié. Le drapeau `moderateur` qui
-// arrive ici ne sert qu'à savoir quoi DESSINER -- chaque route le recalcule.
+// THIS FILE DECIDES NOTHING about permissions. Who is a moderator, which
+// messages are visible, who may delete or hide: all of it is settled by the
+// API from the authenticated `sub`. The `moderateur` flag that arrives here
+// only ever decides what to DRAW -- every route recomputes it.
 //
-// LA MODÉRATION EST HUMAINE, ET LA PAGE LE DIT. Aucun texte d'ici ne promet
-// qu'une solution partagée serait détectée automatiquement : elle ne le serait
-// pas. C'est ce qui rend le bouton « Signaler » utile plutôt que décoratif.
+// MODERATION IS HUMAN, AND THE PAGE SAYS SO. Nothing here promises a shared
+// solution would be detected automatically: it would not be. That is what
+// makes the "Signaler" button useful rather than decorative.
 (function (ctester) {
 const $ = ctester.$;
 
-// LA CHARTE, EN UN SEUL ENDROIT. Elle s'affiche dans la vue ET avant la
-// première publication de la session ; deux copies du texte finiraient par se
-// contredire, et c'est la copie oubliée qu'on lirait au moment qui compte.
+// THE CHARTER, IN ONE PLACE. It displays in the view AND before the
+// session's first post; two copies of the text would eventually contradict
+// each other, and it is the forgotten copy that would get read at the
+// moment it matters.
 const CHARTE = [
   "Entraide conceptuelle : une question, une idée, ce que tu observes, "
   + "ce que tu as déjà essayé.",
@@ -32,36 +34,37 @@ const CHARTE = [
 
 const CHARTE_VUE = "ctester.charte";
 
-// --- Le rendu, et c'est la partie qui compte -------------------------------
-// LES MESSAGES SONT DU MARKDOWN RESTREINT, STOCKÉS SOUS LEUR FORME SOURCE. Le
-// serveur ne rend rien et n'assainit rien : il borne. Tout le rendu se fait
-// ici, à CHAQUE affichage -- le fil, l'aperçu de rédaction, et la file de
-// modération. Assainir une seule fois, à l'écriture, aurait laissé les messages
-// déjà en base hors de portée de toute règle resserrée ensuite.
+// --- Rendering, and this is the part that matters ---------------------------
+// MESSAGES ARE RESTRICTED MARKDOWN, STORED IN THEIR SOURCE FORM. The server
+// renders nothing and sanitizes nothing: it bounds. All rendering happens
+// here, on EVERY display -- the thread, the compose preview, and the
+// moderation queue. Sanitizing once, at write time, would have left
+// messages already in the database out of reach of any rule tightened
+// later.
 //
-// DEUX BARRIÈRES, DANS CET ORDRE :
-//   1. le HTML brut est ÉCHAPPÉ AVANT l'analyse Markdown, donc `marked` ne voit
-//      jamais une balise et n'en émet jamais une qui vienne d'un étudiant ;
-//   2. la sortie de `marked` passe par DOMPurify avec une allow-list fermée.
-// La CSP du document est une troisième couche, et elle n'est pas la défense
-// principale : ce sont ces deux-ci.
+// TWO BARRIERS, IN THIS ORDER:
+//   1. raw HTML is ESCAPED BEFORE Markdown parsing, so `marked` never sees a
+//      tag and never emits one that came from a student;
+//   2. `marked`'s output goes through DOMPurify with a closed allow-list.
+// The document's CSP is a third layer, and it is not the main defense: these
+// two are.
 const MARKED = "vendor/marked-18.0.11.umd.js";
 const PURIFY = "vendor/purify-3.4.14.min.js";
 
-// L'ALLOW-LIST. Rien d'autre ne survit : ni `style`, `class`, `id` ou
-// événement, ni SVG, MathML, image, média, iframe, formulaire ou élément
-// personnalisé. `pre` n'y est pas non plus -- pas de bloc de code rendu, un
-// bloc clôturé retombe donc en texte.
+// THE ALLOW-LIST. Nothing else survives: no `style`, `class`, `id` or event
+// attribute, no SVG, MathML, image, media, iframe, form or custom element.
+// `pre` is not in it either -- no rendered code block, a fenced block
+// therefore falls back to plain text.
 const BALISES = ["p", "br", "strong", "em", "ul", "ol", "li", "blockquote",
                  "code", "a"];
-// `href` pour les liens, `rel` parce que le crochet ci-dessous l'écrit. Pas de
-// `target` : un lien du forum n'ouvre pas de cible nommée.
+// `href` for links, `rel` because the hook below writes it. No `target`: a
+// forum link never opens a named target.
 const ATTRIBUTS = ["href", "rel"];
 const NETTOYAGE = {
   ALLOWED_TAGS: BALISES,
   ALLOWED_ATTR: ATTRIBUTS,
-  // http(s) ABSOLUS SEULEMENT. Tout le reste -- `javascript:`, `data:`,
-  // `vbscript:`, un relatif -- perd son `href` et retombe en texte.
+  // ABSOLUTE http(s) ONLY. Everything else -- `javascript:`, `data:`,
+  // `vbscript:`, a relative URL -- loses its `href` and falls back to text.
   ALLOWED_URI_REGEXP: /^https?:\/\//i,
   ALLOW_DATA_ATTR: false,
   ALLOW_ARIA_ATTR: false,
@@ -70,46 +73,46 @@ const NETTOYAGE = {
 
 const MARKDOWN = { gfm: true, breaks: true };
 
-// AVANT L'ANALYSE, PAS APRÈS. Un `<` qui n'atteint jamais l'analyseur ne peut
-// pas en ressortir en balise, quelle que soit la subtilité de l'extension
-// Markdown du jour.
+// BEFORE PARSING, NOT AFTER. A `<` that never reaches the parser cannot come
+// back out as a tag, however subtle the Markdown extension of the day.
 //
-// `<` SEULEMENT, ET C'EST EXACT : une balise HTML commence par `<`, y compris
-// un commentaire (`<!--`) et une instruction de traitement. Échapper AUSSI `>`
-// a été essayé et tuait la citation Markdown (`> comme ceci`), qui est dans
-// l'allow-list -- on aurait retiré une fonctionnalité annoncée pour un gain
-// nul. `marked` échappe lui-même les `>` du texte qu'il rend. `&` n'est pas
-// touché non plus : le toucher casserait les entités qu'un étudiant écrit à la
-// main, et une entité est du texte, pas une balise.
-const echapper = (s) => s.replace(/</g, "&lt;");
+// `<` ONLY, AND THAT IS EXACT: an HTML tag starts with `<`, comments
+// (`<!--`) and processing instructions included. Escaping `>` AS WELL was
+// tried and broke Markdown blockquotes (`> comme ceci`), which is in the
+// allow-list -- that would have removed an advertised feature for zero
+// gain. `marked` itself escapes the `>` in the text it renders. `&` is left
+// alone too: touching it would break entities a student writes by hand, and
+// an entity is text, not a tag.
+const escapeAngle = (s) => s.replace(/</g, "&lt;");
 
-let bibliotheques = null;
-let rendu = false;       // le Markdown est-il réellement disponible ?
+let libraries = null;
+let renderAvailable = false;       // is Markdown rendering actually available?
 
-function chargerBibliotheques() {
-  if (!bibliotheques) {
-    bibliotheques = Promise.all([ctester.charger(MARKED), ctester.charger(PURIFY)])
-      // ON OUBLIE L'ÉCHEC, comme le chargeur du noyau : une coupure d'une
-      // seconde ne doit pas condamner le rendu pour toute la visite.
-      .catch((e) => { bibliotheques = null; throw e; });
+function loadLibraries() {
+  if (!libraries) {
+    libraries = Promise.all([ctester.charger(MARKED), ctester.charger(PURIFY)])
+      // THE FAILURE IS FORGOTTEN, like the core's loader: a one-second
+      // outage must not condemn rendering for the whole visit.
+      .catch((e) => { libraries = null; throw e; });
   }
-  return bibliotheques;
+  return libraries;
 }
 
-let crochetPose = false;
+let hookInstalled = false;
 
-function assainisseur() {
+function sanitizer() {
   const p = window.DOMPurify;
-  // `isSupported` est faux quand DOMPurify n'a pas trouvé de vrai DOM. Dans cet
-  // état, `sanitize()` REND SON ENTRÉE TELLE QUELLE -- s'en servir reviendrait
-  // à écrire le HTML d'un étudiant dans la page sans le moindre filtre. On
-  // préfère ne pas rendre de Markdown du tout.
+  // `isSupported` is false when DOMPurify found no real DOM. In that state,
+  // `sanitize()` RETURNS ITS INPUT AS-IS -- using it would amount to writing
+  // a student's HTML into the page with no filter at all. We would rather
+  // not render any Markdown at all.
   if (!p || !p.isSupported || typeof p.sanitize !== "function") return null;
-  if (!crochetPose && typeof p.addHook === "function") {
-    crochetPose = true;
-    // `rel` POSÉ ICI ET PAS ESPÉRÉ DE L'AUTEUR : un lien du forum sort toujours
-    // avec `noopener noreferrer`, et jamais avec une cible nommée -- `target`
-    // n'est de toute façon pas dans l'allow-list, ceci le dit deux fois.
+  if (!hookInstalled && typeof p.addHook === "function") {
+    hookInstalled = true;
+    // `rel` SET HERE AND NEVER HOPED FOR FROM THE AUTHOR: a forum link
+    // always comes out with `noopener noreferrer`, and never with a named
+    // target -- `target` is not in the allow-list anyway, this says so
+    // twice.
     p.addHook("afterSanitizeAttributes", (node) => {
       if (node.tagName === "A") {
         node.setAttribute("rel", "noopener noreferrer");
@@ -120,39 +123,39 @@ function assainisseur() {
   return p;
 }
 
-function rendreMarkdown(cible, source) {
-  // LE TEXTE BRUT D'ABORD, TOUJOURS. Si une bibliothèque manque, si l'analyse
-  // lève, si l'assainisseur n'est pas utilisable : ce qui reste à l'écran est
-  // du texte, jamais du HTML non filtré.
-  cible.textContent = source;
-  const purify = assainisseur();
+function rendreMarkdown(target, source) {
+  // PLAIN TEXT FIRST, ALWAYS. If a library is missing, if parsing throws, if
+  // the sanitizer cannot be used: what stays on screen is text, never
+  // unfiltered HTML.
+  target.textContent = source;
+  const purify = sanitizer();
   const md = window.marked;
   if (!purify || !md || typeof md.parse !== "function") return false;
-  let propre;
+  let clean;
   try {
-    propre = purify.sanitize(md.parse(echapper(source), MARKDOWN), NETTOYAGE);
+    clean = purify.sanitize(md.parse(escapeAngle(source), MARKDOWN), NETTOYAGE);
   } catch (e) {
     return false;
   }
-  cible.textContent = "";
-  // LE SEUL `innerHTML` DE TOUT LE CLIENT, et il reçoit la sortie de
-  // l'assainisseur À L'INSTANT MÊME : pas de variable qui traîne, pas de
-  // concaténation, pas de cache. Ce qui est écrit est ce que DOMPurify vient
-  // de rendre, sur cette source-là.
-  cible.innerHTML = propre;
+  target.textContent = "";
+  // THE ONLY `innerHTML` IN THE ENTIRE CLIENT, and it receives the
+  // sanitizer's output AT THAT VERY INSTANT: no variable lying around, no
+  // concatenation, no cache. What gets written is exactly what DOMPurify
+  // just rendered, for this source.
+  target.innerHTML = clean;
   return true;
 }
 
-// L'état de la vue. `fil === null` avec une `erreur` veut dire « on ne sait
-// pas » : ça ne s'affiche jamais comme un fil vide. Annoncer « aucun message »
-// pendant une panne, c'est faire croire que personne n'a répondu.
+// The view's state. `fil === null` with an `erreur` means "we don't know":
+// it must never display as an empty thread. Announcing "no messages" during
+// an outage would make it look like nobody answered.
 let fil = null;
 let signalements = null;
 let nomsSignales = null;
-// Le profil de CE compte : le nom qu'il s'est donné, son groupe, et ce qu'il a
-// choisi d'afficher. `null` tant qu'on ne l'a pas lu -- on n'invente pas un
-// profil vide, ça reviendrait à annoncer « tu n'as pas de nom » pendant une
-// panne.
+// THIS account's profile: the name it gave itself, its group, and what it
+// chose to display. `null` until it has been read -- we do not invent an
+// empty profile, that would amount to announcing "you have no name" during
+// an outage.
 let profil = null;
 let moderateur = false;
 let maxTexte = 0;
@@ -163,18 +166,18 @@ let saisie = "";
 let titre = null;
 let zone = null;
 let apercu = null;
-// Le champ « Nom affiché » de la vue courante, pour que « Mon identité » du
-// menu Compte y amène le focus. Une RÉFÉRENCE et pas un getElementById : le
-// bloc n'existe pas toujours (panne de lecture du profil).
+// The current view's "Nom affiché" field, so the Compte menu's "Mon
+// identité" can bring focus to it. A REFERENCE, not a getElementById: the
+// block does not always exist (a profile read failure).
 let champPseudo = null;
 
-// --- Réseau ---------------------------------------------------------------
+// --- Network -----------------------------------------------------------------
 
-function exerciceCourant() {
+function currentExercise() {
   const cat = ctester.catalogue();
-  const vise = exercice || ctester.exerciceOuvert() || ctester.exerciceChoisi();
-  const trouve = cat.find(t => t.id === vise) || cat[0];
-  return trouve ? trouve.id : "";
+  const target = exercice || ctester.exerciceOuvert() || ctester.exerciceChoisi();
+  const found = cat.find(t => t.id === target) || cat[0];
+  return found ? found.id : "";
 }
 
 const INDISPO = "Les discussions ne sont pas disponibles pour l'instant. "
@@ -194,70 +197,70 @@ async function charger(id) {
     erreur = "Aucun exercice n'est publié pour l'instant.";
     return;
   }
-  const reponse = await ctester.compte.getJson(
+  const response = await ctester.compte.getJson(
     "forum?ex=" + encodeURIComponent(id));
-  if (!reponse || !Array.isArray(reponse.messages)) {
+  if (!response || !Array.isArray(response.messages)) {
     erreur = INDISPO;
     return;
   }
-  fil = reponse.messages;
-  moderateur = !!reponse.moderateur;
-  maxTexte = reponse.max || 0;
+  fil = response.messages;
+  moderateur = !!response.moderateur;
+  maxTexte = response.max || 0;
   erreur = "";
-  // La file de signalements n'est demandée QUE par un modérateur, et le
-  // serveur la refuse à tout le monde d'autre : ce test-ci évite un 403
-  // inutile, il ne protège rien à lui seul.
+  // The report queue is only ever requested by a moderator, and the server
+  // refuses everyone else: this check just avoids a needless 403, it
+  // protects nothing on its own.
   if (moderateur) {
-    const file = await ctester.compte.getJson("forum/moderation");
-    signalements = file && Array.isArray(file.signalements)
-      ? file.signalements : null;
-    nomsSignales = file && Array.isArray(file.noms) ? file.noms : null;
+    const queue = await ctester.compte.getJson("forum/moderation");
+    signalements = queue && Array.isArray(queue.signalements)
+      ? queue.signalements : null;
+    nomsSignales = queue && Array.isArray(queue.noms) ? queue.noms : null;
   }
   await chargerProfil();
 }
 
-// LE PROFIL SE LIT SEUL. « Mon identité » s'ouvre depuis le menu Compte, sans
-// fil ni exercice : le charger avec le fil aurait rendu le réglage dépendant
-// d'une vue qu'on n'a pas forcément ouverte.
+// THE PROFILE READS ON ITS OWN. "Mon identité" opens from the Compte menu,
+// with no thread and no exercise: loading it together with the thread would
+// have made the setting depend on a view one has not necessarily opened.
 async function chargerProfil() {
   if (!ctester.compte) return;
-  const mien = await ctester.compte.getJson("forum/profil");
-  profil = mien && typeof mien === "object" ? mien : null;
+  const mine = await ctester.compte.getJson("forum/profil");
+  profil = mine && typeof mine === "object" ? mine : null;
 }
 
-// Le message d'erreur de l'API est REPRIS TEL QUEL quand il y en a un :
-// « message trop long », « trop de messages d'un coup ». Le remplacer par
-// « échec » ferait recommencer quelqu'un à l'identique.
-function pourquoi(reponse, defaut) {
-  if (!reponse) return "le serveur est injoignable";
-  if (reponse.corps && reponse.corps.error) return reponse.corps.error;
-  return defaut + " (réponse " + reponse.status + ")";
+// The API's error message is REUSED AS-IS when there is one: "message trop
+// long", "trop de messages d'un coup". Replacing it with "échec" would make
+// someone try the exact same thing again.
+function pourquoi(response, fallback) {
+  if (!response) return "le serveur est injoignable";
+  if (response.corps && response.corps.error) return response.corps.error;
+  return fallback + " (réponse " + response.status + ")";
 }
 
-async function ecrire(chemin, methode, charge, succes, echec) {
-  const reponse = await ctester.compte.sendJson(chemin, methode, charge);
-  const ok = !!(reponse && reponse.ok);
-  annonce = ok ? succes : echec + " : " + pourquoi(reponse, "refusé");
+async function ecrire(path, method, payload, successMsg, failMsg) {
+  const response = await ctester.compte.sendJson(path, method, payload);
+  const ok = !!(response && response.ok);
+  annonce = ok ? successMsg : failMsg + " : " + pourquoi(response, "refusé");
   if (ok) await charger(exercice);
   redessiner();
   return ok;
 }
 
-// ON REDESSINE L'ECRAN QU'ON REGARDE, pas l'autre : masquer un message depuis
-// la moderation redessinait sinon le FIL, un ecran qui n'etait pas a
-// l'affichage, et l'action semblait n'avoir eu aucun effet.
+// WE REDRAW THE SCREEN BEING LOOKED AT, not the other one: hiding a message
+// from moderation used to redraw the THREAD instead, a screen that was not
+// even displayed, and the action looked like it had done nothing.
 function redessiner() {
   if (ctester.vue() === "moderation") dessinerModeration();
   else dessiner();
 }
 
-async function publier(texte) {
-  const ok = await ecrire("forum", "POST", { exercise_id: exercice, texte: texte },
+async function publier(text) {
+  const ok = await ecrire("forum", "POST", { exercise_id: exercice, texte: text },
                           "Message publié.", "Message non publié");
-  // VIDER APRÈS COUP, ET SEULEMENT SI C'EST PARTI. `ecrire` a déjà redessiné,
-  // donc `zone` est le nouveau champ. Un refus -- message trop long, quota --
-  // doit laisser le texte à l'écran : le perdre ferait retaper la même chose à
-  // quelqu'un qui n'a plus la règle sous les yeux.
+  // CLEAR AFTERWARD, AND ONLY IF IT ACTUALLY WENT THROUGH. `ecrire` has
+  // already redrawn, so `zone` is the new field. A refusal -- message too
+  // long, quota -- must leave the text on screen: losing it would make
+  // someone retype the same thing with the rule no longer in front of them.
   if (ok) {
     saisie = "";
     if (zone) zone.value = "";
@@ -281,20 +284,20 @@ const effacerNom = (id) => ecrire(
   "forum/moderation", "POST", { id: id, action: "effacer-nom" },
   "Nom effacé.", "Action impossible");
 
-// DEUX SURFACES POSSIBLES, UNE SEULE ÉCRITURE : le panneau du menu Compte, et
-// le fil si on l'a ouvert (les noms affichés peuvent changer). `ecrire` ne
-// suffisait plus -- il redessine la vue forum, qui n'est pas forcément là.
-async function enregistrerProfil(charge) {
-  const reponse = await ctester.compte.sendJson("forum/profil", "POST", charge);
-  const ok = !!(reponse && reponse.ok);
+// TWO POSSIBLE SURFACES, ONE SINGLE WRITE: the Compte menu's panel, and the
+// thread if it is open (displayed names can change). `ecrire` was no longer
+// enough -- it redraws the forum view, which is not necessarily there.
+async function enregistrerProfil(payload) {
+  const response = await ctester.compte.sendJson("forum/profil", "POST", payload);
+  const ok = !!(response && response.ok);
   annonce = ok ? "Identité enregistrée."
-               : "Identité non enregistrée : " + pourquoi(reponse, "refusé");
+               : "Identité non enregistrée : " + pourquoi(response, "refusé");
   await chargerProfil();
   if (ctester.vue() === "forum") {
     await charger(exercice);
     dessiner();
   }
-  if (!$("identitepanneau").hidden) dessinerPanneau();
+  if (!$("identitepanneau").hidden) renderPanel();
   return ok;
 }
 
@@ -303,175 +306,176 @@ const moderer = (id, action) => ecrire(
   action === "masquer" ? "Message masqué." : "Message rétabli.",
   "Action impossible");
 
-// --- Rendu de la vue -------------------------------------------------------
-// `textContent` pour TOUT ce qui n'est pas un message. Les messages, eux,
-// passent par `rendreMarkdown` ci-dessus, et par rien d'autre.
+// --- Rendering the view -------------------------------------------------------
+// `textContent` for EVERYTHING that is not a message. Messages themselves go
+// through `rendreMarkdown` above, and through nothing else.
 
-function noeud(balise, classe, texte) {
-  const n = document.createElement(balise);
-  if (classe) n.className = classe;
-  if (texte !== undefined) n.textContent = texte;
+function node(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== undefined) n.textContent = text;
   return n;
 }
 
-function bouton(texte, classe, quoi) {
-  const b = noeud("button", classe, texte);
+function button(text, className, action) {
+  const b = node("button", className, text);
   b.type = "button";
-  b.addEventListener("click", quoi);
+  b.addEventListener("click", action);
   return b;
 }
 
-function listeCharte() {
-  const ul = noeud("ul", "regles");
-  for (const regle of CHARTE) ul.append(noeud("li", "", regle));
+function guidelinesList() {
+  const ul = node("ul", "regles");
+  for (const rule of CHARTE) ul.append(node("li", "", rule));
   return ul;
 }
 
-// LA CHARTE AVANT LA PREMIÈRE PUBLICATION de la session, dans le même encart
-// que le consentement de connexion. Une fois lue, elle ne réapparaît plus à
-// chaque message -- elle reste sous les yeux dans la vue, plus haut.
-function montrerCharte(ensuite) {
-  const boite = $("charte");
-  boite.innerHTML = "";
-  boite.append(noeud("h2", "", "Avant de publier"));
-  boite.append(listeCharte());
-  boite.append(noeud("p", "", "Les messages sont lus et modérés par des "
+// THE CHARTER BEFORE THE SESSION'S FIRST POST, in the same panel as the
+// sign-in consent. Once read, it does not reappear on every message -- it
+// stays in view, further up in the page.
+function showGuidelines(then) {
+  const box = $("charte");
+  box.innerHTML = "";
+  box.append(node("h2", "", "Avant de publier"));
+  box.append(guidelinesList());
+  box.append(node("p", "", "Les messages sont lus et modérés par des "
     + "personnes, pas par un automate. Un message qui contient une solution "
     + "peut être masqué."));
-  const rangee = noeud("div", "row");
-  rangee.append(bouton("J'ai compris — publier", "", () => {
-    boite.hidden = true;
+  const row = node("div", "row");
+  row.append(button("J'ai compris — publier", "", () => {
+    box.hidden = true;
     ctester.sessionSet(CHARTE_VUE, "1");
-    ensuite();
+    then();
   }));
-  rangee.append(bouton("Annuler", "nav", () => { boite.hidden = true; }));
-  boite.append(rangee);
-  boite.hidden = false;
+  row.append(button("Annuler", "nav", () => { box.hidden = true; }));
+  box.append(row);
+  box.hidden = false;
 }
 
-// Deux chiffres, comme sur un plan de cours : « 7 » s'affiche « 07 ».
-const numeroGroupe = (n) => "groupe " + String(n).padStart(2, "0");
+// Two digits, like on a course outline: "7" displays as "07".
+const groupNumber = (n) => "groupe " + String(n).padStart(2, "0");
 
-// MON IDENTITÉ. Le nom et le groupe sont FACULTATIFS et INVISIBLES par défaut :
-// cocher est un geste, ne rien faire reste l'anonymat. Le serveur revalide tout
-// -- ce formulaire borne pour éviter un aller-retour, il n'autorise rien.
-function monIdentite() {
-  const bloc = noeud("div", "");
-  bloc.append(noeud("h2", "", "Mon identité"));
-  if (annonce) bloc.append(noeud("p", "annonce", annonce));
+// MY IDENTITY. The name and the group are OPTIONAL and INVISIBLE by
+// default: checking a box is a deliberate act, doing nothing keeps
+// anonymity. The server revalidates everything -- this form only bounds
+// input to save a round trip, it authorizes nothing.
+function myIdentity() {
+  const block = node("div", "");
+  block.append(node("h2", "", "Mon identité"));
+  if (annonce) block.append(node("p", "annonce", annonce));
   if (profil === null) {
-    bloc.append(noeud("p", "rate", "Ton identité n'a pas pu être lue."));
-    bloc.append(fermeture());
-    return bloc;
+    block.append(node("p", "rate", "Ton identité n'a pas pu être lue."));
+    block.append(closeRow());
+    return block;
   }
 
-  const nomId = "forumpseudo";
-  const etiqNom = noeud("label", "", "Nom affiché (facultatif)");
-  etiqNom.setAttribute("for", nomId);
-  const champNom = noeud("input");
-  champNom.id = nomId;
-  champNom.type = "text";
-  champNom.autocomplete = "off";
-  champNom.maxLength = profil.max_pseudo || 24;
-  // LA SUGGESTION DE RAUTHY NE SERT QU'À PRÉ-REMPLIR, et seulement tant qu'on
-  // n'a pas choisi de nom. Elle n'est ni enregistrée ni affichée aux autres
-  // avant un clic sur « Enregistrer » avec la case cochée : le nom d'ouverture
-  // de session de quelqu'un ne se publie pas tout seul.
-  champNom.value = profil.pseudo || profil.suggestion || "";
-  champNom.placeholder = "Participant";
-  champPseudo = champNom;
+  const nameId = "forumpseudo";
+  const nameLabel = node("label", "", "Nom affiché (facultatif)");
+  nameLabel.setAttribute("for", nameId);
+  const nameField = node("input");
+  nameField.id = nameId;
+  nameField.type = "text";
+  nameField.autocomplete = "off";
+  nameField.maxLength = profil.max_pseudo || 24;
+  // RAUTHY'S SUGGESTION ONLY EVER PRE-FILLS, and only until a name has been
+  // chosen. It is neither saved nor shown to others before a click on
+  // "Enregistrer" with the box checked: someone's sign-in name does not get
+  // published on its own.
+  nameField.value = profil.pseudo || profil.suggestion || "";
+  nameField.placeholder = "Participant";
+  champPseudo = nameField;
 
-  const groupeId = "forumgroupe";
-  const groupes = Array.isArray(profil.groupes) ? profil.groupes : [];
-  const valGroupe = profil.groupe === null || profil.groupe === undefined
+  const groupId = "forumgroupe";
+  const groups = Array.isArray(profil.groupes) ? profil.groupes : [];
+  const groupValue = profil.groupe === null || profil.groupe === undefined
     ? "" : String(profil.groupe);
-  let champGroupe;
-  if (groupes.length) {
-    // Liste fixe de la session : seuls ces groupes existent, autant ne rien
-    // laisser taper d'autre.
-    champGroupe = noeud("select");
-    const vide = noeud("option", "", "— aucun —");
-    vide.value = "";
-    champGroupe.append(vide);
-    for (const g of groupes) {
-      const o = noeud("option", "", numeroGroupe(g));
+  let groupField;
+  if (groups.length) {
+    // A fixed list for the session: only these groups exist, might as well
+    // not let anything else be typed.
+    groupField = node("select");
+    const empty = node("option", "", "— aucun —");
+    empty.value = "";
+    groupField.append(empty);
+    for (const g of groups) {
+      const o = node("option", "", groupNumber(g));
       o.value = String(g);
-      champGroupe.append(o);
+      groupField.append(o);
     }
   } else {
-    champGroupe = noeud("input");
-    champGroupe.type = "number";
-    champGroupe.min = "1";
-    champGroupe.max = "99";
+    groupField = node("input");
+    groupField.type = "number";
+    groupField.min = "1";
+    groupField.max = "99";
   }
-  champGroupe.id = groupeId;
-  champGroupe.value = valGroupe;
-  const etiqGroupe = noeud("label", "", "Groupe (facultatif)");
-  etiqGroupe.setAttribute("for", groupeId);
+  groupField.id = groupId;
+  groupField.value = groupValue;
+  const groupLabel = node("label", "", "Groupe (facultatif)");
+  groupLabel.setAttribute("for", groupId);
 
-  const [voirNom, ligneNom] = caseACocher(
+  const [showName, nameRow] = checkbox(
     "forumvoirnom", "Afficher mon nom dans les discussions",
     profil.pseudo_public);
-  const [voirGroupe, ligneGroupe] = caseACocher(
+  const [showGroup, groupRow] = checkbox(
     "forumvoirgroupe", "Afficher mon numéro de groupe",
     profil.groupe_public);
 
-  bloc.append(etiqNom, champNom, etiqGroupe, champGroupe, ligneNom, ligneGroupe);
-  // CE QUE LA CASE NE COUVRE PAS, ET IL FAUT LE DIRE : l'enseignant voit
-  // le numéro de groupe en tout temps. Le laisser croire l'inverse serait un
-  // consentement obtenu de travers.
+  block.append(nameLabel, nameField, groupLabel, groupField, nameRow, groupRow);
+  // WHAT THE CHECKBOX DOES NOT COVER, and it must be said: the instructor
+  // sees the group number at all times. Letting anyone believe otherwise
+  // would be consent obtained the wrong way.
   if (!profil.pseudo && profil.suggestion) {
-    bloc.append(noeud("p", "aide", "Nom proposé par ta connexion — modifie-le si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
+    block.append(node("p", "aide", "Nom proposé par ta connexion — modifie-le si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
   }
-  bloc.append(noeud("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
+  block.append(node("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
     + "autres. L'enseignant, lui, voit toujours ton numéro de groupe — "
     + "jamais ton nom si tu ne l'affiches pas."));
-  const rangee = noeud("div", "row");
-  rangee.append(bouton("Enregistrer", "", () => enregistrerProfil({
-    pseudo: champNom.value,
-    groupe: champGroupe.value,
-    pseudo_public: voirNom.checked,
-    groupe_public: voirGroupe.checked,
+  const row = node("div", "row");
+  row.append(button("Enregistrer", "", () => enregistrerProfil({
+    pseudo: nameField.value,
+    groupe: groupField.value,
+    pseudo_public: showName.checked,
+    groupe_public: showGroup.checked,
   })));
-  rangee.append(bouton("Fermer", "nav", fermerIdentite));
-  bloc.append(rangee);
-  return bloc;
+  row.append(button("Fermer", "nav", closeIdentity));
+  block.append(row);
+  return block;
 }
 
-function fermeture() {
-  const rangee = noeud("div", "row");
-  rangee.append(bouton("Fermer", "nav", fermerIdentite));
-  return rangee;
+function closeRow() {
+  const row = node("div", "row");
+  row.append(button("Fermer", "nav", closeIdentity));
+  return row;
 }
 
-function fermerIdentite() {
+function closeIdentity() {
   annonce = "";
   champPseudo = null;
   $("identitepanneau").hidden = true;
 }
 
-function dessinerPanneau() {
-  const boite = $("identitepanneau");
-  boite.innerHTML = "";
-  boite.append(monIdentite());
-  boite.hidden = false;
+function renderPanel() {
+  const box = $("identitepanneau");
+  box.innerHTML = "";
+  box.append(myIdentity());
+  box.hidden = false;
 }
 
-function caseACocher(id, texte, coche) {
-  const ligne = noeud("label", "coche");
-  ligne.setAttribute("for", id);
-  const boite = noeud("input");
-  boite.id = id;
-  boite.type = "checkbox";
-  boite.checked = !!coche;
-  ligne.append(boite, noeud("span", "", texte));
-  return [boite, ligne];
+function checkbox(id, text, checked) {
+  const row = node("label", "coche");
+  row.setAttribute("for", id);
+  const box = node("input");
+  box.id = id;
+  box.type = "checkbox";
+  box.checked = !!checked;
+  row.append(box, node("span", "", text));
+  return [box, row];
 }
 
-function choixExercice() {
-  const bloc = noeud("div", "bloc");
-  const etiquette = noeud("label", "", "Exercice");
-  etiquette.setAttribute("for", "forumex");
+function exercisePicker() {
+  const block = node("div", "bloc");
+  const label = node("label", "", "Exercice");
+  label.setAttribute("for", "forumex");
   const menu = document.createElement("select");
   menu.id = "forumex";
   for (const tp of ctester.catalogue()) {
@@ -486,33 +490,33 @@ function choixExercice() {
     await charger(menu.value);
     dessiner();
   });
-  bloc.append(etiquette, menu);
-  return bloc;
+  block.append(label, menu);
+  return block;
 }
 
-function formulaire() {
-  const bloc = noeud("div", "bloc");
-  bloc.append(noeud("h3", "soustitre", "Poser une question"));
-  const etiquette = noeud("label", "", "Ta question ou ton explication"
+function postForm() {
+  const block = node("div", "bloc");
+  block.append(node("h3", "soustitre", "Poser une question"));
+  const label = node("label", "", "Ta question ou ton explication"
     + (maxTexte ? " (" + maxTexte + " caractères au plus)" : ""));
-  etiquette.setAttribute("for", "forumtexte");
+  label.setAttribute("for", "forumtexte");
   zone = document.createElement("textarea");
   zone.id = "forumtexte";
   zone.value = saisie;
   zone.setAttribute("rows", "4");
-  bloc.append(etiquette, zone);
+  block.append(label, zone);
 
-  bloc.append(noeud("p", "aide", rendu
+  block.append(node("p", "aide", renderAvailable
     ? "Mise en forme simple : **gras**, *italique*, listes, > citation, `code court`. Le HTML n'est jamais interprété."
     : "Le rendu enrichi n'a pas pu être chargé : ton message part quand même, et il s'affiche en texte brut."));
 
-  if (rendu) {
-    // L'APERÇU N'EST PAS `aria-live`. Annoncer chaque frappe à un lecteur
-    // d'écran rendrait le champ inutilisable ; l'aperçu est une région
-    // étiquetée, qu'on va lire quand on veut.
-    const titreApercu = noeud("h4", "soustitre", "Aperçu");
-    titreApercu.id = "forumapercutitre";
-    apercu = noeud("div", "md apercu");
+  if (renderAvailable) {
+    // THE PREVIEW IS NOT `aria-live`. Announcing every keystroke to a screen
+    // reader would make the field unusable; the preview is a labeled
+    // region, to be read whenever one wants.
+    const previewTitle = node("h4", "soustitre", "Aperçu");
+    previewTitle.id = "forumapercutitre";
+    apercu = node("div", "md apercu");
     apercu.setAttribute("role", "region");
     apercu.setAttribute("aria-labelledby", "forumapercutitre");
     rendreMarkdown(apercu, saisie);
@@ -520,156 +524,157 @@ function formulaire() {
       saisie = zone.value;
       rendreMarkdown(apercu, saisie);
     });
-    bloc.append(titreApercu, apercu);
+    block.append(previewTitle, apercu);
   } else {
     apercu = null;
     zone.addEventListener("input", () => { saisie = zone.value; });
   }
 
-  bloc.append(bouton("Publier", "", () => {
+  block.append(button("Publier", "", () => {
     saisie = zone.value;
-    const texte = saisie;
-    if (ctester.sessionGet(CHARTE_VUE)) publier(texte);
-    else montrerCharte(() => publier(texte));
+    const text = saisie;
+    if (ctester.sessionGet(CHARTE_VUE)) publier(text);
+    else showGuidelines(() => publier(text));
   }));
-  return bloc;
+  return block;
 }
 
-// L'HEURE DU LECTEUR, PAS CELLE DU SERVEUR. Celui-ci envoie l'instant en UTC
-// (« ...T18:45Z ») ; seul le navigateur sait dans quel fuseau on le lit. Une
-// chaîne qu'on n'arrive pas à relire s'affiche telle quelle -- un vieux message
-// vaut mieux qu'un « Invalid Date ».
-function quandLocal(instant) {
+// THE READER'S TIME, NOT THE SERVER'S. The server sends the instant in UTC
+// ("...T18:45Z"); only the browser knows which timezone to read it in. A
+// value that cannot be parsed back displays as-is -- an old message beats an
+// "Invalid Date".
+function localTime(instant) {
   const d = new Date(instant);
   if (isNaN(d.getTime())) return String(instant);
   return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
-function corpsDuMessage(texte) {
-  const corps = noeud("div", "texte md");
-  rendreMarkdown(corps, texte);
-  return corps;
+function messageBody(text) {
+  const body = node("div", "texte md");
+  rendreMarkdown(body, text);
+  return body;
 }
 
-function unMessage(m) {
+function messageItem(m) {
   const item = document.createElement("li");
   item.className = "message";
-  // L'AUTEUR EST UN MOT, PAS UN IDENTIFIANT : « Vous », « Participant » ou
-  // « Enseignant », dérivés par le serveur. Rien ici ne permet de
-  // recoller deux messages au même étudiant.
-  const tete = noeud("p", "qui");
-  tete.append(noeud("span", "auteur", m.auteur));
-  if (m.groupe) tete.append(noeud("span", "groupe", numeroGroupe(m.groupe)));
-  const quand = noeud("time", "quand", quandLocal(m.cree_le));
-  quand.setAttribute("datetime", String(m.cree_le).replace(" ", "T"));
-  tete.append(quand);
-  // « Masqué » EN TOUTES LETTRES, pas seulement en gris : un état qui ne se
-  // lit qu'à la couleur ne se lit pas du tout pour une partie des gens.
-  if (m.masque) tete.append(noeud("span", "etat", "masqué"));
-  item.append(tete, corpsDuMessage(m.texte));
+  // THE AUTHOR IS A WORD, NOT AN ID: "Vous", "Participant" or "Enseignant",
+  // derived by the server. Nothing here lets two messages be tied back to
+  // the same student.
+  const head = node("p", "qui");
+  head.append(node("span", "auteur", m.auteur));
+  if (m.groupe) head.append(node("span", "groupe", groupNumber(m.groupe)));
+  const when = node("time", "quand", localTime(m.cree_le));
+  when.setAttribute("datetime", String(m.cree_le).replace(" ", "T"));
+  head.append(when);
+  // "Masqué" SPELLED OUT, not only in gray: a state that only reads through
+  // color does not read at all for some people.
+  if (m.masque) head.append(node("span", "etat", "masqué"));
+  item.append(head, messageBody(m.texte));
 
-  const actions = noeud("div", "row");
+  const actions = node("div", "row");
   if (m.mien) {
-    actions.append(bouton("Supprimer mon message", "nav", () => supprimer(m.id)));
+    actions.append(button("Supprimer mon message", "nav", () => supprimer(m.id)));
   } else {
-    actions.append(bouton("Signaler", "nav", () => signaler(m.id)));
+    actions.append(button("Signaler", "nav", () => signaler(m.id)));
   }
-  // ON NE SIGNALE QUE CE QUI S'AFFICHE : le bouton n'existe que sur un nom
-  // choisi par quelqu'un d'autre. « Participant » n'est pas signalable, il n'y
-  // a rien dedans.
+  // ONLY WHAT IS DISPLAYED CAN BE REPORTED: the button only exists on a name
+  // someone else chose. "Participant" cannot be reported, there is nothing
+  // in it.
   if (m.nom_signalable) {
-    actions.append(bouton("Signaler le nom", "nav", () => signalerNom(m.id)));
+    actions.append(button("Signaler le nom", "nav", () => signalerNom(m.id)));
   }
   if (moderateur) {
     actions.append(m.masque
-      ? bouton("Rétablir", "nav", () => moderer(m.id, "retablir"))
-      : bouton("Masquer", "nav", () => moderer(m.id, "masquer")));
+      ? button("Rétablir", "nav", () => moderer(m.id, "retablir"))
+      : button("Masquer", "nav", () => moderer(m.id, "masquer")));
   }
   item.append(actions);
   return item;
 }
 
-function leFil() {
-  const bloc = noeud("div", "bloc");
-  bloc.append(noeud("h3", "soustitre", "Le fil"));
+function theThread() {
+  const block = node("div", "bloc");
+  block.append(node("h3", "soustitre", "Le fil"));
   if (!fil.length) {
-    bloc.append(noeud("p", "aide", "Personne n'a encore écrit sur cet exercice. Une question bien posée en aide souvent plusieurs."));
-    return bloc;
+    block.append(node("p", "aide", "Personne n'a encore écrit sur cet exercice. Une question bien posée en aide souvent plusieurs."));
+    return block;
   }
-  const liste = noeud("ul", "fil");
-  for (const m of fil) liste.append(unMessage(m));
-  bloc.append(liste);
-  return bloc;
+  const list = node("ul", "fil");
+  for (const m of fil) list.append(messageItem(m));
+  block.append(list);
+  return block;
 }
 
-function fileModeration() {
-  const bloc = noeud("div", "bloc second");
-  bloc.append(noeud("h3", "soustitre", "Signalements"));
+function moderationQueue() {
+  const block = node("div", "bloc second");
+  block.append(node("h3", "soustitre", "Signalements"));
   if (signalements === null) {
-    bloc.append(noeud("p", "rate",
+    block.append(node("p", "rate",
       "La file de signalements n'a pas pu être lue."));
-    return bloc;
+    return block;
   }
   if (!signalements.length) {
-    bloc.append(noeud("p", "aide", "Aucun signalement en attente."));
-    return bloc;
+    block.append(node("p", "aide", "Aucun signalement en attente."));
+    return block;
   }
-  const liste = noeud("ul", "fil");
+  const list = node("ul", "fil");
   for (const s of signalements) {
     const item = document.createElement("li");
     item.className = "message";
-    const tete = noeud("p", "qui");
-    tete.append(noeud("span", "auteur", s.exercice_id));
-    tete.append(noeud("time", "quand", quandLocal(s.cree_le)));
-    tete.append(noeud("span", "etat", s.signalements + " signalement"
+    const head = node("p", "qui");
+    head.append(node("span", "auteur", s.exercice_id));
+    head.append(node("time", "quand", localTime(s.cree_le)));
+    head.append(node("span", "etat", s.signalements + " signalement"
       + (s.signalements > 1 ? "s" : "") + (s.masque ? " — masqué" : "")));
-    // MÊME PIPELINE QU'AILLEURS. Un modérateur lit exactement ce qu'un étudiant
-    // lit, assaini de la même façon : une vue de modération qui rendrait le
-    // HTML brut « pour voir ce qu'il y a dedans » serait la page la plus facile
-    // à attaquer du site, et celle dont l'attaque paierait le plus.
-    item.append(tete, corpsDuMessage(s.texte));
-    const actions = noeud("div", "row");
+    // SAME PIPELINE AS EVERYWHERE ELSE. A moderator reads exactly what a
+    // student reads, sanitized the same way: a moderation view that
+    // rendered raw HTML "to see what's inside" would be the site's easiest
+    // page to attack, and the one where an attack would pay off the most.
+    item.append(head, messageBody(s.texte));
+    const actions = node("div", "row");
     actions.append(s.masque
-      ? bouton("Rétablir", "nav", () => moderer(s.id, "retablir"))
-      : bouton("Masquer", "nav", () => moderer(s.id, "masquer")));
+      ? button("Rétablir", "nav", () => moderer(s.id, "retablir"))
+      : button("Masquer", "nav", () => moderer(s.id, "masquer")));
     item.append(actions);
-    liste.append(item);
+    list.append(item);
   }
-  bloc.append(liste);
-  return bloc;
+  block.append(list);
+  return block;
 }
 
-// LES NOMS SIGNALÉS, à côté des messages signalés et pas dedans : ce n'est pas
-// le message qui pose problème, c'est le nom, et l'action n'est pas la même.
-function fileNoms() {
-  const bloc = noeud("div", "bloc second");
-  bloc.append(noeud("h3", "soustitre", "Noms signalés"));
+// REPORTED NAMES, next to reported messages but not inside them: it is not
+// the message that is the problem, it is the name, and the action is not
+// the same.
+function nameQueue() {
+  const block = node("div", "bloc second");
+  block.append(node("h3", "soustitre", "Noms signalés"));
   if (nomsSignales === null) {
-    bloc.append(noeud("p", "rate", "La file des noms n'a pas pu être lue."));
-    return bloc;
+    block.append(node("p", "rate", "La file des noms n'a pas pu être lue."));
+    return block;
   }
   if (!nomsSignales.length) {
-    bloc.append(noeud("p", "aide", "Aucun nom signalé."));
-    return bloc;
+    block.append(node("p", "aide", "Aucun nom signalé."));
+    return block;
   }
-  const liste = noeud("ul", "fil");
+  const list = node("ul", "fil");
   for (const n of nomsSignales) {
     const item = document.createElement("li");
     item.className = "message";
-    const tete = noeud("p", "qui");
-    tete.append(noeud("span", "auteur", n.pseudo || "(nom déjà effacé)"));
-    if (n.groupe) tete.append(noeud("span", "groupe", numeroGroupe(n.groupe)));
-    tete.append(noeud("time", "quand", quandLocal(n.cree_le)));
-    tete.append(noeud("span", "etat", n.signalements + " signalement"
+    const head = node("p", "qui");
+    head.append(node("span", "auteur", n.pseudo || "(nom déjà effacé)"));
+    if (n.groupe) head.append(node("span", "groupe", groupNumber(n.groupe)));
+    head.append(node("time", "quand", localTime(n.cree_le)));
+    head.append(node("span", "etat", n.signalements + " signalement"
       + (n.signalements > 1 ? "s" : "")));
-    item.append(tete);
-    const actions = noeud("div", "row");
-    actions.append(bouton("Effacer le nom", "nav", () => effacerNom(n.id)));
+    item.append(head);
+    const actions = node("div", "row");
+    actions.append(button("Effacer le nom", "nav", () => effacerNom(n.id)));
     item.append(actions);
-    liste.append(item);
+    list.append(item);
   }
-  bloc.append(liste);
-  return bloc;
+  block.append(list);
+  return block;
 }
 
 function dessiner() {
@@ -678,118 +683,120 @@ function dessiner() {
   zone = null;
   apercu = null;
   champPseudo = null;
-  titre = noeud("h2", "", "Discussions");
+  titre = node("h2", "", "Discussions");
   titre.id = "forumtitre";
   titre.tabIndex = -1;
   box.append(titre);
-  box.append(noeud("p", "aide", "Visible par les autres comptes connectés du cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès. Tu y apparais comme « Participant » tant que tu n'as pas choisi de nom dans Compte → Mon identité."));
+  box.append(node("p", "aide", "Visible par les autres comptes connectés du cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès. Tu y apparais comme « Participant » tant que tu n'as pas choisi de nom dans Compte → Mon identité."));
 
-  // LE CONTEXTE QU'ON VIENT DE PERDRE. Ouvrir les discussions efface le poste
-  // de travail : on arrive ici pour parler d'un verdict qu'on ne voit plus.
-  // Le rappeler évite d'avoir à faire l'aller-retour pour le recopier -- et
-  // c'est la première chose qu'on nous demandera dans le fil.
-  const dernier = ctester.dernierVerdict();
-  if (dernier && dernier.exercice === exercice) {
-    const rappel = noeud("p", "rappel");
-    rappel.append(noeud("span", "quoi", "Ton dernier test sur cet exercice : "));
-    rappel.append(noeud("b", "", dernier.titre));
-    box.append(rappel);
+  // THE CONTEXT WE JUST LOST. Opening discussions clears the workbench: we
+  // arrive here to talk about a verdict that is no longer visible. Recalling
+  // it avoids a round trip to copy it back -- and it is the first thing
+  // we'll be asked in the thread.
+  const last = ctester.dernierVerdict();
+  if (last && last.exercice === exercice) {
+    const reminder = node("p", "rappel");
+    reminder.append(node("span", "quoi", "Ton dernier test sur cet exercice : "));
+    reminder.append(node("b", "", last.titre));
+    box.append(reminder);
   }
-  const etat = noeud("p", "annonce", annonce);
-  etat.setAttribute("aria-live", "polite");
-  box.append(etat);
+  const status = node("p", "annonce", annonce);
+  status.setAttribute("aria-live", "polite");
+  box.append(status);
 
-  // DEUX COLONNES SUR UN GRAND ÉCRAN, une seule sur un petit, et c'est la
-  // grille CSS qui décide : ce qu'on écrit à gauche, ce qu'on lit à droite.
-  // Empilé, le fil commençait sous trois cadres et laissait les deux tiers de
-  // l'écran vides.
-  const gauche = noeud("div", "colonne");
-  const droite = noeud("div", "colonne large");
-  box.append(gauche, droite);
+  // TWO COLUMNS ON A LARGE SCREEN, a single one on a small one, and the CSS
+  // grid decides: what one writes on the left, what one reads on the
+  // right. Stacked, the thread used to start below three panels and left
+  // two thirds of the screen empty.
+  const left = node("div", "colonne");
+  const right = node("div", "colonne large");
+  box.append(left, right);
 
-  if (ctester.catalogue().length) gauche.append(choixExercice());
+  if (ctester.catalogue().length) left.append(exercisePicker());
 
-  const regles = noeud("div", "bloc second");
-  regles.append(noeud("h3", "soustitre", "Ce qui se publie ici"));
-  regles.append(listeCharte());
-  regles.append(noeud("p", "aide", "Modération humaine : rien n'est vérifié automatiquement. Signale plutôt que de répondre à une fuite."));
-  gauche.append(regles);
+  const rules = node("div", "bloc second");
+  rules.append(node("h3", "soustitre", "Ce qui se publie ici"));
+  rules.append(guidelinesList());
+  rules.append(node("p", "aide", "Modération humaine : rien n'est vérifié automatiquement. Signale plutôt que de répondre à une fuite."));
+  left.append(rules);
 
   if (fil === null) {
-    // ON N'INVENTE PAS UN FIL VIDE. « Aucun message » pendant une panne dit à
-    // quelqu'un que personne ne lui a répondu, et c'est faux.
-    droite.append(noeud("p", "rate", erreur));
+    // WE DO NOT INVENT AN EMPTY THREAD. "No messages" during an outage
+    // tells someone nobody answered them, and that would be false.
+    right.append(node("p", "rate", erreur));
     return;
   }
-  gauche.append(formulaire());
-  droite.append(leFil());
-  // LA MODÉRATION N'EST PLUS RENDUE ICI. Il en reste une porte, visible du
-  // seul modérateur.
-  if (moderateur) droite.append(porteModeration());
+  left.append(postForm());
+  right.append(theThread());
+  // MODERATION IS NO LONGER RENDERED HERE. What remains is a door to it,
+  // visible only to a moderator.
+  if (moderateur) right.append(moderationDoor());
 }
 
-function porteModeration() {
-  const bloc = noeud("div", "bloc second");
-  bloc.append(noeud("h3", "soustitre", "Modération"));
-  const combien = (signalements || []).length + (nomsSignales || []).length;
-  bloc.append(noeud("p", "", combien
-    ? combien + (combien > 1 ? " éléments signalés" : " élément signalé")
+function moderationDoor() {
+  const block = node("div", "bloc second");
+  block.append(node("h3", "soustitre", "Modération"));
+  const count = (signalements || []).length + (nomsSignales || []).length;
+  block.append(node("p", "", count
+    ? count + (count > 1 ? " éléments signalés" : " élément signalé")
       + " à examiner."
     : "Rien de signalé pour l'instant."));
-  const bouton = noeud("button", "", "Ouvrir la modération");
-  bouton.type = "button";
-  bouton.addEventListener("click", () => basculerModeration());
-  bloc.append(bouton);
-  return bloc;
+  const openButton = node("button", "", "Ouvrir la modération");
+  openButton.type = "button";
+  openButton.addEventListener("click", () => basculerModeration());
+  block.append(openButton);
+  return block;
 }
 
-// L'ÉCRAN DE MODÉRATION, à part. Il n'a rien à faire dans le parcours d'un
-// étudiant, et l'enseignant qui l'ouvre n'a pas à traverser un fil pour y
-// arriver.
+// THE MODERATION SCREEN, kept apart. It has no business in a student's
+// path, and the instructor opening it does not need to go through a thread
+// to get there.
 function dessinerModeration() {
   const box = $("vuemoderation");
   box.innerHTML = "";
-  const entete = noeud("h2", "", "Modération");
-  entete.id = "moderationtitre";
-  entete.tabIndex = -1;
-  box.append(entete);
-  const etat = noeud("p", "annonce", annonce);
-  etat.setAttribute("aria-live", "polite");
-  box.append(etat);
+  const head = node("h2", "", "Modération");
+  head.id = "moderationtitre";
+  head.tabIndex = -1;
+  box.append(head);
+  const status = node("p", "annonce", annonce);
+  status.setAttribute("aria-live", "polite");
+  box.append(status);
   if (!moderateur) {
-    box.append(noeud("p", "rate", "Cette page est réservée à la modération."));
+    box.append(node("p", "rate", "Cette page est réservée à la modération."));
     return;
   }
-  box.append(fileModeration(), fileNoms());
+  box.append(moderationQueue(), nameQueue());
 }
 
 async function basculerModeration() {
   if (ctester.vue() === "moderation") { await basculer(); return; }
-  await charger(exercice || exerciceCourant());
+  await charger(exercice || currentExercise());
   dessinerModeration();
   ctester.afficherVue("moderation");
-  const entete = $("moderationtitre");
-  if (entete && entete.focus) entete.focus();
+  const head = $("moderationtitre");
+  if (head && head.focus) head.focus();
 }
 
-// --- Entrées ---------------------------------------------------------------
+// --- Entry points -------------------------------------------------------------
 
 async function basculer() {
   if (ctester.vue() === "forum") { ctester.afficherVue(""); return; }
   annonce = "";
-  // LES BIBLIOTHÈQUES ARRIVENT AVEC LA VUE, pas avec la page. Un échec n'est
-  // pas bloquant : `rendu` reste faux et tout s'affiche en texte brut.
+  // THE LIBRARIES ARRIVE WITH THE VIEW, not with the page. A failure is not
+  // blocking: `renderAvailable` stays false and everything displays as
+  // plain text.
   try {
-    await chargerBibliotheques();
-    rendu = !!(window.marked && assainisseur());
+    await loadLibraries();
+    renderAvailable = !!(window.marked && sanitizer());
   } catch (e) {
-    rendu = false;
+    renderAvailable = false;
   }
-  await charger(exerciceCourant());
+  await charger(currentExercise());
   dessiner();
   ctester.afficherVue("forum");
-  // Le focus suit la vue : sans ça, la tabulation repartirait du haut de la
-  // page et un lecteur d'écran n'annoncerait pas le changement d'écran.
+  // Focus follows the view: without this, tabbing would restart from the
+  // top of the page and a screen reader would not announce the screen
+  // change.
   if (titre && titre.focus) titre.focus();
 }
 
@@ -803,22 +810,22 @@ function oublier() {
   profil = null;
   nomsSignales = null;
   $("charte").hidden = true;
-  // LE PANNEAU D'IDENTITÉ PART AVEC LA SESSION : il porte le nom de quelqu'un,
-  // et se déconnecter ne doit pas le laisser ouvert à l'écran.
-  fermerIdentite();
-  const vue = ctester.vue();
-  if (vue === "forum" || vue === "moderation") ctester.afficherVue("");
+  // THE IDENTITY PANEL LEAVES WITH THE SESSION: it carries someone's name,
+  // and signing out must not leave it open on screen.
+  closeIdentity();
+  const view = ctester.vue();
+  if (view === "forum" || view === "moderation") ctester.afficherVue("");
 }
 
-// « MON IDENTITÉ » DU MENU COMPTE, et NULLE PART AILLEURS. C'est un réglage,
-// pas une étape de lecture : dans la colonne du fil, il poussait la charte et
-// le formulaire vers le bas à chaque visite. Un seul endroit, donc un seul
-// endroit où la visibilité peut diverger de ce que la base dit.
+// "MON IDENTITÉ" FROM THE COMPTE MENU, AND NOWHERE ELSE. This is a setting,
+// not a reading step: in the thread's column, it used to push the charter
+// and the post form further down on every visit. One single place, so one
+// single place where visibility can drift from what the database says.
 async function ouvrirIdentite() {
-  if (!$("identitepanneau").hidden) { fermerIdentite(); return; }
+  if (!$("identitepanneau").hidden) { closeIdentity(); return; }
   annonce = "";
   await chargerProfil();
-  dessinerPanneau();
+  renderPanel();
   if (champPseudo) champPseudo.focus();
 }
 
@@ -828,12 +835,12 @@ ctester.forum = {
   ouvrirIdentite: ouvrirIdentite,
   oublier: oublier,
   fil: () => fil,
-  // Exposé pour le harnais de test : c'est LA fonction dont dépend toute la
-  // sûreté du rendu, et elle doit pouvoir être éprouvée sur de vraies charges
-  // hostiles plutôt que par inspection du code.
+  // Exposed for the test harness: this is THE function the whole safety of
+  // rendering depends on, and it must be testable against real hostile
+  // payloads rather than by code inspection.
   rendreMarkdown: rendreMarkdown,
-  // Exposé pour la même raison : le fuseau est la sorte de bogue qui ne se
-  // voit qu'au moment où quelqu'un lit « dans quatre heures ».
-  quandLocal: quandLocal,
+  // Exposed for the same reason: the timezone is the kind of bug that only
+  // shows up the moment someone reads "in four hours".
+  quandLocal: localTime,
 };
 })(window.ctester);
