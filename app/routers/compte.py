@@ -9,7 +9,7 @@ une réponse vraie : un 200 sur une écriture qui n'a pas eu lieu ferait croire 
 quelqu'un que son travail est en sécurité.
 """
 
-import etat
+import state
 import headers
 from deps import Sub, freiner_ecriture
 from fastapi import APIRouter, Query, Request
@@ -22,7 +22,7 @@ router = APIRouter(tags=["compte"])
 @router.get("/etats")
 def etats(sub: Sub):
     """Les exercices que ce compte a essayés ou validés."""
-    valeurs = etat.read_states(sub)
+    valeurs = state.read_states(sub)
     if valeurs is None:
         return headers.erreur(503, "la base ne répond pas")
     return {"etats": valeurs}
@@ -31,7 +31,7 @@ def etats(sub: Sub):
 @router.get("/pratique")
 def pratique(sub: Sub):
     """Le résumé des tentatives libres de ce compte."""
-    resume = etat.read_practice_summary(sub)
+    resume = state.read_practice_summary(sub)
     if resume is None:
         return headers.erreur(503, "la base ne répond pas")
     return {"pratique": resume}
@@ -46,7 +46,7 @@ def lire_brouillon(sub: Sub, ex: str = Query("")):
     """
     if catalogue.find_exercise(ex) is None:
         return headers.erreur(400, "TP inconnu")
-    return {"sources": etat.read_resume(sub, ex)}
+    return {"sources": state.read_resume(sub, ex)}
 
 
 @router.put("/brouillon")
@@ -64,7 +64,7 @@ def ecrire_brouillon(sub: Sub, corps: BrouillonIn, request: Request):
     if message:
         return headers.erreur(code, message)
     freiner_ecriture(request)
-    if not etat.write_draft(sub, entree["id"], fichiers):
+    if not state.write_draft(sub, entree["id"], fichiers):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}
 
@@ -78,7 +78,7 @@ def lire_preferences(sub: Sub):
     base ne répond pas » (503) ne touche à rien. Les confondre écraserait le
     réglage de quelqu'un à la première panne.
     """
-    theme = etat.read_theme(sub)
+    theme = state.read_theme(sub)
     if theme is None:
         return headers.erreur(503, "la base ne répond pas")
     return {"theme": theme}
@@ -92,10 +92,10 @@ def ecrire_preferences(sub: Sub, corps: PreferencesIn, request: Request):
     Le quota des soumissions serait absurde ici, et aucun quota du tout ferait
     d'un clic répété une écriture Postgres par clic.
     """
-    if corps.theme not in etat.THEMES:
+    if corps.theme not in state.THEMES:
         return headers.erreur(400, "thème inconnu")
     freiner_ecriture(request)
-    if not etat.write_theme(sub, corps.theme):
+    if not state.write_theme(sub, corps.theme):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}
 
@@ -108,6 +108,6 @@ def effacer(sub: Sub):
     que ça existe, donc ça existe -- pas « plus tard ». `forget()` efface chaque
     table du schéma, et un test le vérifie en relisant `schema.sql`.
     """
-    if not etat.forget(sub):
+    if not state.forget(sub):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}

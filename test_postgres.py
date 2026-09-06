@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
-"""ctester -- éprouve `app/schema.sql` et `app/etat.py` sur un VRAI PostgreSQL.
+"""ctester -- exercises `app/schema.sql` and `app/state.py` against a REAL PostgreSQL.
 
     docker run -d --rm --name pg -e POSTGRES_PASSWORD=x -e POSTGRES_DB=ctester \
                -p 55432:5432 postgres:16-alpine
     CTESTER_DB_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester \
       python3 test_postgres.py
 
-Avec le rôle applicatif, ce qui reproduit exactement la production -- le
-schéma posé par `postgres`, tout le reste joué par `ctester_app` et ses seuls
-GRANT :
+With the application role, which reproduces production exactly -- the schema
+laid down by `postgres`, everything else played by `ctester_app` and its only
+GRANTs:
 
     CTESTER_DB_ADMIN_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester \
     CTESTER_DB_DSN=postgresql://ctester_app:y@127.0.0.1:55432/ctester \
       python3 test_postgres.py
 
-POURQUOI CE FICHIER EXISTE. `test_ctester.py` simule la base : ce qu'il éprouve
-est la frontière HTTP, pas le SQL. Or les écritures de progression et de forum
-ne sont pas du SQL ordinaire -- une CTE modifiante qui alimente un INSERT, une
-CTE modifiante qui alimente un UPDATE, un `unnest` d'un tableau paramétré, un
-INSERT ... SELECT dont la clause `WHERE` est le contrôle d'accès, un
-`DISTINCT ON` et une jointure LATERAL pour le dernier profil, douze DELETE
-dans une seule instruction. Ces formes compilent dans la tête et échouent en
-production ; il n'y a pas de milieu.
+WHY THIS FILE EXISTS. `test_ctester.py` simulates the database: what it
+exercises is the HTTP boundary, not the SQL. But the progression and forum
+writes are not ordinary SQL -- a data-modifying CTE feeding an INSERT, a
+data-modifying CTE feeding an UPDATE, an `unnest` of a parameterized array, an
+INSERT ... SELECT whose `WHERE` clause IS the access control, a `DISTINCT ON`
+and a LATERAL join for the latest profile, twelve DELETEs in a single
+statement. These shapes compile in your head and fail in production; there is
+no middle ground.
 
-SANS `CTESTER_DB_DSN`, IL NE FAIT RIEN ET SORT EN 0. C'est délibéré : il doit
-pouvoir être lancé partout sans devenir une raison de plus de ne pas lancer les
-autres contrôles. Il n'est PAS dans la vérification Ansible -- il écrit, et la
-seule base que le rôle connaît est celle des étudiants.
+WITHOUT `CTESTER_DB_DSN`, IT DOES NOTHING AND EXITS 0. That is deliberate: it
+must be runnable everywhere without becoming one more reason not to run the
+other checks. It is NOT in the Ansible verification -- it writes, and the only
+database the role knows is the students'.
 """
 
 import os
@@ -36,446 +36,444 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 
 DSN = os.environ.get("CTESTER_DB_DSN", "")
-# Le schéma est posé par le propriétaire, jamais par le rôle applicatif : c'est
-# ce que fait le rôle Ansible, et c'est justement ce qu'on veut éprouver. Sans
-# DSN d'administration, les deux sont le même et le contrôle de privilège plus
-# bas s'annonce comme non joué plutôt que de passer en mentant.
+# The schema is laid down by the owner, never by the application role: that is
+# what the Ansible role does, and that is exactly what we want to exercise.
+# Without an admin DSN, the two are the same and the privilege check below
+# reports itself as not played rather than passing while lying.
 ADMIN_DSN = os.environ.get("CTESTER_DB_ADMIN_DSN", "") or DSN
 if not DSN:
-    print("CTESTER_DB_DSN vide : rien à éprouver ici (voir l'en-tête).")
+    print("CTESTER_DB_DSN empty: nothing to exercise here (see the header).")
     raise SystemExit(0)
 
-import etat        # noqa: E402 -- il lit CTESTER_DB_DSN à l'import
+import state       # noqa: E402 -- it reads CTESTER_DB_DSN at import
 
-if not etat.enabled():
-    raise SystemExit("psycopg manque : pip install 'psycopg[binary]'")
+if not state.enabled():
+    raise SystemExit("psycopg is missing: pip install 'psycopg[binary]'")
 
-TABLES = ("brouillon_exercice", "etat_exercice", "tentative_pratique",
-          "evenement_progression", "transaction_xp", "succes_obtenu",
-          "forum_message", "forum_signalement", "forum_moderation",
-          "forum_profil", "forum_nom_signale", "preference_affichage")
+TABLES = ("exercise_draft", "exercise_state", "practice_attempt",
+          "progress_event", "xp_transaction", "achievement_unlocked",
+          "forum_message", "forum_report", "forum_moderation",
+          "forum_profile", "forum_reported_name", "display_preference")
 
 ALICE, BOB = "sub-alice", "sub-bob"
 
 
-def compte(table, user):
-    rows = etat._query(
-        "SELECT count(*) FROM %s WHERE utilisateur = %%s" % table,
+def count(table, user):
+    rows = state._query(
+        "SELECT count(*) FROM %s WHERE account = %%s" % table,
         (user,), read=True)
-    assert rows is not None, "la base n'a pas répondu sur " + table
+    assert rows is not None, "the database did not answer on " + table
     return rows[0][0]
 
 
-def appliquer_schema():
-    """Le schéma tel qu'Ansible l'applique : le fichier, en entier, d'un bloc.
+def apply_schema():
+    """The schema as Ansible applies it: the whole file, in one block.
 
-    Le rejouer doit être sans effet -- c'est ce que promettent les
-    `IF NOT EXISTS`, et c'est ce que le rôle fait à chaque convergence.
+    Replaying it must have no effect -- that is what the `IF NOT EXISTS`
+    clauses promise, and that is what the role does on every converge.
     """
     import psycopg
     with open(os.path.join(HERE, "app", "schema.sql"), encoding="utf-8") as fh:
         sql = fh.read()
-    # PAR LE DSN D'ADMINISTRATION : `ctester_app` n'a pas le droit de créer une
-    # table, et c'est voulu. Passer par `etat._query` ici ferait échouer ce
-    # contrôle pour la bonne raison, au mauvais endroit.
+    # THROUGH THE ADMIN DSN: `ctester_app` has no right to create a table, and
+    # that is intentional. Going through `state._query` here would fail this
+    # check for the right reason, in the wrong place.
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
         for _ in range(2):
             cx.execute(sql)
-        trouvees = {row[0] for row in cx.execute(
+        found = {row[0] for row in cx.execute(
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")}
-    manquantes = set(TABLES) - trouvees
-    assert not manquantes, "tables absentes : " + ", ".join(sorted(manquantes))
-    print("ok   schema.sql s'applique, et se rejoue sans rien casser")
+    missing = set(TABLES) - found
+    assert not missing, "missing tables: " + ", ".join(sorted(missing))
+    print("ok   schema.sql applies, and replays without breaking anything")
 
 
-def ajout_seul():
-    """LES TABLES DE PROGRESSION SONT EN AJOUT SEUL, ET C'EST POSTGRES QUI TIENT.
+def append_only():
+    """THE PROGRESSION TABLES ARE APPEND-ONLY, AND POSTGRES HOLDS IT.
 
-    Le rôle applicatif n'a pas `UPDATE` dessus (voir le GRANT dans VHome). La
-    propriété ne dépend donc pas de la discipline de `etat.py` : une ligne de
-    Python distraite ne peut pas réécrire une attribution d'XP après coup, et
-    une correction d'erreur demande un accès d'administration explicite.
+    The application role has no `UPDATE` on them (see the GRANT in VHome).
+    Ownership therefore does not depend on `state.py`'s discipline: a
+    distracted line of Python cannot rewrite an XP grant after the fact, and
+    fixing a mistake requires explicit admin access.
 
-    Non joué quand les deux DSN sont le même -- il n'y aurait rien à refuser.
+    Not played when both DSNs are the same -- there would be nothing to refuse.
     """
     if ADMIN_DSN == DSN:
-        print("--   ajout seul : NON JOUÉ (pas de CTESTER_DB_ADMIN_DSN distinct)")
+        print("--   append-only: NOT PLAYED (no distinct CTESTER_DB_ADMIN_DSN)")
         return
     import psycopg
-    refuses = []
-    for table in ("evenement_progression", "transaction_xp", "succes_obtenu"):
+    refused = []
+    for table in ("progress_event", "xp_transaction", "achievement_unlocked"):
         with psycopg.connect(DSN, autocommit=True) as cx:
             try:
-                cx.execute("UPDATE %s SET politique = 'triche'" % table)
+                cx.execute("UPDATE %s SET policy = 'cheat'" % table)
             except psycopg.errors.InsufficientPrivilege:
-                refuses.append(table)
-    assert len(refuses) == 3, "UPDATE accepté quelque part : " + str(refuses)
-    print("ok   Postgres refuse l'UPDATE sur les trois tables de progression")
+                refused.append(table)
+    assert len(refused) == 3, "UPDATE accepted somewhere: " + str(refused)
+    print("ok   Postgres refuses UPDATE on the three progression tables")
 
 
-def brouillons_et_etats():
-    assert etat.write_draft(ALICE, "tp2-ex3", {"submission.c": "int main(void){}"})
-    assert etat.read_resume(ALICE, "tp2-ex3") == {"submission.c": "int main(void){}"}
-    # Le brouillon l'emporte sur l'état soumis : c'est le travail en cours.
-    assert etat.write_state(ALICE, "tp2-ex3", "valide", {"submission.c": "envoyé"})
-    assert etat.read_resume(ALICE, "tp2-ex3")["submission.c"] == "int main(void){}"
-    # ET « valide » NE RECULE PAS. On continue de bricoler un exercice réussi ;
-    # sans le CASE du schéma, le tableau de bord dirait le contraire de ce qui
-    # s'est passé.
-    assert etat.write_state(ALICE, "tp2-ex3", "essaye", {"submission.c": "cassé"})
-    assert etat.read_states(ALICE) == [{"exercice_id": "tp2-ex3", "statut": "valide"}]
-    assert etat.write_state(ALICE, "tp2-ex3", "parfait", {}) is False
-    print("ok   brouillon, état, et « valide » qui ne recule pas")
+def drafts_and_states():
+    assert state.write_draft(ALICE, "tp2-ex3", {"submission.c": "int main(void){}"})
+    assert state.read_resume(ALICE, "tp2-ex3") == {"submission.c": "int main(void){}"}
+    # The draft wins over the submitted state: it is the work in progress.
+    assert state.write_state(ALICE, "tp2-ex3", "valide", {"submission.c": "sent"})
+    assert state.read_resume(ALICE, "tp2-ex3")["submission.c"] == "int main(void){}"
+    # AND "valide" DOES NOT GO BACKWARDS. People keep poking at a solved
+    # exercise; without the schema's CASE, the dashboard would say the
+    # opposite of what happened.
+    assert state.write_state(ALICE, "tp2-ex3", "essaye", {"submission.c": "broken"})
+    assert state.read_states(ALICE) == [{"exercice_id": "tp2-ex3", "statut": "valide"}]
+    assert state.write_state(ALICE, "tp2-ex3", "perfect", {}) is False
+    print("ok   draft, state, and \"valide\" does not go backwards")
 
 
-def tentatives():
+def practice_attempts():
     verdict = {"status": "ok", "total": 3, "passed": 3}
-    assert etat.write_practice_attempt(ALICE, "job-1", "tp2-ex3", verdict)
-    assert etat.write_practice_attempt(ALICE, "job-1", "tp2-ex3", verdict)
-    assert etat.write_practice_attempt(ALICE, "job-2", "tp2-ex3",
+    assert state.write_practice_attempt(ALICE, "job-1", "tp2-ex3", verdict)
+    assert state.write_practice_attempt(ALICE, "job-1", "tp2-ex3", verdict)
+    assert state.write_practice_attempt(ALICE, "job-2", "tp2-ex3",
                                        {"status": "ok", "total": 3, "passed": 1})
-    assert etat.read_practice_summary(ALICE) == [
+    assert state.read_practice_summary(ALICE) == [
         {"exercice_id": "tp2-ex3", "tentatives": 2, "reussites": 1}]
-    # Un verdict malformé ne doit pas violer le CHECK (reussis <= total) : la
-    # borne est côté Python ET côté schéma, et c'est le schéma qu'on éprouve.
-    assert etat.write_practice_attempt(ALICE, "job-3", "tp2-ex3",
+    # A malformed verdict must not violate the CHECK (passed <= total): the
+    # bound lives both in Python AND in the schema, and it is the schema being
+    # exercised here.
+    assert state.write_practice_attempt(ALICE, "job-3", "tp2-ex3",
                                        {"status": "ok", "total": 1, "passed": 9})
-    print("ok   tentative de pratique : idempotente par job, bornée par le schéma")
+    print("ok   practice attempt: idempotent per job, bounded by the schema")
 
 
-def attributions():
-    """LE CŒUR DE CE FICHIER : la CTE modifiante qui alimente l'INSERT."""
-    accorde = etat.grant_first_solve(
-        ALICE, "tp2-ex3", "reussite:tp2-ex3", 15, "première réussite",
-        "pilote-1", {"job": "job-1", "difficulte": "foundation"}, 100)
-    assert accorde == 15, accorde
-    # REJOUER LE MÊME FAIT N'ACCORDE RIEN. C'est la seule chose qui rend le
-    # sondage HTTP, un worker relancé et un exercice refait inoffensifs.
+def grants():
+    """THE HEART OF THIS FILE: the data-modifying CTE feeding the INSERT."""
+    granted = state.grant_first_solve(
+        ALICE, "tp2-ex3", "reussite:tp2-ex3", 15, "first solve",
+        "policy-1", {"job": "job-1", "difficulte": "foundation"}, 100)
+    assert granted == 15, granted
+    # REPLAYING THE SAME FACT GRANTS NOTHING. That is the one thing that makes
+    # a replayed HTTP poll, a restarted worker and a redone exercise harmless.
     for _ in range(3):
-        assert etat.grant_first_solve(
-            ALICE, "tp2-ex3", "reussite:tp2-ex3", 15, "première réussite",
-            "pilote-1", {"job": "job-9"}, 100) is None
-    assert compte("transaction_xp", ALICE) == 1
-    assert compte("evenement_progression", ALICE) == 1
+        assert state.grant_first_solve(
+            ALICE, "tp2-ex3", "reussite:tp2-ex3", 15, "first solve",
+            "policy-1", {"job": "job-9"}, 100) is None
+    assert count("xp_transaction", ALICE) == 1
+    assert count("progress_event", ALICE) == 1
 
-    # LE PLAFOND EST CALCULÉ DANS L'INSTRUCTION. Au-delà, le fait s'enregistre
-    # à zéro plutôt que de disparaître -- et le CHECK (montant >= 0) l'accepte.
-    assert etat.grant_first_solve(
-        ALICE, "tp2-ex0", "reussite:tp2-ex0", 30, "première réussite",
-        "pilote-1", {"job": "job-4"}, 20) == 5           # 20 - 15 déjà accordés
-    assert etat.grant_first_solve(
-        ALICE, "tp6-ex1", "reussite:tp6-ex1", 30, "première réussite",
-        "pilote-1", {"job": "job-5"}, 20) == 0           # plafond atteint
-    assert compte("transaction_xp", ALICE) == 3
-    print("ok   attribution : une fois par fait, plafond appliqué dans la même "
-          "instruction")
-
-
-def succes_et_lecture():
-    # `unnest(%s::text[])` : un tableau paramétré, pas une liste de VALUES
-    # construite en Python. C'est la forme qui n'existe qu'en vrai SQL.
-    assert etat.unlock(ALICE, ["premiere-reussite", "premiere-competence"],
-                       "reussite:tp2-ex3", "pilote-1")
-    assert etat.unlock(ALICE, ["premiere-reussite", "cinq-reussites"],
-                       "reussite:tp2-ex0", "pilote-1")
-    assert compte("succes_obtenu", ALICE) == 3          # pas 4 : un doublon
-    assert etat.unlock(ALICE, [], "reussite:tp2-ex3", "pilote-1")
-
-    vue = etat.read_progress(ALICE)
-    assert vue["xp"] == 20, vue                          # 15 + 5 + 0
-    # CHRONOLOGIQUE D'ABORD, alphabétique à égalité d'horodatage. Les deux
-    # premiers sont arrivés dans la même instruction, donc à la même
-    # microseconde : sans le `succes_id` en second critère, leur ordre serait
-    # celui que Postgres a envie de rendre, et il changerait d'un appel à
-    # l'autre sous les yeux de l'étudiant.
-    assert [s["id"] for s in vue["succes"]] == [
-        "premiere-competence", "premiere-reussite", "cinq-reussites"], vue["succes"]
-    assert all(len(s["obtenu_le"]) == 10 for s in vue["succes"]), vue["succes"]
-    assert len(vue["transactions"]) == 3
-    assert vue["transactions"][0]["motif"] == "première réussite"
-    print("ok   succès sans doublon, et lecture des faits (dates au jour)")
+    # THE CAP IS COMPUTED WITHIN THE STATEMENT. Past it, the fact is recorded
+    # at zero rather than disappearing -- and the CHECK (amount >= 0) accepts it.
+    assert state.grant_first_solve(
+        ALICE, "tp2-ex0", "reussite:tp2-ex0", 30, "first solve",
+        "policy-1", {"job": "job-4"}, 20) == 5           # 20 - 15 already granted
+    assert state.grant_first_solve(
+        ALICE, "tp6-ex1", "reussite:tp6-ex1", 30, "first solve",
+        "policy-1", {"job": "job-5"}, 20) == 0           # cap reached
+    assert count("xp_transaction", ALICE) == 3
+    print("ok   grant: once per fact, cap applied within the same statement")
 
 
-def evidences_de_maitrise():
-    """L'autre écriture du journal : un fait SANS XP, et sa relecture typée.
+def achievements_and_reading():
+    # `unnest(%s::text[])`: a parameterized array, not a list of VALUES built
+    # in Python. This is the shape that only exists in real SQL.
+    assert state.unlock(ALICE, ["premiere-reussite", "premiere-competence"],
+                       "reussite:tp2-ex3", "policy-1")
+    assert state.unlock(ALICE, ["premiere-reussite", "cinq-reussites"],
+                       "reussite:tp2-ex0", "policy-1")
+    assert count("achievement_unlocked", ALICE) == 3     # not 4: one duplicate
+    assert state.unlock(ALICE, [], "reussite:tp2-ex3", "policy-1")
 
-    Aucune table nouvelle -- c'est `evenement_progression` qui porte les deux.
-    Ce contrôle est donc aussi la preuve que le GRANT existant suffit : si la
-    phase 2 avait eu besoin d'un droit de plus, il échouerait ici.
+    view = state.read_progress(ALICE)
+    assert view["xp"] == 20, view                        # 15 + 5 + 0
+    # CHRONOLOGICAL FIRST, alphabetical on a tied timestamp. The first two
+    # arrived in the same statement, so at the same microsecond: without
+    # `achievement_id` as the second criterion, their order would be whatever
+    # Postgres feels like returning, and it would change between calls right
+    # in front of the student.
+    assert [s["id"] for s in view["succes"]] == [
+        "premiere-competence", "premiere-reussite", "cinq-reussites"], view["succes"]
+    assert all(len(s["obtenu_le"]) == 10 for s in view["succes"]), view["succes"]
+    assert len(view["transactions"]) == 3
+    assert view["transactions"][0]["motif"] == "first solve"
+    print("ok   achievements without duplicates, and reading the facts (day-level dates)")
+
+
+def mastery_evidence():
+    """The journal's other write: a fact WITHOUT XP, and reading it back typed.
+
+    No new table -- it is `progress_event` that carries both. This check is
+    therefore also proof that the existing GRANT is enough: if phase 2 had
+    needed one more privilege, it would fail here.
     """
-    ecrit = etat.record_event(ALICE, "verification:verif-tp2:job-v1",
-                              "VerificationEvaluated", "verif-tp2", "pilote-1",
+    written = state.record_event(ALICE, "verification:verif-tp2:job-v1",
+                              "VerificationEvaluated", "verif-tp2", "policy-1",
                               {"job": "job-v1", "reussi": False})
-    assert ecrit == "verification:verif-tp2:job-v1", ecrit
-    # Rejouer le même sondage n'écrit rien : même clé, même refus.
-    assert etat.record_event(ALICE, "verification:verif-tp2:job-v1",
-                             "VerificationEvaluated", "verif-tp2", "pilote-1",
+    assert written == "verification:verif-tp2:job-v1", written
+    # Replaying the same poll writes nothing: same key, same refusal.
+    assert state.record_event(ALICE, "verification:verif-tp2:job-v1",
+                             "VerificationEvaluated", "verif-tp2", "policy-1",
                              {"job": "job-v1", "reussi": True}) is None
-    # Un RÉESSAI, lui, est un autre job donc un autre fait : les tentatives
-    # restent historiques.
-    assert etat.record_event(ALICE, "verification:verif-tp2:job-v2",
-                             "VerificationEvaluated", "verif-tp2", "pilote-1",
+    # A RETRY, though, is a different job and so a different fact: attempts
+    # stay historical.
+    assert state.record_event(ALICE, "verification:verif-tp2:job-v2",
+                             "VerificationEvaluated", "verif-tp2", "policy-1",
                              {"job": "job-v2", "reussi": True})
 
-    faits = etat.read_events(ALICE, "VerificationEvaluated")
-    # LE PLUS RÉCENT D'ABORD : c'est la dernière tentative qui fait la bande.
-    assert [f["charge"]["job"] for f in faits] == ["job-v2", "job-v1"], faits
-    assert faits[0]["charge"]["reussi"] is True
-    assert faits[0]["exercice_id"] == "verif-tp2"
-    # LE FILTRE PAR TYPE EST RÉEL : les réussites de pratique du même compte
-    # sont dans la même table et ne doivent pas remonter ici.
-    assert compte("evenement_progression", ALICE) > len(faits)
-    assert etat.read_events(ALICE, "ExerciceReussi")
-    # Et rien de tout ça n'a touché au solde.
-    assert etat.read_progress(ALICE)["xp"] == 20
-    print("ok   évidence de maîtrise : même journal, aucun XP, aucun GRANT de plus")
+    facts = state.read_events(ALICE, "VerificationEvaluated")
+    # NEWEST FIRST: it is the latest attempt that makes the band.
+    assert [f["charge"]["job"] for f in facts] == ["job-v2", "job-v1"], facts
+    assert facts[0]["charge"]["reussi"] is True
+    assert facts[0]["exercice_id"] == "verif-tp2"
+    # THE TYPE FILTER IS REAL: practice solves from the same account live in
+    # the same table and must not surface here.
+    assert count("progress_event", ALICE) > len(facts)
+    assert state.read_events(ALICE, "ExerciceReussi")
+    # And none of this touched the balance.
+    assert state.read_progress(ALICE)["xp"] == 20
+    print("ok   mastery evidence: same journal, no XP, no extra GRANT")
 
 
-def cloisonnement():
-    """CE QUI COMPTE VRAIMENT : personne ne voit ni n'efface chez le voisin."""
-    assert etat.write_draft(BOB, "tp2-ex3", {"submission.c": "// bob"})
-    assert etat.grant_first_solve(
-        BOB, "tp2-ex3", "reussite:tp2-ex3", 15, "première réussite",
-        "pilote-1", {"job": "job-b"}, 100) == 15
-    # LE MÊME IDENTIFIANT D'ÉVÉNEMENT CHEZ DEUX ÉTUDIANTS : la clé primaire
-    # porte `utilisateur`, donc « reussite:tp2-ex3 » n'appartient à personne.
-    # Une clé primaire sur le seul identifiant aurait donné à Bob l'XP d'Alice.
-    assert etat.unlock(BOB, ["premiere-reussite"], "reussite:tp2-ex3", "pilote-1")
-    assert etat.read_progress(BOB)["xp"] == 15
-    assert etat.read_progress(ALICE)["xp"] == 20
-    print("ok   deux comptes, le même fait, aucun mélange")
+def account_isolation():
+    """WHAT ACTUALLY MATTERS: nobody sees or erases a neighbor's data."""
+    assert state.write_draft(BOB, "tp2-ex3", {"submission.c": "// bob"})
+    assert state.grant_first_solve(
+        BOB, "tp2-ex3", "reussite:tp2-ex3", 15, "first solve",
+        "policy-1", {"job": "job-b"}, 100) == 15
+    # THE SAME EVENT ID FOR TWO STUDENTS: the primary key carries `account`, so
+    # "reussite:tp2-ex3" belongs to nobody. A primary key on the id alone would
+    # have given Bob Alice's XP.
+    assert state.unlock(BOB, ["premiere-reussite"], "reussite:tp2-ex3", "policy-1")
+    assert state.read_progress(BOB)["xp"] == 15
+    assert state.read_progress(ALICE)["xp"] == 20
+    print("ok   two accounts, the same fact, no mixing")
 
 
 def forum():
-    """Le forum : un fil par exercice, un signalement unique, une modération
-    journalisée -- et la CTE modifiante qui écrit l'état ET le journal d'un coup.
+    """The forum: one thread per exercise, a unique report, a journaled
+    moderation action -- and the data-modifying CTE that writes the state AND
+    the journal at once.
     """
     m1, m2 = "a" * 32, "b" * 32
-    assert etat.forum_publier(m1, "tp2-ex3", ALICE, "Pourquoi ma boucle tourne ?")
-    assert etat.forum_publier(m2, "tp2-ex3", BOB, "j'ai le même souci")
-    assert etat.forum_publier("c" * 32, "tp2-ex0", BOB, "autre exercice")
-    fil = etat.forum_fil("tp2-ex3", 200)
-    assert [m["id"] for m in fil] == [m1, m2], fil
-    assert fil[0]["utilisateur"] == ALICE and fil[0]["masque"] is False
-    # À LA MINUTE, pas au jour : un fil se lit dans l'ordre. ET EN UTC EXPLICITE
-    # : sans le « Z », la page affiche l'heure du serveur comme si elle était
-    # celle du lecteur.
-    assert len(fil[0]["cree_le"]) == 17 and fil[0]["cree_le"].endswith("Z"),         fil[0]["cree_le"]
-    # UN FIL PAR EXERCICE : rien ne fuit d'un exercice à l'autre.
-    assert len(etat.forum_fil("tp2-ex0", 200)) == 1
-    assert etat.forum_fil("tp2-ex3", 1) == fil[:1]        # la borne s'applique
+    assert state.forum_publier(m1, "tp2-ex3", ALICE, "Why does my loop spin?")
+    assert state.forum_publier(m2, "tp2-ex3", BOB, "same problem here")
+    assert state.forum_publier("c" * 32, "tp2-ex0", BOB, "another exercise")
+    thread = state.forum_fil("tp2-ex3", 200)
+    assert [m["id"] for m in thread] == [m1, m2], thread
+    assert thread[0]["utilisateur"] == ALICE and thread[0]["masque"] is False
+    # AT THE MINUTE, not the day: a thread is read in order. AND IN EXPLICIT
+    # UTC: without the "Z", the page displays server time as if it were the
+    # reader's.
+    assert len(thread[0]["cree_le"]) == 17 and thread[0]["cree_le"].endswith("Z"), \
+        thread[0]["cree_le"]
+    # ONE THREAD PER EXERCISE: nothing leaks from one exercise into another.
+    assert len(state.forum_fil("tp2-ex0", 200)) == 1
+    assert state.forum_fil("tp2-ex3", 1) == thread[:1]    # the limit applies
 
-    # LA CLÉ PRIMAIRE EST LA RÈGLE : deux fois le même signalement, une ligne.
-    assert etat.forum_signaler(m2, ALICE) == [(m2,)]
-    assert etat.forum_signaler(m2, ALICE) == []
-    # Et un identifiant inventé n'insère RIEN -- pas de ligne orpheline portant
-    # un `sub` pour rien. C'est le `SELECT ... FROM forum_message` qui le tient.
-    assert etat.forum_signaler("f" * 32, ALICE) == []
-    assert compte("forum_signalement", ALICE) == 1
-    assert etat.forum_signaler(m2, BOB) == [(m2,)]        # deux comptes, oui
-    file_mod = etat.forum_signalements(200)
-    assert len(file_mod) == 1, file_mod
-    assert file_mod[0]["id"] == m2 and file_mod[0]["signalements"] == 2
-    assert file_mod[0]["texte"] == "j'ai le même souci"
-    assert file_mod[0]["exercice_id"] == "tp2-ex3"
+    # THE PRIMARY KEY IS THE RULE: the same report twice is one row.
+    assert state.forum_signaler(m2, ALICE) == [(m2,)]
+    assert state.forum_signaler(m2, ALICE) == []
+    # And a made-up id inserts NOTHING -- no orphan row carrying a `sub` for
+    # nothing. It is the `SELECT ... FROM forum_message` that holds it.
+    assert state.forum_signaler("f" * 32, ALICE) == []
+    assert count("forum_report", ALICE) == 1
+    assert state.forum_signaler(m2, BOB) == [(m2,)]       # two accounts, yes
+    queue = state.forum_signalements(200)
+    assert len(queue) == 1, queue
+    assert queue[0]["id"] == m2 and queue[0]["signalements"] == 2
+    assert queue[0]["texte"] == "same problem here"
+    assert queue[0]["exercice_id"] == "tp2-ex3"
 
-    # MASQUER, PUIS RÉTABLIR : l'état change, le journal s'ajoute, dans UNE
-    # instruction. Deux `_query` en autocommit laisseraient un message masqué
-    # que rien n'explique si la connexion tombait entre les deux.
-    assert etat.forum_moderer("d" * 32, m2, ALICE, "masquer") == [(m2,)]
-    assert etat.forum_fil("tp2-ex3", 200)[1]["masque"] is True
-    assert etat.forum_moderer("e" * 32, m2, ALICE, "retablir") == [(m2,)]
-    assert etat.forum_fil("tp2-ex3", 200)[1]["masque"] is False
-    assert compte("forum_moderation", ALICE) == 2        # AJOUT SEUL : les deux
-    assert etat.forum_moderer("9" * 32, "f" * 32, ALICE, "masquer") == []
-    # LE CHECK DU SCHÉMA, ÉPROUVÉ SANS PASSER PAR LA GARDE PYTHON : deux actions
-    # existent, et c'est Postgres qui refuse la troisième.
-    assert etat._query(
+    # HIDE, THEN RESTORE: the state changes, the journal grows, in ONE
+    # statement. Two autocommit `_query` calls would leave a hidden message
+    # that nothing explains if the connection dropped in between.
+    assert state.forum_moderer("d" * 32, m2, ALICE, "masquer") == [(m2,)]
+    assert state.forum_fil("tp2-ex3", 200)[1]["masque"] is True
+    assert state.forum_moderer("e" * 32, m2, ALICE, "retablir") == [(m2,)]
+    assert state.forum_fil("tp2-ex3", 200)[1]["masque"] is False
+    assert count("forum_moderation", ALICE) == 2          # APPEND-ONLY: both stay
+    assert state.forum_moderer("9" * 32, "f" * 32, ALICE, "masquer") == []
+    # THE SCHEMA'S CHECK, EXERCISED WITHOUT GOING THROUGH THE PYTHON GUARD: two
+    # actions exist, and it is Postgres that refuses the third.
+    assert state._query(
         "INSERT INTO forum_moderation"
-        " (action_id, message_id, utilisateur, action)"
+        " (action_id, message_id, account, action)"
         " VALUES (%s, %s, %s, 'supprimer')",
         ("7" * 32, m2, ALICE)) is None
 
-    # SUPPRIMER LE SIEN, JAMAIS CELUI D'UN AUTRE. La clause `utilisateur` EST le
-    # contrôle d'accès : il n'y a pas de lecture préalable à faire mentir.
-    assert etat.forum_supprimer(m2, ALICE) == []          # pas le sien
-    assert etat.forum_supprimer(m1, ALICE) == [(m1,)]
-    assert etat.forum_supprimer(m1, ALICE) == []          # déjà parti
-    assert [m["id"] for m in etat.forum_fil("tp2-ex3", 200)] == [m2]
-    # On lui en redonne un : `suppression()` plus bas vérifie que CHAQUE table
-    # avait quelque chose à effacer.
-    assert etat.forum_publier("1" * 32, "tp2-ex3", ALICE, "je reviens")
-    print("ok   forum : fil par exercice, signalement unique, modération "
-          "journalisée")
+    # DELETE YOUR OWN, NEVER SOMEONE ELSE'S. The `account` clause IS the
+    # access control: there is no prior read to make lie.
+    assert state.forum_supprimer(m2, ALICE) == []         # not theirs
+    assert state.forum_supprimer(m1, ALICE) == [(m1,)]
+    assert state.forum_supprimer(m1, ALICE) == []         # already gone
+    assert [m["id"] for m in state.forum_fil("tp2-ex3", 200)] == [m2]
+    # Give them one back: `deletion()` below checks that EVERY table had
+    # something to erase.
+    assert state.forum_publier("1" * 32, "tp2-ex3", ALICE, "I'm back")
+    print("ok   forum: thread per exercise, unique report, journaled moderation")
 
 
-def identite():
-    """Le nom choisi et le numéro de groupe : un JOURNAL dont la dernière ligne
-    fait foi.
+def identity():
+    """The chosen name and group number: a JOURNAL whose last row is
+    authoritative.
 
-    LES DEUX FORMES QUI NE SE VÉRIFIENT QUE SUR UNE VRAIE BASE : le
-    `DISTINCT ON (utilisateur) ... ORDER BY utilisateur, cree_le DESC` qui
-    ramène le dernier profil de plusieurs comptes en une passe, et la jointure
-    LATERAL qui accroche ce même dernier profil à chaque nom signalé. Les deux
-    compilent dans la tête.
+    THE TWO SHAPES THAT ONLY GET EXERCISED ON A REAL DATABASE: the
+    `DISTINCT ON (account) ... ORDER BY account, created_at DESC` that brings
+    back the latest profile for several accounts in one pass, and the LATERAL
+    join that hangs that same latest profile off every reported name. Both
+    compile in your head.
     """
-    # Rien de posé : ce n'est pas une erreur, c'est l'anonymat par défaut.
-    assert etat.forum_profils([ALICE, BOB]) == {}
-    assert etat.forum_profil(ALICE) == {"pseudo": None, "groupe": None,
+    # Nothing set: not an error, it is anonymity by default.
+    assert state.forum_profils([ALICE, BOB]) == {}
+    assert state.forum_profil(ALICE) == {"pseudo": None, "groupe": None,
                                         "pseudo_public": False,
                                         "groupe_public": False}
-    assert etat.forum_profil_ecrire("p" * 32, ALICE, "Alice", 3, True, False)
-    assert etat.forum_profil_ecrire("q" * 32, BOB, "Bob", 7, False, True)
-    # LA DERNIÈRE LIGNE FAIT FOI, et l'ancienne reste : changer de nom n'efface
-    # pas l'historique qu'une modération veut pouvoir relire.
-    assert etat.forum_profil_ecrire("r" * 32, ALICE, "Alice B", 3, True, True)
-    assert compte("forum_profil", ALICE) == 2
-    profils = etat.forum_profils([ALICE, BOB, "sub-personne"])
-    assert profils[ALICE] == {"pseudo": "Alice B", "groupe": 3,
+    assert state.forum_profil_ecrire("p" * 32, ALICE, "Alice", 3, True, False)
+    assert state.forum_profil_ecrire("q" * 32, BOB, "Bob", 7, False, True)
+    # THE LAST ROW IS AUTHORITATIVE, and the old one stays: changing a name
+    # does not erase the history a moderator wants to be able to read back.
+    assert state.forum_profil_ecrire("r" * 32, ALICE, "Alice B", 3, True, True)
+    assert count("forum_profile", ALICE) == 2
+    profiles = state.forum_profils([ALICE, BOB, "sub-personne"])
+    assert profiles[ALICE] == {"pseudo": "Alice B", "groupe": 3,
                               "pseudo_public": True, "groupe_public": True}
-    assert profils[BOB]["pseudo"] == "Bob" and profils[BOB]["groupe"] == 7
-    assert "sub-personne" not in profils
-    # LE CHECK DU SCHÉMA, ÉPROUVÉ SANS PASSER PAR LA GARDE PYTHON : un groupe
-    # va de 1 à 99, et c'est Postgres qui refuse le reste.
-    assert etat.forum_profil_ecrire("s" * 32, ALICE, "Alice", 0, False, False)         is False
-    assert etat.forum_profil_ecrire("t" * 32, ALICE, "Alice", 100, False, False)         is False
+    assert profiles[BOB]["pseudo"] == "Bob" and profiles[BOB]["groupe"] == 7
+    assert "sub-personne" not in profiles
+    # THE SCHEMA'S CHECK, EXERCISED WITHOUT GOING THROUGH THE PYTHON GUARD: a
+    # group runs from 1 to 99, and Postgres refuses the rest.
+    assert state.forum_profil_ecrire("s" * 32, ALICE, "Alice", 0, False, False) \
+        is False
+    assert state.forum_profil_ecrire("t" * 32, ALICE, "Alice", 100, False, False) \
+        is False
 
-    # SIGNALER UN NOM : mêmes deux protections que pour un message.
-    message = etat.forum_fil("tp2-ex3", 200)[0]["id"]
-    assert etat.forum_auteur(message) in (ALICE, BOB)
-    assert etat.forum_auteur("f" * 32) is None
-    assert etat.forum_nom_signaler(message, BOB) == [(message,)]
-    assert etat.forum_nom_signaler(message, BOB) == []      # une seule fois
-    assert etat.forum_nom_signaler("f" * 32, BOB) == []     # rien d'orphelin
-    signales = etat.forum_noms_signales(200)
-    assert len(signales) == 1 and signales[0]["id"] == message, signales
-    # LA JOINTURE LATERAL : le nom rendu est le DERNIER, pas le premier.
-    auteur = etat.forum_auteur(message)
-    assert signales[0]["pseudo"] == etat.forum_profils([auteur])[auteur]["pseudo"]
-    assert signales[0]["signalements"] == 1
-    # ALICE SIGNALE À SON TOUR, sur un autre message. Sans cette ligne elle
-    # n'a AUCUNE ligne dans `forum_nom_signale`, et la précondition de
-    # `suppression()` (« il y a quelque chose à effacer dans les douze
-    # tables ») ne tient pas -- c'est-à-dire que la table la plus récemment
-    # ajoutée est la seule dont l'effacement n'est pas éprouvé.
-    assert etat.forum_nom_signaler("b" * 32, ALICE) == [("b" * 32,)]
-    print("ok   identité : journal, dernière ligne, bornes du schéma, "
-          "nom signalé")
+    # REPORTING A NAME: same two protections as for a message.
+    message = state.forum_fil("tp2-ex3", 200)[0]["id"]
+    assert state.forum_auteur(message) in (ALICE, BOB)
+    assert state.forum_auteur("f" * 32) is None
+    assert state.forum_nom_signaler(message, BOB) == [(message,)]
+    assert state.forum_nom_signaler(message, BOB) == []      # only once
+    assert state.forum_nom_signaler("f" * 32, BOB) == []     # nothing orphaned
+    reported = state.forum_noms_signales(200)
+    assert len(reported) == 1 and reported[0]["id"] == message, reported
+    # THE LATERAL JOIN: the name returned is the LATEST, not the first.
+    author = state.forum_auteur(message)
+    assert reported[0]["pseudo"] == state.forum_profils([author])[author]["pseudo"]
+    assert reported[0]["signalements"] == 1
+    # ALICE REPORTS IN TURN, on another message. Without this line she has NO
+    # row in `forum_reported_name`, and `deletion()`'s precondition ("there is
+    # something to erase in the twelve tables") does not hold -- meaning the
+    # most recently added table is the only one whose erasure is not exercised.
+    assert state.forum_nom_signaler("b" * 32, ALICE) == [("b" * 32,)]
+    print("ok   identity: journal, last row wins, schema bounds, reported name")
 
 
 def forum_privileges():
-    """Le GRANT du forum : l'API met à jour `masque`, ET RIEN D'AUTRE.
+    """The forum GRANT: the API updates `hidden`, AND NOTHING ELSE.
 
-    Y COMPRIS SUR LE PROFIL : le nom choisi et sa visibilité sont un journal en
-    ajout seul, sans aucune colonne modifiable.
+    INCLUDING THE PROFILE: the chosen name and its visibility are an
+    append-only journal, with no updatable column at all.
 
-    C'est un GRANT DE COLONNE (`UPDATE (masque)`), pas un `UPDATE` de table. Un
-    message est immuable : l'API ne doit pas pouvoir réécrire le texte de
-    quelqu'un, ni changer l'auteur d'un signalement, ni retoucher le journal de
-    modération. La propriété ne dépend donc pas de la discipline de `etat.py`.
+    This is a COLUMN GRANT (`UPDATE (hidden)`), not a table `UPDATE`. A
+    message is immutable: the API must not be able to rewrite someone's text,
+    change a report's author, or touch up the moderation journal. Ownership
+    therefore does not depend on `state.py`'s discipline.
 
-    Non joué quand les deux DSN sont le même -- il n'y aurait rien à refuser.
+    Not played when both DSNs are the same -- there would be nothing to refuse.
     """
     if ADMIN_DSN == DSN:
-        print("--   privilèges du forum : NON JOUÉ (pas de CTESTER_DB_ADMIN_DSN "
-              "distinct)")
+        print("--   forum privileges: NOT PLAYED (no distinct CTESTER_DB_ADMIN_DSN)")
         return
     import psycopg
-    essais = (
-        ("forum_message.texte", "UPDATE forum_message SET texte = 'réécrit'"),
-        ("forum_message.utilisateur",
-         "UPDATE forum_message SET utilisateur = 'sub-x'"),
-        ("forum_signalement",
-         "UPDATE forum_signalement SET utilisateur = 'sub-x'"),
+    attempts = (
+        ("forum_message.text", "UPDATE forum_message SET text = 'rewritten'"),
+        ("forum_message.account",
+         "UPDATE forum_message SET account = 'sub-x'"),
+        ("forum_report",
+         "UPDATE forum_report SET account = 'sub-x'"),
         ("forum_moderation",
          "UPDATE forum_moderation SET action = 'retablir'"),
-        # L'IDENTITÉ EST UN JOURNAL, ELLE AUSSI : on ajoute une ligne, on ne
-        # réécrit pas le nom que quelqu'un s'est donné. Sans ce refus-là, une
-        # requête distraite pourrait renommer un étudiant en silence.
-        ("forum_profil.pseudo", "UPDATE forum_profil SET pseudo = 'autre'"),
-        ("forum_profil.pseudo_public",
-         "UPDATE forum_profil SET pseudo_public = true"),
-        ("forum_nom_signale",
-         "UPDATE forum_nom_signale SET utilisateur = 'sub-x'"),
+        # IDENTITY IS A JOURNAL TOO: a row is added, the name someone gave
+        # themselves is not rewritten. Without this refusal, a stray query
+        # could silently rename a student.
+        ("forum_profile.display_name", "UPDATE forum_profile SET display_name = 'other'"),
+        ("forum_profile.display_name_public",
+         "UPDATE forum_profile SET display_name_public = true"),
+        ("forum_reported_name",
+         "UPDATE forum_reported_name SET account = 'sub-x'"),
     )
-    refuses = []
-    for nom, sql in essais:
+    refused = []
+    for name, sql in attempts:
         with psycopg.connect(DSN, autocommit=True) as cx:
             try:
                 cx.execute(sql)
             except psycopg.errors.InsufficientPrivilege:
-                refuses.append(nom)
-    assert len(refuses) == len(essais), "UPDATE accepté quelque part : " \
-                                       + str(refuses)
-    # ET `masque` PASSE : c'est le seul état que la modération a besoin de
-    # changer, et le seul que le GRANT accorde. Sans ce contrôle-ci, un GRANT
-    # trop étroit rendrait la modération muette sans que rien ne le dise.
+                refused.append(name)
+    assert len(refused) == len(attempts), "UPDATE accepted somewhere: " \
+                                       + str(refused)
+    # AND `hidden` GOES THROUGH: it is the only state moderation needs to
+    # change, and the only one the GRANT allows. Without this check, a GRANT
+    # too narrow would leave moderation mute with nothing saying so.
     with psycopg.connect(DSN, autocommit=True) as cx:
-        cx.execute("UPDATE forum_message SET masque = masque")
-    print("ok   forum : seul `masque` est modifiable, le reste est en ajout seul")
+        cx.execute("UPDATE forum_message SET hidden = hidden")
+    print("ok   forum: only `hidden` is writable, the rest is append-only")
 
 
 def preferences():
-    """LE THÈME : la seule écriture de ce fichier qui ÉCRASE au lieu d'ajouter.
+    """THE THEME: the only write in this file that OVERWRITES instead of appending.
 
-    C'est un `ON CONFLICT ... DO UPDATE` sur la clé primaire, et il demande un
-    GRANT d'UPDATE que les tables de progression n'ont pas. Le rejouer doit
-    remplacer la ligne, pas en ajouter une seconde ni lever.
+    This is an `ON CONFLICT ... DO UPDATE` on the primary key, and it requires
+    an UPDATE GRANT the progression tables do not have. Replaying it must
+    replace the row, not add a second one nor raise.
     """
-    assert etat.read_theme(ALICE) == "", "un compte neuf n'a pas de thème"
-    assert etat.write_theme(ALICE, "light")
-    assert etat.read_theme(ALICE) == "light"
-    assert etat.write_theme(ALICE, "dark")               # écrase, ne double pas
-    assert etat.read_theme(ALICE) == "dark"
-    assert compte("preference_affichage", ALICE) == 1
-    # LE CHECK DU SCHÉMA EST LA DERNIÈRE BARRIÈRE, et `write_theme` ne doit même
-    # pas l'atteindre : une valeur hors liste repart False sans toucher la base.
-    assert etat.write_theme(ALICE, "néon") is False
-    assert etat.read_theme(ALICE) == "dark"
-    # CLOISONNÉ COMME LE RESTE : le thème d'Alice n'est pas celui de Bob.
-    assert etat.write_theme(BOB, "light")
-    assert etat.read_theme(ALICE) == "dark" and etat.read_theme(BOB) == "light"
-    print("ok   le thème s'écrit, s'écrase, et reste celui de son compte")
+    assert state.read_theme(ALICE) == "", "a fresh account has no theme"
+    assert state.write_theme(ALICE, "light")
+    assert state.read_theme(ALICE) == "light"
+    assert state.write_theme(ALICE, "dark")               # overwrites, does not duplicate
+    assert state.read_theme(ALICE) == "dark"
+    assert count("display_preference", ALICE) == 1
+    # THE SCHEMA'S CHECK IS THE LAST BARRIER, and `write_theme` should not even
+    # reach it: a value off the list comes back False without touching the DB.
+    assert state.write_theme(ALICE, "neon") is False
+    assert state.read_theme(ALICE) == "dark"
+    # ISOLATED LIKE THE REST: Alice's theme is not Bob's.
+    assert state.write_theme(BOB, "light")
+    assert state.read_theme(ALICE) == "dark" and state.read_theme(BOB) == "light"
+    print("ok   the theme writes, overwrites, and stays this account's own")
 
 
-def suppression():
-    avant = {t: compte(t, ALICE) for t in TABLES}
-    assert all(avant.values()), "test inutile : il n'y a rien à effacer " + str(avant)
-    assert etat.forget(ALICE)
-    apres = {t: compte(t, ALICE) for t in TABLES}
-    assert not any(apres.values()), apres
-    # LES DOUZE DELETE SONT DANS UNE SEULE INSTRUCTION, et les CTE non
-    # référencées s'exécutent quand même -- c'est ce qu'on vérifie ici, pas la
-    # documentation de PostgreSQL.
-    assert compte("brouillon_exercice", BOB) == 1, "effacé chez le voisin !"
-    assert etat.read_progress(BOB)["xp"] == 15
-    # ET LES MESSAGES DU VOISIN RESTENT. Effacer son compte n'efface pas la
-    # conversation des autres -- seulement ce que cette personne a écrit.
-    assert compte("forum_message", BOB) == 2, "message effacé chez le voisin !"
-    assert compte("forum_signalement", BOB) == 1
-    assert etat.forget(ALICE)                            # rejouable
-    print("ok   « Supprimer mes données » vide les douze tables, et seulement "
-          "les siennes")
+def deletion():
+    before = {t: count(t, ALICE) for t in TABLES}
+    assert all(before.values()), "useless test: nothing to erase " + str(before)
+    assert state.forget(ALICE)
+    after = {t: count(t, ALICE) for t in TABLES}
+    assert not any(after.values()), after
+    # THE TWELVE DELETEs ARE IN A SINGLE STATEMENT, and the unreferenced CTEs
+    # run anyway -- that is what is checked here, not PostgreSQL's docs.
+    assert count("exercise_draft", BOB) == 1, "erased from the neighbor!"
+    assert state.read_progress(BOB)["xp"] == 15
+    # AND THE NEIGHBOR'S MESSAGES STAY. Erasing one's account does not erase
+    # other people's conversation -- only what this person wrote.
+    assert count("forum_message", BOB) == 2, "message erased from the neighbor!"
+    assert count("forum_report", BOB) == 1
+    assert state.forget(ALICE)                            # replayable
+    print("ok   \"Delete my data\" empties the twelve tables, and only their own")
 
 
 def main():
-    appliquer_schema()
-    ajout_seul()
+    apply_schema()
+    append_only()
     for user in (ALICE, BOB):
-        etat.forget(user)
-    brouillons_et_etats()
-    tentatives()
-    attributions()
-    succes_et_lecture()
-    evidences_de_maitrise()
-    cloisonnement()
+        state.forget(user)
+    drafts_and_states()
+    practice_attempts()
+    grants()
+    achievements_and_reading()
+    mastery_evidence()
+    account_isolation()
     forum()
-    identite()
+    identity()
     forum_privileges()
     preferences()
-    suppression()
-    etat.forget(BOB)
-    print("\nle SQL tient sur un vrai PostgreSQL.")
+    deletion()
+    state.forget(BOB)
+    print("\nthe SQL holds up on a real PostgreSQL.")
 
 
 if __name__ == "__main__":

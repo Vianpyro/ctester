@@ -13,12 +13,12 @@ la clé primaire refuse le doublon.
 PHASE 2 -- LA MAÎTRISE VÉRIFIÉE. Un exercice marqué `verification` dans le
 catalogue est d'un autre domaine : il n'accorde AUCUN XP et ne compte dans
 aucun compteur de pratique. Son verdict écrit une évidence dans le même journal
-en ajout seul (`evenement_progression`, type `VerificationEvaluated`), et les
+en ajout seul (`progress_event`, type `VerificationEvaluated`), et les
 bandes par compétence en sont DÉRIVÉES à chaque lecture -- il n'y a pas de table
 de maîtrise, pas plus qu'il n'y a de table de solde.
 """
 
-import etat
+import state
 import politique
 from services.catalogue import exercices_ouverts
 
@@ -29,7 +29,7 @@ from services.catalogue import exercices_ouverts
 
 MAX_SKILLS = 40
 
-# Le type d'événement d'une évidence de maîtrise. `evenement_progression` porte
+# Le type d'événement d'une évidence de maîtrise. `progress_event` porte
 # déjà `ExerciceReussi` : le journal accepte un type de plus sans migration.
 VERIFICATION = "VerificationEvaluated"
 
@@ -54,8 +54,8 @@ def verifications(entries):
 def exercise_facts(states, practice):
     """(pratiqués, réussis) : deux ensembles d'identifiants d'exercice.
 
-    Les deux sources sont fusionnées. `tentative_pratique` sait qu'un job a été
-    jugé, `etat_exercice` sait où en est l'exercice ; un compte antérieur aux
+    Les deux sources sont fusionnées. `practice_attempt` sait qu'un job a été
+    jugé, `exercise_state` sait où en est l'exercice ; un compte antérieur aux
     tentatives n'a que la seconde et doit quand même compter.
     """
     touched, solved = set(), set()
@@ -195,9 +195,9 @@ def progression_facts(user):
 
     Bornés au catalogue publié : un exercice retiré ne doit plus rien débloquer.
     """
-    states = etat.read_states(user)
-    practice = etat.read_practice_summary(user)
-    evidences = etat.read_events(user, VERIFICATION)
+    states = state.read_states(user)
+    practice = state.read_practice_summary(user)
+    evidences = state.read_events(user, VERIFICATION)
     if states is None or practice is None or evidences is None:
         return None
     entries = exercices_ouverts()
@@ -225,7 +225,7 @@ def recompenser(user, entry, job_id):
     ou base muette. Les deux veulent dire « il n'y a pas de fait neuf ».
     """
     event_id = "reussite:" + entry["id"]
-    granted = etat.grant_first_solve(
+    granted = state.grant_first_solve(
         user, entry["id"], event_id, politique.xp_reussite(entry),
         "première réussite de l'exercice", politique.VERSION,
         {"job": job_id, "difficulte": entry.get("difficulty") or ""},
@@ -234,7 +234,7 @@ def recompenser(user, entry, job_id):
         return
     facts = progression_facts(user)
     if facts is not None:
-        etat.unlock(user, politique.succes_atteints(facts), event_id,
+        state.unlock(user, politique.succes_atteints(facts), event_id,
                     politique.VERSION)
 
 
@@ -252,14 +252,14 @@ def enregistrer_verification(user, entry, job_id, reussi):
     Rien à recalculer quand l'évidence existait déjà -- même sondage rejoué,
     même identifiant, même refus.
     """
-    ecrit = etat.record_event(
+    ecrit = state.record_event(
         user, "verification:%s:%s" % (entry["id"], job_id), VERIFICATION,
         entry["id"], politique.VERSION, {"job": job_id, "reussi": bool(reussi)})
     if ecrit is None:
         return
     facts = progression_facts(user)
     if facts is not None:
-        etat.unlock(user, politique.succes_atteints(facts),
+        state.unlock(user, politique.succes_atteints(facts),
                     "verification:" + entry["id"], politique.VERSION)
 
 
@@ -297,6 +297,6 @@ def progress_payload(entries, facts, states, practice, evidences):
                     "obtenu_le": row["obtenu_le"]}
                    for row in facts["succes"] if row["id"] in politique.SUCCES],
         "suivant": recommander(pratique, touched, solved),
-        # La consultation/export des attributions, déjà bornée par etat.py.
+        # La consultation/export des attributions, déjà bornée par state.py.
         "transactions": facts["transactions"],
     }

@@ -27,7 +27,7 @@ LE JETON. `/progres` et `/brouillon` demandent un vrai jeton OIDC, et on ne
 peut pas en fabriquer 200. `CTESTER_CHARGE_TOKEN` en prend UN, rejoue par tous
 les fils. Ce qui est mesure reste juste: le cout serveur d'une lecture de
 progression ne depend pas de QUI la demande -- meme travail SQL, meme verrou
-global dans etat.py, et c'est ce verrou qu'on vient regarder. Sans jeton, les
+global dans state.py, et c'est ce verrou qu'on vient regarder. Sans jeton, les
 phases privees sont annoncees non jouees plutot que sautees en silence.
 """
 
@@ -157,7 +157,7 @@ def phase_privee(mesures):
     """Progression et autosauvegarde: tout ce qui passe par le verrou global.
 
     CE QU'ON VIENT MESURER. `GET /progres` fait SIX allers-retours SQL
-    serialises derriere le verrou unique de etat.py. C'est la que se decide
+    serialises derriere le verrou unique de state.py. C'est la que se decide
     s'il faut les regrouper en une seule lecture -- pas avant.
     """
     if not TOKEN:

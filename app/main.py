@@ -8,7 +8,7 @@ pour laquelle il peut être exposé à Internet.
 
 UN SEUL WORKER, TOUJOURS, et ce n'est pas un réglage de performance. Les quotas,
 le compteur de présence, le cache de jetons OIDC et la connexion unique
-d'`etat.py` sont de l'état EN MÉMOIRE DE PROCESSUS. Deux workers, c'est deux
+d'`state.py` sont de l'état EN MÉMOIRE DE PROCESSUS. Deux workers, c'est deux
 compteurs : chaque quota est doublé en silence, et le plafond de file laisse
 passer deux fois ce qu'il annonce. C'est pour ça que le lancement vit ici, dans
 `__main__`, et pas dans une ligne de commande de Compose que quelqu'un
@@ -17,7 +17,7 @@ vraiment nécessaire, c'est Redis ou Postgres qui tient ces compteurs, pas
 uvicorn.
 
 LES ENDPOINTS SONT `def`, PAS `async def`, et c'est délibéré. Starlette exécute
-alors chacun dans son threadpool, ce qui laisse `etat.py` synchrone : ses CTE
+alors chacun dans son threadpool, ce qui laisse `state.py` synchrone : ses CTE
 modifiantes, son `INSERT ... SELECT` dont le `WHERE` EST le contrôle d'accès et
 ses GRANT de colonne sont éprouvés contre un vrai Postgres par
 `test_postgres.py`. Les réécrire en SQLAlchemy async remplacerait du SQL prouvé

@@ -33,7 +33,7 @@ import content_catalogue  # noqa: E402
 import publish_content  # noqa: E402
 import config     # noqa: E402
 import csp        # noqa: E402
-import etat       # noqa: E402
+import state      # noqa: E402
 import politique  # noqa: E402
 import runner     # noqa: E402
 import security   # noqa: E402
@@ -900,7 +900,7 @@ CATALOGUE_VERIF = CATALOGUE_DEMO + [
 
 
 def evidence(exercice, reussi):
-    """Une ligne telle que `etat.read_events` la rend."""
+    """Une ligne telle que `state.read_events` la rend."""
     return {"exercice_id": exercice, "charge": {"job": "j", "reussi": reussi}}
 
 
@@ -1058,7 +1058,7 @@ def test_suppression_couvre_toutes_les_tables():
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
     assert len(tables) == 12, tables
-    efface = lire(os.path.join(HERE, "app", "etat.py"))
+    efface = lire(os.path.join(HERE, "app", "state.py"))
     efface = efface[efface.index("def forget(user):"):]
     assert set(re.findall(r"DELETE FROM (\w+)", efface)) == tables
     # UNE SEULE INSTRUCTION : six `_query` en autocommit laisseraient un
@@ -1068,21 +1068,21 @@ def test_suppression_couvre_toutes_les_tables():
 
 def test_progression_degradee_sans_base():
     """Sans DSN, tout rend None/False et rien ne leve. Le juge, lui, continue."""
-    assert not etat.enabled()
-    assert etat.grant_first_solve("u", "tp", "e", 10, "m", "v", {}, 100) is None
-    assert etat.unlock("u", ["premiere-reussite"], "e", "v") is False
-    assert etat.unlock("u", [], "e", "v") is True     # rien a faire, pas un echec
-    assert etat.read_progress("u") is None
+    assert not state.enabled()
+    assert state.grant_first_solve("u", "tp", "e", 10, "m", "v", {}, 100) is None
+    assert state.unlock("u", ["premiere-reussite"], "e", "v") is False
+    assert state.unlock("u", [], "e", "v") is True     # rien a faire, pas un echec
+    assert state.read_progress("u") is None
     # Une evidence de maitrise degrade comme le reste : rien d'ecrit, rien de
     # lu, et surtout pas une liste vide qui se lirait « jamais verifie ».
-    assert etat.record_event("u", "e", "T", "tp", "v", {}) is None
-    assert etat.read_events("u", "T") is None
+    assert state.record_event("u", "e", "T", "tp", "v", {}) is None
+    assert state.read_events("u", "T") is None
     # Le theme degrade comme le reste : None dit « la base n'a pas repondu »,
     # jamais « pas de theme » -- c'est ce qui laisse la page garder le sien.
-    assert etat.read_theme("u") is None
-    assert etat.write_theme("u", "light") is False
-    assert etat.write_theme("u", "neon") is False    # refuse avant meme la base
-    assert etat.forget("u") is False
+    assert state.read_theme("u") is None
+    assert state.write_theme("u", "light") is False
+    assert state.write_theme("u", "neon") is False    # refuse avant meme la base
+    assert state.forget("u") is False
 
 
 # --------------------------------------------------------------------------
@@ -1131,11 +1131,11 @@ def test_forum_eteint_par_defaut():
     l'ABSENCE d'une variable -- pas par un booleen qu'on pourrait oublier
     d'ecrire.
     """
-    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS, security.etat)
+    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS, security.state)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         config.OIDC_CLIENT_ID = "ctester"
-        security.etat = type("Base", (), {"enabled": staticmethod(lambda: True)})
+        security.state = type("Base", (), {"enabled": staticmethod(lambda: True)})
         config.FORUM_MODERATORS = frozenset()
         assert security.oidc_enabled() and not forum.forum_enabled()
         config.FORUM_MODERATORS = frozenset({"sub-mod"})
@@ -1150,7 +1150,7 @@ def test_forum_eteint_par_defaut():
         assert not forum.forum_enabled()
     finally:
         (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS,
-         security.etat) = garde
+         security.state) = garde
 
 
 def test_forum_texte_borne_et_stocke_la_source():
@@ -1448,7 +1448,7 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
     C'est arrivé une fois : `csp()` vivait dans `headers.py`, qui importe
     starlette. D'où `app/csp.py`, bibliothèque standard seulement.
 
-    `psycopg` est la seule exception tolérée -- `etat.py` le rend facultatif et
+    `psycopg` est la seule exception tolérée -- `state.py` le rend facultatif et
     se déclare éteint sans lui.
     """
     tiers = {"starlette", "fastapi", "pydantic", "pydantic_core", "uvicorn",

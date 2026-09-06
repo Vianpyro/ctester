@@ -37,7 +37,7 @@ except ImportError:  # pragma: no cover -- message, pas trace
 
 import config      # noqa: E402
 import deps        # noqa: E402
-import etat        # noqa: E402
+import state        # noqa: E402
 import main        # noqa: E402
 import security    # noqa: E402
 from services import quotas  # noqa: E402
@@ -51,10 +51,10 @@ client = TestClient(main.app)
 # --- Harnais ----------------------------------------------------------------
 
 def _modules_avec_etat():
-    """Tous les modules qui ont importé `etat`, pour le remplacer PARTOUT.
+    """Tous les modules qui ont importé `state`, pour le remplacer PARTOUT.
 
     `security`, `services.forum`, `services.progression` et quatre routeurs
-    importent `etat` chacun de leur côté. En oublier un ferait
+    importent `state` chacun de leur côté. En oublier un ferait
     parler un test à une VRAIE base -- absente en test, donc `enabled()` faux,
     donc des 503 partout et un contrôle qui « passe » sans rien avoir éprouvé.
 
@@ -62,11 +62,11 @@ def _modules_avec_etat():
     que personne n'ait à penser à cette liste.
     """
     return [m for m in list(sys.modules.values())
-            if getattr(m, "etat", None) is etat]
+            if getattr(m, "state", None) is state]
 
 
 class BaseSimulee:
-    """Une base en mémoire. Chaque méthode rend ce que `etat.py` promet.
+    """Une base en mémoire. Chaque méthode rend ce que `state.py` promet.
 
     `None` VEUT DIRE « LA BASE N'A PAS RÉPONDU », et c'est la moitié la plus
     importante du contrat : les routes doivent alors répondre 503, jamais 200
@@ -312,7 +312,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
 
     faux = base if base is not None else BaseSimulee()
     modules = _modules_avec_etat()
-    garde_etat = [(m, m.etat) for m in modules]
+    garde_etat = [(m, m.state) for m in modules]
     garde_config = {n: getattr(config, n) for n in
                     ("PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
                      "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPES")}
@@ -321,7 +321,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
                     deps.forum_quota, deps.presence)
 
     for m in modules:
-        m.etat = faux
+        m.state = faux
     config.SPOOL, config.PAGE = spool, page
     # LA RELEASE DE CE DÉPLOIEMENT, pas celle de la machine qui lance les tests :
     # un `CTESTER_PUBLISHED` exporté dans un shell ne doit pas décider de ce
@@ -348,7 +348,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
         yield TestClient(main.create_app()), faux, tmp
     finally:
         for m, ancien in garde_etat:
-            m.etat = ancien
+            m.state = ancien
         for nom, valeur in garde_config.items():
             setattr(config, nom, valeur)
         security.current_user, security.current_name = garde_secu
@@ -1073,7 +1073,7 @@ def test_ecriture_qui_echoue_ne_repond_pas_200():
 
 
 def test_theme_inconnu_est_refuse():
-    """`etat.THEMES` est la liste close, et elle est vérifiée avant d'écrire."""
+    """`state.THEMES` est la liste close, et elle est vérifiée avant d'écrire."""
     with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
         for mauvais in ("", "sepia", "DARK", "light; DROP TABLE"):
             r = c.put("/preferences", json={"theme": mauvais},

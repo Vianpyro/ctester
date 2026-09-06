@@ -124,7 +124,7 @@ def job_metadata(job_id):
 
 
 def job_sources(job_id, entry):
-    """The submitted source snapshot written to `etat_exercice`.
+    """The submitted source snapshot written to `exercise_state`.
 
     It is read only for a job whose owner was fixed by the API at submission.
     Quiz answers are not source files and intentionally keep the existing empty

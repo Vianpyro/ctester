@@ -24,7 +24,7 @@ import urllib.request
 from threading import Lock
 
 import config
-import etat
+import state
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -57,7 +57,7 @@ def oidc_enabled():
     of the test -- a bearer token over cleartext is a token given away.
     """
     return (config.OIDC_ISSUER.startswith("https://")
-            and bool(config.OIDC_CLIENT_ID) and etat.enabled())
+            and bool(config.OIDC_CLIENT_ID) and state.enabled())
 
 
 _discovery = {"until": 0.0, "userinfo": ""}

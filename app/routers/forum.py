@@ -17,7 +17,7 @@ import re
 import uuid
 
 import config
-import etat
+import state
 import headers
 import security
 from deps import SubForum, SubModerateur, freiner_forum
@@ -58,11 +58,11 @@ def fil(sub: SubForum, ex: str = Query("")):
     entree = _entree(ex)
     if entree is None:
         return headers.erreur(400, "TP inconnu")
-    messages = etat.forum_fil(entree["id"], config.FORUM_MAX_FIL)
+    messages = state.forum_fil(entree["id"], config.FORUM_MAX_FIL)
     if messages is None:
         return headers.erreur(503, "la base ne répond pas")
     moderateur = security.is_moderator(sub)
-    profils = etat.forum_profils([m["utilisateur"] for m in messages]) or {}
+    profils = state.forum_profils([m["utilisateur"] for m in messages]) or {}
     return {
         "exercice_id": entree["id"],
         "moderateur": moderateur,
@@ -81,7 +81,7 @@ def publier(sub: SubForum, corps: ForumMessageIn):
     if message:
         return headers.erreur(400, message)
     freiner_forum(sub)
-    if not etat.forum_publier(uuid.uuid4().hex, entree["id"], sub, texte):
+    if not state.forum_publier(uuid.uuid4().hex, entree["id"], sub, texte):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}
 
@@ -96,7 +96,7 @@ def supprimer(sub: SubForum, id: str = Query("")):
     message_id = _message_id(id)
     if message_id is None:
         return headers.erreur(400, "identifiant invalide")
-    efface = etat.forum_supprimer(message_id, sub)
+    efface = state.forum_supprimer(message_id, sub)
     if efface is None:
         return headers.erreur(503, "la base ne répond pas")
     if not efface:
@@ -121,10 +121,10 @@ def signaler(sub: SubForum, corps: ForumSignalementIn):
         return headers.erreur(400, "identifiant invalide")
     freiner_forum(sub)
     if corps.quoi == "nom":
-        if etat.forum_nom_signaler(message_id, sub) is None:
+        if state.forum_nom_signaler(message_id, sub) is None:
             return headers.erreur(503, "la base ne répond pas")
         return {"ok": True}
-    if etat.forum_signaler(message_id, sub) is None:
+    if state.forum_signaler(message_id, sub) is None:
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}
 
@@ -132,8 +132,8 @@ def signaler(sub: SubForum, corps: ForumSignalementIn):
 @router.get("/forum/moderation")
 def file_moderation(sub: SubModerateur):
     """Les signalements. Réservé, et le rôle est recalculé serveur."""
-    signales = etat.forum_signalements(config.FORUM_MAX_FIL)
-    noms = etat.forum_noms_signales(config.FORUM_MAX_FIL)
+    signales = state.forum_signalements(config.FORUM_MAX_FIL)
+    noms = state.forum_noms_signales(config.FORUM_MAX_FIL)
     if signales is None or noms is None:
         return headers.erreur(503, "la base ne répond pas")
     # LE `sub` NE TRAVERSE PAS ICI NON PLUS : on recopie ce qui s'affiche (le
@@ -160,7 +160,7 @@ def moderer(sub: SubModerateur, corps: ForumModerationIn):
         return _effacer_nom(message_id)
     if corps.action not in ("masquer", "retablir"):
         return headers.erreur(400, "action inconnue")
-    fait = etat.forum_moderer(uuid.uuid4().hex, message_id, sub, corps.action)
+    fait = state.forum_moderer(uuid.uuid4().hex, message_id, sub, corps.action)
     if fait is None:
         return headers.erreur(503, "la base ne répond pas")
     if not fait:
@@ -179,13 +179,13 @@ def _effacer_nom(message_id):
     d'un message, et y écrire « masquer-nom » rétablirait un message caché au
     passage. La ligne de profil `par_moderateur` EST le journal de cette action.
     """
-    auteur = etat.forum_auteur(message_id)
+    auteur = state.forum_auteur(message_id)
     if not auteur:
         return headers.erreur(404, "message introuvable")
-    profil = etat.forum_profil(auteur)
+    profil = state.forum_profil(auteur)
     if profil is None:
         return headers.erreur(503, "la base ne répond pas")
-    if not etat.forum_profil_ecrire(
+    if not state.forum_profil_ecrire(
             uuid.uuid4().hex, auteur, None, profil.get("groupe"), False,
             bool(profil.get("groupe_public")), par_moderateur=True):
         return headers.erreur(503, "la base ne répond pas")
@@ -199,7 +199,7 @@ def lire_profil(sub: SubForum, request: Request):
     Il n'y a pas de route pour lire le profil de quelqu'un d'autre : ce qui est
     public d'un profil arrive déjà par le fil, déjà filtré.
     """
-    profil = etat.forum_profil(sub)
+    profil = state.forum_profil(sub)
     if profil is None:
         return headers.erreur(503, "la base ne répond pas")
     # LA SUGGESTION N'EST PAS LE PROFIL. Elle n'accompagne un profil que tant
@@ -225,7 +225,7 @@ def ecrire_profil(sub: SubForum, corps: ForumProfilIn):
     if message:
         return headers.erreur(400, message)
     freiner_forum(sub)
-    if not etat.forum_profil_ecrire(
+    if not state.forum_profil_ecrire(
             uuid.uuid4().hex, sub, pseudo, groupe,
             corps.pseudo_public and pseudo is not None,
             corps.groupe_public and groupe is not None):

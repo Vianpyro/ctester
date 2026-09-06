@@ -19,7 +19,7 @@ import time
 
 import config
 import deps
-import etat
+import state
 import headers
 import security
 from fastapi import APIRouter, Request
@@ -150,7 +150,7 @@ def resultat(job_id: str):
 
 def _enregistrer(owner, exercise_id, job_id, resultat):
     """Ce que le serveur retient d'un verdict, pour un compte connecté."""
-    etat.write_practice_attempt(owner, job_id, exercise_id, resultat)
+    state.write_practice_attempt(owner, job_id, exercise_id, resultat)
     entree = catalogue.find_exercise(exercise_id)
     if entree is None:
         return
@@ -159,7 +159,7 @@ def _enregistrer(owner, exercise_id, job_id, resultat):
               and resultat.get("passed") == resultat.get("total"))
     # `write_state` ne fait JAMAIS reculer un `valide`. Ceci remplace la
     # transition d'état que le navigateur déclarait tout seul.
-    etat.write_state(owner, exercise_id, "valide" if reussi else "essaye",
+    state.write_state(owner, exercise_id, "valide" if reussi else "essaye",
                      spool.job_sources(job_id, entree))
     # DEUX DOMAINES, JAMAIS LES DEUX À LA FOIS. Une vérification produit une
     # évidence de maîtrise -- réussie ou non -- et AUCUN XP ; un exercice de

@@ -2,7 +2,7 @@
 
 CES MODÈLES NE VALIDENT QUE LA FORME -- présence et type. Les règles du domaine
 (longueur d'un message, noms de fichiers autorisés, groupe d'une session, thème
-connu) restent dans `services/` et dans `etat.py`, pour deux raisons :
+connu) restent dans `services/` et dans `state.py`, pour deux raisons :
 
   * elles rendent des messages écrits POUR L'ÉTUDIANT (« message trop long
     (maximum 1200 caractères) »), que Pydantic remplacerait par un 400
