@@ -41,14 +41,10 @@ CREATE UNLOGGED TABLE IF NOT EXISTS exercise_draft (
 -- where the rule can hold for EVERY write path, including a psql session opened
 -- at midnight. The API validates too, but this does not depend on the API.
 --
--- ponytail: the two status values ('essaye', 'valide') are kept as-is here --
--- they are a wire-format value shared with the API response, the JS frontend
--- and the test suites, not just a DB detail. Translate all of those together
--- in one pass, not this table alone.
 CREATE TABLE IF NOT EXISTS exercise_state (
     account     TEXT        NOT NULL,
     exercise_id TEXT        NOT NULL,
-    status      TEXT        NOT NULL CHECK (status IN ('essaye', 'valide')),
+    status      TEXT        NOT NULL CHECK (status IN ('attempted', 'solved')),
     sources     TEXT        NOT NULL,   -- JSON {filename: contents}
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (account, exercise_id)
@@ -201,7 +197,7 @@ CREATE TABLE IF NOT EXISTS forum_moderation (
     action_id  TEXT        PRIMARY KEY,   -- uuid4().hex, generated in Python
     message_id TEXT        NOT NULL,
     account    TEXT        NOT NULL,      -- the MODERATOR who acted
-    action     TEXT        NOT NULL CHECK (action IN ('masquer', 'retablir')),
+    action     TEXT        NOT NULL CHECK (action IN ('hide', 'restore')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

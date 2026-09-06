@@ -73,7 +73,7 @@ class BaseSimulee:
     avec un zéro. Les tests de panne remplacent une méthode par `lambda *_: None`.
     """
 
-    STATUSES = ("essaye", "valide")
+    STATUSES = ("attempted", "solved")
     THEMES = ("light", "dark")
     enabled = staticmethod(lambda: True)
 
@@ -93,11 +93,11 @@ class BaseSimulee:
         return True
 
     def read_states(self, user):
-        return [{"exercice_id": ex, "statut": s}
+        return [{"exercise_id": ex, "status": s}
                 for (u, ex), s in self.etats.items() if u == user]
 
-    def write_state(self, user, ex, statut, sources):
-        self.etats[(user, ex)] = statut
+    def write_state(self, user, ex, status, sources):
+        self.etats[(user, ex)] = status
         return True
 
     def read_theme(self, user):
@@ -111,12 +111,12 @@ class BaseSimulee:
         for table in (self.brouillons, self.etats, self.themes, self.profils):
             for cle in [k for k in table if (k[0] if isinstance(k, tuple) else k) == user]:
                 del table[cle]
-        self.messages = [m for m in self.messages if m["utilisateur"] != user]
+        self.messages = [m for m in self.messages if m["account"] != user]
         return True
 
     # -- pratique et progression
     def read_practice_summary(self, user):
-        return [{"exercice_id": ex, "tentatives": n, "reussites": r}
+        return [{"exercise_id": ex, "attempts": n, "successes": r}
                 for (u, ex), (n, r) in self.pratique.items() if u == user]
 
     def write_practice_attempt(self, user, job_id, ex, result):
@@ -128,20 +128,20 @@ class BaseSimulee:
             self.pratique[(user, ex)] = (n + 1, r + int(gagne))
         return True
 
-    def grant_first_solve(self, user, ex, event_id, amount, motif, policy,
+    def grant_first_solve(self, user, ex, event_id, amount, reason, policy,
                           payload, daily_cap):
         # LA CLÉ EST LE FAIT, pas l'appel : rejouer le même verdict retombe sur
         # la même clé et ne crée rien.
         if (user, event_id) in self.evenements:
             return None
         self.evenements[(user, event_id)] = payload
-        self.faits.append({"utilisateur": user, "type": "ExerciceReussi",
-                           "exercice_id": ex, "charge": payload})
-        deja = sum(t["montant"] for (u, _), t in self.xp.items() if u == user)
+        self.faits.append({"account": user, "type": "ExerciceReussi",
+                           "exercise_id": ex, "payload": payload})
+        deja = sum(t["amount"] for (u, _), t in self.xp.items() if u == user)
         self.xp[(user, event_id)] = {
-            "exercice_id": ex, "montant": max(min(amount, daily_cap - deja), 0),
-            "motif": motif, "accorde_le": "2026-09-04"}
-        return self.xp[(user, event_id)]["montant"]
+            "exercise_id": ex, "amount": max(min(amount, daily_cap - deja), 0),
+            "reason": reason, "granted_at": "2026-09-04"}
+        return self.xp[(user, event_id)]["amount"]
 
     def record_event(self, user, event_id, kind, ex, policy, payload):
         # Même clé, même refus que `grant_first_solve` : un sondage rejoué
@@ -149,42 +149,42 @@ class BaseSimulee:
         if (user, event_id) in self.evenements:
             return None
         self.evenements[(user, event_id)] = payload
-        self.faits.append({"utilisateur": user, "type": kind,
-                           "exercice_id": ex, "charge": payload})
+        self.faits.append({"account": user, "type": kind,
+                           "exercise_id": ex, "payload": payload})
         return event_id
 
     def read_events(self, user, kind, limit=500):
-        return [{"exercice_id": fait["exercice_id"], "charge": fait["charge"]}
+        return [{"exercise_id": fait["exercise_id"], "payload": fait["payload"]}
                 for fait in reversed(self.faits)
-                if fait["utilisateur"] == user and fait["type"] == kind][:limit]
+                if fait["account"] == user and fait["type"] == kind][:limit]
 
     def unlock(self, user, ids, event_id, policy):
         for succes_id in ids:
             self.succes.setdefault((user, succes_id),
-                                   {"id": succes_id, "obtenu_le": "2026-09-04",
-                                    "politique": policy})
+                                   {"id": succes_id, "unlocked_at": "2026-09-04",
+                                    "policy": policy})
         return True
 
     def read_progress(self, user):
         mien = lambda t: [v for (u, _), v in sorted(t.items()) if u == user]  # noqa: E731
-        return {"xp": sum(t["montant"] for t in mien(self.xp)),
-                "succes": mien(self.succes), "transactions": mien(self.xp)}
+        return {"xp": sum(t["amount"] for t in mien(self.xp)),
+                "achievements": mien(self.succes), "transactions": mien(self.xp)}
 
     # -- forum
     def forum_fil(self, ex, limite):
         return [dict(m) for m in self.messages
-                if m["exercice_id"] == ex][:limite]
+                if m["exercise_id"] == ex][:limite]
 
     def forum_publier(self, mid, ex, user, texte):
-        self.messages.append({"id": mid, "exercice_id": ex, "utilisateur": user,
-                              "texte": texte, "masque": False,
-                              "cree_le": "2026-09-04"})
+        self.messages.append({"id": mid, "exercise_id": ex, "account": user,
+                              "text": texte, "hidden": False,
+                              "created_at": "2026-09-04"})
         return True
 
     def forum_supprimer(self, mid, user):
         avant = len(self.messages)
         self.messages = [m for m in self.messages
-                         if not (m["id"] == mid and m["utilisateur"] == user)]
+                         if not (m["id"] == mid and m["account"] == user)]
         return len(self.messages) < avant
 
     def forum_signaler(self, mid, user):
@@ -202,29 +202,29 @@ class BaseSimulee:
     def forum_moderer(self, aid, mid, moderateur, action):
         for m in self.messages:
             if m["id"] == mid:
-                m["masque"] = (action == "masquer")
+                m["hidden"] = (action == "hide")
                 return True
         return False
 
     def forum_auteur(self, mid):
         for m in self.messages:
             if m["id"] == mid:
-                return m["utilisateur"]
+                return m["account"]
         return None
 
     def forum_profil(self, user):
-        return self.profils.get(user, {"pseudo": None, "groupe": None,
-                                       "pseudo_public": False,
-                                       "groupe_public": False})
+        return self.profils.get(user, {"display_name": None, "group_number": None,
+                                       "display_name_public": False,
+                                       "group_number_public": False})
 
     def forum_profils(self, users):
         return {u: self.profils[u] for u in users if u in self.profils}
 
     def forum_profil_ecrire(self, pid, user, pseudo, groupe, pseudo_public,
-                            groupe_public, par_moderateur=False):
-        self.profils[user] = {"pseudo": pseudo, "groupe": groupe,
-                              "pseudo_public": pseudo_public,
-                              "groupe_public": groupe_public}
+                            groupe_public, set_by_moderator=False):
+        self.profils[user] = {"display_name": pseudo, "group_number": groupe,
+                              "display_name_public": pseudo_public,
+                              "group_number_public": groupe_public}
         return True
 
 
@@ -915,8 +915,8 @@ def test_role_de_moderation_recalcule_et_jamais_recu():
         assert r.status_code == 403, (r.status_code, r.text)
         # Même en le réclamant dans le corps d'une route d'écriture.
         r = c.post("/forum/moderation",
-                   json={"id": "0" * 32, "action": "masquer",
-                         "moderateur": True, "utilisateur": "sub-prof"},
+                   json={"id": "0" * 32, "action": "hide",
+                         "moderateur": True, "account": "sub-prof"},
                    headers=auth("alice"))
         assert r.status_code == 403, (r.status_code, r.text)
 
@@ -928,8 +928,8 @@ def test_aucune_route_n_accepte_un_identifiant_dans_le_corps():
     d'identité -- et il est aussi éprouvé en vrai ci-dessous.
     """
     import schemas
-    interdits = {"utilisateur", "sub", "owner", "user", "moderateur",
-                 "par_moderateur"}
+    interdits = {"account", "sub", "owner", "user", "moderateur",
+                 "set_by_moderator"}
     for nom in dir(schemas):
         modele = getattr(schemas, nom)
         champs = getattr(modele, "model_fields", None)
@@ -941,7 +941,7 @@ def test_aucune_route_n_accepte_un_identifiant_dans_le_corps():
     with contexte(jetons=jetons) as (c, base, _tmp):
         r = c.put("/brouillon",
                   json={"exercise_id": "tp2-ex3", "files": {"submission.c": "a moi"},
-                        "utilisateur": "sub-bob", "sub": "sub-bob"},
+                        "account": "sub-bob", "sub": "sub-bob"},
                   headers=auth("alice"))
         assert r.status_code == 200, (r.status_code, r.text)
         assert base.brouillons == {("sub-alice", "tp2-ex3"):
@@ -952,11 +952,11 @@ def test_aucun_sub_ne_franchit_la_frontiere_du_forum():
     """Y compris dans la vue la plus renseignée, celle d'un modérateur."""
     jetons = {"prof": "sub-prof", "alice": "sub-alice"}
     with contexte(jetons=jetons, moderateurs=["sub-prof"]) as (c, base, _tmp):
-        c.post("/forum", json={"exercise_id": "tp2-ex3", "texte": "une question"},
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "une question"},
                headers=auth("alice"))
         c.post("/forum/profil",
-               json={"pseudo": "Alice", "groupe": 4, "pseudo_public": True,
-                     "groupe_public": True}, headers=auth("alice"))
+               json={"display_name": "Alice", "group_number": 4, "display_name_public": True,
+                     "group_number_public": True}, headers=auth("alice"))
         r = c.get("/forum?ex=tp2-ex3", headers=auth("prof"))
         assert r.status_code == 200, (r.status_code, r.text)
         assert "sub-alice" not in r.text and "sub-prof" not in r.text, r.text
@@ -1032,12 +1032,12 @@ def test_cocher_sans_ecrire_n_affiche_rien():
     with contexte(jetons={"alice": "sub-alice"},
                   moderateurs=["sub-prof"]) as (c, base, _tmp):
         r = c.post("/forum/profil",
-                   json={"pseudo": "", "groupe": None, "pseudo_public": True,
-                         "groupe_public": True}, headers=auth("alice"))
+                   json={"display_name": "", "group_number": None, "display_name_public": True,
+                         "group_number_public": True}, headers=auth("alice"))
         assert r.status_code == 200, (r.status_code, r.text)
         profil = base.profils["sub-alice"]
-        assert profil["pseudo_public"] is False, profil
-        assert profil["groupe_public"] is False, profil
+        assert profil["display_name_public"] is False, profil
+        assert profil["group_number_public"] is False, profil
 
 
 # --- Panne de base : 503, jamais un zéro ------------------------------------
@@ -1185,7 +1185,7 @@ def test_xp_accorde_une_seule_fois_par_exercice():
             # Sondé deux fois, comme le fait la page.
             assert c.get("/r/" + job).status_code == 200
             assert c.get("/r/" + job).status_code == 200
-        accorde = [t for t in base.xp.values() if t["montant"] > 0]
+        accorde = [t for t in base.xp.values() if t["amount"] > 0]
         assert len(accorde) == 1, base.xp
 
 
@@ -1201,7 +1201,7 @@ def test_un_echec_n_accorde_rien():
             json.dump({"status": "ok", "passed": 2, "total": 3}, fh)
         assert c.get("/r/" + job).status_code == 200
         assert not base.xp, base.xp
-        assert base.etats[("sub-alice", "tp2-ex3")] == "essaye", base.etats
+        assert base.etats[("sub-alice", "tp2-ex3")] == "attempted", base.etats
 
 
 # --- Maîtrise vérifiée : l'autre domaine ------------------------------------
@@ -1231,17 +1231,17 @@ def test_une_verification_laisse_une_evidence_et_aucun_xp():
         assert not base.xp, base.xp
         evidences = [f for f in base.faits if f["type"] == "VerificationEvaluated"]
         assert len(evidences) == 1, base.faits
-        assert evidences[0]["charge"]["reussi"] is True
+        assert evidences[0]["payload"]["passed"] is True
         # La charge ne porte QUE de quoi remonter au job : ni code, ni verdict.
-        assert set(evidences[0]["charge"]) == {"job", "reussi"}
+        assert set(evidences[0]["payload"]) == {"job", "passed"}
 
         vue = c.get("/progres", headers=auth("alice")).json()
         assert vue["xp"] == 0, vue
-        assert {c_["id"]: c_["bande"] for c_ in vue["maitrise"]["competences"]} == {
+        assert {c_["id"]: c_["band"] for c_ in vue["mastery"]["skills"]} == {
             "variables": "verifie"}
         # Elle ne compte pas non plus comme un exercice de pratique.
-        assert vue["exercices"]["total"] == len(CONTENU) - 1, vue["exercices"]
-        assert [s["id"] for s in vue["succes"]] == ["premiere-verification"]
+        assert vue["exercises"]["total"] == len(CONTENU) - 1, vue["exercises"]
+        assert [s["id"] for s in vue["achievements"]] == ["premiere-verification"]
 
 
 def test_une_verification_ratee_se_lit_a_consolider():
@@ -1254,8 +1254,8 @@ def test_une_verification_ratee_se_lit_a_consolider():
         _verdict("verif-tp2", "b" * 32, {"status": "ok", "passed": 1, "total": 3})
         assert c.get("/r/" + "b" * 32).status_code == 200
         vue = c.get("/progres", headers=auth("alice")).json()
-        assert [c_["bande"] for c_ in vue["maitrise"]["competences"]] == ["a-consolider"]
-        assert not base.xp and not vue["succes"], (base.xp, vue["succes"])
+        assert [c_["band"] for c_ in vue["mastery"]["skills"]] == ["a-consolider"]
+        assert not base.xp and not vue["achievements"], (base.xp, vue["achievements"])
 
 
 def test_les_evidences_muettes_repondent_503():
@@ -1265,7 +1265,7 @@ def test_les_evidences_muettes_repondent_503():
     with contexte(jetons={"alice": "sub-alice"}, base=base) as (c, _, _tmp):
         r = c.get("/progres", headers=auth("alice"))
         assert r.status_code == 503, (r.status_code, r.text)
-        assert "maitrise" not in r.text and "xp" not in r.text, r.text
+        assert "mastery" not in r.text and "xp" not in r.text, r.text
 
 
 def test_verdict_illisible_ne_boucle_pas():

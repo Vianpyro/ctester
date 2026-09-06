@@ -162,7 +162,7 @@ def _enregistrer(owner, exercise_id, job_id, resultat):
               and resultat.get("passed") == resultat.get("total"))
     # `write_state` NEVER lets a `valide` go backwards. This replaces the
     # state transition the browser used to declare on its own.
-    state.write_state(owner, exercise_id, "valide" if reussi else "essaye",
+    state.write_state(owner, exercise_id, "solved" if reussi else "attempted",
                      spool.job_sources(job_id, entree))
     # TWO DOMAINS, NEVER BOTH AT ONCE. A verification produces mastery
     # evidence -- solved or not -- and NO XP; a practice exercise does the

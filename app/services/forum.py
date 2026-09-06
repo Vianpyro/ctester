@@ -130,16 +130,16 @@ def forum_identite(profil, sub, auteur, moderateur_lecteur):
     to a group without asking anyone for a name.
     """
     profil = profil or {}
-    pseudo = profil.get("pseudo")
-    choisi = bool(pseudo) and bool(profil.get("pseudo_public"))
+    pseudo = profil.get("display_name")
+    choisi = bool(pseudo) and bool(profil.get("display_name_public"))
     if auteur == sub:
         nom = "Vous"
     elif is_moderator(auteur):
         nom = "Enseignant"
     else:
         nom = pseudo if choisi else "Participant"
-    groupe = profil.get("groupe")
-    if groupe is not None and not (profil.get("groupe_public")
+    groupe = profil.get("group_number")
+    if groupe is not None and not (profil.get("group_number_public")
                                   or moderateur_lecteur or auteur == sub):
         groupe = None
     return nom, groupe, choisi and auteur != sub
@@ -161,13 +161,13 @@ def forum_vue(messages, sub, moderateur, profils=None):
     profils = profils or {}
     vus = []
     for m in messages:
-        if not (moderateur or not m["masque"]):
+        if not (moderateur or not m["hidden"]):
             continue
         nom, groupe, signalable = forum_identite(
-            profils.get(m["utilisateur"]), sub, m["utilisateur"], moderateur)
-        vus.append({"id": m["id"], "texte": m["texte"], "cree_le": m["cree_le"],
-                    "auteur": nom, "groupe": groupe,
-                    "nom_signalable": signalable,
-                    "mien": m["utilisateur"] == sub,
-                    "masque": m["masque"]})
+            profils.get(m["account"]), sub, m["account"], moderateur)
+        vus.append({"id": m["id"], "text": m["text"], "created_at": m["created_at"],
+                    "author": nom, "group": groupe,
+                    "reportable_name": signalable,
+                    "mine": m["account"] == sub,
+                    "hidden": m["hidden"]})
     return vus

@@ -204,7 +204,7 @@ async function charger(id) {
     return;
   }
   fil = response.messages;
-  moderateur = !!response.moderateur;
+  moderateur = !!response.moderator;
   maxTexte = response.max || 0;
   erreur = "";
   // The report queue is only ever requested by a moderator, and the server
@@ -212,9 +212,9 @@ async function charger(id) {
   // protects nothing on its own.
   if (moderateur) {
     const queue = await ctester.compte.getJson("forum/moderation");
-    signalements = queue && Array.isArray(queue.signalements)
-      ? queue.signalements : null;
-    nomsSignales = queue && Array.isArray(queue.noms) ? queue.noms : null;
+    signalements = queue && Array.isArray(queue.reports)
+      ? queue.reports : null;
+    nomsSignales = queue && Array.isArray(queue.reported_names) ? queue.reported_names : null;
   }
   await chargerProfil();
 }
@@ -255,7 +255,7 @@ function redessiner() {
 }
 
 async function publier(text) {
-  const ok = await ecrire("forum", "POST", { exercise_id: exercice, texte: text },
+  const ok = await ecrire("forum", "POST", { exercise_id: exercice, text: text },
                           "Message publié.", "Message non publié");
   // CLEAR AFTERWARD, AND ONLY IF IT ACTUALLY WENT THROUGH. `ecrire` has
   // already redrawn, so `zone` is the new field. A refusal -- message too
@@ -277,11 +277,11 @@ const signaler = (id) => ecrire(
   "Signalé. Un responsable du cours va le lire.", "Signalement impossible");
 
 const signalerNom = (id) => ecrire(
-  "forum/signalement", "POST", { id: id, quoi: "nom" },
+  "forum/signalement", "POST", { id: id, kind: "name" },
   "Nom signalé. Un responsable du cours va le lire.", "Signalement impossible");
 
 const effacerNom = (id) => ecrire(
-  "forum/moderation", "POST", { id: id, action: "effacer-nom" },
+  "forum/moderation", "POST", { id: id, action: "clear-name" },
   "Nom effacé.", "Action impossible");
 
 // TWO POSSIBLE SURFACES, ONE SINGLE WRITE: the Compte menu's panel, and the
@@ -303,7 +303,7 @@ async function enregistrerProfil(payload) {
 
 const moderer = (id, action) => ecrire(
   "forum/moderation", "POST", { id: id, action: action },
-  action === "masquer" ? "Message masqué." : "Message rétabli.",
+  action === "hide" ? "Message masqué." : "Message rétabli.",
   "Action impossible");
 
 // --- Rendering the view -------------------------------------------------------
@@ -376,19 +376,19 @@ function myIdentity() {
   nameField.id = nameId;
   nameField.type = "text";
   nameField.autocomplete = "off";
-  nameField.maxLength = profil.max_pseudo || 24;
+  nameField.maxLength = profil.max_display_name || 24;
   // RAUTHY'S SUGGESTION ONLY EVER PRE-FILLS, and only until a name has been
   // chosen. It is neither saved nor shown to others before a click on
   // "Enregistrer" with the box checked: someone's sign-in name does not get
   // published on its own.
-  nameField.value = profil.pseudo || profil.suggestion || "";
+  nameField.value = profil.display_name || profil.suggestion || "";
   nameField.placeholder = "Participant";
   champPseudo = nameField;
 
   const groupId = "forumgroupe";
-  const groups = Array.isArray(profil.groupes) ? profil.groupes : [];
-  const groupValue = profil.groupe === null || profil.groupe === undefined
-    ? "" : String(profil.groupe);
+  const groups = Array.isArray(profil.group_numbers) ? profil.group_numbers : [];
+  const groupValue = profil.group_number === null || profil.group_number === undefined
+    ? "" : String(profil.group_number);
   let groupField;
   if (groups.length) {
     // A fixed list for the session: only these groups exist, might as well
@@ -415,16 +415,16 @@ function myIdentity() {
 
   const [showName, nameRow] = checkbox(
     "forumvoirnom", "Afficher mon nom dans les discussions",
-    profil.pseudo_public);
+    profil.display_name_public);
   const [showGroup, groupRow] = checkbox(
     "forumvoirgroupe", "Afficher mon numéro de groupe",
-    profil.groupe_public);
+    profil.group_number_public);
 
   block.append(nameLabel, nameField, groupLabel, groupField, nameRow, groupRow);
   // WHAT THE CHECKBOX DOES NOT COVER, and it must be said: the instructor
   // sees the group number at all times. Letting anyone believe otherwise
   // would be consent obtained the wrong way.
-  if (!profil.pseudo && profil.suggestion) {
+  if (!profil.display_name && profil.suggestion) {
     block.append(node("p", "aide", "Nom proposé par ta connexion — modifie-le si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
   }
   block.append(node("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
@@ -432,10 +432,10 @@ function myIdentity() {
     + "jamais ton nom si tu ne l'affiches pas."));
   const row = node("div", "row");
   row.append(button("Enregistrer", "", () => enregistrerProfil({
-    pseudo: nameField.value,
-    groupe: groupField.value,
-    pseudo_public: showName.checked,
-    groupe_public: showGroup.checked,
+    display_name: nameField.value,
+    group_number: groupField.value,
+    display_name_public: showName.checked,
+    group_number_public: showGroup.checked,
   })));
   row.append(button("Fermer", "nav", closeIdentity));
   block.append(row);
@@ -562,18 +562,18 @@ function messageItem(m) {
   // derived by the server. Nothing here lets two messages be tied back to
   // the same student.
   const head = node("p", "qui");
-  head.append(node("span", "auteur", m.auteur));
-  if (m.groupe) head.append(node("span", "groupe", groupNumber(m.groupe)));
-  const when = node("time", "quand", localTime(m.cree_le));
-  when.setAttribute("datetime", String(m.cree_le).replace(" ", "T"));
+  head.append(node("span", "auteur", m.author));
+  if (m.group) head.append(node("span", "groupe", groupNumber(m.group)));
+  const when = node("time", "quand", localTime(m.created_at));
+  when.setAttribute("datetime", String(m.created_at).replace(" ", "T"));
   head.append(when);
   // "Masqué" SPELLED OUT, not only in gray: a state that only reads through
   // color does not read at all for some people.
-  if (m.masque) head.append(node("span", "etat", "masqué"));
-  item.append(head, messageBody(m.texte));
+  if (m.hidden) head.append(node("span", "etat", "masqué"));
+  item.append(head, messageBody(m.text));
 
   const actions = node("div", "row");
-  if (m.mien) {
+  if (m.mine) {
     actions.append(button("Supprimer mon message", "nav", () => supprimer(m.id)));
   } else {
     actions.append(button("Signaler", "nav", () => signaler(m.id)));
@@ -581,13 +581,13 @@ function messageItem(m) {
   // ONLY WHAT IS DISPLAYED CAN BE REPORTED: the button only exists on a name
   // someone else chose. "Participant" cannot be reported, there is nothing
   // in it.
-  if (m.nom_signalable) {
+  if (m.reportable_name) {
     actions.append(button("Signaler le nom", "nav", () => signalerNom(m.id)));
   }
   if (moderateur) {
-    actions.append(m.masque
-      ? button("Rétablir", "nav", () => moderer(m.id, "retablir"))
-      : button("Masquer", "nav", () => moderer(m.id, "masquer")));
+    actions.append(m.hidden
+      ? button("Rétablir", "nav", () => moderer(m.id, "restore"))
+      : button("Masquer", "nav", () => moderer(m.id, "hide")));
   }
   item.append(actions);
   return item;
@@ -623,19 +623,19 @@ function moderationQueue() {
     const item = document.createElement("li");
     item.className = "message";
     const head = node("p", "qui");
-    head.append(node("span", "auteur", s.exercice_id));
-    head.append(node("time", "quand", localTime(s.cree_le)));
-    head.append(node("span", "etat", s.signalements + " signalement"
-      + (s.signalements > 1 ? "s" : "") + (s.masque ? " — masqué" : "")));
+    head.append(node("span", "auteur", s.exercise_id));
+    head.append(node("time", "quand", localTime(s.created_at)));
+    head.append(node("span", "etat", s.report_count + " signalement"
+      + (s.report_count > 1 ? "s" : "") + (s.hidden ? " — masqué" : "")));
     // SAME PIPELINE AS EVERYWHERE ELSE. A moderator reads exactly what a
     // student reads, sanitized the same way: a moderation view that
     // rendered raw HTML "to see what's inside" would be the site's easiest
     // page to attack, and the one where an attack would pay off the most.
-    item.append(head, messageBody(s.texte));
+    item.append(head, messageBody(s.text));
     const actions = node("div", "row");
-    actions.append(s.masque
-      ? button("Rétablir", "nav", () => moderer(s.id, "retablir"))
-      : button("Masquer", "nav", () => moderer(s.id, "masquer")));
+    actions.append(s.hidden
+      ? button("Rétablir", "nav", () => moderer(s.id, "restore"))
+      : button("Masquer", "nav", () => moderer(s.id, "hide")));
     item.append(actions);
     list.append(item);
   }
@@ -662,11 +662,11 @@ function nameQueue() {
     const item = document.createElement("li");
     item.className = "message";
     const head = node("p", "qui");
-    head.append(node("span", "auteur", n.pseudo || "(nom déjà effacé)"));
-    if (n.groupe) head.append(node("span", "groupe", groupNumber(n.groupe)));
-    head.append(node("time", "quand", localTime(n.cree_le)));
-    head.append(node("span", "etat", n.signalements + " signalement"
-      + (n.signalements > 1 ? "s" : "")));
+    head.append(node("span", "auteur", n.display_name || "(nom déjà effacé)"));
+    if (n.group_number) head.append(node("span", "groupe", groupNumber(n.group_number)));
+    head.append(node("time", "quand", localTime(n.created_at)));
+    head.append(node("span", "etat", n.report_count + " signalement"
+      + (n.report_count > 1 ? "s" : "")));
     item.append(head);
     const actions = node("div", "row");
     actions.append(button("Effacer le nom", "nav", () => effacerNom(n.id)));

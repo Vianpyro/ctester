@@ -171,7 +171,7 @@ async function author() {
   if (!ctester.token() || !ctester.compte || !(config && config.forum)) return "";
   const profile = await ctester.compte.getJson("forum/profil");
   if (!profile || typeof profile !== "object") return "";
-  return String(profile.pseudo || profile.suggestion || "").trim();
+  return String(profile.display_name || profile.suggestion || "").trim();
 }
 
 function header(name, group, numbers, first) {

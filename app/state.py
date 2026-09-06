@@ -33,12 +33,7 @@ DSN = os.environ.get("CTESTER_DB_DSN", "")
 _lock = threading.Lock()
 _conn = None
 
-# ponytail: kept as the French values the schema and the API/JS/tests already
-# agree on ('essaye', 'valide'); the column is now `status` (see schema.sql),
-# but the values themselves are a wire-format contract shared with the JSON
-# response, the frontend and the test suites. Translate all of those together
-# in one pass, not this module alone.
-STATUSES = ("essaye", "valide")
+STATUSES = ("attempted", "solved")
 # The page's only two themes. Same list as the CHECK in `schema.sql` and the
 # `<head>` script: three places, one rule to keep in sync.
 THEMES = ("light", "dark")
@@ -150,7 +145,7 @@ def write_state(user, exercise_id, status, sources):
         "INSERT INTO exercise_state (account, exercise_id, status, sources, updated_at)"
         " VALUES (%s, %s, %s, %s, now())"
         " ON CONFLICT (account, exercise_id) DO UPDATE SET"
-        "   status = CASE WHEN exercise_state.status = 'valide' THEN 'valide'"
+        "   status = CASE WHEN exercise_state.status = 'solved' THEN 'solved'"
         "                 ELSE EXCLUDED.status END,"
         "   sources = EXCLUDED.sources, updated_at = now()",
         (user, exercise_id, status, json.dumps(sources)),
@@ -158,13 +153,13 @@ def write_state(user, exercise_id, status, sources):
 
 
 def read_states(user):
-    """[{exercice_id, statut}] for the list view, or None if the database is mute."""
+    """[{exercise_id, status}] for the list view, or None if the database is mute."""
     rows = _query(
         "SELECT exercise_id, status FROM exercise_state WHERE account = %s",
         (user,), read=True)
     if rows is None:
         return None
-    return [{"exercice_id": exercise, "statut": status} for exercise, status in rows]
+    return [{"exercise_id": exercise, "status": status} for exercise, status in rows]
 
 
 def write_practice_attempt(user, job_id, exercise_id, result):
@@ -199,7 +194,7 @@ def read_practice_summary(user):
         (user,), read=True)
     if rows is None:
         return None
-    return [{"exercice_id": ex, "tentatives": attempts, "reussites": solved}
+    return [{"exercise_id": ex, "attempts": attempts, "successes": solved}
             for ex, attempts, solved in rows]
 
 
@@ -281,7 +276,7 @@ def record_event(user, event_id, kind, exercise_id, policy, payload):
 def read_events(user, kind, limit=500):
     """Facts of one type, newest first. None if the database is mute.
 
-    [{"exercice_id": str|None, "charge": dict}] -- the date is used to order
+    [{"exercise_id": str|None, "payload": dict}] -- the date is used to order
     and is not returned: mastery is read as bands, not a timestamped history,
     and the exact time of an attempt has no business traveling (privacy.md).
 
@@ -302,8 +297,8 @@ def read_events(user, kind, limit=500):
             payload = json.loads(payload) if isinstance(payload, str) else payload
         except ValueError:
             payload = None
-        facts.append({"exercice_id": exercise_id,
-                      "charge": payload if isinstance(payload, dict) else {}})
+        facts.append({"exercise_id": exercise_id,
+                      "payload": payload if isinstance(payload, dict) else {}})
     return facts
 
 
@@ -323,8 +318,8 @@ def unlock(user, achievement_ids, event_id, policy):
 def read_progress(user):
     """A student's progression facts, or None if the database is mute.
 
-    {"xp": int, "succes": [{id, obtenu_le, politique}],
-     "transactions": [{exercice_id, montant, motif, accorde_le}]}
+    {"xp": int, "achievements": [{id, unlocked_at, policy}],
+     "transactions": [{exercise_id, amount, reason, granted_at}]}
 
     The balance, level and skills are NOT here: those are projections,
     `services/progression.py` recomputes them from these facts and the public
@@ -351,10 +346,10 @@ def read_progress(user):
         return None
     return {
         "xp": int(total[0][0]) if total else 0,
-        "succes": [{"id": row[0], "obtenu_le": _day(row[1]),
-                    "politique": row[2]} for row in unlocked],
-        "transactions": [{"exercice_id": row[0], "montant": int(row[1]),
-                          "motif": row[2], "accorde_le": _day(row[3])}
+        "achievements": [{"id": row[0], "unlocked_at": _day(row[1]),
+                    "policy": row[2]} for row in unlocked],
+        "transactions": [{"exercise_id": row[0], "amount": int(row[1]),
+                          "reason": row[2], "granted_at": _day(row[3])}
                          for row in grants],
     }
 
@@ -446,8 +441,8 @@ def forum_fil(exercise_id, limit):
         (exercise_id, max(int(limit), 0)), read=True)
     if rows is None:
         return None
-    return [{"id": row[0], "utilisateur": row[1], "texte": row[2],
-             "masque": bool(row[3]), "cree_le": _minute(row[4])} for row in rows]
+    return [{"id": row[0], "account": row[1], "text": row[2],
+             "hidden": bool(row[3]), "created_at": _minute(row[4])} for row in rows]
 
 
 def forum_publier(message_id, exercise_id, user, text):
@@ -504,9 +499,9 @@ def forum_signalements(limit):
         (max(int(limit), 0),), read=True)
     if rows is None:
         return None
-    return [{"id": row[0], "exercice_id": row[1], "texte": row[2],
-             "masque": bool(row[3]), "cree_le": _minute(row[4]),
-             "signalements": int(row[5])} for row in rows]
+    return [{"id": row[0], "exercise_id": row[1], "text": row[2],
+             "hidden": bool(row[3]), "created_at": _minute(row[4]),
+             "report_count": int(row[5])} for row in rows]
 
 
 def forum_moderer(action_id, message_id, moderator, action):
@@ -519,7 +514,7 @@ def forum_moderer(action_id, message_id, moderator, action):
     calls, a connection dropped in the middle would leave a message hidden
     that nothing explains -- or the reverse, a journal that lies.
     """
-    if action not in ("masquer", "retablir"):
+    if action not in ("hide", "restore"):
         return []
     return _query(
         "WITH acted AS ("
@@ -532,7 +527,7 @@ def forum_moderer(action_id, message_id, moderator, action):
         "  WHERE message_id = (SELECT message_id FROM acted)"
         "  RETURNING message_id",
         {"aid": action_id, "id": message_id, "who": moderator,
-         "which": action, "hidden": action == "masquer"}, read=True)
+         "which": action, "hidden": action == "hide"}, read=True)
 
 
 # --- The chosen name and group number ---------------------------------------
@@ -541,12 +536,12 @@ def forum_moderer(action_id, message_id, moderator, action):
 # next query. `DISTINCT ON` reads it in one pass over the index
 # (account, created_at DESC).
 
-_PROFILE_COLUMNS = ("pseudo", "groupe", "pseudo_public", "groupe_public")
+_PROFILE_COLUMNS = ("display_name", "group_number", "display_name_public", "group_number_public")
 
 
 def _profil(row):
-    return {"pseudo": row[1], "groupe": None if row[2] is None else int(row[2]),
-            "pseudo_public": bool(row[3]), "groupe_public": bool(row[4])}
+    return {"display_name": row[1], "group_number": None if row[2] is None else int(row[2]),
+            "display_name_public": bool(row[3]), "group_number_public": bool(row[4])}
 
 
 def forum_profils(users):
@@ -575,8 +570,8 @@ def forum_profil(user):
     profiles = forum_profils([user])
     if profiles is None:
         return None
-    return profiles.get(user, {"pseudo": None, "groupe": None,
-                              "pseudo_public": False, "groupe_public": False})
+    return profiles.get(user, {"display_name": None, "group_number": None,
+                              "display_name_public": False, "group_number_public": False})
 
 
 def forum_profil_ecrire(profile_id, user, display_name, group_number, display_name_public,
@@ -624,9 +619,9 @@ def forum_noms_signales(limit):
         (max(int(limit), 0),), read=True)
     if rows is None:
         return None
-    return [{"id": row[0], "utilisateur": row[1], "pseudo": row[2],
-             "groupe": None if row[3] is None else int(row[3]),
-             "cree_le": _minute(row[4]), "signalements": int(row[5])}
+    return [{"id": row[0], "account": row[1], "display_name": row[2],
+             "group_number": None if row[3] is None else int(row[3]),
+             "created_at": _minute(row[4]), "report_count": int(row[5])}
             for row in rows]
 
 

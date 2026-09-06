@@ -76,7 +76,7 @@ class ForumMessageIn(_AvecExercice):
 
     model_config = _CONFIG
 
-    texte: str | None = None
+    text: str | None = None
 
 
 class ForumSignalementIn(BaseModel):
@@ -90,7 +90,7 @@ class ForumSignalementIn(BaseModel):
     model_config = _CONFIG
 
     id: str = ""
-    quoi: str = "message"
+    kind: str = "message"
 
 
 class ForumModerationIn(BaseModel):
@@ -111,14 +111,14 @@ class ForumProfilIn(BaseModel):
     """POST /forum/profil -- a name, a group, and what is displayed.
 
     TWO INDEPENDENT CHECKBOXES, and nothing appears unless its owner checked
-    it. `groupe` accepts an integer or a string: the form sends one or the
-    other depending on whether it is a dropdown or a free-text field, and
+    it. `group_number` accepts an integer or a string: the form sends one or
+    the other depending on whether it is a dropdown or a free-text field, and
     `forum_groupe()` settles it.
     """
 
     model_config = _CONFIG
 
-    pseudo: str | None = None
-    groupe: int | str | None = None
-    pseudo_public: bool = False
-    groupe_public: bool = False
+    display_name: str | None = None
+    group_number: int | str | None = None
+    display_name_public: bool = False
+    group_number_public: bool = False

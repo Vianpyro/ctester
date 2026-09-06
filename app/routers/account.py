@@ -25,7 +25,7 @@ def etats(sub: Sub):
     valeurs = state.read_states(sub)
     if valeurs is None:
         return headers.erreur(503, "la base ne répond pas")
-    return {"etats": valeurs}
+    return {"states": valeurs}
 
 
 @router.get("/pratique")
@@ -34,7 +34,7 @@ def pratique(sub: Sub):
     resume = state.read_practice_summary(sub)
     if resume is None:
         return headers.erreur(503, "la base ne répond pas")
-    return {"pratique": resume}
+    return {"practice": resume}
 
 
 @router.get("/brouillon")

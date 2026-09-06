@@ -829,7 +829,7 @@ def test_politique_est_declarative():
     # description, plus le fait dont il derive.
     ids = set()
     for succes in politique.POLICY["succes"]:
-        assert succes["titre"] and succes["description"]
+        assert succes["title"] and succes["description"]
         assert succes["sur"] and succes["seuil"] >= 1
         assert succes["id"] not in ids
         ids.add(succes["id"])
@@ -837,7 +837,7 @@ def test_politique_est_declarative():
     # Les bandes de maitrise s'affichent comme les succes : en toutes lettres.
     bandes = politique.POLICY["maitrise"]["bandes"]
     for bande in bandes:
-        assert bande["titre"] and bande["description"]
+        assert bande["title"] and bande["description"]
     assert set(politique.BANDES) == {b["id"] for b in bandes} == set(
         politique.bande_maitrise(r, t, n)
         for n in range(0, 4) for t in range(0, n + 1) for r in range(0, t + 1))
@@ -852,27 +852,27 @@ def test_politique_est_declarative():
 
 def test_niveau_derive_du_solde():
     seuils = politique.POLICY["niveaux"]
-    assert politique.niveau(0)["rang"] == 1
-    assert politique.niveau(-5)["rang"] == 1          # un solde ne recule pas
-    assert politique.niveau(seuils[1])["rang"] == 2
-    assert politique.niveau(seuils[1] - 1)["rang"] == 1
+    assert politique.niveau(0)["rank"] == 1
+    assert politique.niveau(-5)["rank"] == 1          # un solde ne recule pas
+    assert politique.niveau(seuils[1])["rank"] == 2
+    assert politique.niveau(seuils[1] - 1)["rank"] == 1
     au_bout = politique.niveau(seuils[-1] + 1000)
-    assert au_bout["rang"] == len(seuils) and au_bout["prochain"] is None
-    # `restant` est un nombre d'XP, pas un pourcentage : l'interface en fait une
-    # phrase, et une barre sans phrase ne se lit pas a voix haute.
-    assert politique.niveau(seuils[1] - 4)["restant"] == 4
+    assert au_bout["rank"] == len(seuils) and au_bout["next"] is None
+    # `remaining` est un nombre d'XP, pas un pourcentage : l'interface en fait
+    # une phrase, et une barre sans phrase ne se lit pas a voix haute.
+    assert politique.niveau(seuils[1] - 4)["remaining"] == 4
 
 
 def test_succes_derives_de_faits():
     assert politique.succes_atteints({}) == []
-    assert politique.succes_atteints({"reussites": 1}) == ["premiere-reussite"]
-    beaucoup = politique.succes_atteints({"reussites": 10, "competences": 3,
+    assert politique.succes_atteints({"solved": 1}) == ["premiere-reussite"]
+    beaucoup = politique.succes_atteints({"solved": 10, "skills": 3,
                                           "verifications": 1})
     assert set(beaucoup) == set(politique.SUCCES)
     # UNE VERIFICATION N'EST PAS UNE PRATIQUE : dix exercices reussis ne
     # debloquent pas le succes de verification.
     assert "premiere-verification" not in politique.succes_atteints(
-        {"reussites": 10, "competences": 3})
+        {"solved": 10, "skills": 3})
     # Un fait inconnu de l'appelant vaut zero : ajouter un critere ne doit pas
     # faire lever sur un appelant plus ancien.
     assert politique.succes_atteints({"inconnu": 99}) == []
@@ -901,13 +901,13 @@ CATALOGUE_VERIF = CATALOGUE_DEMO + [
 
 def evidence(exercice, reussi):
     """Une ligne telle que `state.read_events` la rend."""
-    return {"exercice_id": exercice, "charge": {"job": "j", "reussi": reussi}}
+    return {"exercise_id": exercice, "payload": {"job": "j", "passed": reussi}}
 
 
 def test_projection_des_competences():
-    etats = [{"exercice_id": "tp2-ex0", "statut": "valide"},
-             {"exercice_id": "tp2-ex3", "statut": "essaye"}]
-    pratique = [{"exercice_id": "tp6-ex1", "tentatives": 2, "reussites": 0}]
+    etats = [{"exercise_id": "tp2-ex0", "status": "solved"},
+             {"exercise_id": "tp2-ex3", "status": "attempted"}]
+    pratique = [{"exercise_id": "tp6-ex1", "attempts": 2, "successes": 0}]
     touches, reussis = progression.exercise_facts(etats, pratique)
     assert touches == {"tp2-ex0", "tp2-ex3", "tp6-ex1"}
     assert reussis == {"tp2-ex0"}
@@ -915,20 +915,20 @@ def test_projection_des_competences():
     # L'ORDRE EST CELUI DU COURS, pas un tri par score : la premiere ligne est
     # la premiere competence rencontree, ce que l'etudiant reconnait.
     assert [c["id"] for c in vue] == ["variables", "arithmetic-operators", "arrays-1d"]
-    assert vue[0] == {"id": "variables", "total": 2, "pratiques": 2, "reussis": 1}
-    assert vue[2] == {"id": "arrays-1d", "total": 1, "pratiques": 1, "reussis": 0}
+    assert vue[0] == {"id": "variables", "total": 2, "practiced": 2, "solved": 1}
+    assert vue[2] == {"id": "arrays-1d", "total": 1, "practiced": 1, "solved": 0}
 
 
 def test_recommandation_deterministe():
-    etats = [{"exercice_id": "tp2-ex0", "statut": "valide"}]
+    etats = [{"exercise_id": "tp2-ex0", "status": "solved"}]
     touches, reussis = progression.exercise_facts(etats, [])
     # Deja pratique `variables` : on repart sur l'exercice non reussi qui la
     # reprend, pas sur le premier venu.
     assert progression.recommander(CATALOGUE_DEMO, touches, reussis) == {
-        "exercice_id": "tp2-ex3", "competence": "variables"}
+        "exercise_id": "tp2-ex3", "skill": "variables"}
     # Aucune competence en commun : le premier non reussi, dans l'ordre du cours.
     assert progression.recommander(CATALOGUE_DEMO, set(), set()) == {
-        "exercice_id": "tp2-ex0", "competence": None}
+        "exercise_id": "tp2-ex0", "skill": None}
     # Tout reussi : rien a proposer, et on le dit au lieu d'inventer.
     tout = {e["id"] for e in CATALOGUE_DEMO}
     assert progression.recommander(CATALOGUE_DEMO, tout, tout) is None
@@ -936,28 +936,28 @@ def test_recommandation_deterministe():
 
 
 def test_progression_ne_publie_rien_de_secret():
-    faits = {"xp": 25, "succes": [{"id": "premiere-reussite",
-                                   "obtenu_le": "2026-09-03", "politique": "x"},
-                                  {"id": "disparu", "obtenu_le": "2026-09-03",
-                                   "politique": "x"}],
-             "transactions": [{"exercice_id": "tp2-ex0", "montant": 10,
-                               "motif": "premiere reussite",
-                               "accorde_le": "2026-09-03"}]}
+    faits = {"xp": 25, "achievements": [{"id": "premiere-reussite",
+                                   "unlocked_at": "2026-09-03", "policy": "x"},
+                                  {"id": "disparu", "unlocked_at": "2026-09-03",
+                                   "policy": "x"}],
+             "transactions": [{"exercise_id": "tp2-ex0", "amount": 10,
+                               "reason": "premiere reussite",
+                               "granted_at": "2026-09-03"}]}
     charge = progression.progress_payload(
         CATALOGUE_DEMO, faits,
-        [{"exercice_id": "tp2-ex0", "statut": "valide"}], [], [])
-    assert charge["politique"] == politique.VERSION
-    assert charge["xp"] == 25 and charge["niveau"]["rang"] >= 1
-    assert charge["exercices"] == {"total": 4, "pratiques": 1, "reussis": 1}
+        [{"exercise_id": "tp2-ex0", "status": "solved"}], [], [])
+    assert charge["policy"] == politique.VERSION
+    assert charge["xp"] == 25 and charge["level"]["rank"] >= 1
+    assert charge["exercises"] == {"total": 4, "practiced": 1, "solved": 1}
     # Un succes dont la politique ne connait plus la definition ne s'affiche
     # pas -- il reste en base, il ne devient pas une ligne vide a l'ecran.
-    assert [s["id"] for s in charge["succes"]] == ["premiere-reussite"]
-    assert charge["succes"][0]["titre"] and charge["succes"][0]["description"]
+    assert [s["id"] for s in charge["achievements"]] == ["premiere-reussite"]
+    assert charge["achievements"][0]["title"] and charge["achievements"][0]["description"]
     # La legende des bandes voyage meme quand aucune competence n'est
     # verifiable : la page doit pouvoir expliquer ce qu'elle n'affiche pas
     # encore, plutot que de reecrire les libelles de son cote.
-    assert [b["id"] for b in charge["maitrise"]["bandes"]] == list(politique.BANDES)
-    assert charge["maitrise"]["competences"] == []
+    assert [b["id"] for b in charge["mastery"]["bands"]] == list(politique.BANDES)
+    assert charge["mastery"]["skills"] == []
     # RIEN DE SECRET NE TRAVERSE : ni chemin de tests, ni code soumis, ni
     # detail de verdict. Meme frontiere que publish_catalogue.
     texte = json.dumps(charge, ensure_ascii=False)
@@ -976,27 +976,27 @@ def test_bandes_de_maitrise_par_couverture():
     # Une competence qu'aucune verification ne porte n'y figure pas : lui
     # reprocher « pas encore verifie » serait reprocher une lacune du contenu.
     assert [c["id"] for c in vide] == ["variables", "arithmetic-operators"]
-    assert vide[0] == {"id": "variables", "total": 2, "tentees": 0,
-                       "reussies": 0, "bande": "non-verifie"}
+    assert vide[0] == {"id": "variables", "total": 2, "attempted": 0,
+                       "passed": 0, "band": "non-verifie"}
 
     une = progression.maitrise_view(CATALOGUE_VERIF, [evidence("verif-a", True)])
     par_id = {c["id"]: c for c in une}
     # `variables` est portee par DEUX verifications : une seule reussie ne la
     # verifie pas. `arithmetic-operators` n'en a qu'une, donc elle est complete.
-    assert par_id["variables"]["bande"] == "en-progression"
-    assert par_id["arithmetic-operators"]["bande"] == "verifie"
+    assert par_id["variables"]["band"] == "en-progression"
+    assert par_id["arithmetic-operators"]["band"] == "verifie"
 
     deux = progression.maitrise_view(
         CATALOGUE_VERIF, [evidence("verif-b", True), evidence("verif-a", True)])
-    assert {c["id"]: c["bande"] for c in deux} == {
+    assert {c["id"]: c["band"] for c in deux} == {
         "variables": "verifie", "arithmetic-operators": "verifie"}
 
     rate = progression.maitrise_view(CATALOGUE_VERIF, [evidence("verif-a", False)])
     # Tentee sans succes : une bande a consolider, PAS le silence d'une
     # competence jamais abordee. C'est pour ca qu'un echec s'ecrit aussi.
-    assert {c["id"]: c["bande"] for c in rate} == {
+    assert {c["id"]: c["band"] for c in rate} == {
         "variables": "a-consolider", "arithmetic-operators": "a-consolider"}
-    assert par_id["variables"]["tentees"] == 1
+    assert par_id["variables"]["attempted"] == 1
 
 
 def test_maitrise_retient_la_derniere_tentative():
@@ -1006,7 +1006,7 @@ def test_maitrise_retient_la_derniere_tentative():
     journal = [evidence("verif-a", False), evidence("verif-a", True)]
     assert progression.dernieres_tentatives(journal) == {"verif-a": False}
     vue = {c["id"]: c for c in progression.maitrise_view(CATALOGUE_VERIF, journal)}
-    assert vue["arithmetic-operators"]["bande"] == "a-consolider"
+    assert vue["arithmetic-operators"]["band"] == "a-consolider"
     # MAIS UN SUCCES NE SE RETIRE PAS : ce que la bande perd, le journal le
     # garde, et le compteur des succes est monotone.
     assert progression.verifications_reussies(journal) == {"verif-a"}
@@ -1014,14 +1014,14 @@ def test_maitrise_retient_la_derniere_tentative():
 
 def test_une_pratique_ne_fait_bouger_aucune_bande():
     """Invariant 4 : le juge en libre service ne prouve pas une maitrise."""
-    tout_reussi = [{"exercice_id": e["id"], "statut": "valide"}
+    tout_reussi = [{"exercise_id": e["id"], "status": "solved"}
                    for e in CATALOGUE_DEMO]
-    faits = {"xp": 75, "succes": [], "transactions": []}
+    faits = {"xp": 75, "achievements": [], "transactions": []}
     charge = progression.progress_payload(CATALOGUE_VERIF, faits, tout_reussi,
                                           [], [])
-    assert charge["exercices"]["reussis"] == 4
-    assert all(c["bande"] == "non-verifie"
-               for c in charge["maitrise"]["competences"])
+    assert charge["exercises"]["solved"] == 4
+    assert all(c["band"] == "non-verifie"
+               for c in charge["mastery"]["skills"])
 
 
 def test_une_verification_ne_compte_pas_comme_une_pratique():
@@ -1032,12 +1032,12 @@ def test_une_verification_ne_compte_pas_comme_une_pratique():
     recommandation enverrait pratiquer une verification.
     """
     charge = progression.progress_payload(
-        CATALOGUE_VERIF, {"xp": 0, "succes": [], "transactions": []}, [], [], [])
-    assert charge["exercices"]["total"] == len(CATALOGUE_DEMO)
-    assert charge["suivant"]["exercice_id"] == "tp2-ex0"
+        CATALOGUE_VERIF, {"xp": 0, "achievements": [], "transactions": []}, [], [], [])
+    assert charge["exercises"]["total"] == len(CATALOGUE_DEMO)
+    assert charge["next"]["exercise_id"] == "tp2-ex0"
     # Les competences PRATIQUEES ne comptent que les exercices de pratique :
     # `variables` est portee par deux exercices, pas par les quatre.
-    par_id = {c["id"]: c for c in charge["competences"]}
+    par_id = {c["id"]: c for c in charge["skills"]}
     assert par_id["variables"]["total"] == 2
     assert "arrays-1d" in par_id
     # Et rien ne recommande une verification, meme quand tout le reste est fait.
@@ -1282,28 +1282,28 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
     garde = config.FORUM_MODERATORS
     try:
         config.FORUM_MODERATORS = frozenset({"sub-mod"})
-        fil = [{"id": "a" * 32, "utilisateur": "sub-alice", "texte": "moi",
-                "masque": False, "cree_le": "2026-09-03 10:00"},
-               {"id": "b" * 32, "utilisateur": "sub-bob", "texte": "lui",
-                "masque": False, "cree_le": "2026-09-03 10:01"},
-               {"id": "c" * 32, "utilisateur": "sub-mod", "texte": "eux",
-                "masque": False, "cree_le": "2026-09-03 10:02"},
-               {"id": "d" * 32, "utilisateur": "sub-bob", "texte": "cache",
-                "masque": True, "cree_le": "2026-09-03 10:03"}]
+        fil = [{"id": "a" * 32, "account": "sub-alice", "text": "moi",
+                "hidden": False, "created_at": "2026-09-03 10:00"},
+               {"id": "b" * 32, "account": "sub-bob", "text": "lui",
+                "hidden": False, "created_at": "2026-09-03 10:01"},
+               {"id": "c" * 32, "account": "sub-mod", "text": "eux",
+                "hidden": False, "created_at": "2026-09-03 10:02"},
+               {"id": "d" * 32, "account": "sub-bob", "text": "cache",
+                "hidden": True, "created_at": "2026-09-03 10:03"}]
         vu = forum.forum_vue(fil, "sub-alice", False)
-        assert [m["auteur"] for m in vu] == [
+        assert [m["author"] for m in vu] == [
             "Vous", "Participant", "Enseignant"], vu
-        assert [m["mien"] for m in vu] == [True, False, False]
+        assert [m["mine"] for m in vu] == [True, False, False]
         # UN MESSAGE MASQUE N'EXISTE PAS pour un etudiant ordinaire.
         assert len(vu) == 3
         texte = json.dumps(vu, ensure_ascii=False)
-        for interdit in ("sub-alice", "sub-bob", "sub-mod", "utilisateur"):
+        for interdit in ("sub-alice", "sub-bob", "sub-mod", "account"):
             assert interdit not in texte, interdit
         # Un moderateur, LUI, voit le masque -- sinon il ne pourrait pas le
         # retablir -- et pas davantage d'identite pour autant.
         vu_mod = forum.forum_vue(fil, "sub-mod", True)
-        assert len(vu_mod) == 4 and vu_mod[3]["masque"] is True
-        assert vu_mod[2]["auteur"] == "Vous"      # son propre message
+        assert len(vu_mod) == 4 and vu_mod[3]["hidden"] is True
+        assert vu_mod[2]["author"] == "Vous"      # son propre message
         assert "sub-bob" not in json.dumps(vu_mod, ensure_ascii=False)
     finally:
         config.FORUM_MODERATORS = garde
@@ -1342,23 +1342,23 @@ def test_forum_identite_bornes_et_visibilite():
     garde = config.FORUM_MODERATORS
     try:
         config.FORUM_MODERATORS = frozenset({"sub-mod"})
-        fil = [{"id": "a" * 32, "utilisateur": "sub-bob", "texte": "x",
-                "masque": False, "cree_le": "2026-09-03T10:00Z"}]
-        cache = {"sub-bob": {"pseudo": "Bob", "groupe": 7,
-                             "pseudo_public": False, "groupe_public": False}}
+        fil = [{"id": "a" * 32, "account": "sub-bob", "text": "x",
+                "hidden": False, "created_at": "2026-09-03T10:00Z"}]
+        cache = {"sub-bob": {"display_name": "Bob", "group_number": 7,
+                             "display_name_public": False, "group_number_public": False}}
         vu = forum.forum_vue(fil, "sub-alice", False, cache)[0]
-        assert vu["auteur"] == "Participant" and vu["groupe"] is None
-        assert vu["nom_signalable"] is False
+        assert vu["author"] == "Participant" and vu["group"] is None
+        assert vu["reportable_name"] is False
         # Le modérateur voit le groupe SANS que le nom devienne public pour
         # autant : deux cases, deux effets.
         vu_mod = forum.forum_vue(fil, "sub-mod", True, cache)[0]
-        assert vu_mod["auteur"] == "Participant" and vu_mod["groupe"] == 7
-        montre = {"sub-bob": dict(cache["sub-bob"], pseudo_public=True)}
+        assert vu_mod["author"] == "Participant" and vu_mod["group"] == 7
+        montre = {"sub-bob": dict(cache["sub-bob"], display_name_public=True)}
         vu2 = forum.forum_vue(fil, "sub-alice", False, montre)[0]
-        assert vu2["auteur"] == "Bob" and vu2["nom_signalable"] is True
+        assert vu2["author"] == "Bob" and vu2["reportable_name"] is True
         # Son propre nom reste « Vous » : on ne se signale pas soi-meme.
         a_moi = forum.forum_vue(fil, "sub-bob", False, montre)[0]
-        assert a_moi["auteur"] == "Vous" and a_moi["nom_signalable"] is False
+        assert a_moi["author"] == "Vous" and a_moi["reportable_name"] is False
         assert "sub-bob" not in json.dumps(
             [vu, vu_mod, vu2, a_moi], ensure_ascii=False)
     finally:

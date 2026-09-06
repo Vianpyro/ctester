@@ -344,9 +344,9 @@ const JETON = "jeton-de-test";
 // rien choisi » -- ce qui n'est pas la meme chose qu'une panne, et la page ne
 // doit pas ecraser le theme de l'appareil dans ce cas.
 let THEME_SERVEUR = "";
-const ETATS = { etats: [{ exercice_id: "tp2-ex0", statut: "valide" }] };
-const PRATIQUE = { pratique: [
-  { exercice_id: "tp2-ex3", tentatives: 3, reussites: 1 }] };
+const ETATS = { states: [{ exercise_id: "tp2-ex0", status: "solved" }] };
+const PRATIQUE = { practice: [
+  { exercise_id: "tp2-ex3", attempts: 3, successes: 1 }] };
 let POLL_RESPONSE = { state: "queued", position: 1 };
 let PROGRES_CASSE = false;
 // Les brouillons que le COMPTE porte, par-dela cet appareil : c'est ce qui
@@ -365,53 +365,53 @@ const FORUM_MAX = 400;
 // digne de confiance de toute la page : si elle passe par innerHTML, elle
 // s'execute chez celui qui lit le fil.
 const FORUM = {
-  "tp2-ex3": [{ id: "m-autre", ex: "tp2-ex3", auteur: "Participant",
-                mien: false, masque: false, cree_le: "2026-09-03T22:30Z",
-                nom_signalable: false,
-                texte: "<img src=x onerror=alert(1)> j'ai la meme erreur" },
-              { id: "m-nomme", ex: "tp2-ex3", auteur: "Bob B", mien: false,
-                masque: false, cree_le: "2026-09-03T22:35Z", groupe: 4,
-                nom_signalable: true, texte: "moi aussi" }],
+  "tp2-ex3": [{ id: "m-autre", ex: "tp2-ex3", author: "Participant",
+                mine: false, hidden: false, created_at: "2026-09-03T22:30Z",
+                reportable_name: false,
+                text: "<img src=x onerror=alert(1)> j'ai la meme erreur" },
+              { id: "m-nomme", ex: "tp2-ex3", author: "Bob B", mine: false,
+                hidden: false, created_at: "2026-09-03T22:35Z", group: 4,
+                reportable_name: true, text: "moi aussi" }],
   "tp2-ex0": [],
 };
 const FORUM_SIGNALES = new Map();   // identifiant de message -> combien de fois
 // LE PROFIL DE CE COMPTE. `suggestion` est le `preferred_username` de Rauthy :
 // une PROPOSITION, qui ne doit rien afficher tant qu'on n'a pas enregistre.
-const PROFIL = { pseudo: null, groupe: null, pseudo_public: false,
-                 groupe_public: false, max_pseudo: 24, groupes: [4, 6],
+const PROFIL = { display_name: null, group_number: null, display_name_public: false,
+                 group_number_public: false, max_display_name: 24, group_numbers: [4, 6],
                  suggestion: "vveremme" };
 const forumEnvois = [];
 let forumCompteur = 0;
 // UNE COMPETENCE HOSTILE : les identifiants viennent du depot de tests, et un
 // libelle inconnu s'affiche tel quel. S'il finit dans du HTML, il s'execute.
 const PROGRES = {
-  politique: "pilote-1",
+  policy: "pilote-1",
   xp: 45,
-  niveau: { rang: 2, depuis: 30, prochain: 80, restant: 35 },
-  exercices: { total: 4, pratiques: 2, reussis: 1 },
-  competences: [
-    { id: "variables", total: 2, pratiques: 2, reussis: 1 },
-    { id: "<img src=x onerror=alert(1)>", total: 1, pratiques: 1, reussis: 0 },
+  level: { rank: 2, since: 30, next: 80, remaining: 35 },
+  exercises: { total: 4, practiced: 2, solved: 1 },
+  skills: [
+    { id: "variables", total: 2, practiced: 2, solved: 1 },
+    { id: "<img src=x onerror=alert(1)>", total: 1, practiced: 1, solved: 0 },
   ],
-  succes: [{ id: "premiere-reussite", titre: "Premier exercice réussi",
+  achievements: [{ id: "premiere-reussite", title: "Premier exercice réussi",
              description: "Tu as fait passer tous les tests d'un exercice.",
-             obtenu_le: "2026-09-01" }],
-  maitrise: {
-    bandes: [
-      { id: "verifie", titre: "Vérifié", description: "Toutes réussies." },
-      { id: "en-progression", titre: "En progression", description: "Il en reste." },
-      { id: "a-consolider", titre: "À consolider", description: "Reviens pratiquer." },
-      { id: "non-verifie", titre: "Pas encore vérifié", description: "Rien de tenté." },
+             unlocked_at: "2026-09-01" }],
+  mastery: {
+    bands: [
+      { id: "verifie", title: "Vérifié", description: "Toutes réussies." },
+      { id: "en-progression", title: "En progression", description: "Il en reste." },
+      { id: "a-consolider", title: "À consolider", description: "Reviens pratiquer." },
+      { id: "non-verifie", title: "Pas encore vérifié", description: "Rien de tenté." },
     ],
-    competences: [
-      { id: "variables", total: 2, tentees: 1, reussies: 1, bande: "en-progression" },
-      { id: "<img src=x onerror=alert(1)>", total: 1, tentees: 0, reussies: 0,
-        bande: "non-verifie" },
+    skills: [
+      { id: "variables", total: 2, attempted: 1, passed: 1, band: "en-progression" },
+      { id: "<img src=x onerror=alert(1)>", total: 1, attempted: 0, passed: 0,
+        band: "non-verifie" },
     ],
   },
-  suivant: { exercice_id: "tp2-ex3", competence: "variables" },
-  transactions: [{ exercice_id: "tp2-ex0", montant: 15,
-                   motif: "première réussite", accorde_le: "2026-09-01" }],
+  next: { exercise_id: "tp2-ex3", skill: "variables" },
+  transactions: [{ exercise_id: "tp2-ex0", amount: 15,
+                   reason: "première réussite", granted_at: "2026-09-01" }],
 };
 global.fetch = async (url, opts) => {
   calls.push({ url, opts });
@@ -508,16 +508,17 @@ function forumRepond(url, opts) {
   if (String(url).startsWith("forum/moderation")) {
     if (!FORUM_MODERATEUR) return rendErreur(403, "réservé à l'enseignant");
     if (methode === "GET") {
-      return rendJson({ signalements: tous()
+      return rendJson({ reports: tous()
         .filter((m) => FORUM_SIGNALES.has(m.id))
-        .map((m) => ({ id: m.id, exercice_id: m.ex, texte: m.texte,
-                       masque: m.masque, cree_le: m.cree_le,
-                       signalements: FORUM_SIGNALES.get(m.id) })) });
+        .map((m) => ({ id: m.id, exercise_id: m.ex, text: m.text,
+                       hidden: m.hidden, created_at: m.created_at,
+                       report_count: FORUM_SIGNALES.get(m.id) })),
+        reported_names: [] });
     }
     forumEnvois.push({ url, corps });
     const cible = tous().find((m) => m.id === corps.id);
     if (!cible) return rendErreur(404, "message introuvable");
-    cible.masque = corps.action === "masquer";
+    cible.hidden = corps.action === "hide";
     return rendJson({ ok: true });
   }
   // LE PROFIL : le nom qu'on s'est donne, le groupe, et ce qui est affiche.
@@ -525,16 +526,16 @@ function forumRepond(url, opts) {
     if (methode === "GET") return rendJson(Object.assign({}, PROFIL));
     forumEnvois.push({ url, corps });
     Object.assign(PROFIL, {
-      pseudo: corps.pseudo || null,
-      groupe: corps.groupe === "" ? null : Number(corps.groupe),
-      pseudo_public: !!corps.pseudo_public && !!corps.pseudo,
-      groupe_public: !!corps.groupe_public,
+      display_name: corps.display_name || null,
+      group_number: corps.group_number === "" ? null : Number(corps.group_number),
+      display_name_public: !!corps.display_name_public && !!corps.display_name,
+      group_number_public: !!corps.group_number_public,
       suggestion: "",
     });
     // Le fil reflete le nom choisi, comme le ferait le serveur.
     for (const m of tous()) {
-      if (!m.mien) continue;
-      m.auteur = PROFIL.pseudo_public ? PROFIL.pseudo : "Vous";
+      if (!m.mine) continue;
+      m.author = PROFIL.display_name_public ? PROFIL.display_name : "Vous";
     }
     return rendJson({ ok: true });
   }
@@ -545,31 +546,31 @@ function forumRepond(url, opts) {
   }
   if (methode === "POST") {
     forumEnvois.push({ url, corps });
-    if (corps.texte.length > FORUM_MAX) {
+    if (corps.text.length > FORUM_MAX) {
       return rendErreur(400, "message trop long (maximum " + FORUM_MAX
                              + " caractères)");
     }
     forumCompteur++;
     (FORUM[corps.exercise_id] || (FORUM[corps.exercise_id] = [])).push({
-      id: "m" + forumCompteur, ex: corps.exercise_id, auteur: "Vous", mien: true,
-      masque: false, cree_le: "2026-09-03 10:0" + forumCompteur,
-      texte: corps.texte });
+      id: "m" + forumCompteur, ex: corps.exercise_id, author: "Vous", mine: true,
+      hidden: false, created_at: "2026-09-03 10:0" + forumCompteur,
+      text: corps.text });
     return rendJson({ ok: true });
   }
   if (methode === "DELETE") {
     forumEnvois.push({ url, corps: null });
     const id = decodeURIComponent(String(url).split("id=")[1] || "");
     for (const ex of Object.keys(FORUM)) {
-      FORUM[ex] = FORUM[ex].filter((m) => m.id !== id || !m.mien);
+      FORUM[ex] = FORUM[ex].filter((m) => m.id !== id || !m.mine);
     }
     return rendJson({ ok: true });
   }
   const ex = decodeURIComponent(String(url).split("ex=")[1] || "");
   return rendJson({
-    exercice_id: ex,
-    moderateur: FORUM_MODERATEUR,
+    exercise_id: ex,
+    moderator: FORUM_MODERATEUR,
     max: FORUM_MAX,
-    messages: (FORUM[ex] || []).filter((m) => FORUM_MODERATEUR || !m.masque),
+    messages: (FORUM[ex] || []).filter((m) => FORUM_MODERATEUR || !m.hidden),
   });
 }
 
@@ -1137,7 +1138,7 @@ const attendre = async () => { await sleep(); await sleep(); };
         "un clic sur la bande change d'exercice : " + global.ctester.exerciceChoisi());
 
   // LE STATUT, LÀ OÙ ON CHOISIT.
-  global.ctester.poserStatuts({ "tp2-ex0": "valide" });
+  global.ctester.poserStatuts({ "tp2-ex0": "solved" });
   const marquee = puces().find(p => /valide/.test(p.className));
   check(!!marquee, "un exercice validé porte sa marque dans la bande");
   check(/validé/.test(profond(marquee)),
@@ -1892,10 +1893,10 @@ const attendre = async () => { await sleep(); await sleep(); };
   await dansPanneau("Enregistrer").listeners.click();
   await sleep(); await sleep(); await sleep();
   const profilEnvoye = forumEnvois.find((e) => e.url === "forum/profil");
-  check(profilEnvoye && profilEnvoye.corps.pseudo === "Léa"
-        && profilEnvoye.corps.groupe === "4"
-        && profilEnvoye.corps.pseudo_public === true
-        && profilEnvoye.corps.groupe_public === false,
+  check(profilEnvoye && profilEnvoye.corps.display_name === "Léa"
+        && profilEnvoye.corps.group_number === "4"
+        && profilEnvoye.corps.display_name_public === true
+        && profilEnvoye.corps.group_number_public === false,
         "« Enregistrer » envoie le nom, le groupe et les DEUX visibilités "
         + "séparément : " + JSON.stringify(profilEnvoye && profilEnvoye.corps));
   check(nodes.forumpseudo.value === "Léa",
@@ -1916,7 +1917,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   await signalerNom.listeners.click();
   await sleep(); await sleep();
   const nomSignale = forumEnvois.find(
-    (e) => e.url === "forum/signalement" && e.corps && e.corps.quoi === "nom");
+    (e) => e.url === "forum/signalement" && e.corps && e.corps.kind === "name");
   check(!!nomSignale && nomSignale.corps.id === "m-nomme",
         "signaler un NOM passe par la même route, avec la poignée du message");
 
@@ -2083,7 +2084,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   await attendre(); await attendre(); await attendre();
   check(nodes.charte.hidden === true, "l'accepter la referme");
   const envoi = forumEnvois.find(e => e.url === "forum");
-  check(envoi && envoi.corps.exercise_id === "tp2-ex3" && /boucle/.test(envoi.corps.texte),
+  check(envoi && envoi.corps.exercise_id === "tp2-ex3" && /boucle/.test(envoi.corps.text),
         "le message part, avec l'exercice affiché");
   check(/Message publié/.test(vuDuForum()),
         "la page le confirme : " + vuDuForum().slice(0, 40));
@@ -2184,7 +2185,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   await masquer.listeners.click();
   await attendre(); await attendre();
   const action = forumEnvois.find(e => e.url === "forum/moderation");
-  check(action && action.corps.action === "masquer" && action.corps.id === "m-autre",
+  check(action && action.corps.action === "hide" && action.corps.id === "m-autre",
         "« Masquer » part avec l'action et l'identifiant");
   check(/masqué/.test(contenuDe(nodes.vuemoderation)),
         "et l'état est écrit en toutes lettres, pas seulement en couleur");

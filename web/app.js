@@ -552,8 +552,11 @@ function setStatuses(map) {
   renderStrip();
 }
 
-const STATUS_MARK = { valide: "✓", essaye: "•" };
-const STATUS_WORD = { valide: "validé", essaye: "essayé" };
+const STATUS_MARK = { solved: "✓", attempted: "•" };
+const STATUS_WORD = { solved: "validé", attempted: "essayé" };
+// The CSS classes stay "valide"/"essaye" -- style.css's selectors were left
+// untouched on purpose, so the wire values need a translation on the way in.
+const STATUS_CLASS = { solved: "valide", attempted: "essaye" };
 
 const currentExercise = () => catalog.find(t => t.id === selectedId) || null;
 
@@ -697,7 +700,7 @@ function menuRow(ex) {
   }
   const done = statuses[ex.id];
   if (done) {
-    const mark = node("span", "etat " + done,
+    const mark = node("span", "etat " + (STATUS_CLASS[done] || done),
                          (STATUS_MARK[done] || "") + " " + (STATUS_WORD[done] || done));
     row.append(mark);
   }
@@ -763,7 +766,7 @@ function renderStrip() {
     const isCurrent = ex.id === selectedId;
     const status = statuses[ex.id] || "";
     const pill = node("button", "puce" + (isCurrent ? " on" : "")
-                                 + (status ? " " + status : ""),
+                                 + (status ? " " + (STATUS_CLASS[status] || status) : ""),
                        stripLabel(ex));
     pill.type = "button";
     // THE FULL NAME STAYS REACHABLE: on hover for the mouse, and in
@@ -1550,7 +1553,7 @@ const EXPECTED = {
 
 // "Tester l'exercice" changes NOTHING about grading: the judge keeps the
 // reference solution and grades the whole quiz, and it is from that
-// complete verdict that the API derives "valide". Only the READING is
+// complete verdict that the API derives "solved". Only the READING is
 // restricted -- other exercises' questions leave the count and the list.
 // A correct exercise therefore cannot validate a half-filled lab.
 function restrictToScope(r, scope) {

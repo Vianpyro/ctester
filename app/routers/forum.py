@@ -61,10 +61,10 @@ def fil(sub: SubForum, ex: str = Query("")):
     if messages is None:
         return headers.erreur(503, "la base ne répond pas")
     moderateur = security.is_moderator(sub)
-    profils = state.forum_profils([m["utilisateur"] for m in messages]) or {}
+    profils = state.forum_profils([m["account"] for m in messages]) or {}
     return {
-        "exercice_id": entree["id"],
-        "moderateur": moderateur,
+        "exercise_id": entree["id"],
+        "moderator": moderateur,
         "max": config.FORUM_MAX_CHARS,
         "messages": forum_service.forum_vue(messages, sub, moderateur, profils),
     }
@@ -76,7 +76,7 @@ def publier(sub: SubForum, corps: ForumMessageIn):
     entree = _entree(corps.exercise_id)
     if entree is None:
         return headers.erreur(400, "TP inconnu")
-    texte, message = forum_service.forum_texte(corps.texte)
+    texte, message = forum_service.forum_texte(corps.text)
     if message:
         return headers.erreur(400, message)
     freiner_forum(sub)
@@ -119,7 +119,7 @@ def signaler(sub: SubForum, corps: ForumSignalementIn):
     if message_id is None:
         return headers.erreur(400, "identifiant invalide")
     freiner_forum(sub)
-    if corps.quoi == "nom":
+    if corps.kind == "name":
         if state.forum_nom_signaler(message_id, sub) is None:
             return headers.erreur(503, "la base ne répond pas")
         return {"ok": True}
@@ -138,9 +138,9 @@ def file_moderation(sub: SubModerateur):
     # THE `sub` DOES NOT CROSS HERE EITHER: we copy what is displayed (the
     # reported name, the group, the message handle), never the `account`
     # column used to join them.
-    return {"signalements": signales, "noms": [
-        {"id": n["id"], "pseudo": n["pseudo"], "groupe": n["groupe"],
-         "cree_le": n["cree_le"], "signalements": n["signalements"]}
+    return {"reports": signales, "reported_names": [
+        {"id": n["id"], "display_name": n["display_name"], "group_number": n["group_number"],
+         "created_at": n["created_at"], "report_count": n["report_count"]}
         for n in noms]}
 
 
@@ -155,9 +155,9 @@ def moderer(sub: SubModerateur, corps: ForumModerationIn):
     message_id = _message_id(corps.id)
     if message_id is None:
         return headers.erreur(400, "identifiant invalide")
-    if corps.action == "effacer-nom":
+    if corps.action == "clear-name":
         return _effacer_nom(message_id)
-    if corps.action not in ("masquer", "retablir"):
+    if corps.action not in ("hide", "restore"):
         return headers.erreur(400, "action inconnue")
     fait = state.forum_moderer(uuid.uuid4().hex, message_id, sub, corps.action)
     if fait is None:
@@ -186,8 +186,8 @@ def _effacer_nom(message_id):
     if profil is None:
         return headers.erreur(503, "la base ne répond pas")
     if not state.forum_profil_ecrire(
-            uuid.uuid4().hex, auteur, None, profil.get("groupe"), False,
-            bool(profil.get("groupe_public")), set_by_moderator=True):
+            uuid.uuid4().hex, auteur, None, profil.get("group_number"), False,
+            bool(profil.get("group_number_public")), set_by_moderator=True):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}
 
@@ -205,9 +205,9 @@ def lire_profil(sub: SubForum, request: Request):
     # THE SUGGESTION IS NOT THE PROFILE. It only accompanies a profile as long
     # as it has no name: once chosen, the student's name always takes
     # precedence over the identity provider's.
-    return dict(profil, max_pseudo=config.FORUM_PSEUDO_MAX,
-                groupes=list(config.FORUM_GROUPES),
-                suggestion=("" if profil.get("pseudo")
+    return dict(profil, max_display_name=config.FORUM_PSEUDO_MAX,
+                group_numbers=list(config.FORUM_GROUPES),
+                suggestion=("" if profil.get("display_name")
                             else security.current_name(request.headers)))
 
 
@@ -219,16 +219,16 @@ def ecrire_profil(sub: SubForum, corps: ForumProfilIn):
     without writing anything would display "Participant" while believing
     one had named oneself.
     """
-    pseudo, message = forum_service.forum_pseudo(corps.pseudo)
+    pseudo, message = forum_service.forum_pseudo(corps.display_name)
     if message:
         return headers.erreur(400, message)
-    groupe, message = forum_service.forum_groupe(corps.groupe)
+    groupe, message = forum_service.forum_groupe(corps.group_number)
     if message:
         return headers.erreur(400, message)
     freiner_forum(sub)
     if not state.forum_profil_ecrire(
             uuid.uuid4().hex, sub, pseudo, groupe,
-            corps.pseudo_public and pseudo is not None,
-            corps.groupe_public and groupe is not None):
+            corps.display_name_public and pseudo is not None,
+            corps.group_number_public and groupe is not None):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}

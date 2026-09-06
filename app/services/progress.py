@@ -7,7 +7,7 @@ projection to rebuild, and changing the policy requires no migration.
 WHAT PRODUCES VALUE IS THE SERVER READING THE VERDICT, never the browser. One
 rule only: the FIRST complete solve of a published exercise. A failure grants
 nothing, redoing the same exercise grants nothing either -- both hold thanks
-to the same thing, the event id `reussite:<exercise>` whose primary key
+to the same thing, the event id `solved:<exercise>` whose primary key
 refuses the duplicate.
 
 PHASE 2 -- VERIFIED MASTERY. An exercise marked `verification` in the catalog
@@ -60,21 +60,21 @@ def exercise_facts(states, practice):
     """
     touched, solved = set(), set()
     for row in states or ():
-        exercise = row.get("exercice_id")
+        exercise = row.get("exercise_id")
         if not exercise:
             continue
         touched.add(exercise)
-        if row.get("statut") == "valide":
+        if row.get("status") == "solved":
             solved.add(exercise)
     for row in practice or ():
-        exercise = row.get("exercice_id")
+        exercise = row.get("exercise_id")
         if exercise:
             touched.add(exercise)
     return touched, solved
 
 
 def skills_view(entries, touched, solved):
-    """[{id, total, pratiques, reussis}] in course order.
+    """[{id, total, practiced, solved}] in course order.
 
     "PRACTICED", NEVER "MASTERED". This counter says an exercise carrying
     this skill was submitted and graded, nothing more: the judge is
@@ -92,11 +92,11 @@ def skills_view(entries, touched, solved):
             row = table.get(skill)
             if row is None:
                 row = table[skill] = {"id": skill, "total": 0,
-                                      "pratiques": 0, "reussis": 0}
+                                      "practiced": 0, "solved": 0}
                 order.append(row)
             row["total"] += 1
-            row["pratiques"] += int(entry["id"] in touched)
-            row["reussis"] += int(entry["id"] in solved)
+            row["practiced"] += int(entry["id"] in touched)
+            row["solved"] += int(entry["id"] in solved)
     return order[:MAX_SKILLS]
 
 
@@ -121,9 +121,9 @@ def recommander(entries, touched, solved):
     for entry in remaining:
         for skill in entry.get("skills") or ():
             if skill in known:
-                return {"exercice_id": entry["id"], "competence": skill}
+                return {"exercise_id": entry["id"], "skill": skill}
     if remaining:
-        return {"exercice_id": remaining[0]["id"], "competence": None}
+        return {"exercise_id": remaining[0]["id"], "skill": None}
     return None
 
 
@@ -134,7 +134,7 @@ def recommander(entries, touched, solved):
 
 
 def dernieres_tentatives(evidences):
-    """{exercice_id: solved} -- the LATEST attempt of each verification.
+    """{exercise_id: solved} -- the LATEST attempt of each verification.
 
     `evidences` arrives newest to oldest: the first one seen per exercise
     wins. Earlier ones stay in the database -- retries stay historical, they
@@ -142,9 +142,9 @@ def dernieres_tentatives(evidences):
     """
     dernier = {}
     for row in evidences or ():
-        exercise = (row or {}).get("exercice_id")
+        exercise = (row or {}).get("exercise_id")
         if exercise and exercise not in dernier:
-            dernier[exercise] = bool((row.get("charge") or {}).get("reussi"))
+            dernier[exercise] = bool((row.get("payload") or {}).get("passed"))
     return dernier
 
 
@@ -155,13 +155,13 @@ def verifications_reussies(evidences):
     withdrawn, so what it counts must be monotonic. A failed retry pulls a
     band back down -- it must not undo an achievement already earned.
     """
-    return {(row or {})["exercice_id"] for row in evidences or ()
-            if (row or {}).get("exercice_id")
-            and ((row or {}).get("charge") or {}).get("reussi")}
+    return {(row or {})["exercise_id"] for row in evidences or ()
+            if (row or {}).get("exercise_id")
+            and ((row or {}).get("payload") or {}).get("passed")}
 
 
 def maitrise_view(entries, evidences):
-    """[{id, bande, reussies, tentees, total}] per VERIFIABLE skill.
+    """[{id, band, passed, attempted, total}] per VERIFIABLE skill.
 
     A skill only appears if an open verification carries it: saying "not yet
     verified" about a skill no activity verifies would blame the student for
@@ -179,13 +179,13 @@ def maitrise_view(entries, evidences):
             row = table.get(skill)
             if row is None:
                 row = table[skill] = {"id": skill, "total": 0,
-                                      "tentees": 0, "reussies": 0}
+                                      "attempted": 0, "passed": 0}
                 order.append(row)
             row["total"] += 1
-            row["tentees"] += int(tentative is not None)
-            row["reussies"] += int(tentative is True)
+            row["attempted"] += int(tentative is not None)
+            row["passed"] += int(tentative is True)
     for row in order:
-        row["bande"] = policy.bande_maitrise(row["reussies"], row["tentees"],
+        row["band"] = policy.bande_maitrise(row["passed"], row["attempted"],
                                              row["total"])
     return order[:MAX_SKILLS]
 
@@ -206,8 +206,8 @@ def progression_facts(user):
     touched, solved = exercise_facts(states, practice)
     published = {e["id"] for e in pratique}
     verifiables = {e["id"] for e in verifications(entries)}
-    return {"reussites": len(solved & published),
-            "competences": len(practised_skills(pratique, touched)),
+    return {"solved": len(solved & published),
+            "skills": len(practised_skills(pratique, touched)),
             "verifications": len(verifications_reussies(evidences) & verifiables)}
 
 
@@ -219,14 +219,14 @@ def recompenser(user, entry, job_id):
 
     - a failure grants nothing: the caller only calls on `solved`;
     - redoing the same exercise grants nothing -- the event id is
-      "reussite:<exercise>" and its primary key refuses the duplicate;
+      "solved:<exercise>" and its primary key refuses the duplicate;
     - a replayed poll grants nothing: same id, same refusal.
     """
-    event_id = "reussite:" + entry["id"]
+    event_id = "solved:" + entry["id"]
     granted = state.grant_first_solve(
         user, entry["id"], event_id, policy.xp_reussite(entry),
         "première réussite de l'exercice", policy.VERSION,
-        {"job": job_id, "difficulte": entry.get("difficulty") or ""},
+        {"job": job_id, "difficulty": entry.get("difficulty") or ""},
         policy.plafond_quotidien())
     if granted is None:
         return
@@ -252,7 +252,7 @@ def enregistrer_verification(user, entry, job_id, reussi):
     """
     ecrit = state.record_event(
         user, "verification:%s:%s" % (entry["id"], job_id), VERIFICATION,
-        entry["id"], policy.VERSION, {"job": job_id, "reussi": bool(reussi)})
+        entry["id"], policy.VERSION, {"job": job_id, "passed": bool(reussi)})
     if ecrit is None:
         return
     facts = progression_facts(user)
@@ -265,36 +265,36 @@ def progress_payload(entries, facts, states, practice, evidences):
     """GET /progres's contract: bounded, derived, and with nothing secret.
 
     No submitted code, no verdict detail, no test path: counters, public
-    catalog ids, and the achievement labels the policy carries. `politique`
+    catalog ids, and the achievement labels the policy carries. `policy`
     travels with it, so a screen knows which version of the numbers it is
     speaking of.
     """
     touched, solved = exercise_facts(states, practice)
     pratique = exercices_pratique(entries)
     return {
-        "politique": policy.VERSION,
+        "policy": policy.VERSION,
         "xp": facts["xp"],
-        "niveau": policy.niveau(facts["xp"]),
-        "exercices": {
+        "level": policy.niveau(facts["xp"]),
+        "exercises": {
             "total": len(pratique),
-            "pratiques": sum(1 for e in pratique if e["id"] in touched),
-            "reussis": sum(1 for e in pratique if e["id"] in solved),
+            "practiced": sum(1 for e in pratique if e["id"] in touched),
+            "solved": sum(1 for e in pratique if e["id"] in solved),
         },
-        "competences": skills_view(pratique, touched, solved),
+        "skills": skills_view(pratique, touched, solved),
         # Bands travel ONCE, as a legend: the page must be able to say what
         # "needs review" means without rewriting it on its own side.
-        "maitrise": {
-            "bandes": [dict(bande) for bande in policy.BANDES.values()],
-            "competences": maitrise_view(entries, evidences),
+        "mastery": {
+            "bands": [dict(bande) for bande in policy.BANDES.values()],
+            "skills": maitrise_view(entries, evidences),
         },
         # A stored id the policy no longer defines is not displayed -- it is
         # not lost for that, it stays in the database.
-        "succes": [{"id": row["id"],
-                    "titre": policy.SUCCES[row["id"]]["titre"],
+        "achievements": [{"id": row["id"],
+                    "title": policy.SUCCES[row["id"]]["title"],
                     "description": policy.SUCCES[row["id"]]["description"],
-                    "obtenu_le": row["obtenu_le"]}
-                   for row in facts["succes"] if row["id"] in policy.SUCCES],
-        "suivant": recommander(pratique, touched, solved),
+                    "unlocked_at": row["unlocked_at"]}
+                   for row in facts["achievements"] if row["id"] in policy.SUCCES],
+        "next": recommander(pratique, touched, solved),
         # The display/export of grants, already bounded by state.py.
         "transactions": facts["transactions"],
     }

@@ -225,10 +225,10 @@ function signOut() {
 async function loadStates() {
   const answer = await getJson("etats");
   states = {};
-  if (answer && Array.isArray(answer.etats)) {
-    for (const row of answer.etats) {
-      if (row && typeof row.exercice_id === "string") {
-        states[row.exercice_id] = row.statut;
+  if (answer && Array.isArray(answer.states)) {
+    for (const row of answer.states) {
+      if (row && typeof row.exercise_id === "string") {
+        states[row.exercise_id] = row.status;
       }
     }
   }
@@ -242,11 +242,11 @@ async function loadStates() {
 async function loadPractice() {
   const answer = await getJson("pratique");
   practice = {};
-  if (!answer || !Array.isArray(answer.pratique)) return;
-  for (const row of answer.pratique) {
-    if (row && typeof row.exercice_id === "string"
-        && Number.isInteger(row.tentatives) && Number.isInteger(row.reussites)) {
-      practice[row.exercice_id] = row;
+  if (!answer || !Array.isArray(answer.practice)) return;
+  for (const row of answer.practice) {
+    if (row && typeof row.exercise_id === "string"
+        && Number.isInteger(row.attempts) && Number.isInteger(row.successes)) {
+      practice[row.exercise_id] = row;
     }
   }
 }

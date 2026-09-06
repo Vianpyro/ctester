@@ -52,23 +52,23 @@ POLICY = {
     # names the fact counted, `seuil` the value to reach -- one more
     # definition is one more line, not code.
     "succes": [
-        {"id": "premiere-reussite", "sur": "reussites", "seuil": 1,
-         "titre": "Premier exercice réussi",
+        {"id": "premiere-reussite", "sur": "solved", "seuil": 1,
+         "title": "Premier exercice réussi",
          "description": "Tu as fait passer tous les tests d'un exercice."},
-        {"id": "cinq-reussites", "sur": "reussites", "seuil": 5,
-         "titre": "Cinq exercices réussis",
+        {"id": "cinq-reussites", "sur": "solved", "seuil": 5,
+         "title": "Cinq exercices réussis",
          "description": "Cinq exercices différents, tous tests passés."},
-        {"id": "dix-reussites", "sur": "reussites", "seuil": 10,
-         "titre": "Dix exercices réussis",
+        {"id": "dix-reussites", "sur": "solved", "seuil": 10,
+         "title": "Dix exercices réussis",
          "description": "Dix exercices différents, tous tests passés."},
-        {"id": "premiere-competence", "sur": "competences", "seuil": 1,
-         "titre": "Première compétence pratiquée",
+        {"id": "premiere-competence", "sur": "skills", "seuil": 1,
+         "title": "Première compétence pratiquée",
          "description": "Tu as pratiqué un exercice qui annonce une compétence."},
-        {"id": "trois-competences", "sur": "competences", "seuil": 3,
-         "titre": "Trois compétences pratiquées",
+        {"id": "trois-competences", "sur": "skills", "seuil": 3,
+         "title": "Trois compétences pratiquées",
          "description": "Ta pratique touche trois compétences différentes."},
         {"id": "premiere-verification", "sur": "verifications", "seuil": 1,
-         "titre": "Première vérification réussie",
+         "title": "Première vérification réussie",
          "description": "Tu as réussi une activité de vérification, pas seulement "
                         "un exercice de pratique."},
     ],
@@ -88,15 +88,15 @@ POLICY = {
     # and `bande_maitrise()` is the only function to reread.
     "maitrise": {
         "bandes": [
-            {"id": "verifie", "titre": "Vérifié",
+            {"id": "verifie", "title": "Vérifié",
              "description": "Toutes les vérifications ouvertes de cette compétence "
                             "sont réussies. C'est une capacité démontrée, pas une note."},
-            {"id": "en-progression", "titre": "En progression",
+            {"id": "en-progression", "title": "En progression",
              "description": "Au moins une vérification réussie ; il en reste à faire."},
-            {"id": "a-consolider", "titre": "À consolider",
+            {"id": "a-consolider", "title": "À consolider",
              "description": "Tu as tenté une vérification sans la réussir. "
                             "Pratique encore, puis réessaie -- rien n'est retiré."},
-            {"id": "non-verifie", "titre": "Pas encore vérifié",
+            {"id": "non-verifie", "title": "Pas encore vérifié",
              "description": "Aucune vérification tentée pour cette compétence."},
         ],
     },
@@ -124,9 +124,9 @@ def plafond_quotidien():
 
 
 def niveau(xp):
-    """{rang, depuis, prochain, restant} for this balance. `prochain` None at the top.
+    """{rank, since, next, remaining} for this balance. `next` None at the top.
 
-    The rank is 1-based: nobody is "level 0". `restant` is what is still
+    The rank is 1-based: nobody is "level 0". `remaining` is what is still
     needed, never a percentage -- the interface needs both numbers to write a
     sentence, and a bar with no sentence does not read aloud.
     """
@@ -139,17 +139,17 @@ def niveau(xp):
     depuis = seuils[rang - 1]
     prochain = seuils[rang] if rang < len(seuils) else None
     return {
-        "rang": rang,
-        "depuis": depuis,
-        "prochain": prochain,
-        "restant": (prochain - xp) if prochain is not None else 0,
+        "rank": rang,
+        "since": depuis,
+        "next": prochain,
+        "remaining": (prochain - xp) if prochain is not None else 0,
     }
 
 
 def succes_atteints(faits):
     """The ids of achievements these facts unlock, in declared order.
 
-    `faits` is a dict of counters ({"reussites": 3, ...}). A missing fact is
+    `faits` is a dict of counters ({"solved": 3, ...}). A missing fact is
     zero: adding a criterion to the policy therefore cannot raise for an
     older caller.
     """

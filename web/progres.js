@@ -78,22 +78,22 @@ function exerciseLabel(id) {
 function nextAction(view) {
   const block = node("div", "bloc");
   block.append(title("Action suivante"));
-  const next = view.suivant;
+  const next = view.next;
   if (!next) {
-    block.append(node("p", "", view.exercices.total
+    block.append(node("p", "", view.exercises.total
       ? "Tu as réussi tous les exercices publiés. Rien de neuf à proposer "
         + "pour l'instant."
       : "Aucun exercice n'est publié pour l'instant."));
     return block;
   }
-  const what = exerciseLabel(next.exercice_id);
-  block.append(node("p", "", next.competence
-    ? "Tu as déjà pratiqué « " + ctester.skillLabel(next.competence)
+  const what = exerciseLabel(next.exercise_id);
+  block.append(node("p", "", next.skill
+    ? "Tu as déjà pratiqué « " + ctester.skillLabel(next.skill)
       + " » : continue avec « " + what + " »."
     : "Commence par « " + what + " »."));
   const button = node("button", "", "Ouvrir « " + what + " »");
   button.type = "button";
-  button.addEventListener("click", () => openExercise(next.exercice_id));
+  button.addEventListener("click", () => openExercise(next.exercise_id));
   block.append(button);
   return block;
 }
@@ -108,13 +108,13 @@ function openExercise(id) {
 function practiceSection(view) {
   const block = node("div", "bloc");
   block.append(title("Ce que tu as pratiqué"));
-  const ex = view.exercices;
-  block.append(node("p", "", plural(ex.pratiques, "exercice") + " pratiqué"
-    + (ex.pratiques > 1 ? "s" : "") + " sur " + ex.total + " publié"
-    + (ex.total > 1 ? "s" : "") + ", dont " + ex.reussis + " réussi"
-    + (ex.reussis > 1 ? "s" : "") + "."));
+  const ex = view.exercises;
+  block.append(node("p", "", plural(ex.practiced, "exercice") + " pratiqué"
+    + (ex.practiced > 1 ? "s" : "") + " sur " + ex.total + " publié"
+    + (ex.total > 1 ? "s" : "") + ", dont " + ex.solved + " réussi"
+    + (ex.solved > 1 ? "s" : "") + "."));
 
-  if (!view.competences.length) {
+  if (!view.skills.length) {
     block.append(node("p", "aide",
       "Les exercices que tu as ouverts n'annoncent pas encore de compétence."));
     return block;
@@ -123,14 +123,14 @@ function practiceSection(view) {
   // screen reader reads, what a 400% zoom keeps, and what stays true with no
   // color at all.
   const list = node("ul", "competences");
-  for (const c of view.competences) {
+  for (const c of view.skills) {
     const item = document.createElement("li");
     item.append(node("span", "nom", ctester.skillLabel(c.id)));
     item.append(node("span", "chiffres",
-      c.pratiques + " exercice" + (c.pratiques > 1 ? "s" : "")
-      + " pratiqué" + (c.pratiques > 1 ? "s" : "") + " sur " + c.total
-      + ", dont " + c.reussis + " réussi" + (c.reussis > 1 ? "s" : "")));
-    item.append(gauge(c.pratiques, c.total));
+      c.practiced + " exercice" + (c.practiced > 1 ? "s" : "")
+      + " pratiqué" + (c.practiced > 1 ? "s" : "") + " sur " + c.total
+      + ", dont " + c.solved + " réussi" + (c.solved > 1 ? "s" : "")));
+    item.append(gauge(c.practiced, c.total));
     list.append(item);
   }
   block.append(list);
@@ -152,9 +152,9 @@ function practiceSection(view) {
 function masterySection(view) {
   const block = node("div", "bloc");
   block.append(title("Maîtrise vérifiée"));
-  const mastery = view.maitrise || {};
-  const rows = mastery.competences || [];
-  const bands = mastery.bandes || [];
+  const mastery = view.mastery || {};
+  const rows = mastery.skills || [];
+  const bands = mastery.bands || [];
   if (!rows.length) {
     block.append(node("p", "aide",
       "Aucune vérification n'est ouverte pour l'instant. Ce sont les activités "
@@ -167,24 +167,24 @@ function masterySection(view) {
   for (const c of rows) {
     const item = document.createElement("li");
     item.append(node("span", "nom", ctester.skillLabel(c.id)));
-    const word = definition[c.bande] || { titre: c.bande };
-    item.append(node("span", "bande " + c.bande, word.titre));
+    const word = definition[c.band] || { title: c.band };
+    item.append(node("span", "bande " + c.band, word.title));
     // THE COUNT SPELLED OUT, next to the word: "verified" on a single piece
     // of evidence and "verified" on four are not worth the same, and the
     // student has the right to know which one they are reading.
     item.append(node("span", "chiffres",
-      c.reussies + " vérification" + (c.reussies > 1 ? "s" : "") + " réussie"
-      + (c.reussies > 1 ? "s" : "") + " sur " + c.total
-      + (c.tentees ? ", " + c.tentees + " tentée" + (c.tentees > 1 ? "s" : "")
+      c.passed + " vérification" + (c.passed > 1 ? "s" : "") + " réussie"
+      + (c.passed > 1 ? "s" : "") + " sur " + c.total
+      + (c.attempted ? ", " + c.attempted + " tentée" + (c.attempted > 1 ? "s" : "")
                    : ", aucune tentée")));
-    item.append(gauge(c.reussies, c.total));
+    item.append(gauge(c.passed, c.total));
     list.append(item);
   }
   block.append(list);
   // The legend, once: the four words above do not explain themselves.
   const legend = node("dl", "bandes");
   for (const b of bands) {
-    legend.append(node("dt", "", b.titre));
+    legend.append(node("dt", "", b.title));
     legend.append(node("dd", "", b.description));
   }
   block.append(legend);
@@ -200,13 +200,13 @@ function levelSection(view) {
   // only thing that keeps an activity counter from reading like a grade.
   const block = node("div", "bloc second");
   block.append(title("Niveau et XP"));
-  const n = view.niveau;
-  block.append(node("p", "", "Niveau " + n.rang + " — " + view.xp + " XP."
-    + (n.prochain === null
+  const n = view.level;
+  block.append(node("p", "", "Niveau " + n.rank + " — " + view.xp + " XP."
+    + (n.next === null
        ? " C'est le dernier niveau de la politique en cours."
-       : " Encore " + n.restant + " XP avant le niveau " + (n.rang + 1) + ".")));
-  block.append(gauge(view.xp - n.depuis,
-                    (n.prochain === null ? view.xp : n.prochain) - n.depuis));
+       : " Encore " + n.remaining + " XP avant le niveau " + (n.rank + 1) + ".")));
+  block.append(gauge(view.xp - n.since,
+                    (n.next === null ? view.xp : n.next) - n.since));
   block.append(node("p", "aide", "Les XP reflètent l'activité de pratique ; "
     + "ce ne sont ni une note ni une maîtrise vérifiée."));
   return block;
@@ -215,7 +215,7 @@ function levelSection(view) {
 function achievementsSection(view) {
   const block = node("div", "bloc");
   block.append(title("Accomplissements"));
-  if (!view.succes.length) {
+  if (!view.achievements.length) {
     block.append(node("p", "aide",
       "Aucun pour l'instant. Ils arrivent en pratiquant ; aucun n'est "
       + "obligatoire."));
@@ -224,12 +224,12 @@ function achievementsSection(view) {
   // TITLE, DESCRIPTION AND DATE, as text. No color swatch alone, no icon
   // alone: all three read aloud and survive black and white.
   const list = node("dl", "succes");
-  for (const s of view.succes) {
-    list.append(node("dt", "", s.titre));
+  for (const s of view.achievements) {
+    list.append(node("dt", "", s.title));
     const desc = document.createElement("dd");
     desc.append(node("span", "quoi", s.description));
-    const when = node("time", "quand", "obtenu le " + s.obtenu_le);
-    when.setAttribute("datetime", s.obtenu_le);
+    const when = node("time", "quand", "obtenu le " + s.unlocked_at);
+    when.setAttribute("datetime", s.unlocked_at);
     desc.append(when);
     list.append(desc);
   }
@@ -242,7 +242,10 @@ function achievementsSection(view) {
 // projection's numbers, not this list: it draws itself from what `compte.js`
 // has already read, and the export must stay reachable on an evening when
 // the database is down.
-const STATE_WORD = { valide: "validé", essaye: "essayé" };
+const STATE_WORD = { solved: "validé", attempted: "essayé" };
+// The CSS classes stay "valide"/"essaye" -- style.css's selectors were left
+// untouched on purpose, so the wire values need a translation on the way in.
+const STATE_CLASS = { solved: "valide", attempted: "essaye" };
 
 function exportRow(group) {
   const block = node("div", "exportligne");
@@ -285,10 +288,10 @@ function exerciseList() {
     row.append(node("span", "titre", tp.short || tp.label));
     const count = stats[tp.id];
     const state = states[tp.id] || "";
-    const dot = node("span", "puce " + (count && count.reussites ? "valide" : state),
+    const dot = node("span", "puce " + (count && count.successes ? "valide" : (STATE_CLASS[state] || "")),
       count
-        ? count.tentatives + " tentative" + (count.tentatives > 1 ? "s" : "")
-          + (count.reussites ? " — réussie" + (count.reussites > 1 ? "s" : "") : "")
+        ? count.attempts + " tentative" + (count.attempts > 1 ? "s" : "")
+          + (count.successes ? " — réussie" + (count.successes > 1 ? "s" : "") : "")
         : STATE_WORD[state] || "à faire");
     row.append(dot);
     row.addEventListener("click", () => openExercise(tp.id));

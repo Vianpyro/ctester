@@ -117,15 +117,15 @@ def drafts_and_states():
     assert state.write_draft(ALICE, "tp2-ex3", {"submission.c": "int main(void){}"})
     assert state.read_resume(ALICE, "tp2-ex3") == {"submission.c": "int main(void){}"}
     # The draft wins over the submitted state: it is the work in progress.
-    assert state.write_state(ALICE, "tp2-ex3", "valide", {"submission.c": "sent"})
+    assert state.write_state(ALICE, "tp2-ex3", "solved", {"submission.c": "sent"})
     assert state.read_resume(ALICE, "tp2-ex3")["submission.c"] == "int main(void){}"
-    # AND "valide" DOES NOT GO BACKWARDS. People keep poking at a solved
+    # AND "solved" DOES NOT GO BACKWARDS. People keep poking at a solved
     # exercise; without the schema's CASE, the dashboard would say the
     # opposite of what happened.
-    assert state.write_state(ALICE, "tp2-ex3", "essaye", {"submission.c": "broken"})
-    assert state.read_states(ALICE) == [{"exercice_id": "tp2-ex3", "statut": "valide"}]
+    assert state.write_state(ALICE, "tp2-ex3", "attempted", {"submission.c": "broken"})
+    assert state.read_states(ALICE) == [{"exercise_id": "tp2-ex3", "status": "solved"}]
     assert state.write_state(ALICE, "tp2-ex3", "perfect", {}) is False
-    print("ok   draft, state, and \"valide\" does not go backwards")
+    print("ok   draft, state, and \"solved\" does not go backwards")
 
 
 def practice_attempts():
@@ -135,7 +135,7 @@ def practice_attempts():
     assert state.write_practice_attempt(ALICE, "job-2", "tp2-ex3",
                                        {"status": "ok", "total": 3, "passed": 1})
     assert state.read_practice_summary(ALICE) == [
-        {"exercice_id": "tp2-ex3", "tentatives": 2, "reussites": 1}]
+        {"exercise_id": "tp2-ex3", "attempts": 2, "successes": 1}]
     # A malformed verdict must not violate the CHECK (passed <= total): the
     # bound lives both in Python AND in the schema, and it is the schema being
     # exercised here.
@@ -188,11 +188,11 @@ def achievements_and_reading():
     # `achievement_id` as the second criterion, their order would be whatever
     # Postgres feels like returning, and it would change between calls right
     # in front of the student.
-    assert [s["id"] for s in view["succes"]] == [
-        "premiere-competence", "premiere-reussite", "cinq-reussites"], view["succes"]
-    assert all(len(s["obtenu_le"]) == 10 for s in view["succes"]), view["succes"]
+    assert [s["id"] for s in view["achievements"]] == [
+        "premiere-competence", "premiere-reussite", "cinq-reussites"], view["achievements"]
+    assert all(len(s["unlocked_at"]) == 10 for s in view["achievements"]), view["achievements"]
     assert len(view["transactions"]) == 3
-    assert view["transactions"][0]["motif"] == "first solve"
+    assert view["transactions"][0]["reason"] == "first solve"
     print("ok   achievements without duplicates, and reading the facts (day-level dates)")
 
 
@@ -205,23 +205,23 @@ def mastery_evidence():
     """
     written = state.record_event(ALICE, "verification:verif-tp2:job-v1",
                               "VerificationEvaluated", "verif-tp2", "policy-1",
-                              {"job": "job-v1", "reussi": False})
+                              {"job": "job-v1", "passed": False})
     assert written == "verification:verif-tp2:job-v1", written
     # Replaying the same poll writes nothing: same key, same refusal.
     assert state.record_event(ALICE, "verification:verif-tp2:job-v1",
                              "VerificationEvaluated", "verif-tp2", "policy-1",
-                             {"job": "job-v1", "reussi": True}) is None
+                             {"job": "job-v1", "passed": True}) is None
     # A RETRY, though, is a different job and so a different fact: attempts
     # stay historical.
     assert state.record_event(ALICE, "verification:verif-tp2:job-v2",
                              "VerificationEvaluated", "verif-tp2", "policy-1",
-                             {"job": "job-v2", "reussi": True})
+                             {"job": "job-v2", "passed": True})
 
     facts = state.read_events(ALICE, "VerificationEvaluated")
     # NEWEST FIRST: it is the latest attempt that makes the band.
-    assert [f["charge"]["job"] for f in facts] == ["job-v2", "job-v1"], facts
-    assert facts[0]["charge"]["reussi"] is True
-    assert facts[0]["exercice_id"] == "verif-tp2"
+    assert [f["payload"]["job"] for f in facts] == ["job-v2", "job-v1"], facts
+    assert facts[0]["payload"]["passed"] is True
+    assert facts[0]["exercise_id"] == "verif-tp2"
     # THE TYPE FILTER IS REAL: practice solves from the same account live in
     # the same table and must not surface here.
     assert count("progress_event", ALICE) > len(facts)
@@ -257,12 +257,12 @@ def forum():
     assert state.forum_publier("c" * 32, "tp2-ex0", BOB, "another exercise")
     thread = state.forum_fil("tp2-ex3", 200)
     assert [m["id"] for m in thread] == [m1, m2], thread
-    assert thread[0]["utilisateur"] == ALICE and thread[0]["masque"] is False
+    assert thread[0]["account"] == ALICE and thread[0]["hidden"] is False
     # AT THE MINUTE, not the day: a thread is read in order. AND IN EXPLICIT
     # UTC: without the "Z", the page displays server time as if it were the
     # reader's.
-    assert len(thread[0]["cree_le"]) == 17 and thread[0]["cree_le"].endswith("Z"), \
-        thread[0]["cree_le"]
+    assert len(thread[0]["created_at"]) == 17 and thread[0]["created_at"].endswith("Z"), \
+        thread[0]["created_at"]
     # ONE THREAD PER EXERCISE: nothing leaks from one exercise into another.
     assert len(state.forum_fil("tp2-ex0", 200)) == 1
     assert state.forum_fil("tp2-ex3", 1) == thread[:1]    # the limit applies
@@ -277,19 +277,19 @@ def forum():
     assert state.forum_signaler(m2, BOB) == [(m2,)]       # two accounts, yes
     queue = state.forum_signalements(200)
     assert len(queue) == 1, queue
-    assert queue[0]["id"] == m2 and queue[0]["signalements"] == 2
-    assert queue[0]["texte"] == "same problem here"
-    assert queue[0]["exercice_id"] == "tp2-ex3"
+    assert queue[0]["id"] == m2 and queue[0]["report_count"] == 2
+    assert queue[0]["text"] == "same problem here"
+    assert queue[0]["exercise_id"] == "tp2-ex3"
 
     # HIDE, THEN RESTORE: the state changes, the journal grows, in ONE
     # statement. Two autocommit `_query` calls would leave a hidden message
     # that nothing explains if the connection dropped in between.
-    assert state.forum_moderer("d" * 32, m2, ALICE, "masquer") == [(m2,)]
-    assert state.forum_fil("tp2-ex3", 200)[1]["masque"] is True
-    assert state.forum_moderer("e" * 32, m2, ALICE, "retablir") == [(m2,)]
-    assert state.forum_fil("tp2-ex3", 200)[1]["masque"] is False
+    assert state.forum_moderer("d" * 32, m2, ALICE, "hide") == [(m2,)]
+    assert state.forum_fil("tp2-ex3", 200)[1]["hidden"] is True
+    assert state.forum_moderer("e" * 32, m2, ALICE, "restore") == [(m2,)]
+    assert state.forum_fil("tp2-ex3", 200)[1]["hidden"] is False
     assert count("forum_moderation", ALICE) == 2          # APPEND-ONLY: both stay
-    assert state.forum_moderer("9" * 32, "f" * 32, ALICE, "masquer") == []
+    assert state.forum_moderer("9" * 32, "f" * 32, ALICE, "hide") == []
     # THE SCHEMA'S CHECK, EXERCISED WITHOUT GOING THROUGH THE PYTHON GUARD: two
     # actions exist, and it is Postgres that refuses the third.
     assert state._query(
@@ -322,9 +322,9 @@ def identity():
     """
     # Nothing set: not an error, it is anonymity by default.
     assert state.forum_profils([ALICE, BOB]) == {}
-    assert state.forum_profil(ALICE) == {"pseudo": None, "groupe": None,
-                                        "pseudo_public": False,
-                                        "groupe_public": False}
+    assert state.forum_profil(ALICE) == {"display_name": None, "group_number": None,
+                                        "display_name_public": False,
+                                        "group_number_public": False}
     assert state.forum_profil_ecrire("p" * 32, ALICE, "Alice", 3, True, False)
     assert state.forum_profil_ecrire("q" * 32, BOB, "Bob", 7, False, True)
     # THE LAST ROW IS AUTHORITATIVE, and the old one stays: changing a name
@@ -332,9 +332,9 @@ def identity():
     assert state.forum_profil_ecrire("r" * 32, ALICE, "Alice B", 3, True, True)
     assert count("forum_profile", ALICE) == 2
     profiles = state.forum_profils([ALICE, BOB, "sub-personne"])
-    assert profiles[ALICE] == {"pseudo": "Alice B", "groupe": 3,
-                              "pseudo_public": True, "groupe_public": True}
-    assert profiles[BOB]["pseudo"] == "Bob" and profiles[BOB]["groupe"] == 7
+    assert profiles[ALICE] == {"display_name": "Alice B", "group_number": 3,
+                              "display_name_public": True, "group_number_public": True}
+    assert profiles[BOB]["display_name"] == "Bob" and profiles[BOB]["group_number"] == 7
     assert "sub-personne" not in profiles
     # THE SCHEMA'S CHECK, EXERCISED WITHOUT GOING THROUGH THE PYTHON GUARD: a
     # group runs from 1 to 99, and Postgres refuses the rest.
@@ -354,8 +354,9 @@ def identity():
     assert len(reported) == 1 and reported[0]["id"] == message, reported
     # THE LATERAL JOIN: the name returned is the LATEST, not the first.
     author = state.forum_auteur(message)
-    assert reported[0]["pseudo"] == state.forum_profils([author])[author]["pseudo"]
-    assert reported[0]["signalements"] == 1
+    assert reported[0]["display_name"] == \
+        state.forum_profils([author])[author]["display_name"]
+    assert reported[0]["report_count"] == 1
     # ALICE REPORTS IN TURN, on another message. Without this line she has NO
     # row in `forum_reported_name`, and `deletion()`'s precondition ("there is
     # something to erase in the twelve tables") does not hold -- meaning the
@@ -388,7 +389,7 @@ def forum_privileges():
         ("forum_report",
          "UPDATE forum_report SET account = 'sub-x'"),
         ("forum_moderation",
-         "UPDATE forum_moderation SET action = 'retablir'"),
+         "UPDATE forum_moderation SET action = 'restore'"),
         # IDENTITY IS A JOURNAL TOO: a row is added, the name someone gave
         # themselves is not rewritten. Without this refusal, a stray query
         # could silently rename a student.
