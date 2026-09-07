@@ -17,7 +17,9 @@ serré, et c'est l'étudiant qui la découvre à 23 h la veille de la remise.
 """
 
 import contextlib
+import io
 import json
+import pathlib
 import re
 import os
 import shutil
@@ -746,6 +748,12 @@ def test_taille_des_fichiers_des_deux_cotes():
             entree, {"submission.c": pile + "a"})
         assert code == 413 and message, (code, message)
 
+        # `sent` hors-forme : Pydantic bloque déjà ceci à la frontière HTTP
+        # (`files: dict`), mais la fonction reste appelable directement par le
+        # brouillon comme par la soumission, et doit refuser proprement.
+        _, message, code = catalogue.validate_files(entree, ["pas", "un", "dict"])
+        assert code == 400 and message == "fichiers manquants", (code, message)
+
 
 def test_fichier_inattendu_est_refuse_pas_ignore():
     """Un nom hors catalogue est REFUSÉ, pas silencieusement jeté.
@@ -805,6 +813,10 @@ def test_quiz_sans_aucune_reponse_saisie():
         r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
                                     "answers": {}})
         assert r.status_code == 400, (r.status_code, r.text)
+        # `answers` complètement absent (ou `null`) : refusé plus tôt, avant
+        # même de regarder si une case porte quelque chose.
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1"})
+        assert r.status_code == 400 and r.json() == {"error": "réponses manquantes"}, r.text
 
 
 def test_identifiant_d_exercice_hors_forme():
@@ -1163,6 +1175,15 @@ def test_ecriture_qui_echoue_ne_repond_pas_200():
         assert r.status_code == 503, (r.status_code, r.text)
 
 
+def test_write_preferences_succeeds_and_says_so():
+    """The happy path of PUT /preferences was never verified: neither the
+    200, nor the `{"ok": true}` body the page reads to show "saved"."""
+    with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
+        r = c.put("/preferences", json={"theme": "dark"}, headers=auth("alice"))
+        assert r.status_code == 200 and r.json() == {"ok": True}, r.text
+        assert base.themes["sub-alice"] == "dark", base.themes
+
+
 def test_theme_inconnu_est_refuse():
     """`state.THEMES` est la liste close, et elle est vérifiée avant d'écrire."""
     with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
@@ -1171,6 +1192,153 @@ def test_theme_inconnu_est_refuse():
                       headers=auth("alice"))
             assert r.status_code == 400, (mauvais, r.status_code)
         assert not base.themes, base.themes
+
+
+def test_release_dir_and_load_catalog_survive_a_broken_pointer():
+    """`release_dir()` never raises: a broken `current.json` returns `None`,
+    not a stack trace that would surface to a student.
+    """
+    from services import catalog as catalogue
+    guard = config.PUBLISHED
+    tmp = tempfile.mkdtemp(prefix="ctester-published-")
+    try:
+        config.PUBLISHED = tmp
+        assert catalogue.release_dir() is None                 # nothing published
+        assert catalogue.load_catalog() is None
+        assert catalogue.source_publiee({"id": "x"}, "detail") == (None, None)
+
+        with open(os.path.join(tmp, "current.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ this is not JSON")
+        assert catalogue.release_dir() is None                 # unreadable
+
+        with open(os.path.join(tmp, "current.json"), "w", encoding="utf-8") as fh:
+            json.dump({}, fh)
+        assert catalogue.release_dir() is None                 # no "revision"
+
+        with open(os.path.join(tmp, "current.json"), "w", encoding="utf-8") as fh:
+            json.dump({"revision": "../../etc"}, fh)
+        assert catalogue.release_dir() is None                 # out of form
+
+        with open(os.path.join(tmp, "current.json"), "w", encoding="utf-8") as fh:
+            json.dump({"revision": "0123456789abcdef"}, fh)
+        assert catalogue.release_dir() is None                 # directory absent
+
+        os.makedirs(os.path.join(tmp, "0123456789abcdef"))
+        assert catalogue.release_dir() == os.path.join(tmp, "0123456789abcdef")
+        assert catalogue.load_catalog() is None                # catalog.json absent
+        with open(os.path.join(tmp, "0123456789abcdef", "catalog.json"),
+                  "w", encoding="utf-8") as fh:
+            fh.write("[1, 2, 3]")                               # JSON, but not an object
+        assert catalogue.load_catalog() is None
+    finally:
+        config.PUBLISHED = guard
+        shutil.rmtree(tmp)
+
+
+def test_quiz_json_serves_the_published_quiz():
+    """The happy path of GET /quiz/<id>.json was never verified."""
+    with contexte() as (c, _base, _tmp):
+        r = c.get("/quiz/quiz1.json")
+        assert r.status_code == 200, r.text
+        assert r.json()["questions"][0]["id"] == "q1", r.json()
+        assert "answer" not in r.text, r.text
+
+
+def test_detail_and_quiz_survive_a_rollback_mid_request():
+    """Between `find_exercise` and `source_publiee`, the release can
+    disappear (a rollback in flight, see services/catalog.py::source_publiee):
+    a clean 404, never a stack trace.
+    """
+    import routers.catalog as catalog_router
+    guard = catalog_router.source_publiee
+    try:
+        with contexte() as (c, _base, _tmp):
+            catalog_router.source_publiee = lambda entry, quoi: (None, None)
+            r = c.get("/tp/tp2-ex3.json")
+            assert r.status_code == 404 and r.json() == {"error": "inconnu"}, r.text
+            r = c.get("/quiz/quiz1.json")
+            assert r.status_code == 404 and r.json() == {"error": "pas un quiz"}, r.text
+    finally:
+        catalog_router.source_publiee = guard
+
+
+def test_etats_and_pratique_during_a_database_outage():
+    """Two screens forgotten by the outage check: never a 200 on a mute database."""
+    with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
+        assert c.get("/etats", headers=auth("alice")).json() == {"states": []}
+        assert c.get("/pratique", headers=auth("alice")).json() == {"practice": []}
+        base.etats[("sub-alice", "tp2-ex3")] = "solved"
+        r = c.get("/etats", headers=auth("alice"))
+        assert r.json() == {"states": [{"exercise_id": "tp2-ex3", "status": "solved"}]}, r.text
+
+    base = BaseSimulee()
+    base.read_states = lambda user: None
+    base.read_practice_summary = lambda user: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base) as (c, _fake, _tmp):
+        assert c.get("/etats", headers=auth("alice")).status_code == 503
+        assert c.get("/pratique", headers=auth("alice")).status_code == 503
+
+
+def test_read_draft_refuses_an_unknown_exercise_and_distinguishes_absence():
+    """`sources: null` is an exercise never opened, not an outage."""
+    with contexte(jetons={"alice": "sub-alice"}) as (c, _base, _tmp):
+        r = c.get("/brouillon?ex=inconnu", headers=auth("alice"))
+        assert r.status_code == 400 and r.json() == {"error": "TP inconnu"}, r.text
+
+        r = c.get("/brouillon?ex=tp2-ex3", headers=auth("alice"))
+        assert r.status_code == 200 and r.json() == {"sources": None}, r.text
+
+        c.put("/brouillon", json={"exercise_id": "tp2-ex3", "files": {"submission.c": "int x;"}},
+              headers=auth("alice"))
+        r = c.get("/brouillon?ex=tp2-ex3", headers=auth("alice"))
+        assert r.json() == {"sources": {"submission.c": "int x;"}}, r.text
+
+
+def test_write_draft_refuses_a_file_outside_the_allow_list_before_the_quota():
+    """The name allow-list is checked BEFORE the write throttle.
+
+    Otherwise a client insisting on a bad file name would exhaust the
+    cooldown of someone who saved nothing -- the same defect as for an
+    unknown exercise, but on the file-validation side this time (deps.py:65).
+    """
+    with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
+        for _ in range(5):
+            r = c.put("/brouillon",
+                      json={"exercise_id": "tp2-ex3", "files": {"hack.c": "x"}},
+                      headers=auth("alice"))
+            assert r.status_code == 400, r.text
+            assert "fichier inattendu" in r.json()["error"], r.text
+        assert not base.brouillons
+        # The cooldown is intact: a valid write still goes through right
+        # away, it was not consumed by the earlier refusals.
+        r = c.put("/brouillon",
+                  json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
+                  headers=auth("alice"))
+        assert r.status_code == 200, r.text
+
+
+def test_write_draft_during_a_database_outage():
+    base = BaseSimulee()
+    base.write_draft = lambda *a: False
+    with contexte(jetons={"alice": "sub-alice"}, base=base) as (c, _fake, _tmp):
+        r = c.put("/brouillon",
+                  json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
+                  headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+
+def test_deleting_the_account_fails_without_leaving_the_illusion_of_success():
+    with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
+        base.etats[("sub-alice", "tp2-ex3")] = "solved"
+        r = c.delete("/moi", headers=auth("alice"))
+        assert r.status_code == 200 and r.json() == {"ok": True}, r.text
+        assert c.get("/etats", headers=auth("alice")).json() == {"states": []}
+
+    base = BaseSimulee()
+    base.forget = lambda user: False
+    with contexte(jetons={"alice": "sub-alice"}, base=base) as (c, _fake, _tmp):
+        r = c.delete("/moi", headers=auth("alice"))
+        assert r.status_code == 503, r.text
 
 
 # --- Fichiers servis : ETag, gzip, CSP --------------------------------------
@@ -1202,6 +1370,36 @@ def test_gzip_pile_a_la_borne_de_1024_octets():
         assert nu.headers["etag"] != gros.headers["etag"]
 
 
+def test_fichier_du_disque_responds_500_when_the_file_is_missing():
+    """The catalog promises a file; if it vanished from disk (a rollback in
+    flight, corruption), that is a server error, never a bare trace.
+    """
+    import headers as h
+
+    class FakeRequest:
+        headers = {}
+
+    r = h.fichier_du_disque(FakeRequest(), "/path/that/does/not/exist",
+                            "missing.json", "application/json")
+    assert r.status_code == 500 and json.loads(r.body) == {"error": "fichier manquant"}
+
+
+def test_the_middleware_ignores_non_http_scopes():
+    """The ASGI startup/shutdown ("lifespan") does not go through CORS/Vary:
+    the middleware must let it through untouched, not crash on it.
+    """
+    with TestClient(main.app):
+        pass   # entering/exiting the context sends startup then shutdown
+
+
+def test_entier_falls_back_to_the_default_when_the_variable_is_unreadable():
+    os.environ["CTESTER_TEST_ENTIER_INVALIDE"] = "not-a-number"
+    try:
+        assert config._entier("CTESTER_TEST_ENTIER_INVALIDE", "42") == 42
+    finally:
+        del os.environ["CTESTER_TEST_ENTIER_INVALIDE"]
+
+
 def test_304_garde_la_csp_et_le_cache():
     """Une CSP qui n'apparaîtrait que sur le 200 disparaîtrait dès la 2e visite.
 
@@ -1222,6 +1420,21 @@ def test_304_garde_la_csp_et_le_cache():
         assert r2.headers.get("content-security-policy"), dict(r2.headers)
         assert r2.headers.get("cache-control") == "no-cache", dict(r2.headers)
         assert r2.content == b"", r2.content
+
+
+def test_page_serves_an_allow_listed_file_other_than_index():
+    """`/{nom:path}`: `index.html` has its own test; another name from the
+    list (`app.js`) was never served successfully, only its 404 was.
+    """
+    page = os.path.join(HERE, "web")
+    if not os.path.isdir(page):
+        return
+    with contexte() as (c, _, _tmp):
+        config.PAGE = page
+        c2 = TestClient(main.create_app())
+        r = c2.get("/app.js")
+        assert r.status_code == 200, r.status_code
+        assert r.headers["content-type"].startswith("text/javascript")
 
 
 def test_page_sert_une_liste_close_pas_un_repertoire():
@@ -1278,6 +1491,43 @@ def test_xp_accorde_une_seule_fois_par_exercice():
             assert c.get("/r/" + job).status_code == 200
         accorde = [t for t in base.xp.values() if t["amount"] > 0]
         assert len(accorde) == 1, base.xp
+
+
+def test_r_returns_an_anonymous_job_s_verdict_without_recording_it():
+    """A job with NO account: the verdict still goes out, and nothing is
+    written to the database -- there is nobody to attribute it to.
+    """
+    with contexte() as (c, base, _tmp):
+        job = "a" * 32
+        os.makedirs(os.path.join(config.SPOOL, job))
+        with open(os.path.join(config.SPOOL, job, "job.json"), "w",
+                 encoding="utf-8") as fh:
+            json.dump({"exercise_id": "tp2-ex3", "owner": None}, fh)
+        with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+                 encoding="utf-8") as fh:
+            json.dump({"status": "ok", "passed": 1, "total": 1}, fh)
+        r = c.get("/r/" + job)
+        assert r.status_code == 200 and r.json()["status"] == "ok", r.text
+        assert not base.xp and not base.etats, (base.xp, base.etats)
+
+
+def test_r_records_nothing_if_the_exercise_closed_since_the_submission():
+    """Between the submission and the read, the exercise may have closed or
+    vanished: the state and the XP are then not written, but the verdict is
+    still returned.
+    """
+    with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
+        job = "b" * 32
+        os.makedirs(os.path.join(config.SPOOL, job))
+        with open(os.path.join(config.SPOOL, job, "job.json"), "w",
+                 encoding="utf-8") as fh:
+            json.dump({"exercise_id": "vanished-exercise", "owner": "sub-alice"}, fh)
+        with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+                 encoding="utf-8") as fh:
+            json.dump({"status": "ok", "passed": 1, "total": 1}, fh)
+        r = c.get("/r/" + job)
+        assert r.status_code == 200 and r.json()["status"] == "ok", r.text
+        assert not base.xp and not base.etats, (base.xp, base.etats)
 
 
 def test_un_echec_n_accorde_rien():
@@ -1654,6 +1904,444 @@ def test_a_mute_database_answers_503_on_the_new_screens():
             r = c.get(route, headers=auth("alice"))
             assert r.status_code == 503, (route, r.status_code, r.text)
             assert not re.search(r"\\d", r.json().get("error", "")), r.text
+
+
+def test_forum_id_based_routes_reject_an_invalid_form():
+    """`_message_id()` is the common gate for five routes; out of form,
+    all of them respond 400 before touching the database.
+    """
+    tokens = {"alice": "sub-alice", "prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        calls = [
+            lambda: c.post("/forum/visibility", json={"id": "too-short"},
+                          headers=auth("alice")),
+            lambda: c.post("/forum/helpful", json={"id": "too-short"},
+                          headers=auth("alice")),
+            lambda: c.delete("/forum?id=too-short", headers=auth("alice")),
+            lambda: c.post("/forum/signalement",
+                          json={"id": "too-short", "kind": "message"},
+                          headers=auth("alice")),
+            lambda: c.post("/forum/moderation",
+                          json={"id": "too-short", "action": "hide"},
+                          headers=auth("prof")),
+        ]
+        for call in calls:
+            r = call()
+            assert r.status_code == 400 and r.json() == {"error": "identifiant invalide"}, r.text
+
+
+def test_delete_ones_own_message_never_someone_elses():
+    """DELETE /forum was never tested anywhere: neither success nor refusal."""
+    tokens = {"alice": "sub-alice", "bob": "sub-bob"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "mine"},
+               headers=auth("alice"))
+        mid = fake.messages[0]["id"]
+        # A well-formed id that does not exist: the same 404 as someone
+        # else's message, so nothing more is revealed.
+        r = c.delete("/forum?id=" + "0" * 32, headers=auth("alice"))
+        assert r.status_code == 404, r.text
+        r = c.delete("/forum?id=" + mid, headers=auth("bob"))
+        assert r.status_code == 404, (r.status_code, r.text)
+        assert fake.messages, "bob's message should not have disappeared"
+        r = c.delete("/forum?id=" + mid, headers=auth("alice"))
+        assert r.status_code == 200 and r.json() == {"ok": True}, r.text
+        assert not fake.messages
+
+    base = BaseSimulee()
+    base.forum_supprimer = lambda *a: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.delete("/forum?id=" + "0" * 32, headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+
+def test_report_a_message_or_a_name():
+    """POST /forum/signalement had no test at all: neither the message nor the name."""
+    tokens = {"alice": "sub-alice", "bob": "sub-bob"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "dubious"},
+               headers=auth("alice"))
+        mid = fake.messages[0]["id"]
+        r = c.post("/forum/signalement", json={"id": mid, "kind": "message"},
+                   headers=auth("bob"))
+        assert r.status_code == 200 and r.json() == {"ok": True}, r.text
+        r = c.post("/forum/signalement", json={"id": mid, "kind": "name"},
+                   headers=auth("bob"))
+        assert r.status_code == 200 and r.json() == {"ok": True}, r.text
+        # `kind` absent: the schema's default is a message report.
+        r = c.post("/forum/signalement", json={"id": mid}, headers=auth("bob"))
+        assert r.status_code == 200, r.text
+
+    base = BaseSimulee()
+    base.forum_signaler = lambda *a: None
+    base.forum_nom_signaler = lambda *a: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        for body in ({"id": "0" * 32, "kind": "message"},
+                     {"id": "0" * 32, "kind": "name"}):
+            r = c.post("/forum/signalement", json=body, headers=auth("alice"))
+            assert r.status_code == 503, (body, r.text)
+
+
+def test_moderation_clears_a_reported_name_without_touching_the_rest_of_the_profile():
+    """`clear-name` was never tested anywhere -- neither the success nor its
+    three failure modes.
+    """
+    tokens = {"alice": "sub-alice", "prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        c.post("/forum/profil",
+              json={"display_name": "Léa", "display_name_public": True,
+                    "group_number": 4, "group_number_public": True},
+              headers=auth("alice"))
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "hi"},
+               headers=auth("alice"))
+        mid = fake.messages[0]["id"]
+        r = c.post("/forum/moderation", json={"id": mid, "action": "clear-name"},
+                   headers=auth("prof"))
+        assert r.status_code == 200 and r.json() == {"ok": True}, r.text
+        profile = fake.profils["sub-alice"]
+        assert profile["display_name"] is None
+        # The rest of the profile survives the write: ONLY the name leaves.
+        assert profile["group_number"] == 4 and profile["group_number_public"] is True
+
+        # A well-formed id whose message has no retrievable author.
+        r = c.post("/forum/moderation", json={"id": "0" * 32, "action": "clear-name"},
+                   headers=auth("prof"))
+        assert r.status_code == 404, r.text
+
+    base = BaseSimulee()
+    base.forum_profil = lambda user: None
+    with contexte(jetons={"alice": "sub-alice", "prof": "sub-prof"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        fake.messages.append({"id": "1" * 32, "exercise_id": "tp2-ex3",
+                              "account": "sub-alice", "text": "x", "hidden": False,
+                              "step": None, "blocked_kind": None,
+                              "visibility": "thread", "created_at": "2026-09-04"})
+        r = c.post("/forum/moderation", json={"id": "1" * 32, "action": "clear-name"},
+                   headers=auth("prof"))
+        assert r.status_code == 503, r.text
+
+    base2 = BaseSimulee()
+    base2.forum_profil_ecrire = lambda *a, **k: False
+    with contexte(jetons={"alice": "sub-alice", "prof": "sub-prof"}, base=base2,
+                 moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        fake.messages.append({"id": "2" * 32, "exercise_id": "tp2-ex3",
+                              "account": "sub-alice", "text": "x", "hidden": False,
+                              "step": None, "blocked_kind": None,
+                              "visibility": "thread", "created_at": "2026-09-04"})
+        r = c.post("/forum/moderation", json={"id": "2" * 32, "action": "clear-name"},
+                   headers=auth("prof"))
+        assert r.status_code == 503, r.text
+
+
+def test_moderation_refuses_an_unknown_action():
+    tokens = {"prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum/moderation", json={"id": "0" * 32, "action": "edit"},
+                   headers=auth("prof"))
+        assert r.status_code == 400 and r.json() == {"error": "action inconnue"}, r.text
+
+
+def test_fil_refuses_an_unknown_exercise():
+    with contexte(jetons={"alice": "sub-alice"},
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.get("/forum?ex=inconnu", headers=auth("alice"))
+        assert r.status_code == 400 and r.json() == {"error": "TP inconnu"}, r.text
+
+
+def test_visibility_and_helpful_report_a_database_outage():
+    base = BaseSimulee()
+    base.forum_open_to_group = lambda *a: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum/visibility", json={"id": "0" * 32}, headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+    base = BaseSimulee()
+    base.forum_mark_helpful = lambda *a: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum/helpful", json={"id": "0" * 32}, headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+
+def test_moderer_hide_restore_retain_report_an_outage_and_an_unknown_id():
+    """`hide`/`restore`/`retain`/`unretain` share the same 503 and 404 as
+    `clear-name`, but through a different code path (`state.forum_moderer`).
+    """
+    tokens = {"alice": "sub-alice", "prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "x"},
+              headers=auth("alice"))
+        mid = fake.messages[0]["id"]
+        r = c.post("/forum/moderation", json={"id": mid, "action": "hide"},
+                   headers=auth("prof"))
+        assert r.status_code == 200 and r.json() == {"ok": True}, r.text
+        assert fake.messages[0]["hidden"] is True
+        r = c.post("/forum/moderation", json={"id": "0" * 32, "action": "restore"},
+                   headers=auth("prof"))
+        assert r.status_code == 404, r.text
+
+    base = BaseSimulee()
+    base.forum_moderer = lambda *a: None
+    with contexte(jetons=tokens, base=base, moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum/moderation", json={"id": "0" * 32, "action": "hide"},
+                   headers=auth("prof"))
+        assert r.status_code == 503, r.text
+
+
+def test_forum_reports_a_database_outage_on_each_read_route():
+    """GET /forum, /forum/moderation and /forum/help: each its own outage."""
+    base = BaseSimulee()
+    base.forum_fil = lambda *a, **k: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.get("/forum?ex=tp2-ex3", headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+    base = BaseSimulee()
+    base.forum_signalements = lambda *a: None
+    with contexte(jetons={"prof": "sub-prof"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.get("/forum/moderation", headers=auth("prof"))
+        assert r.status_code == 503, r.text
+
+    base = BaseSimulee()
+    base.forum_help_rows = lambda *a: None
+    with contexte(jetons={"prof": "sub-prof"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.get("/forum/help", headers=auth("prof"))
+        assert r.status_code == 503, r.text
+
+
+def test_publier_validates_each_field_then_reports_an_outage():
+    """POST /forum: the exercise, the text, the step, the block, the
+    visibility -- each refusal must arrive BEFORE freiner_forum, and a write
+    that fails must respond 503, never 200.
+    """
+    with contexte(jetons={"alice": "sub-alice"},
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum", json={"exercise_id": "inconnu", "text": "x"},
+                   headers=auth("alice"))
+        assert r.status_code == 400 and r.json() == {"error": "TP inconnu"}, r.text
+
+        r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": ""},
+                   headers=auth("alice"))
+        assert r.status_code == 400, r.text
+
+        r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "x",
+                                   "step": "whatever"},
+                   headers=auth("alice"))
+        assert r.status_code == 400, r.text
+
+        r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "x",
+                                   "step": "compilation",
+                                   "blocked_kind": "whatever"},
+                   headers=auth("alice"))
+        assert r.status_code == 400, r.text
+
+        # A "group" visibility refused outright: it is never a choice at
+        # publish time, only `open_to_group` performs that transition.
+        r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "x",
+                                   "visibility": "group"},
+                   headers=auth("alice"))
+        assert r.status_code == 400, r.text
+
+    base = BaseSimulee()
+    base.forum_publier = lambda *a: False
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "x"},
+                   headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+
+def test_profil_validates_the_name_and_group_then_reports_an_outage():
+    with contexte(jetons={"alice": "sub-alice"}, groupes=(4, 6),
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum/profil", json={"display_name": "x" * 999},
+                   headers=auth("alice"))
+        assert r.status_code == 400, r.text
+        r = c.post("/forum/profil", json={"group_number": 999},
+                   headers=auth("alice"))
+        assert r.status_code == 400, r.text
+
+    base = BaseSimulee()
+    base.forum_profil = lambda user: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.get("/forum/profil", headers=auth("alice"))
+        assert r.status_code == 503, r.text
+        r = c.post("/forum/profil", json={"display_name": "Léa"},
+                   headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+    base = BaseSimulee()
+    base.forum_profil_ecrire = lambda *a, **k: False
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum/profil", json={"display_name": "Léa"},
+                   headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+    base = BaseSimulee()
+    base.forum_taken_aliases = lambda: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum/profil", json={"leaderboard_opt_in": True},
+                   headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+
+def test_oidc_json_is_empty_when_sign_in_is_disabled():
+    """"Nothing more to offer": the sign-in block stays inert."""
+    assert client.get("/oidc.json").json() == {}
+
+
+def test_sub_responds_503_outside_oidc_configuration():
+    """503, not 401: "there are no accounts here" is not "sign in again"."""
+    r = client.get("/etats", headers=auth("alice"))
+    assert r.status_code == 503 and "persistance" in r.json()["error"], r.text
+
+
+def test_freiner_forum_blocks_a_burst_of_messages():
+    # `contexte()` restores `deps.forum_quota` on exit -- no need to do it here.
+    with contexte(jetons={"alice": "sub-alice"},
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        deps.forum_quota = quotas.Quota(cooldown=999, hourly=100)
+        r1 = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "one"},
+                   headers=auth("alice"))
+        assert r1.status_code == 200, r1.text
+        r2 = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "two"},
+                   headers=auth("alice"))
+        assert r2.status_code == 429 and "retry_after" in r2.json(), r2.text
+
+
+def test_leaderboard_and_alias_report_every_database_outage():
+    base = BaseSimulee()
+    base.forum_profil = lambda user: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        assert c.get("/leaderboard", headers=auth("alice")).status_code == 503
+        assert c.post("/leaderboard/alias", json={}, headers=auth("alice")).status_code == 503
+
+    base = BaseSimulee()
+    base.forum_taken_aliases = lambda: None
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/leaderboard/alias", json={}, headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+    base = BaseSimulee()
+    base.forum_profil_ecrire = lambda *a, **k: False
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        fake.profils["sub-alice"] = dict(BaseSimulee.EMPTY_PROFILE, alias="Faucon-12")
+        r = c.post("/leaderboard/alias", json={}, headers=auth("alice"))
+        assert r.status_code == 503, r.text
+
+
+def test_redraw_alias_exhausts_the_vocabulary():
+    """The closed vocabulary is finite: no more pseudonym -> 503, never a
+    server-invented name as a stopgap.
+    """
+    import policy
+    every_alias = set(policy.possible_aliases())
+    base = BaseSimulee()
+    with contexte(jetons={"alice": "sub-alice"}, base=base,
+                 moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        # The whole vocabulary is already taken by OTHER accounts: none is
+        # left to draw for alice, whatever her own alias is.
+        for i, alias in enumerate(every_alias):
+            fake.profils["sub-%d" % i] = dict(BaseSimulee.EMPTY_PROFILE, alias=alias)
+        r = c.post("/leaderboard/alias", json={}, headers=auth("alice"))
+        assert r.status_code == 503 and "pseudonyme" in r.json()["error"], r.text
+
+
+def test_avertir_reports_each_incomplete_configuration_independently():
+    """`_avertir()` never blocks startup: three silent warnings, each
+    independent of the other two (see the docstring of app/main.py::_avertir).
+    """
+    guard = (config.OIDC_ISSUER, config.FORUM_MODERATORS, config.DOCS,
+             security.oidc_enabled)
+    try:
+        # 1. An issuer configured but OIDC not really active (e.g. no
+        # database): only the sign-in warning.
+        config.OIDC_ISSUER = "https://auth.exemple"
+        config.FORUM_MODERATORS = frozenset({"sub-prof"})
+        config.DOCS = False
+        security.oidc_enabled = lambda: False
+        buffer = io.StringIO()
+        with contextlib.redirect_stderr(buffer):
+            main._avertir()
+        out = buffer.getvalue()
+        assert "connexion desactivee" in out
+        assert "discussions desactivees" not in out
+        assert "CTESTER_DOCS" not in out
+
+        # 2. OIDC really active but no moderator: the forum, silent.
+        security.oidc_enabled = lambda: True
+        config.FORUM_MODERATORS = frozenset()
+        buffer = io.StringIO()
+        with contextlib.redirect_stderr(buffer):
+            main._avertir()
+        out = buffer.getvalue()
+        assert "connexion desactivee" not in out
+        assert "discussions desactivees" in out
+
+        # 3. Public documentation depends on nothing else.
+        config.OIDC_ISSUER = ""
+        config.FORUM_MODERATORS = frozenset({"sub-prof"})
+        config.DOCS = True
+        buffer = io.StringIO()
+        with contextlib.redirect_stderr(buffer):
+            main._avertir()
+        out = buffer.getvalue()
+        assert "CTESTER_DOCS=1" in out
+        assert "connexion desactivee" not in out
+        assert "discussions desactivees" not in out
+
+        # 4. Everything is in order: complete silence.
+        config.OIDC_ISSUER = "https://auth.exemple"
+        config.DOCS = False
+        security.oidc_enabled = lambda: True
+        buffer = io.StringIO()
+        with contextlib.redirect_stderr(buffer):
+            main._avertir()
+        assert buffer.getvalue() == ""
+    finally:
+        (config.OIDC_ISSUER, config.FORUM_MODERATORS, config.DOCS,
+         security.oidc_enabled) = guard
+
+
+def test_http_exception_handler_only_rewrites_the_generic_404():
+    """`_http()` only replaces "Not Found" on Starlette's generic 404
+    (unknown route): a future application-level 404, with its own message,
+    must stay readable and not be overwritten.
+    """
+    import asyncio
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    handler = main.app.exception_handlers[StarletteHTTPException]
+    response = asyncio.run(handler(
+        None, StarletteHTTPException(status_code=404, detail="Not Found")))
+    assert json.loads(response.body) == {"error": "inconnu"}
+    response = asyncio.run(handler(
+        None, StarletteHTTPException(status_code=404, detail="exercice retiré")))
+    assert json.loads(response.body) == {"error": "exercice retiré"}
+
+
+def test_uvicorn_is_launched_with_a_single_worker():
+    """A non-negotiable invariant (see app/main.py's docstring): a second
+    worker would silently double quotas, presence and the OIDC token cache,
+    all in process memory. A source check rather than an execution one --
+    launching a real server is not the point here, and the whole point is
+    that nobody copies this line with `--workers 4`.
+    """
+    source = pathlib.Path(main.__file__).read_text(encoding="utf-8")
+    block = source.split("uvicorn.run(", 1)[1].split(")", 1)[0]
+    assert re.search(r"workers\s*=\s*1\b", block), block
+    assert not re.search(r"workers\s*=\s*(?!1\b)\d", block), block
 
 
 if __name__ == "__main__":
