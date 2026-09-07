@@ -13,14 +13,19 @@ Pas de pytest : ce fichier tourne sur le contrôleur ET sur le Dell, avec le
 python3 qui s'y trouve.
 """
 
+import contextlib
 import datetime as dt
+import hashlib
+import io
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
+import types
 
 # Les deux chemins, parce que les deux processus ne vivent pas au même endroit :
 # runner.py à la racine (il tourne sur l'hôte), l'API dans app/ (elle est montée
@@ -300,6 +305,75 @@ def test_content_v2_publication_verrouille_et_bascule():
         shutil.rmtree(dest)
 
 
+def test_current_survives_a_broken_pointer():
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    try:
+        assert publish_content.current(dest) is None            # nothing published
+        with open(os.path.join(dest, "current.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ not json")
+        assert publish_content.current(dest) is None            # unreadable
+        with open(os.path.join(dest, "current.json"), "w", encoding="utf-8") as fh:
+            json.dump({}, fh)
+        assert publish_content.current(dest) is None            # no "revision"
+        with open(os.path.join(dest, "current.json"), "w", encoding="utf-8") as fh:
+            json.dump({"revision": "0123456789abcdef"}, fh)
+        assert publish_content.current(dest) is None            # directory absent
+    finally:
+        shutil.rmtree(dest)
+
+
+def test_prune_keeps_only_the_latest_releases():
+    """The rollback IS the old releases: `keep` says how many."""
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    try:
+        revisions = []
+        for i in range(5):
+            _minimal_valid_content(root)
+            _write_json(os.path.join(root, "exercises", "ex1", "exercise.json"), {
+                "schema_version": 1, "id": "ex1", "title": "Exercise %d" % i,
+                "release": {"state": "available"}})
+            model = content_catalogue.discover(root)
+            revisions.append(publish_content.publish(model, dest, keep=3))
+        assert len(set(revisions)) == 5, revisions   # five contents, five revisions
+        remaining = {name for name in os.listdir(dest)
+                    if os.path.isdir(os.path.join(dest, name))}
+        assert len(remaining) == 3, remaining
+        # The three kept are the three LATEST published, never the earliest:
+        # it is the rollback that counts, not the archive.
+        assert remaining == set(revisions[-3:]), (remaining, revisions)
+        assert publish_content.current(dest) == os.path.join(dest, revisions[-1])
+    finally:
+        shutil.rmtree(root)
+        shutil.rmtree(dest)
+
+
+def test_publish_content_main_publishes_and_rejects_invalid_content():
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    try:
+        _minimal_valid_content(root)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = publish_content.main([root, dest, "--keep", "3"])
+        assert code == 0, out.getvalue()
+        assert "published: revision" in out.getvalue()
+        assert publish_content.current(dest) is not None
+
+        # Invalid content never replaces the active publication.
+        before = publish_content.current(dest)
+        _write_json(os.path.join(root, "catalog.json"), {"schema_version": 99})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = publish_content.main([root, dest])
+        assert code == 1, err.getvalue()
+        assert "publish refused" in err.getvalue()
+        assert publish_content.current(dest) == before
+    finally:
+        shutil.rmtree(root)
+        shutil.rmtree(dest)
+
+
 def test_worker_v2_resout_un_exercice_et_refuse_ce_qui_est_ferme():
     """Le worker est root : il rejoue la release et relit les noms publics."""
     root = tempfile.mkdtemp(prefix="ctester-content-")
@@ -349,6 +423,40 @@ def test_publication_refuse_un_worker_sans_contenu():
         runner.CONTENT, runner.PUBLISHED = garde
 
 
+def test_publish_catalogue_really_publishes_and_says_so_in_preview():
+    """The happy path of `publish_catalogue()` -- never exercised elsewhere,
+    which calls `publish_content.publish()` for real. And `CTESTER_PREVIEW`
+    is not a second filter: the date shifts to year 9999, `access()` stays
+    the only read, and the worker says so in the log.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    guard = (runner.CONTENT, runner.PUBLISHED, runner.PREVIEW)
+    try:
+        _contenu_v2(root, {"state": "scheduled",
+                          "available_from": "2099-01-01T00:00:00-05:00"})
+        runner.CONTENT, runner.PUBLISHED, runner.PREVIEW = root, dest, False
+        exercises = runner.publish_catalogue()
+        assert {e["id"] for e in exercises} == {"surface", "nombres"}
+        # Closed without PREVIEW: /tp/nombres.json was not published.
+        assert publish_content.current(dest) is not None
+        assert not os.path.isfile(os.path.join(
+            publish_content.current(dest), "exercises", "nombres.json"))
+
+        capture = io.StringIO()
+        with contextlib.redirect_stderr(capture):
+            runner.PREVIEW = True
+            runner.publish_catalogue()
+        assert "PREVIEW" in capture.getvalue(), capture.getvalue()
+        # PREVIEW opens by the date, so now published.
+        assert os.path.isfile(os.path.join(
+            publish_content.current(dest), "exercises", "nombres.json"))
+    finally:
+        runner.CONTENT, runner.PUBLISHED, runner.PREVIEW = guard
+        shutil.rmtree(root)
+        shutil.rmtree(dest)
+
+
 def test_content_v2_projection_refuse_une_cle_privee():
     """La ceinture : un champ public ajouté demain ne publie pas un corrigé."""
     modele = {"schema_version": 1, "skills": [], "collections": {},
@@ -368,9 +476,397 @@ def test_content_v2_projection_refuse_une_cle_privee():
         content_catalogue.public_detail = original
 
 
+def test_public_catalogue_omits_malformed_contexts():
+    """The projection stays defensive even on a hand-built model."""
+    model = {"schema_version": 1, "skills": [], "collections": {},
+             "exercises": {"x": {"id": "x", "title": "X", "release": {"state": "available"},
+                                 "skills": [], "mode": "io", "summary": "",
+                                 "difficulty": None, "contexts": None,
+                                 "statement": "", "files": [], "config": {},
+                                 "verification": False}}}
+    public = content_catalogue.public_catalogue(model)
+    assert "contexts" not in public["exercises"][0], public
+
+
+def test_access_treats_an_invalid_state_as_archived():
+    """`access()` is THE ONLY READ of a release: it must never raise, even on
+    a state that did not survive validation.
+    """
+    assert content_catalogue.access(None) == "archived"
+    assert content_catalogue.access({}) == "archived"
+    assert content_catalogue.access({"state": "whatever"}) == "archived"
+    assert content_catalogue.access({"state": "available"}) == "available"
+    assert content_catalogue.access({"state": "archived"}) == "archived"
+    assert content_catalogue.access({"state": "scheduled"}) == "scheduled"
+    assert content_catalogue.access(
+        {"state": "scheduled", "available_from": "whatever"}) == "scheduled"
+
+
+def test_iso_datetime_is_strict():
+    assert content_catalogue._iso_datetime(123) is None                    # not a string
+    assert content_catalogue._iso_datetime("whatever") is None              # unparsable
+    assert content_catalogue._iso_datetime("2026-01-01T00:00:00") is None   # no timezone
+    assert content_catalogue._iso_datetime("2026-01-01T00:00:00Z") is not None
+    assert content_catalogue._iso_datetime("2026-01-01T00:00:00-05:00") is not None
+
+
+def test_children_does_not_raise_without_a_directory():
+    assert content_catalogue._children("/path/that/does/not/exist") == []
+
+
+def test_files_validates_each_entry():
+    f = content_catalogue._files
+    assert f(None, "x", []) == [{"name": "submission.c", "template": ""}]
+
+    errors = []
+    assert f("not a list", "x", errors) == [] and errors
+    errors = []
+    assert f([], "x", errors) == [] and errors   # an empty list, not just an absent one
+    errors = []
+    assert f(["not an object"], "x", errors) == []
+    assert "invalid files entry" in errors[0]
+    errors = []
+    assert f([{"name": "invalid!.c"}], "x", errors) == []
+    assert "invalid or duplicate" in errors[0]
+    errors = []
+    duplicate = [{"name": "a.c", "template": ""}, {"name": "a.c", "template": ""}]
+    result = f(duplicate, "x", errors)
+    assert len(result) == 1 and "invalid or duplicate" in errors[0]
+    errors = []
+    assert f([{"name": "a.c", "template": 42}], "x", errors) == []
+    assert "template must be text" in errors[0]
+    # The correct case: a valid file passes, with no error.
+    errors = []
+    assert f([{"name": "a.c", "template": "x"}], "x", errors) == [
+        {"name": "a.c", "template": "x"}]
+    assert not errors
+
+
+def _minimal_valid_content(root):
+    """A minimal valid v2 root: one open io exercise, one collection.
+
+    Every mutation test below starts here and breaks exactly ONE field, so
+    the observed error message is unambiguously the mutation's own.
+    """
+    _write_json(os.path.join(root, "catalog.json"),
+                {"schema_version": 1, "skills": []})
+    exercise = os.path.join(root, "exercises", "ex1")
+    _write_json(os.path.join(exercise, "exercise.json"), {
+        "schema_version": 1, "id": "ex1", "title": "Exercise 1",
+        "release": {"state": "available"},
+    })
+    with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
+        fh.write("Instructions.")
+    _write_json(os.path.join(exercise, "assessment", "io.json"),
+                {"cases": [{"stdin": "1\n", "expect": [1]}]})
+    _write_json(os.path.join(exercise, "public", "files.json"),
+                {"files": [{"name": "submission.c", "template": ""}]})
+    _write_json(os.path.join(root, "collections", "col1.json"), {
+        "schema_version": 1, "id": "col1", "title": "Collection 1",
+        "items": ["ex1"], "release": {"state": "available"},
+    })
+
+
+def _discover_error(root):
+    """`discover(root)` must raise; returns the joined message."""
+    try:
+        content_catalogue.discover(root)
+    except content_catalogue.ContentValidationError as exc:
+        return str(exc)
+    raise AssertionError("invalid content accepted")
+
+
+def test_minimal_valid_content_does_not_raise():
+    """The baseline the mutation tests below build on must itself be clean."""
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _minimal_valid_content(root)
+        model = content_catalogue.discover(root)
+        assert model["exercises"]["ex1"]["id"] == "ex1"
+    finally:
+        shutil.rmtree(root)
+
+
+def test_discover_rejects_each_catalog_level_defect():
+    cases = [
+        (lambda r: _write_json(os.path.join(r, "catalog.json"),
+                               {"schema_version": 2, "skills": []}),
+         "expected schema_version"),
+        (lambda r: _write_json(os.path.join(r, "catalog.json"),
+                               {"schema_version": 1, "skills": [1, 2]}),
+         "invalid skills"),
+        (lambda r: _write_json(os.path.join(r, "catalog.json"),
+                               {"schema_version": 1, "skills": ["a", "a"]}),
+         "duplicate skills"),
+    ]
+    for mutate, expected in cases:
+        root = tempfile.mkdtemp(prefix="ctester-content-")
+        try:
+            _minimal_valid_content(root)
+            mutate(root)
+            message = _discover_error(root)
+            assert expected in message, (expected, message)
+        finally:
+            shutil.rmtree(root)
+
+    # No catalog.json at all: this must raise, rather than silently
+    # publishing an empty catalog.
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        os.makedirs(root, exist_ok=True)
+        _discover_error(root)
+    finally:
+        shutil.rmtree(root)
+
+
+def test_discover_rejects_each_exercise_level_defect():
+    def ex(r):
+        return os.path.join(r, "exercises", "ex1")
+
+    base = {"schema_version": 1, "id": "ex1", "title": "X",
+            "release": {"state": "available"}}
+
+    def with_(**extra):
+        d = dict(base)
+        d.update(extra)
+        return d
+
+    cases = [
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), "not an object"),
+         "expected a JSON object"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(schema_version=2)),
+         "expected schema_version"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(id="Bad Id!")),
+         "invalid id"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(id="other")),
+         "must be named after the id"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(title="   ")),
+         "missing title"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(summary=42)),
+         "summary must be text"),
+        (lambda r: os.remove(os.path.join(ex(r), "statement.md")),
+         "missing statement.md"),
+        (lambda r: os.remove(os.path.join(ex(r), "assessment", "io.json")),
+         "no mode present"),
+        (lambda r: _write_json(os.path.join(ex(r), "assessment", "io.json"),
+                               {"cases": "not a list"}),
+         "io requires cases"),
+        (lambda r: (os.remove(os.path.join(ex(r), "assessment", "io.json")),
+                    _write_json(os.path.join(ex(r), "assessment", "unity.json"), {})),
+         "unity requires at least one test_"),
+        (lambda r: (os.remove(os.path.join(ex(r), "assessment", "io.json")),
+                    _write_json(os.path.join(ex(r), "assessment", "quiz.json"),
+                               {"questions": "not a list"})),
+         "quiz requires questions"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(skills=["a", "a"])),
+         "skills must be a list"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(skills=["unknown"])),
+         "unknown or invalid skill"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(difficulty="impossible")),
+         "invalid difficulty"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(verification="yes")),
+         "verification must be a boolean"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(contexts=[1, 2])),
+         "contexts must be a list"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"),
+                               with_(prerequisites=["a", "a"])),
+         "prerequisites must be a list"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"),
+                               with_(prerequisites=["Bad Id!"])),
+         "invalid prerequisite"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"),
+                               with_(prerequisites=["unknown"])),
+         "unknown prerequisite"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"),
+                               {"schema_version": 1, "id": "ex1", "title": "X",
+                                "release": "not an object"}),
+         "release must be an object"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"),
+                               {"schema_version": 1, "id": "ex1", "title": "X",
+                                "release": {"state": "unknown"}}),
+         "invalid release.state"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"),
+                               {"schema_version": 1, "id": "ex1", "title": "X",
+                                "release": {"state": "scheduled"}}),
+         "scheduled requires an ISO available_from"),
+        (lambda r: _write_json(os.path.join(ex(r), "exercise.json"),
+                               {"schema_version": 1, "id": "ex1", "title": "X",
+                                "release": {"state": "available",
+                                           "available_from": "2026-01-01T00:00:00-05:00"}}),
+         "available_from is only allowed for scheduled"),
+    ]
+    for mutate, expected in cases:
+        root = tempfile.mkdtemp(prefix="ctester-content-")
+        try:
+            _minimal_valid_content(root)
+            mutate(root)
+            message = _discover_error(root)
+            assert expected in message, (expected, message)
+        finally:
+            shutil.rmtree(root)
+
+
+def test_discover_rejects_each_collection_level_defect():
+    def col(r):
+        return os.path.join(r, "collections", "col1.json")
+
+    base = {"schema_version": 1, "id": "col1", "title": "C", "items": ["ex1"]}
+
+    def with_(**extra):
+        d = dict(base)
+        d.update(extra)
+        return d
+
+    cases = [
+        (lambda r: _write_json(col(r), "not an object"), "expected a JSON object"),
+        (lambda r: _write_json(col(r), with_(schema_version=2)), "expected schema_version"),
+        (lambda r: _write_json(col(r), with_(id="Bad Id!")), "invalid id"),
+        (lambda r: _write_json(col(r), with_(id="other")), "must be named after the id"),
+        (lambda r: _write_json(col(r), with_(title="   ")), "missing title"),
+        (lambda r: _write_json(col(r), with_(description=42)), "description must be text"),
+        (lambda r: _write_json(col(r), with_(items="not a list")), "items must be a list"),
+        (lambda r: _write_json(col(r), with_(items=["ex1", "ex1"])), "items must be a list"),
+        (lambda r: _write_json(col(r), with_(items=["unknown"])), "unknown exercise"),
+    ]
+    for mutate, expected in cases:
+        root = tempfile.mkdtemp(prefix="ctester-content-")
+        try:
+            _minimal_valid_content(root)
+            mutate(root)
+            message = _discover_error(root)
+            assert expected in message, (expected, message)
+        finally:
+            shutil.rmtree(root)
+
+
+def test_discover_accepts_a_missing_collections_directory():
+    """A semester that has not yet organized any collection stays publishable."""
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _minimal_valid_content(root)
+        shutil.rmtree(os.path.join(root, "collections"))
+        model = content_catalogue.discover(root)
+        assert model["collections"] == {}
+    finally:
+        shutil.rmtree(root)
+
+
+def test_discover_detects_duplicate_ids():
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _minimal_valid_content(root)
+        _write_json(os.path.join(root, "collections", "col2.json"), {
+            "schema_version": 1, "id": "col1", "title": "Duplicate", "items": ["ex1"],
+            "release": {"state": "available"}})
+        assert "duplicate collection id" in _discover_error(root)
+    finally:
+        shutil.rmtree(root)
+
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _minimal_valid_content(root)
+        _write_json(os.path.join(root, "exercises", "ex2", "exercise.json"), {
+            "schema_version": 1, "id": "ex1", "title": "Duplicate",
+            "release": {"state": "available"}})
+        with open(os.path.join(root, "exercises", "ex2", "statement.md"),
+                  "w", encoding="utf-8") as fh:
+            fh.write("x")
+        _write_json(os.path.join(root, "exercises", "ex2", "assessment", "io.json"),
+                    {"cases": []})
+        assert "duplicate exercise id" in _discover_error(root)
+    finally:
+        shutil.rmtree(root)
+
+
+def test_valid_prerequisite_does_not_raise():
+    """The happy counterpart of "unknown prerequisite": it must also pass."""
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _minimal_valid_content(root)
+        prereq = os.path.join(root, "exercises", "ex0")
+        _write_json(os.path.join(prereq, "exercise.json"), {
+            "schema_version": 1, "id": "ex0", "title": "Ex0",
+            "release": {"state": "available"}})
+        with open(os.path.join(prereq, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("x")
+        _write_json(os.path.join(prereq, "assessment", "io.json"), {"cases": []})
+        _write_json(os.path.join(prereq, "public", "files.json"),
+                    {"files": [{"name": "submission.c", "template": ""}]})
+        _write_json(os.path.join(root, "exercises", "ex1", "exercise.json"), {
+            "schema_version": 1, "id": "ex1", "title": "X",
+            "prerequisites": ["ex0"], "release": {"state": "available"}})
+        model = content_catalogue.discover(root)
+        assert model["exercises"]["ex1"]["prerequisites"] == ["ex0"]
+    finally:
+        shutil.rmtree(root)
+
+
+def test_load_exercise_is_the_worker_s_gate():
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _minimal_valid_content(root)
+        # An out-of-form id does not even open a path.
+        assert content_catalogue.load_exercise(root, "../../etc/passwd") is None
+        assert content_catalogue.load_exercise(root, "UNKNOWN IN UPPERCASE") is None
+        # Well-formed but absent from disk.
+        assert content_catalogue.load_exercise(root, "does-not-exist") is None
+        # The file declares a different id than the one requested.
+        _write_json(os.path.join(root, "exercises", "ex1", "exercise.json"), {
+            "schema_version": 1, "id": "a-different-id", "title": "X",
+            "release": {"state": "available"}})
+        assert content_catalogue.load_exercise(root, "ex1") is None
+
+        # Closed: the worker refuses without tout=True, and resolves with it.
+        _minimal_valid_content(root)
+        _write_json(os.path.join(root, "exercises", "ex1", "exercise.json"), {
+            "schema_version": 1, "id": "ex1", "title": "X",
+            "release": {"state": "scheduled",
+                        "available_from": "2099-01-01T00:00:00-05:00"}})
+        assert content_catalogue.load_exercise(root, "ex1") is None
+        opened = content_catalogue.load_exercise(root, "ex1", tout=True)
+        assert opened is not None and opened["mode"] == "io"
+
+        # Several modes present at once: nothing to run.
+        _minimal_valid_content(root)
+        _write_json(os.path.join(root, "exercises", "ex1", "assessment", "quiz.json"),
+                    {"questions": []})
+        assert content_catalogue.load_exercise(root, "ex1") is None
+    finally:
+        shutil.rmtree(root)
+
+
 # --------------------------------------------------------------------------
 # Unity
 # --------------------------------------------------------------------------
+
+def test_sandbox_force_removes_the_container_after_a_timeout():
+    """`docker run --rm` is not enough: killing the docker CLIENT leaves the
+    container running. Without `docker rm -f`, a pathological job would hold
+    onto a Dell core until the daemon's next restart.
+    """
+    calls = []
+
+    class FakeSubprocess:
+        TimeoutExpired = subprocess.TimeoutExpired
+
+        @staticmethod
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ["docker", "run"]:
+                raise FakeSubprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    guard = runner.subprocess
+    try:
+        runner.subprocess = FakeSubprocess
+        code, out = runner.sandbox("/spool/job1", "/tests/tp1", "io", "n0nce")
+        assert code == 137 and out == ""
+        # The forced cleanup is genuinely attempted, with the EXACT name of
+        # the container that was launched -- otherwise nothing is ever freed.
+        assert any(a[:3] == ["docker", "rm", "-f"] for a in calls), calls
+    finally:
+        runner.subprocess = guard
+
 
 def test_parse_unity():
     ok = runner.parse_unity(UNITY_OK)
@@ -570,6 +1066,11 @@ def test_check_case():
     # énumère les trois réponses passerait les trois cas sans rien calculer.
     invite = "laminaire, turbulent ou transitoire ? -> laminaire"
     assert runner.check_case(case, invite, tol) != ""
+    # The expected word is missing, with no forbidden word present either --
+    # the other branch of this same check, never reached by the two cases
+    # above (both of which fail on `absent` first).
+    manque = runner.check_case(case, "l'ecoulement est calme", tol)
+    assert "ne contient pas le mot attendu" in manque, manque
 
 
 def test_in_range():
@@ -676,6 +1177,16 @@ def test_split_runs_and_verdict_io():
     coupe = runner.verdict_io(137, "", cases, nonce, 0.005)
     assert coupe["status"] == "timeout" and "cases" not in coupe, coupe
 
+    # An abnormal exit that is neither a timeout nor an ASan overflow (a
+    # segfault, typically code 139): a THIRD message, not one of the two
+    # already covered above.
+    segfault = (nonce + " BEGIN 01\n" + nonce + " END 01 139\n"
+               + nonce + " BEGIN 02\nSurface = 84\n" + nonce + " END 02 0\n"
+               + nonce + " BEGIN 03\nSurface = 1\n" + nonce + " END 03 0\n")
+    verdict = runner.verdict_io(0, segfault, cases, nonce, runner.DEFAULT_TOLERANCE)
+    par_cas = {c["case"]: c for c in verdict["cases"]}
+    assert "anormalement" in par_cas[1]["reason"] and "code 139" in par_cas[1]["reason"]
+
 
 def test_stderr_et_avertissements():
     """La stderr du programme et les avertissements gcc reviennent a l'etudiant.
@@ -720,6 +1231,11 @@ def test_stderr_et_avertissements():
     # tire par job et l'etudiant ne le voit jamais.
     faux = "deadbeef WARN\nmenteur\ndeadbeef ENDWARN\n"
     assert runner.extraire_avertissements(faux, nonce) == ("", faux)
+
+    # The block starts but never closes (the container was cut off mid-write):
+    # no partial block is manufactured, the output comes back intact.
+    tronque = nonce + " WARN\nsub.c:3: warning: partiel"
+    assert runner.extraire_avertissements(tronque, nonce) == ("", tronque)
 
 
 # --------------------------------------------------------------------------
@@ -790,6 +1306,18 @@ def test_docker_argv():
         assert "/spool/abc/src:/in/src:ro" in " ".join(argv), mode
         assert "submission.c" not in " ".join(argv), mode
 
+    # The settings passed into the container (dialect, sanitizers, timers)
+    # are absent from the dict itself by default, not just from the command
+    # line: the same policy in both modes.
+    garde_env = runner.SANDBOX_ENV
+    try:
+        runner.SANDBOX_ENV = {"CTESTER_C_STD": "gnu23", "CTESTER_RUN_TIMEOUT": "5"}
+        argv = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "unity", "n")
+        assert "-e" in argv and "CTESTER_C_STD=gnu23" in argv
+        assert "CTESTER_RUN_TIMEOUT=5" in argv
+    finally:
+        runner.SANDBOX_ENV = garde_env
+
     io_argv = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "io", "n0nce")
     mounts = " ".join(io_argv)
     # EN MODE io LE RÉPERTOIRE DES TESTS N'ENTRE PAS : io.json contient les
@@ -810,6 +1338,17 @@ def test_forbidden_includes():
     assert runner.forbidden_includes("int main(){}", allowed) == []
     # Espaces exotiques autour du # : gcc les accepte, la liste blanche aussi.
     assert runner.forbidden_includes("  #  include <net/if.h>", allowed) == ["net/if.h"]
+
+
+def test_read_allowed_reads_the_file_or_disables_the_check():
+    tmp = tempfile.mkdtemp(prefix="ctester-tp-")
+    try:
+        assert runner.read_allowed(tmp) is None    # no file: check disabled
+        with open(os.path.join(tmp, "allowed_includes.txt"), "w", encoding="utf-8") as fh:
+            fh.write("stdio.h\n\nstdlib.h\n  \n")
+        assert runner.read_allowed(tmp) == {"stdio.h", "stdlib.h"}
+    finally:
+        shutil.rmtree(tmp)
 
 
 # --------------------------------------------------------------------------
@@ -912,6 +1451,12 @@ def test_projection_des_competences():
     touches, reussis = progression.exercise_facts(etats, pratique)
     assert touches == {"tp2-ex0", "tp2-ex3", "tp6-ex1"}
     assert reussis == {"tp2-ex0"}
+    # A row with no exercise id (degraded data) breaks nothing, it simply
+    # does not count -- on both sides of the merge.
+    degraded = progression.exercise_facts(
+        etats + [{"exercise_id": "", "status": "solved"}, {"status": "solved"}],
+        pratique + [{"exercise_id": None}, {}])
+    assert degraded == (touches, reussis)
     vue = progression.skills_view(CATALOGUE_DEMO, touches, reussis)
     # L'ORDRE EST CELUI DU COURS, pas un tri par score : la premiere ligne est
     # la premiere competence rencontree, ce que l'etudiant reconnait.
@@ -1084,11 +1629,208 @@ def test_progression_degradee_sans_base():
     assert state.write_theme("u", "light") is False
     assert state.write_theme("u", "neon") is False    # refuse avant meme la base
     assert state.forget("u") is False
+    # `progression.py` degrades the same way, called directly rather than
+    # through the HTTP boundary: no invented number when the database does
+    # not answer.
+    assert progression.progression_facts("u") is None
+    assert progression.cards_to_grant("u") == []
+
+
+def test_every_persistence_function_degrades_without_a_database():
+    """The module's contract, stated in its own docstring: WITHOUT A
+    DATABASE, every function returns None or False, never a value that could
+    pass for a result. `test_progression_degradee_sans_base` only covered a
+    hand-picked handful; this one systematically sweeps the rest, so a
+    function added tomorrow without this safeguard shows up here.
+    """
+    assert not state.enabled()
+    cases = [
+        (state.read_resume, ("u", "ex"), None),
+        (state.write_draft, ("u", "ex", {}), False),
+        (state.write_state, ("u", "ex", "solved", {}), False),
+        (state.read_states, ("u",), None),
+        # The non-integer total/passed coercion runs BEFORE the query: it is
+        # therefore exercised here even without a database.
+        (state.write_practice_attempt,
+         ("u", "j", "ex", {"status": "ok", "total": "three", "passed": "two"}), False),
+        (state.read_practice_summary, ("u",), None),
+        (state.read_practice_days, ("u", 30), None),
+        (state.read_unlock_rates, (), None),
+        (state.leaderboard_rows, (None, 7), None),
+        (state.forum_fil, ("ex", 10), None),
+        (state.forum_publier, ("m", "ex", "u", "x"), False),
+        (state.forum_open_to_group, ("m", "u"), None),
+        (state.forum_mark_helpful, ("m", "u"), None),
+        (state.forum_supprimer, ("m", "u"), None),
+        (state.forum_signaler, ("m", "u"), None),
+        (state.forum_signalements, (10,), None),
+        (state.forum_moderer, ("a", "m", "u", "hide"), None),
+        (state.forum_profils, (["u"],), None),
+        (state.forum_profil, ("u",), None),
+        (state.forum_profil_ecrire, ("p", "u", None, None, False, False), False),
+        (state.forum_taken_aliases, (), None),
+        (state.forum_nom_signaler, ("m", "u"), None),
+        (state.forum_noms_signales, (10,), None),
+        (state.forum_help_rows, (10, 8), None),
+        (state.forum_auteur, ("m",), None),
+    ]
+    for function, args, expected in cases:
+        assert function(*args) == expected, function.__name__
+
+
+def test_close_is_idempotent_and_absorbs_a_failed_shutdown():
+    guard = state._conn
+    try:
+        state._conn = None
+        state._close()          # nothing to close: must not raise
+        assert state._conn is None
+
+        class FailingConnection:
+            def close(self):
+                raise RuntimeError("connection already dead")
+        state._conn = FailingConnection()
+        state._close()           # the close failure is absorbed
+        assert state._conn is None
+    finally:
+        state._conn = guard
+
+
+def test_forum_moderer_and_profils_refuse_without_touching_the_database():
+    """Two guards that short-circuit BEFORE the query, and are therefore
+    testable without a database: an unknown action, an empty account list.
+    """
+    assert state.forum_moderer("a", "m", "u", "bogus") == []
+    assert state.forum_profils([]) == {}
+    assert state.forum_profils([None, ""]) == {}   # nothing usable either
+
+
+def test_minute_falls_back_to_a_string_for_what_is_not_a_date():
+    assert state._minute("2026-09-04 12:00") == "2026-09-04 12:00"[:16]
+
+
+def test_sources_refuses_what_is_not_a_json_object():
+    assert state._sources([]) is None
+    assert state._sources(None) is None
+    assert state._sources([("not json",)]) is None
+    assert state._sources([("[1, 2, 3]",)]) is None    # JSON, but not an object
+    assert state._sources([('{"a": 1}',)]) == {"a": "1"}
+
+
+class _PartialOutage:
+    """A write that succeeds, then a re-read that fails -- an outage BETWEEN
+    the two calls, not a total one. `state.enabled()` alone cannot produce
+    this combination; this double is necessary.
+    """
+
+    def grant_first_solve(self, *a, **k):
+        return 10
+
+    def record_event(self, *a, **k):
+        return "an-id"
+
+    def read_states(self, *a, **k):
+        return None
+
+    def read_practice_summary(self, *a, **k):
+        return None
+
+    def read_events(self, *a, **k):
+        return None
+
+    def unlock(self, *a, **k):
+        raise AssertionError("unlock() must never be called without the facts")
+
+
+def test_recompenser_and_verification_survive_an_outage_between_write_and_reread():
+    """The grant/evidence is already written when the re-read fails:
+    `unlock()` must be skipped, not called with invented facts.
+    """
+    guard = progression.state
+    try:
+        progression.state = _PartialOutage()
+        entry = {"id": "tp2-ex0", "difficulty": "foundation"}
+        progression.recompenser("u", entry, "job1")            # must not raise
+        progression.enregistrer_verification("u", entry, "job2", True)
+    finally:
+        progression.state = guard
 
 
 # --------------------------------------------------------------------------
 # File, quotas, HTTP
 # --------------------------------------------------------------------------
+
+def test_scan_jobs_survives_a_missing_spool_and_a_directory_still_being_written():
+    guard = config.SPOOL
+    try:
+        config.SPOOL = os.path.join(tempfile.mkdtemp(prefix="ctester-spool-"), "does-not-exist")
+        assert spool.scan_jobs() == []          # the directory itself is absent
+
+        config.SPOOL = os.path.dirname(config.SPOOL)
+        os.makedirs(config.SPOOL, exist_ok=True)
+        # A job directory that has NOT YET received job.json (the atomic
+        # write is not finished): this is not a job, not an error.
+        os.makedirs(os.path.join(config.SPOOL, "in-progress"))
+        assert spool.scan_jobs() == []
+    finally:
+        config.SPOOL = guard
+
+
+def test_durees_moyennes_ignores_a_file_that_is_not_an_object():
+    guard = config.SPOOL
+    try:
+        config.SPOOL = tempfile.mkdtemp(prefix="ctester-spool-")
+        with open(os.path.join(config.SPOOL, spool.DUREES), "w", encoding="utf-8") as fh:
+            json.dump([1, 2, 3], fh)              # JSON, but not an object
+        assert spool.durees_moyennes() == {}
+    finally:
+        shutil.rmtree(config.SPOOL, ignore_errors=True)
+        config.SPOOL = guard
+
+
+def test_eta_secondes_returns_zero_for_an_already_finished_or_unknown_job():
+    jobs = [("aaa", 100.0, False), ("bbb", 101.0, True)]
+    assert spool.eta_secondes(jobs, "bbb") == 0      # already done: no longer in the queue
+    assert spool.eta_secondes(jobs, "unknown") == 0  # never existed
+
+
+def test_job_metadata_refuses_a_job_json_that_is_not_an_object():
+    guard = config.SPOOL
+    try:
+        config.SPOOL = tempfile.mkdtemp(prefix="ctester-spool-")
+        job = "a" * 32
+        os.makedirs(os.path.join(config.SPOOL, job))
+        with open(os.path.join(config.SPOOL, job, "job.json"), "w", encoding="utf-8") as fh:
+            json.dump(["not", "an", "object"], fh)
+        assert spool.job_metadata(job) == ("", None)
+    finally:
+        shutil.rmtree(config.SPOOL, ignore_errors=True)
+        config.SPOOL = guard
+
+
+def test_job_sources_ignores_an_unreadable_submission_file():
+    guard = config.SPOOL
+    try:
+        config.SPOOL = tempfile.mkdtemp(prefix="ctester-spool-")
+        job = "b" * 32
+        os.makedirs(os.path.join(config.SPOOL, job))
+        entry = {"id": "ex1", "mode": "io", "files": [{"name": "submission.c"}]}
+        # No files.json at all.
+        assert spool.job_sources(job, entry) == {}
+        with open(os.path.join(config.SPOOL, job, "files.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ not json")
+        assert spool.job_sources(job, entry) == {}
+        # A quiz has no source files, whatever sits on disk.
+        assert spool.job_sources(job, {"mode": "quiz"}) == {}
+        # A submitted file that no longer passes the allow-list (the exercise
+        # changed shape since the submission): nothing is kept.
+        with open(os.path.join(config.SPOOL, job, "files.json"), "w",
+                 encoding="utf-8") as fh:
+            json.dump({"an-unexpected-name.c": "x"}, fh)
+        assert spool.job_sources(job, entry) == {}
+    finally:
+        shutil.rmtree(config.SPOOL, ignore_errors=True)
+        config.SPOOL = guard
+
 
 def test_queue_position():
     jobs = [("aaa", 100.0, True), ("bbb", 101.0, False), ("ccc", 102.0, False)]
@@ -1114,10 +1856,344 @@ def test_quota():
     assert q.check("ip", now + 3700) == 0
 
 
+def test_quota_prunes_its_inactive_clients_past_five_thousand():
+    """A process running an entire semester must not leak: past 5000
+    distinct clients, the ones whose window has expired leave -- the rest
+    stay, this is not a full flush like the token cache.
+    """
+    q = quotas.Quota(cooldown=0, hourly=100)
+    now = time.time()
+    for i in range(5000):
+        assert q.check("client-%d" % i, now) == 0
+    assert len(q.seen) == 5000                      # right at the bound: no prune yet
+    q.check("expired-client", now - 7200)            # a window already expired
+    assert "expired-client" in q.seen
+    q.check("fresh-client", now)                     # the 5002nd: this prunes
+    assert len(q.seen) < 5002
+    assert "expired-client" not in q.seen, "an expired window should have left"
+    assert "fresh-client" in q.seen and "client-0" in q.seen
+
+
+def test_presence_prunes_its_expired_windows_past_five_thousand():
+    p = quotas.Presence()
+    now = time.time()
+    for i in range(5000):
+        p.touch("window-%d" % i, now)
+    assert len(p.seen) == 5000
+    p.touch("expired", now - config.PRESENCE_TTL - 1)
+    p.touch("fresh", now)                            # the 5002nd: this prunes
+    assert len(p.seen) < 5002
+    assert "expired" not in p.seen
+    assert "fresh" in p.seen
+
+
 def test_client_id():
     assert security.client_id({"CF-Connecting-IP": "1.2.3.4"}, "10.0.0.1") == "1.2.3.4"
     assert security.client_id({"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}, "10.0.0.1") == "1.2.3.4"
     assert security.client_id({}, "10.0.0.1") == "10.0.0.1"
+
+
+def test_client_id_prefers_the_authenticated_account_over_any_ip():
+    """A validated `sub` outranks CF-Connecting-IP -- it is harder to forge."""
+    garde = security.current_user
+    try:
+        security.current_user = lambda entetes: "sub-" + "x" * 100
+        identifiant = security.client_id({"CF-Connecting-IP": "1.2.3.4"}, "10.0.0.1")
+        assert identifiant.startswith("u:") and len(identifiant) == 2 + 62
+    finally:
+        security.current_user = garde
+
+
+def test_client_id_station_suffix_and_the_two_truncation_bounds():
+    """A station suffix separates anonymous stations behind one NAT."""
+    assert security.client_id({}, "10.0.0.1", station="poste-3") == "10.0.0.1/poste-3"
+    # address+station is bounded to 128 characters overall.
+    identifiant = security.client_id({}, "x" * 200, station="poste-3")
+    assert len(identifiant) == 128
+    # CF-Connecting-IP (and X-Forwarded-For) are bounded to 64 characters
+    # BEFORE any station suffix -- a forged header cannot inflate the key.
+    identifiant = security.client_id({"CF-Connecting-IP": "y" * 200}, "10.0.0.1")
+    assert identifiant == "y" * 64
+
+
+def test_no_redirect_refuses_to_hand_a_bearer_token_to_a_redirect_target():
+    """The SSRF/token-leak guard: urllib must never replay a redirect."""
+    assert security._NoRedirect().redirect_request(
+        None, None, 302, "Found", {}, "https://evil.exemple") is None
+
+
+def test_oidc_enabled_requires_all_three_conditions_independently():
+    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        config.OIDC_CLIENT_ID = "ctester"
+        security.state = type("Base", (), {"enabled": staticmethod(lambda: True)})
+        assert security.oidc_enabled()
+
+        config.OIDC_ISSUER = "http://auth.exemple"   # not HTTPS
+        assert not security.oidc_enabled()
+        config.OIDC_ISSUER = "https://auth.exemple"
+
+        config.OIDC_CLIENT_ID = ""                   # no client id
+        assert not security.oidc_enabled()
+        config.OIDC_CLIENT_ID = "ctester"
+
+        security.state = type("Base", (), {"enabled": staticmethod(lambda: False)})
+        assert not security.oidc_enabled()            # no database
+    finally:
+        config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state = garde
+
+
+def test_userinfo_url_refuses_an_endpoint_outside_the_issuer():
+    """The SSRF guard is the only reason this function exists at all."""
+    garde_issuer = config.OIDC_ISSUER
+    garde_json = security._get_json
+    garde_disc = dict(security._discovery)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        security._discovery.update(until=0.0, userinfo="")
+        security._get_json = lambda url, headers=None: {
+            "userinfo_endpoint": "https://evil.exemple/steal"}
+        assert security.userinfo_url() == ""
+        # A refused discovery is cached too: a second call must not re-fetch.
+        def interdit(url, headers=None):
+            raise AssertionError("must not be called under the negative cache")
+        security._get_json = interdit
+        assert security.userinfo_url() == ""
+    finally:
+        config.OIDC_ISSUER = garde_issuer
+        security._get_json = garde_json
+        security._discovery.clear()
+        security._discovery.update(garde_disc)
+
+
+def test_userinfo_url_accepts_an_endpoint_under_the_issuer_and_caches_it():
+    garde_issuer = config.OIDC_ISSUER
+    garde_json = security._get_json
+    garde_disc = dict(security._discovery)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        security._discovery.update(until=0.0, userinfo="")
+        appels = []
+
+        def repond(url, headers=None):
+            appels.append(url)
+            return {"userinfo_endpoint": "https://auth.exemple/userinfo"}
+        security._get_json = repond
+        assert security.userinfo_url() == "https://auth.exemple/userinfo"
+        assert security.userinfo_url() == "https://auth.exemple/userinfo"
+        assert len(appels) == 1   # the second call is served from the cache
+    finally:
+        config.OIDC_ISSUER = garde_issuer
+        security._get_json = garde_json
+        security._discovery.clear()
+        security._discovery.update(garde_disc)
+
+
+def test_userinfo_url_survives_a_broken_discovery_document():
+    garde_issuer = config.OIDC_ISSUER
+    garde_json = security._get_json
+    garde_disc = dict(security._discovery)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        security._discovery.update(until=0.0, userinfo="")
+
+        def echoue(url, headers=None):
+            raise OSError("network failure")
+        security._get_json = echoue
+        assert security.userinfo_url() == ""
+    finally:
+        config.OIDC_ISSUER = garde_issuer
+        security._get_json = garde_json
+        security._discovery.clear()
+        security._discovery.update(garde_disc)
+
+
+def test_ask_userinfo_bounds_the_sub_and_sanitizes_the_suggested_name():
+    garde_issuer = config.OIDC_ISSUER
+    garde_json = security._get_json
+    garde_disc = dict(security._discovery)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        security._discovery.update(
+            until=time.time() + 600, userinfo="https://auth.exemple/userinfo")
+
+        security._get_json = lambda url, headers=None: {
+            "sub": "abc123", "preferred_username": "Léa"}
+        sub, nom = security._ask_userinfo("tok")
+        assert sub == "abc123" and nom   # a claim, sanitized like a student's own input
+
+        # Boundary: a 128-character sub is accepted, 129 is refused.
+        security._get_json = lambda url, headers=None: {"sub": "a" * 128}
+        assert security._ask_userinfo("tok")[0] == "a" * 128
+        security._get_json = lambda url, headers=None: {"sub": "a" * 129}
+        assert security._ask_userinfo("tok")[0] is None
+
+        # An empty or non-string sub is refused outright, never coerced.
+        security._get_json = lambda url, headers=None: {"sub": ""}
+        assert security._ask_userinfo("tok")[0] is None
+        security._get_json = lambda url, headers=None: {"sub": 12345}
+        assert security._ask_userinfo("tok")[0] is None
+
+        # No discovered endpoint at all: no request is even attempted.
+        security._discovery.update(until=0.0, userinfo="")
+        config.OIDC_ISSUER = ""
+        assert security._ask_userinfo("tok") == (None, "")
+    finally:
+        config.OIDC_ISSUER = garde_issuer
+        security._get_json = garde_json
+        security._discovery.clear()
+        security._discovery.update(garde_disc)
+
+
+def test_current_user_bounds_the_bearer_token_and_caches_the_lookup():
+    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json)
+    garde_tokens = dict(security._tokens)
+    garde_disc = dict(security._discovery)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        config.OIDC_CLIENT_ID = "ctester"
+        security.state = type("Base", (), {"enabled": staticmethod(lambda: True)})
+        security._tokens.clear()
+        security._discovery.update(
+            until=time.time() + 600, userinfo="https://auth.exemple/userinfo")
+
+        assert security.current_user({}) is None                              # no header
+        assert security.current_user({"Authorization": "Basic xx"}) is None   # wrong scheme
+        assert security.current_user({"Authorization": "Bearer "}) is None    # empty token
+        trop_long = "Bearer " + "x" * 4097
+        assert security.current_user({"Authorization": trop_long}) is None    # past MAX+1
+
+        appels = []
+
+        def repond(url, headers=None):
+            appels.append(1)
+            return {"sub": "etu-1"}
+        security._get_json = repond
+        pile = "Bearer " + "x" * 4096   # exactly at the bound: accepted
+        assert security.current_user({"Authorization": pile}) == "etu-1"
+        assert len(appels) == 1
+        # Same token again: served from the cache, no second round trip.
+        assert security.current_user({"Authorization": pile}) == "etu-1"
+        assert len(appels) == 1
+    finally:
+        (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state,
+         security._get_json) = garde
+        security._tokens.clear()
+        security._tokens.update(garde_tokens)
+        security._discovery.clear()
+        security._discovery.update(garde_disc)
+
+
+def test_token_cache_flushes_fully_once_it_reaches_its_cap():
+    """No LRU: a full flush, so one cold token never costs more than one call."""
+    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json)
+    garde_tokens = dict(security._tokens)
+    garde_disc = dict(security._discovery)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        config.OIDC_CLIENT_ID = "ctester"
+        security.state = type("Base", (), {"enabled": staticmethod(lambda: True)})
+        security._discovery.update(
+            until=time.time() + 600, userinfo="https://auth.exemple/userinfo")
+        security._get_json = lambda url, headers=None: {"sub": "etu"}
+
+        security._tokens.clear()
+        for i in range(security.TOKENS_MAX - 1):
+            security._tokens["f%d" % i] = ("s", "", time.time() + 300)
+        assert len(security._tokens) == security.TOKENS_MAX - 1
+
+        security.current_user({"Authorization": "Bearer tokenA"})
+        assert len(security._tokens) == security.TOKENS_MAX   # right at the cap: no flush yet
+
+        security.current_user({"Authorization": "Bearer tokenB"})
+        assert len(security._tokens) == 1                      # one past it: flush, then insert
+    finally:
+        (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state,
+         security._get_json) = garde
+        security._tokens.clear()
+        security._tokens.update(garde_tokens)
+        security._discovery.clear()
+        security._discovery.update(garde_disc)
+
+
+def test_current_name_only_reads_the_cache_it_never_calls_out():
+    garde_tokens = dict(security._tokens)
+    try:
+        security._tokens.clear()
+        jeton = "abc"
+        empreinte = hashlib.sha256(jeton.encode()).hexdigest()
+        assert security.current_name({"Authorization": "Bearer " + jeton}) == ""
+        assert security.current_name({}) == ""
+
+        security._tokens[empreinte] = ("sub-1", "Lea", time.time() + 60)
+        assert security.current_name({"Authorization": "Bearer " + jeton}) == "Lea"
+
+        security._tokens[empreinte] = ("sub-1", "Lea", time.time() - 1)
+        assert security.current_name({"Authorization": "Bearer " + jeton}) == ""
+    finally:
+        security._tokens.clear()
+        security._tokens.update(garde_tokens)
+
+
+def test_ask_userinfo_swallows_a_broken_lookup():
+    garde_issuer = config.OIDC_ISSUER
+    garde_json = security._get_json
+    garde_disc = dict(security._discovery)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        security._discovery.update(
+            until=time.time() + 600, userinfo="https://auth.exemple/userinfo")
+        security._get_json = lambda url, headers=None: (_ for _ in ()).throw(
+            OSError("network failure"))
+        assert security._ask_userinfo("tok") == (None, "")
+    finally:
+        config.OIDC_ISSUER = garde_issuer
+        security._get_json = garde_json
+        security._discovery.clear()
+        security._discovery.update(garde_disc)
+
+
+def test_get_json_reads_a_bounded_response_and_never_follows_a_redirect():
+    """The one place a real socket opens. Everything else in this file mocks
+    `_get_json`; this proves what it mocks actually holds against a real
+    server -- in particular that `_NoRedirect` really stops urllib, not just
+    that the class returns `None` in isolation.
+    """
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            if self.path == "/ok":
+                corps = b'{"hello": "world"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(corps)))
+                self.end_headers()
+                self.wfile.write(corps)
+            else:
+                self.send_response(302)
+                self.send_header("Location", "http://exemple-interdit.invalid/vole")
+                self.end_headers()
+
+    serveur = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    fil = threading.Thread(target=serveur.serve_forever, daemon=True)
+    fil.start()
+    try:
+        port = serveur.server_port
+        assert security._get_json(f"http://127.0.0.1:{port}/ok") == {"hello": "world"}
+        try:
+            security._get_json(f"http://127.0.0.1:{port}/redirige")
+            assert False, "a redirect must not resolve silently"
+        except Exception:
+            pass   # exactly what current_user()/_ask_userinfo() rely on
+    finally:
+        serveur.shutdown()
+        fil.join(timeout=2)
 
 
 # --------------------------------------------------------------------------
@@ -1203,6 +2279,31 @@ def test_forum_bibliotheques_epinglees():
     # `/vendor/` N'EST PAS UN REPERTOIRE OUVERT : la liste est close, comme
     # celle des `.js` de la page.
     assert "vendor/" in config.VENDOR[0] and "vendor/" in config.VENDOR[1]
+
+
+def test_csp_without_an_issuer_omits_the_extra_connect_src_origin():
+    """A deployment with no OIDC configured (`issuer=""`) must add no extra
+    origin to `connect-src`: the branch exists for the issuer, not for
+    anything that is not one.
+    """
+    without_issuer = csp.csp(b"<html></html>")
+    with_issuer = csp.csp(b"<html></html>", "https://auth.exemple/auth/v1")
+    assert "auth.exemple" not in without_issuer, without_issuer
+    assert "auth.exemple" in with_issuer, with_issuer
+    # An issuer that is not https (never in production, but the guard is on
+    # the prefix, not on a list of protocols) is ignored the same way.
+    without_https = csp.csp(b"<html></html>", "http://auth.exemple")
+    assert "auth.exemple" not in without_https, without_https
+
+    def directives(policy):
+        return {d.split()[0]: d for d in policy.split("; ")}
+
+    # The only difference between the two policies is `connect-src`.
+    a, b = directives(without_issuer), directives(with_issuer)
+    assert set(a) == set(b)
+    for key in a:
+        if key != "connect-src":
+            assert a[key] == b[key], key
 
 
 def test_csp_du_document():
@@ -1318,6 +2419,9 @@ def test_forum_identite_bornes_et_visibilite():
     temps, et c'est ecrit dans le formulaire.
     """
     assert forum.forum_pseudo(None) == (None, None)
+    # Pydantic bloque déjà un non-texte à la frontière HTTP, mais la fonction
+    # reste appelable directement et doit refuser plutôt que planter.
+    assert forum.forum_pseudo(42) == (None, "nom invalide")
     assert forum.forum_pseudo("   ") == (None, None)
     assert forum.forum_pseudo("  Lea   B ") == ("Lea B", None)
     assert forum.forum_pseudo("Lea" + chr(10) + "B")[0] == "Lea B"   # une ligne
@@ -2028,6 +3132,16 @@ def test_the_leaderboard_never_names_the_last_one():
     outside = leaderboard.leaderboard_view(rows, "unknown", 4)
     assert outside["participating"] is False
     assert outside["me"] is None and outside["rows"] == []
+
+    # ALREADY IN THE TOP OF THE TABLE: their own row appears there only
+    # once, not appended a second time at the end of the list.
+    top = leaderboard.leaderboard_view(rows, "u1", 4)
+    assert [r["rank"] for r in top["rows"]] == [1, 2, 3, 4, 5], top["rows"]
+    assert sum(1 for r in top["rows"] if r["mine"]) == 1
+
+    # FIRST IN THE RANKING: nobody ahead, so no step is announced.
+    first = leaderboard.leaderboard_view(rows, "u0", 4)
+    assert first["gap"] is None, first
 
 
 def test_the_alias_is_drawn_from_a_closed_list_and_avoids_taken_ones():
