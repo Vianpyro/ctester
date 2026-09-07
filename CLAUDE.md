@@ -330,6 +330,11 @@ Et avant une cohorte, une fois, avec Docker — pas à chaque modif :
 ```sh
 docker run -d --rm --name pg -e POSTGRES_PASSWORD=x -e POSTGRES_DB=ctester            -p 55432:5432 postgres:16-alpine
 CTESTER_DB_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester   python3 test_postgres.py
+
+# ET AVEC LE ROLE APPLICATIF, qui rejoue exactement la production. Le CREATE
+# ROLE est tout ce qu'il y a a poser : ses droits viennent de schema.sql.
+docker exec -i pg psql -U postgres -d ctester -c "CREATE ROLE ctester_app LOGIN PASSWORD 'y'"
+CTESTER_DB_ADMIN_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester   CTESTER_DB_DSN=postgresql://ctester_app:y@127.0.0.1:55432/ctester   python3 test_postgres.py
 docker stop pg
 ```
 
@@ -840,11 +845,11 @@ est la phase 2, livrée à côté et JAMAIS mélangée à ces compteurs-ci : voi
 maîtrise vérifiée » plus bas.
 
 Trois tables s'ajoutent au schéma : `evenement_progression` (le journal),
-`transaction_xp` et `succes_obtenu`, toutes en ajout seul. Côté `VHome`, elles
-ont leur propre `GRANT` **sans UPDATE** : l'API n'en a pas besoin, et c'est
-Postgres qui tient alors la propriété d'ajout seul. Ajouter une table sans
-l'ajouter au `GRANT` la rend muette ; sans l'ajouter à `forget()`, `python3
-test_ctester.py` échoue.
+`transaction_xp` et `succes_obtenu`, toutes en ajout seul. Elles ont leur propre `GRANT` **sans UPDATE**, dans
+`schema.sql` : l'API n'en a pas besoin, et c'est Postgres qui tient alors la
+propriété d'ajout seul. Ajouter une table sans l'ajouter au `GRANT` **ou** à
+`forget()` fait maintenant échouer `python3 test_ctester.py` — deux contrôles
+qui lisent le schéma plutôt que d'entretenir une liste.
 
 ## La maîtrise vérifiée (phase 2 de la gamification)
 
@@ -1057,9 +1062,10 @@ rien. Les confondre écraserait le réglage de quelqu'un à la première panne.
 **C'est la SEULE table du schéma, avec le brouillon et l'état, qui n'est pas en
 ajout seul** : `ON CONFLICT ... DO UPDATE`. L'ancien thème n'est pas un fait à
 relire, et un journal grossirait à chaque clic sur un bouton fait pour être
-cliqué. Côté `VHome`, son `GRANT` porte donc `UPDATE`, comme
-`brouillon_exercice` — **sans lui, l'écriture échoue en production et nulle part
-ailleurs**.
+cliqué. Son `GRANT` porte donc `UPDATE`, comme `exercise_draft` — et il vit dans
+`schema.sql`, à côté de la table. Il a vécu dans `VHome`, et **son oubli n'a
+échoué qu'en production** : c'est l'une des trois fois qui ont motivé le
+déménagement (voir « Les droits du rôle applicatif »).
 
 **Le bouton vit dans le noyau, la synchronisation dans `compte.js`.** L'anonyme
 a le bouton et n'émet aucune requête en le cliquant (`test_page.js` le
@@ -1477,7 +1483,7 @@ l'étudiant promet, et le compromis tient à ce que rien d'autre ne sorte.
 
 | Quoi | Où | GRANT |
 |---|---|---|
-| `step`, `blocked_kind`, `visibility` | `forum_message` | `UPDATE (hidden, **visibility**)` — **à ajouter dans `VHome`**, sinon « Rendre visible à mon groupe » échoue en production et nulle part ailleurs |
+| `step`, `blocked_kind`, `visibility` | `forum_message` | `UPDATE (hidden, **visibility**)` — dans `schema.sql` désormais ; c'est cet oubli-là, quand il vivait dans `VHome`, qui a fait descendre les GRANT ici |
 | `alias`, `plate_frame`, `badges_public`, `leaderboard_opt_in` | `forum_profile` | aucun : le profil est en ajout seul, la dernière ligne fait foi |
 | `forum_helpful` (la 13e table) | nouvelle | `SELECT, INSERT, DELETE`, comme le reste du forum |
 
@@ -1712,19 +1718,52 @@ perdre**. Un changement distant qui arrive pendant qu'on tape décale le
 curseur au lieu de le renvoyer à la fin — c'est ce qui rend un éditeur
 partagé utilisable, et `test_page.js` l'éprouve avec un vrai `Y.Doc`.
 
-### Les GRANT à ajouter dans `VHome`
+### Le déploiement
 
-Sans eux, tout ça échoue **en production et nulle part ailleurs** — même piège
-que l'`UPDATE` du thème et que `visibility`.
+**Les GRANT sont dans `app/schema.sql`, plus dans `VHome`** — voir « Les droits
+du rôle applicatif » plus bas. Il n'y a donc rien à ajouter ailleurs pour que
+les cinq tables d'équipe soient utilisables : c'est précisément le piège que ce
+rapprochement ferme.
 
-```sql
-GRANT SELECT ON team TO ctester_app;                       -- LECTURE SEULE
-GRANT SELECT, DELETE ON team_member TO ctester_app;        -- pas d'INSERT
-GRANT SELECT, INSERT, UPDATE ON team_document, team_submission TO ctester_app;
-GRANT SELECT, INSERT, DELETE ON team_revision TO ctester_app;
-```
+Reste **une** chose côté déploiement, et elle est manuelle parce que NPM garde
+son routage dans sa propre base : **cocher « Websockets Support »** sur le
+proxy host. Sans ça, l'`Upgrade` de `/team/live` ne passe pas, l'espace
+partagé se reconnecte en boucle en disant « hors ligne », et **tout le reste du
+site marche parfaitement** — ce qui rend la panne longue à trouver.
 
-Et NPM doit laisser passer l'`Upgrade` sur `/team/live` (*Websockets Support*).
+## Les droits du rôle applicatif
+
+**Ils vivent dans `app/schema.sql`, et plus dans `VHome`.** Une table et ses
+droits sont le MÊME FAIT : une table sans son GRANT est muette, un GRANT sans
+sa table ne s'applique pas. Les tenir dans deux dépôts, c'est garantir qu'un
+jour l'un part sans l'autre — et **c'est arrivé trois fois** : l'`UPDATE` du
+thème, la colonne `visibility` du forum, puis les cinq tables d'équipe. Les
+trois fois, la panne n'existait **qu'en production**, parce que c'est le seul
+endroit où le rôle applicatif sert.
+
+**Le signe qui a tranché** : `test_postgres.py` devait RECOPIER ces GRANT pour
+les éprouver. Quand un harnais duplique une règle pour la tester, la règle est
+au mauvais endroit. Il applique maintenant `schema.sql`, point — et créer le
+rôle est tout ce qu'il reste à faire à la main pour rejouer la production.
+
+**Ce qui reste à `VHome` : `CREATE ROLE ctester_app LOGIN PASSWORD …`.** Le mot
+de passe vient du vault, et un secret n'a rien à faire dans un dépôt
+d'application. Le rôle est créé AVANT que le schéma ne soit appliqué — c'est
+déjà l'ordre des tâches — et `schema.sql` **ne grante rien s'il ne trouve pas
+le rôle** plutôt que de tomber sous `ON_ERROR_STOP=1` : c'est ce qui le garde
+applicable sur une base de test nue.
+
+**`test_chaque_table_a_ses_droits` est ce qui rend le rapprochement utile.** Il
+lit `schema.sql` et refuse une table qui n'apparaît dans aucun GRANT — même
+dessin que `test_suppression_couvre_toutes_les_tables`, qui lit le schéma
+plutôt que d'entretenir une liste. Ajouter une table sans ses droits fait
+maintenant échouer la suite, au lieu d'être muet six mois. Il ne juge PAS
+quels droits : c'est `test_postgres.py` qui éprouve que Postgres refuse bien
+ce qu'il doit refuser. Ici on attrape l'oubli, là-bas la permission de trop.
+
+**Jamais un GRANT sur le schéma** (`ON ALL TABLES IN SCHEMA public`) : il
+couvrirait d'avance une table pas encore écrite, et c'est exactement ce que le
+test ci-dessus ne pourrait plus voir. Table par table, une ligne à la fois.
 
 ## Raccourcis assumés (ponytail)
 

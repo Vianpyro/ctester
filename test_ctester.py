@@ -1594,6 +1594,64 @@ def test_une_verification_ne_compte_pas_comme_une_pratique():
         progression.exercices_pratique(CATALOGUE_VERIF), tout, tout) is None
 
 
+def test_chaque_table_a_ses_droits():
+    """Toute table du schema apparait dans un GRANT du MEME fichier.
+
+    CE CONTROLE EXISTE PARCE QUE LA PANNE EST ARRIVEE TROIS FOIS, et toujours
+    de la meme facon : les droits vivaient dans `VHome`, la table dans ce
+    depot, et ajouter l'une sans l'autre ne se voyait qu'EN PRODUCTION -- le
+    seul endroit ou le role applicatif est utilise. L'`UPDATE` du theme, la
+    colonne `visibility` du forum, puis les cinq tables d'equipe.
+
+    Les GRANT sont donc descendus dans `schema.sql`, et ce test est ce qui
+    rend le rapprochement utile : une table ajoutee sans ses droits fait
+    echouer la suite ici, au lieu d'etre muette dans six mois. C'est le meme
+    dessin que `test_suppression_couvre_toutes_les_tables`, qui lit le schema
+    plutot que d'entretenir une liste.
+
+    IL NE JUGE PAS QUELS droits, seulement qu'il y en a : c'est `test_postgres.py`
+    qui eprouve que Postgres refuse bien ce qu'il doit refuser. Ici on attrape
+    l'oubli, la-bas la permission de trop.
+    """
+    schema = lire(os.path.join(HERE, "app", "schema.sql"))
+    tables = set(re.findall(
+        r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
+    # Les GRANT vivent dans un `DO $$ ... $$`, donc en chaines SQL, parfois
+    # coupees sur plusieurs lignes. On recolle d'abord (`' '` accole n'est
+    # qu'une concatenation), on lit ensuite.
+    # LES COMMENTAIRES SORTENT D'ABORD. Ce fichier en est plein, et ils
+    # NOMMENT ce qu'ils expliquent -- « ce qui reste a Ansible : CREATE ROLE
+    # ... ». Un controle qui lit la prose refuse la phrase qui documente la
+    # regle qu'il verifie.
+    instructions = re.sub(r"--[^\n]*", "", schema)
+    bloc = instructions[instructions.index("DO $$"):]
+    bloc = re.sub(r"'\s*\n\s*'", " ", bloc)
+    accordees = set()
+    for cible in re.findall(r"\bON\s+(.+?)\s+TO ctester_app", bloc):
+        cible = re.sub(r"\([^)]*\)", "", cible)       # un GRANT DE COLONNE
+        accordees |= {nom.strip() for nom in cible.split(",") if nom.strip()}
+    manquantes = tables - accordees
+    assert not manquantes, (
+        "ces tables n'apparaissent dans aucun GRANT de schema.sql : "
+        + ", ".join(sorted(manquantes))
+        + " -- une table sans ses droits est muette, et seulement en "
+          "production.")
+    # ET RIEN QUI N'EXISTE PAS : un GRANT sur une table renommee ou supprimee
+    # ferait echouer TOUT le fichier sous `ON_ERROR_STOP=1`, donc toute la
+    # convergence, pour une ligne que personne ne relit.
+    assert not accordees - tables, sorted(accordees - tables)
+    # LE ROLE EST CREE AILLEURS (Ansible porte le mot de passe, qui vient du
+    # vault) : sans lui, on ne grante rien plutot que de faire tomber le
+    # fichier entier.
+    assert "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ctester_app')" \
+        in bloc
+    assert "CREATE ROLE" not in instructions, \
+        "le mot de passe du role vient du vault : il ne descend pas ici"
+    # JAMAIS UN GRANT SUR LE SCHEMA : il couvrirait d'avance une table pas
+    # encore ecrite, et c'est exactement ce que ce test ne pourrait plus voir.
+    assert "ALL TABLES IN SCHEMA" not in instructions, instructions
+
+
 def test_suppression_couvre_toutes_les_tables():
     """`forget` efface chaque table QUI PORTE UN COMPTE, en une seule instruction.
 

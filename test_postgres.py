@@ -14,6 +14,13 @@ GRANTs:
     CTESTER_DB_DSN=postgresql://ctester_app:y@127.0.0.1:55432/ctester \
       python3 test_postgres.py
 
+THE ROLE IS ALL THERE IS TO CREATE (`CREATE ROLE ctester_app LOGIN PASSWORD
+'y'`, once). Its PRIVILEGES come with `schema.sql`, which this file applies:
+they used to live in Ansible and be recopied here to be exercised -- and a
+harness that duplicates a rule in order to test it is a harness saying the
+rule lives in the wrong repository. Ansible still creates the role, because
+its password comes from the vault.
+
 WHY THIS FILE EXISTS. `test_ctester.py` simulates the database: what it
 exercises is the HTTP boundary, not the SQL. But the progression and forum
 writes are not ordinary SQL -- a data-modifying CTE feeding an INSERT, a
@@ -79,6 +86,12 @@ def apply_schema():
 
     Replaying it must have no effect -- that is what the `IF NOT EXISTS`
     clauses promise, and that is what the role does on every converge.
+
+    AND IT CARRIES THE GRANTS NOW. Applying the schema IS applying the
+    privileges, so there is nothing here to keep in sync with another
+    repository any more. The `DO` block grants nothing when `ctester_app` does
+    not exist, which is what keeps this runnable against a bare database --
+    exactly the case where only `CTESTER_DB_DSN` is set.
     """
     import psycopg
     with open(os.path.join(HERE, "app", "schema.sql"), encoding="utf-8") as fh:

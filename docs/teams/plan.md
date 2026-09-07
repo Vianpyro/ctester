@@ -259,6 +259,10 @@ python3 validate_content.py ../unittests/content
 
 docker run -d --rm --name pg -e POSTGRES_PASSWORD=x -e POSTGRES_DB=ctester \
   -p 55432:5432 postgres:16-alpine
+docker exec -i pg psql -U postgres -d ctester \
+  -c "CREATE ROLE ctester_app LOGIN PASSWORD 'y'"   # le rôle, et RIEN d'autre :
+                                                    # ses droits viennent de
+                                                    # schema.sql
 CTESTER_DB_ADMIN_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester \
 CTESTER_DB_DSN=postgresql://ctester_app:y@127.0.0.1:55432/ctester \
   python3 test_postgres.py     # LES DEUX DSN : sinon les GRANT ne sont pas

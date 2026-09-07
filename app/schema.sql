@@ -548,3 +548,117 @@ COMMIT;
 -- database restored from a backup taken before it.
 CREATE INDEX IF NOT EXISTS team_member_roster_idx
     ON team_member (assignment_id, team_id);
+
+-- --------------------------------------------------------------------------
+-- LES DROITS DU RÔLE APPLICATIF, ICI ET PAS DANS ANSIBLE.
+--
+-- ILS VIVAIENT DANS `VHome/roles/ctester/tasks/main.yml`, ET C'ÉTAIT LA
+-- MAUVAISE MOITIÉ DU DÉPÔT. Une table et ses droits sont le MÊME FAIT : une
+-- table sans son GRANT est muette, un GRANT sans sa table ne s'applique pas.
+-- Les séparer sur deux dépôts, c'est garantir qu'un jour l'un part sans
+-- l'autre -- et ça s'est produit TROIS FOIS : l'`UPDATE` du thème, la colonne
+-- `visibility` du forum, puis les cinq tables d'équipe. Les trois fois, la
+-- panne n'existait qu'en production, parce que c'est le seul endroit où le
+-- rôle applicatif est utilisé.
+--
+-- LE SIGNE QUI A TRANCHÉ : `test_postgres.py` devait RECOPIER ces GRANT pour
+-- les éprouver. Quand un harnais duplique une règle pour la tester, la règle
+-- est au mauvais endroit. Il applique maintenant ce fichier, point.
+--
+-- CE QUI RESTE À ANSIBLE, ET POURQUOI : `CREATE ROLE ctester_app LOGIN
+-- PASSWORD ...`. Le mot de passe vient du vault, et un secret n'a rien à
+-- faire dans un dépôt d'application. Le rôle est créé AVANT que ce fichier ne
+-- soit appliqué -- c'est déjà l'ordre des tâches.
+--
+-- D'OÙ LE `DO` CONDITIONNEL : sans rôle, on ne grante rien plutôt que de
+-- faire échouer tout le fichier sous `ON_ERROR_STOP=1`. C'est ce qui garde
+-- `schema.sql` applicable sur une base de test nue, ce qu'il a toujours
+-- promis. `EXECUTE` parce que PL/pgSQL n'exécute pas une commande utilitaire
+-- autrement.
+--
+-- JAMAIS UN GRANT SUR LE SCHÉMA, toujours table par table : `GRANT ... ON ALL
+-- TABLES IN SCHEMA public` couvrirait d'avance une table pas encore écrite,
+-- et le jour où on en ajoute une par erreur, elle serait déjà ouverte.
+--
+-- `test_ctester.py::test_chaque_table_a_ses_droits` refuse une table qui
+-- n'apparaît dans aucun GRANT ci-dessous. Ajouter une table sans ses droits
+-- fait donc échouer la suite, au lieu d'échouer en production dans six mois.
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ctester_app') THEN
+        RETURN;
+    END IF;
+
+    -- CE QUI S'ÉCRASE : un brouillon, un état, une tentative, un thème. Ce
+    -- sont les seules tables du schéma qui ne sont pas en ajout seul, et
+    -- l'`UPDATE` y est nécessaire (`ON CONFLICT ... DO UPDATE`).
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE'
+            ' ON exercise_draft, exercise_state, practice_attempt,'
+            '    display_preference'
+            ' TO ctester_app';
+
+    -- LA PROGRESSION EST EN AJOUT SEUL, ET C'EST POSTGRES QUI LE TIENT : pas
+    -- d'UPDATE dans ce GRANT. L'API n'en a pas besoin -- ses deux écritures
+    -- sont des `INSERT ... ON CONFLICT DO NOTHING` -- donc une correction
+    -- d'XP a posteriori demande un accès d'administration explicite, pas une
+    -- ligne de Python. DELETE reste : « Supprimer mes données » couvre ces
+    -- tables aussi.
+    EXECUTE 'GRANT SELECT, INSERT, DELETE'
+            ' ON progress_event, xp_transaction, achievement_unlocked'
+            ' TO ctester_app';
+
+    -- LE FORUM EST EN AJOUT SEUL LUI AUSSI, à deux colonnes près (plus bas).
+    -- Un message est immuable : son auteur le supprime, un modérateur le
+    -- masque, PERSONNE ne le réécrit.
+    --
+    -- ET CE GRANT N'AJOUTE RIEN SUR LES TABLES DE PROGRESSION, délibérément :
+    -- le forum n'accorde pas d'XP, ne débloque pas de succès et ne lit pas la
+    -- progression. Une fonctionnalité sociale qui gagnerait au passage un
+    -- privilège sur les tables de valeur serait exactement la dérive que la
+    -- phase 1 a fermée.
+    EXECUTE 'GRANT SELECT, INSERT, DELETE'
+            ' ON forum_message, forum_report, forum_moderation, forum_helpful'
+            ' TO ctester_app';
+
+    -- L'IDENTITÉ CHOISIE EST UN JOURNAL : changer de nom ajoute une ligne, la
+    -- dernière fait foi. Sans `UPDATE`, aucune requête distraite ne peut
+    -- réécrire le nom que quelqu'un s'est donné.
+    EXECUTE 'GRANT SELECT, INSERT, DELETE'
+            ' ON forum_profile, forum_reported_name'
+            ' TO ctester_app';
+
+    -- UN GRANT DE COLONNE, PAS DE TABLE. `UPDATE (hidden, visibility)`
+    -- autorise exactement deux gestes : masquer/rétablir pour la modération,
+    -- et ouvrir sa propre question privée à son groupe pour son auteur. Avec
+    -- un `UPDATE` de table, une ligne de Python distraite pourrait réécrire
+    -- le texte de quelqu'un, ou changer l'auteur d'un message.
+    -- `test_postgres.py` éprouve les DEUX moitiés -- que ces deux colonnes
+    -- passent, et que `text` et `account` soient refusés.
+    EXECUTE 'GRANT UPDATE (hidden, visibility) ON forum_message TO ctester_app';
+
+    -- LE LISTAGE DES ÉQUIPES EST EN LECTURE SEULE, et c'est CE GRANT qui rend
+    -- vraie la phrase « l'appartenance est autoritaire ». Rejoindre une
+    -- équipe n'est pas « refusé par un `if` » : c'est inexprimable, parce
+    -- qu'il n'y a pas d'INSERT. `import_teams.py` écrit avec le DSN
+    -- d'administration, et c'est le seul chemin.
+    EXECUTE 'GRANT SELECT ON team TO ctester_app';
+
+    -- DELETE, ET RIEN D'AUTRE : « Supprimer mes données » retire
+    -- l'appartenance de son PROPRE compte. Pas d'INSERT, pas d'UPDATE --
+    -- personne ne rejoint une équipe, et personne n'en change.
+    EXECUTE 'GRANT SELECT, DELETE ON team_member TO ctester_app';
+
+    -- Le document partagé et la remise s'écrasent (`ON CONFLICT DO UPDATE`),
+    -- comme le brouillon et le thème. Pas de DELETE : ils appartiennent à
+    -- l'ÉQUIPE, et effacer un membre ne doit pas emporter le devoir de trois
+    -- autres personnes -- c'est pour ça qu'ils sont absents de `forget()`.
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE'
+            ' ON team_document, team_submission TO ctester_app';
+
+    -- L'historique est en ajout seul, comme le forum : une révision est un
+    -- fait, et son auteur n'est pas une colonne à corriger après coup. DELETE
+    -- reste pour « Supprimer mes données ».
+    EXECUTE 'GRANT SELECT, INSERT, DELETE ON team_revision TO ctester_app';
+END
+$$;
