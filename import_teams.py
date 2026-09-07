@@ -67,7 +67,13 @@ def read_roster(path):
         for number, row in enumerate(csv.DictReader(fh), 2):
             team_id = (row.get("team_id") or "").strip()
             account = (row.get("account") or "").strip()
-            label = (row.get("label") or "").strip() or None
+            # LE LIBELLE EST DU TEXTE LIBRE, et il finit dans du SQL genere
+            # (`--sql`) : les caracteres de controle deviennent des espaces
+            # plutot que de disparaitre -- retirer un saut de ligne collerait
+            # deux mots ensemble, ce qui change le nom au lieu de le nettoyer.
+            label = " ".join("".join(
+                c if c >= " " else " " for c in (row.get("label") or "")).split())
+            label = label[:64] or None
             raw_group = (row.get("group_number") or "").strip()
             if not team_id or not account:
                 errors.append("line %d: team_id and account are required" % number)
@@ -128,6 +134,95 @@ def sizes(rows):
     return dict(counts)
 
 
+def statements(rows, assignment_id):
+    """[(sql, params)] -- LE listage, en instructions. UNE seule source.
+
+    `load()` les execute avec psycopg, `--sql` les imprime pour psql. Deux
+    chemins qui ecriraient chacun leur SQL finiraient par ne plus ecrire la
+    meme chose, et celui qui divergerait serait celui qu'on utilise le jour ou
+    l'autre ne marche pas.
+    """
+    equipes = {}
+    for team_id, group_number, label, _account in rows:
+        equipes[team_id] = (group_number, label)
+    sql = []
+    for team_id, (group_number, label) in sorted(equipes.items()):
+        sql.append((
+            "INSERT INTO team (team_id, assignment_id, group_number, label)"
+            " VALUES (%s, %s, %s, %s)"
+            " ON CONFLICT (team_id, assignment_id) DO UPDATE SET"
+            "   group_number = EXCLUDED.group_number,"
+            "   label = EXCLUDED.label",
+            (team_id, assignment_id, group_number, label)))
+    # THE FILE IS THE ROSTER: a membership that is no longer in it goes.
+    # Scoped to THIS assignment -- another assignment's teams are not this
+    # file's business.
+    sql.append((
+        "DELETE FROM team_member"
+        " WHERE assignment_id = %s AND account <> ALL(%s)",
+        (assignment_id, [account for _, _, _, account in rows])))
+    for team_id, _group, _label, account in rows:
+        # A STUDENT MOVED BETWEEN TEAMS IS AN UPDATE, not a duplicate: the
+        # primary key is (assignment_id, account), so the conflict target is
+        # the student, and what changes is their team.
+        sql.append((
+            "INSERT INTO team_member (team_id, assignment_id, account)"
+            " VALUES (%s, %s, %s)"
+            " ON CONFLICT (assignment_id, account) DO UPDATE SET"
+            "   team_id = EXCLUDED.team_id",
+            (team_id, assignment_id, account)))
+    return sql
+
+
+def _litteral(valeur):
+    """Une valeur, citee pour psql.
+
+    `standard_conforming_strings` est a `on` depuis PostgreSQL 9.1 : doubler
+    l'apostrophe EST tout l'echappement, une barre oblique inverse reste une
+    barre oblique inverse. Les trois autres formes ne viennent pas d'un
+    fichier -- un entier valide par `read_roster`, un tableau de comptes, ou
+    l'absence de libelle.
+    """
+    if valeur is None:
+        return "NULL"
+    if isinstance(valeur, bool):
+        raise ValueError("un booleen n'a rien a faire dans ce listage")
+    if isinstance(valeur, int):
+        return str(valeur)
+    if isinstance(valeur, list):
+        return "ARRAY[" + ", ".join(_litteral(v) for v in valeur) + "]::text[]"
+    return "'" + str(valeur).replace("'", "''") + "'"
+
+
+def to_sql(rows, assignment_id):
+    """Le listage en script pour `psql`. SANS psycopg, ET C'EST TOUT L'INTERET.
+
+    Le python de l'hote du Dell n'a AUCUN paquet tiers, deliberement (voir
+    `test_le_controle_de_l_hote_ne_depend_d_aucun_tiers`). Installer psycopg
+    la-bas pour charger un listage deux fois par session mettrait une
+    dependance sur la seule machine que le projet garde propre. Donc :
+
+        python3 import_teams.py devoir roster.csv --sql \
+          | docker exec -i ctester-postgres psql -U postgres -d ctester \
+              -v ON_ERROR_STOP=1
+
+    TOUTES LES VERIFICATIONS DE `read_roster()` TOURNENT QUAND MEME -- elles
+    sont en Python pur, et c'est la moitie qui compte : le listage est refuse,
+    en entier, avant qu'une seule ligne ne soit imprimee.
+
+    UNE SEULE TRANSACTION, comme `load()` : ou bien l'appartenance de ce devoir
+    est ce que dit le fichier, ou bien la base n'a pas bouge.
+    """
+    lignes = ["BEGIN;"]
+    for sql, params in statements(rows, assignment_id):
+        rendu = sql
+        for valeur in params:
+            rendu = rendu.replace("%s", _litteral(valeur), 1)
+        lignes.append(rendu + ";")
+    lignes.append("COMMIT;")
+    return "\n".join(lignes) + "\n"
+
+
 def load(rows, assignment_id, dsn, dry_run=False):
     """Writes the roster in ONE transaction. Returns (teams, members, removed).
 
@@ -138,40 +233,17 @@ def load(rows, assignment_id, dsn, dry_run=False):
     """
     import psycopg
 
-    teams = {}
-    for team_id, group_number, label, _account in rows:
-        teams[team_id] = (group_number, label)
+    equipes = {team_id for team_id, _, _, _ in rows}
+    removed = 0
     with psycopg.connect(dsn) as cx:
         with cx.cursor() as cur:
-            for team_id, (group_number, label) in sorted(teams.items()):
-                cur.execute(
-                    "INSERT INTO team (team_id, assignment_id, group_number, label)"
-                    " VALUES (%s, %s, %s, %s)"
-                    " ON CONFLICT (team_id, assignment_id) DO UPDATE SET"
-                    "   group_number = EXCLUDED.group_number,"
-                    "   label = EXCLUDED.label",
-                    (team_id, assignment_id, group_number, label))
-            # THE FILE IS THE ROSTER: a membership that is no longer in it goes.
-            # Scoped to THIS assignment -- another assignment's teams are not
-            # this file's business.
-            cur.execute(
-                "DELETE FROM team_member"
-                " WHERE assignment_id = %s AND account <> ALL(%s)",
-                (assignment_id, [account for _, _, _, account in rows]))
-            removed = cur.rowcount
-            for team_id, _group, _label, account in rows:
-                # A STUDENT MOVED BETWEEN TEAMS IS AN UPDATE, not a duplicate:
-                # the primary key is (assignment_id, account), so the conflict
-                # target is the student, and what changes is their team.
-                cur.execute(
-                    "INSERT INTO team_member (team_id, assignment_id, account)"
-                    " VALUES (%s, %s, %s)"
-                    " ON CONFLICT (assignment_id, account) DO UPDATE SET"
-                    "   team_id = EXCLUDED.team_id",
-                    (team_id, assignment_id, account))
+            for sql, params in statements(rows, assignment_id):
+                cur.execute(sql, params)
+                if sql.startswith("DELETE"):
+                    removed = cur.rowcount
             if dry_run:
                 cx.rollback()
-    return len(teams), len(rows), removed
+    return len(equipes), len(rows), removed
 
 
 def main(argv=None):
@@ -180,10 +252,20 @@ def main(argv=None):
     parser.add_argument("roster", help="CSV: team_id,group_number,label,account")
     parser.add_argument("--dry-run", action="store_true",
                         help="check and roll back, writing nothing")
+    parser.add_argument("--sql", action="store_true",
+                        help="print the script for psql instead of connecting"
+                             " (needs no psycopg -- see to_sql)")
     args = parser.parse_args(argv)
+    # `--sql` N'A BESOIN NI DE DSN NI DE PSYCOPG : c'est tout son interet sur
+    # une machine que le projet garde sans dependance tierce. Le listage est
+    # verifie AVANT d'imprimer quoi que ce soit.
+    if args.sql:
+        sys.stdout.write(to_sql(read_roster(args.roster), args.assignment))
+        return 0
     if not DSN:
         return _fail("CTESTER_DB_ADMIN_DSN is empty: this script writes the "
-                     "roster, so it needs the owner's connection string.")
+                     "roster, so it needs the owner's connection string. "
+                     "Or use --sql and pipe it into psql.")
     rows = read_roster(args.roster)
     for team_id, members in sorted(sizes(rows).items()):
         print("%-16s %d member(s)" % (team_id, members))

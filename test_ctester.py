@@ -3967,6 +3967,42 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
                 assert attendu in str(exc), (attendu, str(exc))
             else:
                 raise AssertionError("listage invalide accepte : " + repr(texte))
+
+        # `--sql` : LE MEME LISTAGE, SANS PSYCOPG. Le python de l'hote du Dell
+        # n'a aucun paquet tiers (c'est ce que
+        # `test_le_controle_de_l_hote_ne_depend_d_aucun_tiers` protege), et y
+        # installer psycopg pour charger un listage deux fois par session
+        # mettrait une dependance sur la seule machine que le projet garde
+        # propre. La sortie se passe dans `psql`.
+        script = module.to_sql(lignes, "devoir")
+        assert script.startswith("BEGIN;") and script.rstrip().endswith("COMMIT;"), \
+            script
+        # UNE SEULE SOURCE POUR LES DEUX CHEMINS : `load()` execute exactement
+        # ces instructions-la. Deux chemins qui ecriraient chacun leur SQL
+        # finiraient par ne plus ecrire la meme chose, et celui qui divergerait
+        # serait celui qu'on utilise le jour ou l'autre ne marche pas.
+        assert len(module.statements(lignes, "devoir")) == script.count(";") - 2
+        # L'APOSTROPHE EST DOUBLEE, et c'est la seule chose a echapper :
+        # `standard_conforming_strings` est a `on` depuis PostgreSQL 9.1, donc
+        # une barre oblique inverse reste une barre oblique inverse.
+        hostile = module.read_roster(ecrire(
+            entete + "g1,4,L'equipe \\ 1,sub-a\n"))
+        rendu = module.to_sql(hostile, "devoir")
+        assert "'L''equipe \\ 1'" in rendu, rendu
+        # ET RIEN N'EST IMPRIME AVANT LA VERIFICATION : un listage refuse ne
+        # produit pas un script a moitie bon qu'on passerait dans psql par
+        # reflexe.
+        try:
+            module.to_sql(module.read_roster(ecrire(entete + "1,4,X,sub-a\n"
+                                                    + "1,6,X,sub-b\n")), "devoir")
+        except SystemExit as exc:
+            assert "global to the assignment" in str(exc)
+        else:
+            raise AssertionError("un listage refuse a quand meme produit du SQL")
+        # LE LIBELLE EST BORNE : il finit dans du SQL genere, et un saut de
+        # ligne venu d'un tableur y ferait deux instructions.
+        coupe = module.read_roster(ecrire(entete + 'g1,4,"a\nb",sub-a\n'))
+        assert coupe[0][2] == "a b", coupe
     finally:
         shutil.rmtree(dossier)
 

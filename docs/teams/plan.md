@@ -62,9 +62,17 @@ n'est donc pas « refusé par un `if` », c'est **impossible à exprimer**.
 ## Le listage est chargé par l'enseignant
 
 ```sh
+# Sur le Dell, dont le python de l'hôte n'a aucun paquet tiers :
+python3 import_teams.py devoir roster.csv --sql \
+  | docker exec -i ctester-postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1
+
+# Ailleurs, avec psycopg :
 CTESTER_DB_ADMIN_DSN=postgresql://postgres:…@host/ctester \
   python3 import_teams.py devoir roster.csv --dry-run
 ```
+
+Les deux chemins lisent `statements()` : **une seule source** d'instructions, parce que celui qui dérive serait celui qu'on utilise
+le jour où l'autre ne marche pas.
 
 CSV : `team_id,group_number,label,account`, où `account` est le `sub` opaque
 de Rauthy — jamais un nom, jamais un matricule. **Tout le fichier est

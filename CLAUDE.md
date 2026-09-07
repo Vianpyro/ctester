@@ -1203,8 +1203,25 @@ Les anciens liens cessent immédiatement de fonctionner.
 ouvre, et à chaque correction de la liste) :
 
 ```sh
-CTESTER_DB_ADMIN_DSN=postgresql://postgres:...@127.0.0.1/ctester   python3 import_teams.py devoir roster.csv --dry-run   # verifie, n'ecrit rien
+# SUR LE DELL, `--sql` : le python de l'hôte n'a AUCUN paquet tiers, et y
+# installer psycopg pour deux chargements par session mettrait une dépendance
+# sur la seule machine que le projet garde propre. Toutes les vérifications de
+# `read_roster()` tournent quand même -- elles sont en Python pur, et un
+# listage refusé n'imprime pas une ligne.
+python3 import_teams.py devoir roster.csv --sql   | docker exec -i ctester-postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1
+
+# Ailleurs (avec psycopg), le même fichier par la connexion directe :
+CTESTER_DB_ADMIN_DSN=postgresql://postgres:...@127.0.0.1/ctester   python3 import_teams.py devoir roster.csv --dry-run   # vérifie, n'écrit rien
 CTESTER_DB_ADMIN_DSN=... python3 import_teams.py devoir roster.csv
+```
+
+Les deux chemins passent par `statements()` — **une seule source d'instructions**,
+sinon celui qui dérive est celui qu'on utilise le jour où l'autre ne marche pas.
+Le `sub` d'un compte se lit dans Rauthy, ou :
+
+```sh
+docker exec ctester-postgres psql -U postgres -d ctester -tAc   "SELECT DISTINCT account FROM exercise_state"
+docker exec ctester-postgres psql -U postgres -d ctester -c   "SELECT * FROM team_member"      # ce qui est chargé aujourd'hui
 ```
 
 Le CSV fait autorité : une appartenance qui n'y est plus est retirée. Les
