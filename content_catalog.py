@@ -28,6 +28,10 @@ RELEASE_STATES = frozenset(("available", "scheduled", "archived"))
 # the assignment file says so. This only refuses a typo that would turn a
 # team into a section.
 TEAM_MAX = 8
+# COMBIEN D'ÉQUIPES UN GROUPE PEUT DÉCLARER. Une section de trente en a une
+# dizaine ; la borne refuse le zéro de trop qui ferait dessiner mille lignes
+# dans une liste que personne ne lirait.
+TEAM_COUNT_MAX = 99
 # The ZIP's top directory. A PLAIN NAME, checked here rather than when the
 # archive is built: an assignment file is content, and content is the one
 # place where a `../` would otherwise become a path.
@@ -325,11 +329,17 @@ def _exercise(root, dirname, known_skills, errors):
 
 
 def _team(value, where, errors):
-    """`{"min": 3, "max": 4}` -- or None, which means "individual".
+    """`{"min": 3, "max": 4, "count": 12}` -- or None, which means "individual".
 
     The bounds are the ASSIGNMENT's, not the platform's: TCH009 asks for three
     or four, another course would ask for two. `TEAM_MAX` only refuses the
     typo that would turn a team into a section.
+
+    `count` IS HOW MANY TEAMS EACH COURSE GROUP HAS, and it exists so the
+    numbering can MATCH MOODLE. Students pick « Équipe 7 » from a list, and
+    « Équipe 7 » has to be the same team on both sides -- so the count is a
+    fact about the course, written in the content, not something CTester
+    invents as people arrive. Teams beyond it simply do not exist.
     """
     if value is None:
         return None
@@ -337,7 +347,8 @@ def _team(value, where, errors):
         errors.append("%s: team must be an object" % where)
         return None
     low, high = value.get("min", 1), value.get("max")
-    for label, number in (("min", low), ("max", high)):
+    count = value.get("count")
+    for label, number in (("min", low), ("max", high), ("count", count)):
         if not isinstance(number, int) or isinstance(number, bool):
             errors.append("%s: team.%s must be an integer" % (where, label))
             return None
@@ -345,7 +356,11 @@ def _team(value, where, errors):
         errors.append("%s: team sizes must satisfy 1 <= min <= max <= %d"
                       % (where, TEAM_MAX))
         return None
-    return {"min": low, "max": high}
+    if not 1 <= count <= TEAM_COUNT_MAX:
+        errors.append("%s: team.count must satisfy 1 <= count <= %d"
+                      % (where, TEAM_COUNT_MAX))
+        return None
+    return {"min": low, "max": high, "count": count}
 
 
 def _handin(value, where, items, exercises, errors):

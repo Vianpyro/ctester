@@ -4,67 +4,63 @@
     CTESTER_DB_ADMIN_DSN=postgresql://postgres:...@host/ctester \\
       python3 import_teams.py devoir roster.csv
 
-THIS SCRIPT IS THE ONLY WAY AN ACCOUNT GETS ONTO A TEAM, and that is the
-point rather than a limitation. The API's role has `SELECT` on `team` and
-`SELECT, DELETE` on `team_member` -- no INSERT, no UPDATE (see the GRANT in
-VHome). So there is no request, and no bug in a request handler, that can put
-somebody on a team: a student who could choose their team could choose the one
-whose work is furthest along, and "one submission per team" would stop meaning
-anything.
+THIS IS NOT THE MAIN PATH. Students pick their own team from a numbered list,
+the way they already do on Moodle -- and the numbering matches, which is the
+whole point. What is left here is the CORRECTION tool: move someone after the
+assignment has opened (when the lists are frozen), place a student who never
+picked one, undo a mistake.
 
-    A GROUP IS NOT A TEAM. `group_number` here is the course section the
-    instructor assigned; it is written on the team, not read from
-    `forum_profile`, whose group number the STUDENT types in for themselves.
-    The two are never compared.
-
-THIS IS NO LONGER THE MAIN PATH, AND THAT IS THE POINT. Students form their
-own teams -- create, share a code, join, and everyone confirms -- because the
-instructor cannot write a roster: CTester never shows him a `sub`. What is
-left here is the CORRECTION tool: unblock a team, force a composition, undo a
-mistake. A team written by hand is SEALED on arrival, with no invitation
-code: it carries the instructor's authority already, and asking its members
-to approve a composition they did not choose would be asking them to ratify
-somebody else's decision.
+    A GROUP IS NOT A TEAM, and teams are numbered WITHIN a group. « Équipe 7 »
+    of group 04 and « Équipe 7 » of group 06 are two teams, with two
+    documents; the handle carries both (`g04-e07`), and this script builds it
+    exactly the way the join route does -- one construction, or the two would
+    eventually name different teams with the same words.
 
 THE CSV IS THE ROSTER, AND IT IS AUTHORITATIVE. Memberships for this
 assignment that are not in the file are removed; teams that are not in it are
-left alone, because deleting a team would orphan the documents it wrote. To
-retire a team, remove its members and delete the row by hand -- a destructive
-step deserves a deliberate one.
+left alone, because deleting a team would orphan the documents it wrote and
+renumber everything after it.
 
 Columns, with a header line:
 
-    team_id,group_number,label,account
-    g04-e01,4,Équipe 1,9f3c...-sub-from-rauthy
-    g04-e01,4,Équipe 1,2b71...
-    g04-e02,4,Équipe 2,c0d9...
+    group_number,number,account
+    4,1,9f3c...-sub-from-rauthy
+    4,1,2b71...
+    6,3,c0d9...
 
 `account` IS THE OPAQUE OIDC `sub`, not a name, not a student number, not an
-email -- this database has never held any of those and this feature does not
-start. Rauthy's admin console lists them; so does `SELECT DISTINCT account
-FROM exercise_state` once a student has submitted anything.
+email -- this database has never held any of those, and that is precisely why
+the instructor cannot write this file from scratch. Rauthy's admin console
+lists them; so does `SELECT DISTINCT account FROM exercise_state`.
 """
 
 import argparse
 import collections
 import csv
 import os
-import re
 import sys
 
 DSN = os.environ.get("CTESTER_DB_ADMIN_DSN", "") or os.environ.get("CTESTER_DB_DSN", "")
 
-# A TEAM ID IS A HANDLE, NOT A LABEL, and it is bounded HERE because it is the
-# one value from this file that travels furthest: it keys the shared document,
-# names the collaboration room, and ends up in the archive's
-# `Content-Disposition` header. A quote or a newline in there would be header
-# injection, delivered by a spreadsheet. What students read is `label`, which
-# is free text and only ever crosses as JSON.
-TEAM_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,62}\Z")
+# Ce qu'une équipe s'appelle. Le mot est celui de l'énoncé, le numéro celui de
+# Moodle -- et cette constante DOIT dire la même chose que
+# `services/teams.TEAM_NAME`, sinon deux chemins d'écriture donneraient deux
+# noms à la même équipe.
+TEAM_NAME = "Équipe %d"
+
+
+def team_handle(group_number, number):
+    """`g04-e07`. LA MÊME CONSTRUCTION QUE `services/teams.team_handle()`.
+
+    Recopiée plutôt qu'importée : ce script tourne avec le python de l'HÔTE,
+    qui ne voit pas `app/` (voir `test_le_controle_de_l_hote_ne_depend_d_aucun_tiers`).
+    Un test compare les deux, pour que la copie ne dérive pas.
+    """
+    return "g%02d-e%02d" % (int(group_number), int(number))
 
 
 def read_roster(path):
-    """[(team_id, group_number, label, account)] -- or raise with what is wrong.
+    """[(group_number, number, account)] -- ou lève avec tout ce qui cloche.
 
     EVERY LINE IS CHECKED BEFORE ANY LINE IS WRITTEN. A roster half-loaded
     because line 30 had a typo is worse than one not loaded at all: the
@@ -73,63 +69,34 @@ def read_roster(path):
     """
     rows, errors = [], []
     with open(path, newline="", encoding="utf-8-sig") as fh:
-        for number, row in enumerate(csv.DictReader(fh), 2):
-            team_id = (row.get("team_id") or "").strip()
+        for line, row in enumerate(csv.DictReader(fh), 2):
             account = (row.get("account") or "").strip()
-            # LE LIBELLE EST DU TEXTE LIBRE, et il finit dans du SQL genere
-            # (`--sql`) : les caracteres de controle deviennent des espaces
-            # plutot que de disparaitre -- retirer un saut de ligne collerait
-            # deux mots ensemble, ce qui change le nom au lieu de le nettoyer.
-            label = " ".join("".join(
-                c if c >= " " else " " for c in (row.get("label") or "")).split())
-            label = label[:64] or None
-            raw_group = (row.get("group_number") or "").strip()
-            if not team_id or not account:
-                errors.append("line %d: team_id and account are required" % number)
+            groupe = (row.get("group_number") or "").strip()
+            numero = (row.get("number") or "").strip()
+            if not account:
+                errors.append("line %d: account is required" % line)
                 continue
-            if not TEAM_ID_RE.match(team_id):
-                errors.append("line %d: team_id must be letters, digits, "
-                              "'.', '_' or '-' (got %r)" % (number, team_id[:32]))
+            if not groupe.isdigit() or not 1 <= int(groupe) <= 99:
+                errors.append("line %d: group_number must be 1..99" % line)
                 continue
-            if not raw_group.isdigit() or not 1 <= int(raw_group) <= 99:
-                errors.append("line %d: group_number must be 1..99" % number)
+            if not numero.isdigit() or not 1 <= int(numero) <= 99:
+                errors.append("line %d: number must be 1..99" % line)
                 continue
             if len(account) > 128:
-                errors.append("line %d: account is too long to be a `sub`" % number)
+                errors.append("line %d: account is too long to be a `sub`" % line)
                 continue
-            rows.append((team_id, int(raw_group), label, account))
+            rows.append((int(groupe), int(numero), account))
     if not rows:
         errors.append("the roster is empty")
     # ONE TEAM PER ACCOUNT, checked here as well as by the primary key. The
     # constraint would refuse the second row with a message about an index;
     # this one names the student's line.
     seen = {}
-    for team_id, _group, _label, account in rows:
-        if seen.setdefault(account, team_id) != team_id:
+    for groupe, numero, account in rows:
+        equipe = team_handle(groupe, numero)
+        if seen.setdefault(account, equipe) != equipe:
             errors.append("%s appears on two teams (%s and %s)"
-                          % (account[:12] + "…", seen[account], team_id))
-    # A `team_id` IS GLOBAL TO THE ASSIGNMENT, NOT RELATIVE TO A GROUP -- the
-    # primary key is (team_id, assignment_id), and `group_number` is not in it.
-    # So `1,4,...` and `1,6,...` are NOT two independent "team 1"s: they are ONE
-    # team straddling two groups, sharing one document, with whichever group
-    # number was written last. That is the quietest way this roster can go
-    # wrong, and Postgres cannot see it -- both lines are perfectly valid.
-    #
-    # THE FIX IS A NAMING CONVENTION, and this refusal is what makes it one:
-    # `g04-e01` and `g06-e01` carry the group in the handle. `label` is free to
-    # read "Équipe 1" in both -- it is what students see, and it never has to
-    # be unique.
-    groupes = {}
-    for team_id, group, _label, _account in rows:
-        if groupes.setdefault(team_id, group) != group:
-            errors.append(
-                "team_id %r is used by group %d AND group %d -- a team id is "
-                "global to the assignment, so these would be ONE team sharing "
-                "one document. Prefix it with the group (g%02d-%s, g%02d-%s); "
-                "the `label` may stay the same in both."
-                % (team_id, groupes[team_id], group,
-                   groupes[team_id], team_id, group, team_id))
-            groupes[team_id] = group
+                          % (account[:12] + "\u2026", seen[account], equipe))
     if errors:
         raise SystemExit("roster refused, nothing was written:\n- "
                          + "\n- ".join(errors))
@@ -139,64 +106,50 @@ def read_roster(path):
 def sizes(rows):
     """{team_id: members} -- what the caller prints, and checks against the
     assignment's own `team.min`/`team.max` if it wants to."""
-    counts = collections.Counter(team_id for team_id, _, _, _ in rows)
-    return dict(counts)
+    return dict(collections.Counter(
+        team_handle(groupe, numero) for groupe, numero, _ in rows))
 
 
 def statements(rows, assignment_id):
     """[(sql, params)] -- LE listage, en instructions. UNE seule source.
 
-    `load()` les execute avec psycopg, `--sql` les imprime pour psql. Deux
-    chemins qui ecriraient chacun leur SQL finiraient par ne plus ecrire la
-    meme chose, et celui qui divergerait serait celui qu'on utilise le jour ou
+    `load()` les exécute avec psycopg, `--sql` les imprime pour psql. Deux
+    chemins qui écriraient chacun leur SQL finiraient par ne plus écrire la
+    même chose, et celui qui divergerait serait celui qu'on utilise le jour où
     l'autre ne marche pas.
     """
     equipes = {}
-    for team_id, group_number, label, _account in rows:
-        equipes[team_id] = (group_number, label)
+    for groupe, numero, _account in rows:
+        equipes[team_handle(groupe, numero)] = (groupe, numero)
     sql = []
-    for team_id, (group_number, label) in sorted(equipes.items()):
-        # SCELLÉE D'OFFICE, et c'est le seul endroit où ça se fait sans que
-        # les membres aient confirmé. Une équipe que l'enseignant écrit à la
-        # main porte DÉJÀ son autorité : demander à ses membres d'approuver
-        # une composition qu'ils n'ont pas choisie serait leur faire valider
-        # une décision qui n'était pas la leur.
-        #
-        # PAS DE CODE D'INVITATION : elle est close en naissant, il n'ouvrirait
-        # rien. C'est ce qui distingue les deux chemins -- les étudiants se
-        # forment avec un code, l'enseignant tranche sans.
+    for team_id, (groupe, numero) in sorted(equipes.items()):
+        # `DO NOTHING` PLUTÔT QUE `DO UPDATE` : une équipe qui existe déjà a
+        # peut-être un document, et son numéro est celui de Moodle. Rien à
+        # corriger dessus -- ce que ce script corrige, ce sont les
+        # APPARTENANCES.
         sql.append((
             "INSERT INTO team"
-            "   (team_id, assignment_id, group_number, label, sealed_at)"
-            " VALUES (%s, %s, %s, %s, now())"
-            " ON CONFLICT (team_id, assignment_id) DO UPDATE SET"
-            "   group_number = EXCLUDED.group_number,"
-            "   label = EXCLUDED.label,"
-            "   sealed_at = COALESCE(team.sealed_at, now()),"
-            "   invite_code = NULL",
-            (team_id, assignment_id, group_number, label)))
+            "   (team_id, assignment_id, group_number, number, label)"
+            " VALUES (%s, %s, %s, %s, %s)"
+            " ON CONFLICT (team_id, assignment_id) DO NOTHING",
+            (team_id, assignment_id, groupe, numero, TEAM_NAME % numero)))
     # THE FILE IS THE ROSTER: a membership that is no longer in it goes.
     # Scoped to THIS assignment -- another assignment's teams are not this
     # file's business.
     sql.append((
         "DELETE FROM team_member"
         " WHERE assignment_id = %s AND account <> ALL(%s)",
-        (assignment_id, [account for _, _, _, account in rows])))
-    for team_id, _group, _label, account in rows:
+        (assignment_id, [account for _, _, account in rows])))
+    for groupe, numero, account in rows:
         # A STUDENT MOVED BETWEEN TEAMS IS AN UPDATE, not a duplicate: the
         # primary key is (assignment_id, account), so the conflict target is
         # the student, and what changes is their team.
-        # `locked_at` POSÉ AUSSI : sur une équipe déjà scellée, un membre sans
-        # confirmation serait un état que rien ne peut plus résoudre -- on ne
-        # confirme plus une équipe close.
         sql.append((
-            "INSERT INTO team_member"
-            "   (team_id, assignment_id, account, locked_at)"
-            " VALUES (%s, %s, %s, now())"
+            "INSERT INTO team_member (team_id, assignment_id, account)"
+            " VALUES (%s, %s, %s)"
             " ON CONFLICT (assignment_id, account) DO UPDATE SET"
-            "   team_id = EXCLUDED.team_id,"
-            "   locked_at = COALESCE(team_member.locked_at, now())",
-            (team_id, assignment_id, account)))
+            "   team_id = EXCLUDED.team_id",
+            (team_handle(groupe, numero), assignment_id, account)))
     return sql
 
 
@@ -259,7 +212,7 @@ def load(rows, assignment_id, dsn, dry_run=False):
     """
     import psycopg
 
-    equipes = {team_id for team_id, _, _, _ in rows}
+    equipes = {team_handle(groupe, numero) for groupe, numero, _ in rows}
     removed = 0
     with psycopg.connect(dsn) as cx:
         with cx.cursor() as cur:
@@ -275,7 +228,7 @@ def load(rows, assignment_id, dsn, dry_run=False):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("assignment", help="the published assignment's id")
-    parser.add_argument("roster", help="CSV: team_id,group_number,label,account")
+    parser.add_argument("roster", help="CSV: group_number,number,account")
     parser.add_argument("--dry-run", action="store_true",
                         help="check and roll back, writing nothing")
     parser.add_argument("--sql", action="store_true",

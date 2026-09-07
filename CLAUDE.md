@@ -1199,13 +1199,17 @@ ansible-playbook playbooks/ctester.yml --ask-vault-pass
 
 Les anciens liens cessent immédiatement de fonctionner.
 
-**Les équipes se forment toutes seules** : les étudiants créent, partagent un
-code, rejoignent et confirment, dans « Mon identité ». Il n'y a rien à faire
-avant le cours — et rien qui exige de connaître leurs `sub`, ce que CTester ne
-montre de toute façon jamais.
+**Les étudiants choisissent leur équipe** dans « Mon identité », dans une liste
+numérotée par groupe — la même que sur Moodle, et **les numéros doivent
+correspondre** (`team.count` dans le contenu dit combien il y en a par groupe).
+Il n'y a rien à faire avant le cours, et rien qui exige de connaître leurs
+`sub`.
 
-**`import_teams.py` est l'outil de CORRECTION**, quand une équipe est bloquée
-ou fausse et qu'il faut trancher. Ce qu'il écrit arrive scellé :
+**Les listes se figent à l'ouverture du devoir**, sans intervention : c'est la
+même date que celle qui ouvre le document.
+
+**`import_teams.py` est l'outil de CORRECTION**, quand il faut trancher après
+coup. CSV : `group_number,number,account`.
 
 ```sh
 # SUR LE DELL, `--sql` : le python de l'hôte n'a AUCUN paquet tiers, et y
@@ -1233,12 +1237,11 @@ Le CSV fait autorité : une appartenance qui n'y est plus est retirée. Les
 équipes, elles, ne sont jamais supprimées toutes seules — effacer une équipe
 orphelinerait les documents qu'elle a écrits.
 
-**Débloquer une équipe** qu'un squatteur refuse de quitter, ou dont un membre
-ne confirme jamais : c'est le seul cas qui demande l'enseignant, et il se
-règle avec le DSN d'administration (retirer la ligne de `team_member`, ou
-sceller à la main). Volontairement pas de bouton d'expulsion dans la page :
-il faudrait décider qui l'a, et à 27 étudiants qui se connaissent le problème
-se règle en parlant.
+**Placer quelqu'un après l'ouverture** — celui qui n'a rien choisi, ou qui
+s'est trompé d'équipe : c'est le seul cas qui demande l'enseignant, puisque
+les listes sont alors figées pour tout le monde. Volontairement pas de bouton
+d'expulsion dans la page : il faudrait décider qui l'a, et à 27 étudiants qui
+se connaissent le problème se règle en parlant.
 
 **Charge.** `ctester_workers` (2) = compilations simultanées = cœurs que le juge
 peut prendre au Dell (chaque conteneur est plafonné à 1 CPU). Ce sont les mêmes
@@ -1562,82 +1565,58 @@ elle vit dans `team` / `team_member`. Une seule colonne pour les deux aurait
 fait de la visibilité du forum et du contrôle d'accès d'un devoir la même
 règle, par accident.
 
-### Les équipes se forment elles-mêmes, sous protocole
+### Les équipes se choisissent dans une liste, comme sur Moodle
 
-**LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE, et c'est ce qui a fait tomber
-le premier dessin.** `import_teams.py` supposait que l'enseignant peut écrire
-« Vianney → `9f3c…` » dans un CSV. Il ne le peut pas : **CTester ne lui montre
-jamais un `sub`** — c'est le modèle de confidentialité du forum, et
-`forum_identite()` le tient jusque dans la vue d'un modérateur. Il aurait fallu
-qu'il se construise une table nom↔`sub` depuis Rauthy, c'est-à-dire exactement
-le pouvoir de désanonymisation que le reste du projet refuse. Un listage que
-personne ne peut écrire n'est pas une garantie, c'est une porte fermée sur une
-pièce vide.
+**LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE**, et c'est ce qui a fait tomber
+le premier dessin. `import_teams.py` supposait qu'il peut écrire
+« Vianney → `9f3c…` ». Il ne le peut pas : **CTester ne lui montre jamais un
+`sub`** — `forum_identite()` tient ça jusque dans la vue d'un modérateur. Il
+aurait fallu qu'il se construise une table nom↔`sub` depuis Rauthy, c'est-à-dire
+exactement le pouvoir de désanonymisation que le reste du projet refuse.
 
-**LE PROTOCOLE, en cinq gestes** : l'un crée l'équipe et reçoit un **code**, il
-le partage (Discord, en personne), les autres le saisissent, **chacun
-confirme**, et au dernier verrou l'équipe est **SCELLÉE** — le devoir s'ouvre
-alors, et pas avant.
+**LES ÉQUIPES PRÉEXISTENT, NUMÉROTÉES PAR GROUPE DE COURS**, et un étudiant
+prend une place libre dans celle qu'il veut. C'est le geste qu'il fait déjà sur
+Moodle, et **les numéros doivent correspondre** : « Équipe 7 » ici est
+« Équipe 7 » là-bas, sinon l'enseignant tient deux listes qui divergent. D'où
+`team.count` dans le contenu — combien d'équipes chaque groupe a — et une
+poignée qui porte les deux : `g04-e07`.
 
-**CE QUI REMPLACE « un étudiant ne peut pas choisir son équipe »**, et il faut
-lire les deux moitiés ensemble :
+**« Équipe 7 » DU GROUPE 04 ET « Équipe 7 » DU GROUPE 06 SONT DEUX ÉQUIPES**,
+avec deux documents. Une poignée qui ne porterait que le numéro en ferait une
+seule, et les deux sections travailleraient dans le même fichier.
 
-- une équipe **non scellée n'a accès à RIEN** (`workspace()` l'exige), donc il
-  n'y a rien à convoiter en la rejoignant ;
-- une équipe **scellée ne se rejoint plus**, donc rien à voler une fois le
-  travail commencé ;
-- et **le verrou de chacun EST son consentement** : les autres voient qui est
-  là avant de confirmer, ce qu'un listage ne demandait à personne.
+**CE QUI FERME LES ÉQUIPES EST UNE DATE QUE LE CONTENU PORTE DÉJÀ**, et c'est
+la propriété centrale : on rejoint et on quitte **tant que le devoir est
+fermé**. `joinable()` demande que le devoir soit fermé, `find_assignment()`
+qu'il soit ouvert, et **les deux lisent la même valeur** (`access` de l'entrée
+publiée). Elles sont donc mutuellement exclusives **par construction** — il
+n'existe aucun instant où l'on peut à la fois rejoindre une équipe et lire son
+document. Pas parce qu'on l'a vérifié quelque part : parce que c'est la même
+condition prise dans les deux sens.
 
-**UN VERROU VAUT POUR L'ÉTAT EXACT QU'ON A VU**, et c'est la propriété qui rend
-tout le reste honnête : **quelqu'un entre, quelqu'un part, le nom ou le groupe
-changent → TOUTES les confirmations tombent**. Sans ça, trois personnes
-confirmant une équipe de trois se retrouveraient scellées à quatre sans l'avoir
-su — leur consentement porterait sur autre chose que ce qu'elles ont signé.
+**LE GROUPE DU PROFIL DÉCIDE QUELLE LISTE ON VOIT, ET RIEN D'AUTRE.** C'est le
+numéro auto-déclaré de « Mon identité », et c'est son seul pouvoir : il ne
+donne accès à rien. Une fois dans une équipe, c'est **elle** qui porte son
+groupe (`team.group_number`), et le corriger ensuite ne déplace personne, ni
+son document. Sans groupe au profil, la liste répond en disant d'aller le
+remplir — le formulaire est juste en dessous, dans le même écran.
 
-**LE CODE EST LE CONTRÔLE D'ACCÈS, et il évite un pouvoir.** Une liste ouverte
-des équipes aurait voulu dire que n'importe qui entre, donc que quelqu'un doit
-pouvoir l'expulser, donc qu'il faut décider QUI — toute une hiérarchie pour un
-problème que six caractères n'ont pas. L'alphabet exclut `I`, `L`, `O`, `0` et
-`1` : ce code se lit à voix haute dans un laboratoire bruyant.
+**UN DEUXIÈME DESSIN A ÉTÉ ESSAYÉ ET RETIRÉ**, et le savoir évite de le
+refaire : un code d'invitation avec confirmation unanime (`invite_code`,
+`sealed_at`, `locked_at`, six routes). Il tenait, mais il ne correspondait à
+rien de ce que les étudiants font déjà — et surtout il n'était pas nécessaire,
+puisque la date d'ouverture faisait déjà le travail.
 
-**`sealed_at` EST STOCKÉ, PAS DÉRIVÉ.** Dérivé (« tous les membres ont
-confirmé »), il **dé-scellerait** une équipe dès qu'un membre utilise
-« Supprimer mes données » — rouvrant la porte sur du travail déjà fait, ce que
-tout ce dessin existe pour empêcher. Un scellement est un fait : il a eu lieu,
-à une heure, et il ne revient pas.
-
-**LE GROUPE EST CHOISI AU SCELLEMENT**, donc `team.group_number` est NULLABLE
-tant que l'équipe se forme, et le `CHECK` du schéma refuse une équipe scellée
-sans groupe. Il reste auto-déclaré — ce qui le distingue d'une devinette, c'est
-que **tous les membres l'ont approuvé** : un verrou couvre la composition ET le
-groupe.
-
-**`import_teams.py` RESTE, comme outil de CORRECTION** — débloquer une équipe,
-forcer une composition, défaire une erreur. Ce qu'il écrit arrive **scellé et
-sans code** : une équipe que l'enseignant pose porte déjà son autorité, et
-demander à ses membres d'approuver une composition qu'ils n'ont pas choisie
-serait leur faire ratifier la décision de quelqu'un d'autre.
-
-**UN DEVOIR N'EST PAS UNE COLLECTION.** Une collection est un chemin dans le
-catalogue (un titre de menu, aucune date, un exercice peut être dans deux) ; un
-devoir est un travail noté (une échéance, une archive de remise, des équipes).
-`assignments/<id>.json` est son fichier, à côté de `collections/`, validé par
-`content_catalog.discover()` et projeté dans `catalog.json`. Il RÉFÉRENCE des
-exercices, il n'en redéfinit aucun — et **un exercice n'appartient qu'à un seul
-devoir**, contrairement à une collection : deux devoirs sur un document
-partagé, ce serait deux dates et deux remises sans réponse honnête.
-
-**L'OPT-IN EST L'ABSENCE D'UN BLOC, PAS UNE VARIABLE.** Un devoir sans `team`
-est individuel ; un exercice sans `assignment` est ce qu'il a toujours été.
-Il n'y a aucun `CTESTER_TEAMS=1` : c'est le CONTENU qui active la
-fonctionnalité et le LISTAGE qui décide qui la voit. Un déploiement sans
-devoir se comporte exactement comme avant.
+**`import_teams.py` RESTE, comme outil de CORRECTION** : déplacer quelqu'un une
+fois les listes figées, placer celui qui n'a rien choisi. Son CSV est
+`group_number,number,account`, et il construit la poignée **exactement comme la
+route** — un test compare les deux fonctions, parce que la copie doit vivre
+côté hôte (le python du Dell ne voit pas `app/`).
 
 ### La chaîne d'autorisation, et il n'y a rien à falsifier
 
 ```
-jeton validé -> sub -> team_member -> team (SCELLÉE) -> assignment -> exercise
+jeton validé -> sub -> team_member -> team -> assignment (OUVERT) -> exercise
 ```
 
 Parcourue **côté serveur, à chaque requête ET à chaque ouverture de socket**,
@@ -1664,44 +1643,45 @@ l'archive ; une convention de nommage refusée à l'import coûte moins cher.
 moitié de la porte : sans elle, un membre atteindrait un document clé sur SON
 équipe et n'importe quel identifiant d'exercice.
 
-**CE QUE POSTGRES TIENT ENCORE, ET CE QU'IL NE TIENT PLUS.** La garantie
-était « rejoindre une équipe est INEXPRIMABLE, il n'y a pas d'INSERT ». Elle
-est tombée avec le listage : il fallait bien que quelqu'un puisse écrire. Ce
-qui la remplace se lit en deux moitiés, et les deux sont éprouvées :
+**CE QUE POSTGRES TIENT ENCORE, ET CE QU'IL NE TIENT PLUS.** La garantie était
+« rejoindre une équipe est INEXPRIMABLE, il n'y a pas d'INSERT ». Elle est
+tombée avec le listage : il fallait bien que quelqu'un puisse écrire. Ce qui la
+remplace se lit en trois moitiés, et les trois sont éprouvées :
 
-- **le `WHERE` de chaque écriture**, comme `forum_ouvrir_au_groupe` — on ne
-  rejoint qu'une équipe non scellée, sur présentation de son code, et une
-  équipe scellée ne se rouvre pas (`test_postgres.py::team_formation()`) ;
-- **les colonnes d'identité restent hors de portée** : un GRANT DE COLONNE, pas
-  un `UPDATE` de table. `team_member.team_id` n'est pas accordé, donc **se
-  déplacer d'équipe par un UPDATE** — qui court-circuiterait le code ET le
-  scellement — n'est pas exprimable (`team_privileges()`).
+- **la place est comptée dans le `WHERE` de l'INSERT** (`teams()` dans
+  `test_postgres.py`) — deux étudiants sur la dernière place passeraient tous
+  les deux un `if` posé côté routeur ;
+- **la date**, dans le service : `joinable()` et `find_assignment()` lisent la
+  même valeur en sens inverse ;
+- **et il n'y a AUCUN `UPDATE`** sur `team` ni sur `team_member`
+  (`team_privileges()`). Changer d'équipe, c'est en sortir et entrer ailleurs —
+  deux écritures dont chacune porte sa condition. Un `UPDATE` de `team_id` les
+  contournerait toutes les deux, la date comprise.
 
-C'est un cran plus faible qu'un privilège absent, et c'est écrit.
+**QUATRE ROUTES RÉPONDENT AVANT LE DEVOIR** — `/team/mine`, `available`,
+`join`, `leave`. Elles passent par `published_assignment()`, pas par
+`workspace()`, et c'est délibéré : les équipes se choisissent en septembre, le
+devoir ouvre en octobre. Un écran qui n'existerait qu'une fois le devoir ouvert
+ferait choisir les équipes le matin de la remise.
 
-**LES SIX ROUTES DE FORMATION RÉPONDENT AVANT LE DEVOIR** — `/team/mine`,
-`create`, `join`, `leave`, `settings`, `lock`. Elles passent par
-`published_assignment()`, pas par `workspace()`, et c'est délibéré : les
-équipes se forment en septembre, le devoir ouvre en octobre. Un écran qui
-n'existerait qu'une fois le devoir ouvert ferait former les équipes le matin
-de la remise.
+**AUCUNE D'ELLES N'OUVRE QUOI QUE CE SOIT.** Elles rendent des numéros, des
+remplissages et les coéquipiers en POSITIONS — **aucun document, aucune
+révision, aucune salle, aucune remise**. Montrer n'est pas donner, la même
+règle que le catalogue qui porte un exercice verrouillé avec sa date.
 
-**AUCUNE D'ELLES N'OUVRE QUOI QUE CE SOIT.** Elles rendent un libellé, un
-groupe, un code, les coéquipiers en POSITIONS, qui a confirmé et ce qui manque
-— **aucun document, aucune révision, aucune salle, aucune remise**. Montrer
-n'est pas donner, la même règle que le catalogue qui porte un exercice
-verrouillé avec sa date. `workspace()` reste la porte, et c'est le scellement
-qui la franchit.
+**ET `/team/available` NE NOMME PERSONNE** : « 3/4 » suffit à choisir, et
+publier les compositions ferait de ce choix un tri social sur une page.
 
 Tout ça s'affiche dans « Mon identité » (`forum.js`) : c'est l'écran « qui je
-suis », et « avec qui je remets » en fait partie.
+suis », « avec qui je remets » en fait partie, et le champ « Groupe » qui
+décide de la liste est juste en dessous.
 
 
 ### Cinq tables, et trois d'entre elles ne s'effacent pas
 
 | Table | Ce qu'elle porte | Dans `forget()` ? |
 |---|---|---|
-| `team` | l'équipe : nom, groupe, code, scellement | non — pas de colonne `account` |
+| `team` | l'équipe : son groupe, son numéro, son nom | non — pas de colonne `account` |
 | `team_member` | l'appartenance | **oui** |
 | `team_document` | le code partagé, clé sur (équipe, exercice) | non — c'est le travail de trois autres |
 | `team_revision` | l'historique signé | **oui** |

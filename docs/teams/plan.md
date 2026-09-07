@@ -11,7 +11,7 @@ comment le travail d'équipe s'y est ajouté **sans rien changer à ça**.
 | | Ce que c'est | Qui décide | Où ça vit |
 |---|---|---|---|
 | **Groupe** | la section du cours | l'enseignant (et l'étudiant se l'attribue dans son profil, pour le forum) | `forum_profile.group_number`, et `team.group_number` côté listage |
-| **Équipe** | qui remet ensemble | **les étudiants, sous protocole** (l'enseignant tranche en correction) | `team` / `team_member` |
+| **Équipe** | qui remet ensemble | **l'étudiant prend une place**, comme sur Moodle (l'enseignant tranche en correction) | `team` / `team_member` |
 | **Devoir** | un travail noté : une date, une remise, un ordre d'exercices | le contenu | `assignments/<id>.json` |
 | **Exercice** | une unité de code | le contenu | `exercises/<id>/`, inchangé |
 
@@ -44,7 +44,7 @@ un drapeau.
 ## La chaîne d'autorisation, et elle n'a qu'un sens
 
 ```
-jeton validé → sub → team_member → team (SCELLÉE) → assignment → exercise
+jeton validé → sub → team_member → team → assignment (OUVERT) → exercise
 ```
 
 Elle est parcourue **côté serveur, à chaque requête et à chaque ouverture de
@@ -54,97 +54,81 @@ modifier dans une URL, un corps JSON ou un message WebSocket.** C'est la
 même propriété que « aucun modèle ne porte de champ d'identité », étendue
 d'un cran.
 
-Et la chaîne exige une équipe **SCELLÉE** : une équipe en formation existe, a
-des membres, et n'ouvre rien. C'est ce qui remplace le privilège absent depuis
-que les équipes se forment elles-mêmes — voir plus bas.
+Ce qui remplace le privilège absent depuis que les étudiants prennent leur
+place : la place comptée dans le `WHERE` de l'INSERT, la date de fermeture, et
+**aucun `UPDATE`** sur les deux tables — voir plus bas.
 
-## Les équipes se forment elles-mêmes, sous protocole
+## Les équipes se choisissent dans une liste, comme sur Moodle
 
-**LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE, et c'est ce qui a fait tomber
-le premier dessin.** `import_teams.py` supposait que l'enseignant peut écrire
+**LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE**, et c'est ce qui a fait tomber
+le premier dessin. `import_teams.py` supposait qu'il peut écrire
 « Vianney → `9f3c…` ». Il ne le peut pas : **CTester ne lui montre jamais un
-`sub`**, et `forum_identite()` tient ça jusque dans la vue d'un modérateur. Il
-aurait fallu qu'il se construise une table nom↔`sub` depuis Rauthy —
-exactement le pouvoir de désanonymisation que le projet refuse ailleurs. Un
-listage que personne ne peut écrire n'est pas une garantie.
+`sub`**, et `forum_identite()` tient ça jusque dans la vue d'un modérateur.
 
-Le protocole, en cinq gestes :
+Les équipes préexistent, **numérotées par groupe de cours**, et un étudiant
+prend une place libre dans celle qu'il veut :
 
-| | Qui | Ce que le SQL tient |
+| | Qui | Ce que ça tient |
 |---|---|---|
-| **Créer** | un membre | l'identifiant est TIRÉ par le serveur, jamais choisi |
-| **Partager le code** | lui | 6 caractères sans `I`, `L`, `O`, `0`, `1` |
-| **Rejoindre** | les autres | `WHERE invite_code = … AND sealed_at IS NULL AND count < max` |
-| **Confirmer** | chacun | `UPDATE (locked_at)`, un GRANT de colonne |
-| **Sceller** | le dernier verrou | même instruction, `NOT EXISTS` + taille + groupe |
+| **`team.count`** | le contenu | combien d'équipes par groupe — c'est ce qui rend la numérotation comparable à Moodle |
+| **`GET /team/available`** | l'étudiant | la liste de SON groupe, avec le remplissage. **Elle ne nomme personne** |
+| **`POST /team/join`** | l'étudiant | `WHERE (SELECT count(*) …) < max` — la place est comptée dans l'INSERT |
+| **`POST /team/leave`** | l'étudiant | tant que le devoir est fermé |
 
-**CE QUI REMPLACE « un étudiant ne peut pas choisir son équipe »** — les trois
-moitiés se lisent ensemble :
+**« Équipe 7 » DU GROUPE 04 ET « Équipe 7 » DU GROUPE 06 SONT DEUX ÉQUIPES**,
+avec deux documents. La poignée porte les deux (`g04-e07`) ; sans le groupe,
+les deux sections travailleraient dans le même fichier.
 
-- une équipe **non scellée n'a accès à RIEN** (`workspace()` l'exige), donc
-  rien à convoiter en la rejoignant ;
-- une équipe **scellée ne se rejoint plus**, donc rien à voler une fois le
-  travail commencé ;
-- et **le verrou de chacun EST son consentement** : les autres voient qui est
-  là avant de confirmer — ce qu'un listage ne demandait à personne.
+### Ce qui ferme les listes est une date que le contenu porte déjà
 
-**UN VERROU VAUT POUR L'ÉTAT EXACT QU'ON A VU.** Quelqu'un entre, quelqu'un
-part, le nom ou le groupe changent → **toutes** les confirmations tombent, dans
-la même instruction que le changement. Sans ça, trois personnes confirmant une
-équipe de trois se retrouveraient scellées à quatre sans l'avoir su.
+`joinable()` demande que le devoir soit **fermé**, `find_assignment()` qu'il
+soit **ouvert**, et **les deux lisent la même valeur** (`access` de l'entrée
+publiée). Elles sont donc mutuellement exclusives **par construction** : il
+n'existe aucun instant où l'on peut à la fois rejoindre une équipe et lire son
+document. Pas parce qu'on l'a vérifié quelque part — parce que c'est la même
+condition prise dans les deux sens.
 
-**LE CODE ÉVITE UN POUVOIR.** Une liste ouverte aurait voulu dire que
-n'importe qui entre, donc que quelqu'un doit pouvoir l'expulser, donc qu'il
-faut décider qui — toute une hiérarchie pour un problème que six caractères
-n'ont pas.
+C'est ce qui remplace « un étudiant ne peut pas choisir son équipe » : pendant
+la période de choix il n'y a **rien à voler** (le devoir n'ouvre pas), et une
+fois ouvert **plus personne ne bouge**.
 
-**`sealed_at` EST STOCKÉ, PAS DÉRIVÉ.** Dérivé, une équipe se **dé-scellerait**
-dès qu'un membre utilise « Supprimer mes données », rouvrant la porte sur du
-travail déjà fait. Un scellement est un fait : il a eu lieu, et il ne revient
-pas.
+### Le groupe du profil décide quelle liste on voit, et rien d'autre
 
-**LE PIÈGE SQL DU SCELLEMENT**, parce qu'il ne se voit que sur un vrai
-Postgres : le `NOT EXISTS` qui vérifie « tout le monde a confirmé » lit le
-snapshot du DÉBUT de l'instruction, donc il ne voit pas le verrou que la CTE
-vient de poser. Il doit **exclure le compte courant** — sans quoi l'équipe ne
-se scelle jamais, et une base simulée en Python ne le montre pas (elle voit
-ses propres écritures).
+C'est le numéro auto-déclaré de « Mon identité ». Il ne donne accès à rien :
+une fois dans une équipe, c'est **elle** qui porte son groupe, et le corriger
+ensuite ne déplace ni la personne ni son document. Sans groupe, la liste
+répond en disant d'aller le remplir — le formulaire est juste en dessous.
+
+### Un deuxième dessin a été essayé et retiré
+
+Un **code d'invitation** avec **confirmation unanime** (`invite_code`,
+`sealed_at`, `locked_at`, six routes, un écran de verrous). Il tenait, et il
+est documenté ici pour qu'on ne le refasse pas : il ne correspondait à rien de
+ce que les étudiants font déjà, et surtout **la date d'ouverture faisait déjà
+le travail**. Trois colonnes et six routes pour ce qu'une donnée existante
+tenait toute seule.
 
 ### `import_teams.py` reste l'outil de correction
 
-Débloquer une équipe, forcer une composition, défaire une erreur. Ce qu'il
-écrit arrive **scellé et sans code** : une équipe que l'enseignant pose porte
-déjà son autorité, et demander à ses membres d'approuver une composition
-qu'ils n'ont pas choisie serait leur faire ratifier la décision d'un autre.
+Placer quelqu'un après l'ouverture, corriger une erreur. CSV :
+`group_number,number,account`. Il construit la poignée **exactement comme la
+route** — et un test compare les deux fonctions, parce que la copie doit vivre
+côté hôte (le python du Dell ne voit pas `app/`).
 
 ```sh
-# Sur le Dell, dont le python de l'hôte n'a aucun paquet tiers :
-python3 import_teams.py devoir roster.csv --sql   | docker exec -i ctester-postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1
+python3 import_teams.py devoir roster.csv --sql \
+  | docker exec -i ctester-postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1
 ```
-
-Les deux chemins (psycopg et `--sql`) lisent `statements()` : une seule source
-d'instructions, parce que celui qui dérive serait celui qu'on utilise le jour
-où l'autre ne marche pas.
-
-**`team_id` est une POIGNÉE**, bornée à `[A-Za-z0-9._-]` dès la lecture du
-CSV : elle clé le document partagé, nomme la salle de collaboration et finit
-dans l'en-tête `Content-Disposition` de l'archive. Elle est **globale au
-devoir** — deux lignes `1,4,…` et `1,6,…` feraient UNE équipe à cheval sur
-deux groupes, ce que `read_roster()` refuse en proposant `g04-e01` / `g06-e01`.
 
 ## Voir son équipe avant que le devoir n'ouvre
 
 `GET /team/mine` → les équipes de ce compte, **tous devoirs publiés, ouverts ou
-non**. C'est la seule route qui ne passe pas par `workspace()`, et la raison
-est le calendrier : le listage est chargé avant le premier cours, le devoir
-ouvre des semaines plus tard, et entre les deux un étudiant doit pouvoir dire
-« je ne suis pas dans la bonne équipe » pendant que ça se corrige encore.
+non**, avec `joinable` : la page sait ainsi s'il faut dessiner la liste de choix
+ou expliquer que c'est figé. Comme les trois autres routes de choix, elle
+n'ouvre **rien** — pas de document, pas de révision, pas de salle.
 
-Elle **n'ouvre rien** — pas de document, pas de révision, pas de salle — et
-rend exactement ce qu'un étudiant peut voir de ses coéquipiers ailleurs : des
-positions, plus le nom que chacun a choisi d'afficher. Affichée dans
-« Mon identité », **sans un seul champ** : l'appartenance est posée par
-l'enseignant, et l'application n'a même pas le droit SQL de l'écrire.
+Affichée dans « Mon identité », à côté du champ « Groupe » qui décide de la
+liste qu'on voit.
 
 ## L'édition partagée : Yjs relayé, jamais interprété
 
@@ -277,16 +261,15 @@ Ce que ces droits valent depuis que les équipes se forment elles-mêmes :
 
 | Table | Droits | Ce que ça ferme |
 |---|---|---|
-| `team` | `SELECT, INSERT` + `UPDATE (label, group_number, sealed_at, invite_code)` | pas de `DELETE` — une équipe porte le document de quatre personnes ; `team_id` et `assignment_id` hors GRANT — les déplacer emporterait ce document ailleurs |
-| `team_member` | `SELECT, INSERT, DELETE` + `UPDATE (locked_at)` | `team_id` hors GRANT : **changer d'équipe par un UPDATE** court-circuiterait le code ET le scellement |
+| `team` | `SELECT, INSERT` | **aucun `UPDATE`, aucun `DELETE`** : une équipe est créée à la volée quand quelqu'un y entre, et son numéro est celui de Moodle |
+| `team_member` | `SELECT, INSERT, DELETE` | **aucun `UPDATE`** : changer d'équipe, c'est en sortir et entrer ailleurs — deux écritures dont chacune porte sa condition |
 | `team_document`, `team_submission` | `SELECT, INSERT, UPDATE` | pas de `DELETE` : c'est le travail de trois autres |
 | `team_revision` | `SELECT, INSERT, DELETE` | ajout seul, comme le forum |
 
 **La garantie a changé de nature, et c'est écrit.** Elle était « rejoindre une
-équipe est inexprimable, il n'y a pas d'INSERT » ; elle est maintenant le
-`WHERE` de chaque écriture — le même standard que `forum_ouvrir_au_groupe`,
-éprouvé par `team_formation()` — plus les colonnes d'identité qui restent hors
-de portée, éprouvées par `team_privileges()`.
+équipe est inexprimable, il n'y a pas d'INSERT » ; elle est maintenant la place
+comptée dans le `WHERE` (éprouvée par `teams()`), la date de fermeture, et
+l'absence totale d'`UPDATE` (éprouvée par `team_privileges()`).
 
 Reste **une** étape manuelle, et elle n'est pas dans Ansible non plus parce que
 NPM garde son routage dans sa propre base : **cocher « Websockets Support »**

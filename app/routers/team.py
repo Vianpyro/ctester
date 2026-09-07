@@ -28,12 +28,11 @@ import security
 import state
 from deps import Sub, freiner_ecriture
 from fastapi import APIRouter, Query, Request, WebSocket
-from schemas import (TeamDocumentIn, TeamFormIn, TeamHandinIn, TeamJoinIn,
-                     TeamLeaveIn, TeamLockIn, TeamRestoreIn)
+from schemas import (TeamDocumentIn, TeamHandinIn, TeamJoinIn, TeamLeaveIn,
+                     TeamRestoreIn)
 from services import collab
 from services import teams as team_service
 from services.catalog import find_exercise, validate_files
-from services.forum import forum_groupe
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
@@ -93,230 +92,134 @@ def context(sub: Sub, assignment: str = Query("", alias="assignment")):
         # is the id of the team the SERVER just proved this account belongs
         # to. Sending it back lets the page name the workspace; sending it in
         # a request would be the hole, and no route reads one.
-        "team": {"id": team["team_id"], "label": team["label"] or team["team_id"],
-                 "group_number": team["group_number"],
-                 "members": team_service.members_view(
-                     roster, sub, profiles,
-                     state.team_locks(entry["id"], team["team_id"]))},
+        "team": {"id": team["team_id"],
+                 "label": team["label"] or team_service.TEAM_NAME % team["number"],
+                 "number": team["number"], "group_number": team["group_number"],
+                 "members": team_service.members_view(roster, sub, profiles)},
         "submission": submission,
     }
 
 
-# --- Se former une équipe --------------------------------------------------------
-# CES CINQ ROUTES SONT LES SEULES QUI ÉCRIVENT DANS `team` ET `team_member`,
-# et elles répondent toutes avant que le devoir n'ouvre : le listage se
-# constitue AVANT le premier cours, et c'est là qu'une erreur se corrige
-# encore. Elles passent donc par `published_assignment()` -- montrer n'est pas
-# donner -- et jamais par `workspace()`, qui exige une équipe SCELLÉE.
+# --- Rejoindre une équipe --------------------------------------------------------
+# TROIS ROUTES, ET ELLES RÉPONDENT AVANT QUE LE DEVOIR N'OUVRE : les équipes se
+# choisissent en septembre, le devoir ouvre en octobre. Elles passent donc par
+# `published_assignment()` -- montrer n'est pas donner -- et jamais par
+# `workspace()`, qui exige un devoir OUVERT.
 #
-# `workspace()` EST TOUJOURS LA PORTE du document, de l'historique, de la
-# salle et de la remise. Rien de ce qui suit n'ouvre quoi que ce soit : former
-# une équipe et travailler sont deux choses, et c'est le scellement qui fait
-# passer de l'une à l'autre.
+# ET C'EST CE QUI LES REND MUTUELLEMENT EXCLUSIVES : `joinable()` demande que
+# le devoir soit fermé, `find_assignment()` qu'il soit ouvert, et les deux
+# lisent la MÊME valeur. Il n'existe aucun instant où l'on peut à la fois
+# rejoindre une équipe et lire son document -- pas parce qu'on l'a vérifié,
+# mais parce que c'est la même condition prise dans les deux sens.
 
 
-def _forming(sub, assignment_id):
-    """(assignment, team|None, min, max, erreur) -- la porte de la FORMATION.
+def _choix(sub, assignment_id):
+    """(assignment, groupe, erreur) -- la porte du CHOIX d'équipe.
 
-    Elle laisse passer ce que `workspace()` refuse -- un devoir pas encore
-    ouvert, une équipe pas encore scellée -- parce que c'est exactement le
-    moment où ces routes servent. Ce qu'elle exige quand même : un devoir
-    publié, et un devoir d'ÉQUIPE.
+    Elle exige trois choses, et refuse chacune avec sa phrase : un devoir
+    publié, un devoir D'ÉQUIPE, et un devoir PAS ENCORE OUVERT.
+
+    LE GROUPE VIENT DU PROFIL, et c'est le seul endroit où ce numéro
+    auto-déclaré décide de quelque chose : QUELLE LISTE on voit. Il ne donne
+    accès à rien -- une fois dans une équipe, c'est ELLE qui porte son groupe,
+    et le corriger ensuite ne déplace personne. Sans lui, on ne sait pas quelle
+    liste montrer, et la réponse le dit plutôt que d'en montrer une au hasard.
     """
     entry = team_service.published_assignment(assignment_id)
     if entry is None:
-        return None, None, 0, 0, headers.erreur(404, "devoir inconnu")
+        return None, None, headers.erreur(404, "devoir inconnu")
     if not team_service.is_team_assignment(entry):
-        return None, None, 0, 0, headers.erreur(
+        return None, None, headers.erreur(
             400, "ce devoir n'est pas un travail d'équipe")
-    low, high = team_service.team_size(entry)
-    return entry, state.team_of(sub, assignment_id), low, high, None
+    if not team_service.joinable(entry):
+        return None, None, headers.erreur(
+            409, "les équipes sont figées : le devoir est ouvert")
+    profil = state.forum_profil(sub) or {}
+    groupe = profil.get("group_number")
+    if groupe is None:
+        return None, None, headers.erreur(
+            409, "choisis d'abord ton groupe dans « Mon identité » : les "
+                 "équipes sont numérotées par groupe")
+    return entry, int(groupe), None
 
 
-def _mon_equipe(sub, entry, team):
-    """L'équipe telle que ses membres la voient pendant la formation.
+@router.get("/team/available")
+def available(sub: Sub, assignment: str = Query("")):
+    """Les équipes de MON groupe, avec leurs places libres.
 
-    LES MÊMES POSITIONS QUE PARTOUT AILLEURS, plus qui a confirmé -- « on
-    attend Coéquipier 3 » est ce qui rend une équipe bloquée compréhensible
-    sans écrire à personne.
+    LA MÊME LISTE QUE MOODLE, et les mêmes numéros -- c'est tout l'intérêt :
+    un étudiant qui prend « Équipe 7 » ici doit retrouver « Équipe 7 » là-bas,
+    sinon l'enseignant tient deux listes qui divergent.
+
+    AUCUN `sub` N'EN SORT, et pas même un nom : une liste de choix n'a pas à
+    dire QUI est dans quelle équipe. « 3/4 » suffit à choisir, et publier les
+    compositions ferait de ce choix un tri social sur une page.
     """
-    roster = state.team_roster(entry["id"], team["team_id"])
-    locks = state.team_locks(entry["id"], team["team_id"])
-    if roster is None or locks is None:
-        return None
-    profiles = state.forum_profils(roster) or {}
-    return {
-        "id": team["team_id"],
-        "label": team["label"] or team["team_id"],
-        "group_number": team["group_number"],
-        # LE CODE NE SORT QUE POUR UN MEMBRE, et `team_of` l'a déjà retiré
-        # d'une équipe scellée : après, il n'ouvre plus rien.
-        "invite_code": team.get("invite_code"),
-        "sealed": bool(team.get("sealed")),
-        "locked": bool(team.get("locked")),
-        "missing": team_service.formation_state(entry, team, locks),
-        "members": team_service.members_view(roster, sub, profiles, locks),
-    }
-
-
-@router.post("/team/create")
-def create(sub: Sub, corps: TeamFormIn, request: Request):
-    """Créer son équipe. Le créateur y entre, et reçoit le code à partager.
-
-    L'IDENTIFIANT EST TIRÉ PAR LE SERVEUR, jamais choisi : il clé le document
-    partagé et nomme la salle de collaboration, et un identifiant choisi par
-    un étudiant serait un identifiant qu'un autre pourrait deviner. Ce que les
-    gens lisent, c'est `label`.
-    """
-    entry, team, _low, _high, refused = _forming(sub, corps.assignment_id)
+    entry, groupe, refused = _choix(sub, assignment)
     if refused is not None:
         return refused
-    if team is not None:
-        return headers.erreur(
-            409, "tu es déjà dans une équipe pour ce devoir")
-    label, message = team_service.team_label(corps.label)
-    if message:
-        return headers.erreur(400, message)
-    group, message = forum_groupe(corps.group_number)
-    if message:
-        return headers.erreur(400, message)
-    freiner_ecriture(request)
-    # LE CODE EST TIRÉ, ET UNE COLLISION SE REJOUE. L'index unique la refuse,
-    # `team_create` rend None, on retire. Cinq échecs de suite ne sont pas de
-    # la malchance sur 31^6 -- c'est une base qui ne répond pas.
-    for _ in range(team_service.CODE_TRIES):
-        code = team_service.invite_code()
-        team_id = state.team_create(sub, entry["id"], uuid.uuid4().hex[:12],
-                                    label, group, code)
-        if team_id:
-            break
-    else:
+    existantes = state.team_counts(entry["id"], groupe)
+    if existantes is None:
         return headers.erreur(503, "la base ne répond pas")
-    _entry, team, _low, _high, refused = _forming(sub, corps.assignment_id)
-    vue = _mon_equipe(sub, entry, team) if team else None
-    if vue is None:
-        return headers.erreur(503, "la base ne répond pas")
-    return {"team": vue}
+    mienne = state.team_of(sub, entry["id"])
+    return {"assignment_id": entry["id"], "group_number": groupe,
+            "mine": mienne["number"] if mienne else None,
+            "teams": team_service.available_teams(entry, groupe, existantes)}
 
 
 @router.post("/team/join")
 def join(sub: Sub, corps: TeamJoinIn, request: Request):
-    """Rejoindre avec le code. LE `WHERE` DE L'INSERT EST LE CONTRÔLE D'ACCÈS.
+    """Prendre une place. L'ÉQUIPE EST CRÉÉE si personne n'y était encore.
 
-    QUATRE REFUS, QUATRE PHRASES. « ce code ne correspond à rien », « cette
-    équipe est déjà confirmée », « elle est complète » et « tu es déjà dans une
-    équipe » envoient à quatre endroits différents ; un seul message les
-    enverrait tous les quatre redemander le code à quelqu'un qui l'a bien donné.
+    LE NUMÉRO EST BORNÉ PAR LE CONTENU, pas par la requête : au-delà de
+    `team.count`, l'équipe n'existe pas -- et elle n'existe pas non plus dans
+    Moodle, ce qui est exactement le point.
+
+    LA PLACE EST COMPTÉE DANS LE `WHERE` DE L'INSERT, jamais relue avant :
+    deux étudiants qui cliquent sur la dernière place au même instant
+    passeraient tous les deux un `if`.
     """
-    entry, team, _low, high, refused = _forming(sub, corps.assignment_id)
+    entry, groupe, refused = _choix(sub, corps.assignment_id)
     if refused is not None:
         return refused
-    if team is not None:
-        return headers.erreur(409, "tu es déjà dans une équipe pour ce devoir")
-    code = (corps.code or "").strip().upper()
+    if state.team_of(sub, entry["id"]) is not None:
+        return headers.erreur(
+            409, "tu es déjà dans une équipe : quitte-la d'abord")
+    _low, high, count = team_service.team_size(entry)
+    if not 1 <= corps.number <= count:
+        return headers.erreur(
+            404, "cette équipe n'existe pas (il y en a %d)" % count)
+    team_id = team_service.team_handle(groupe, corps.number)
     freiner_ecriture(request)
-    if not state.team_join(sub, entry["id"], code, high):
-        # RIEN N'A ÉTÉ ÉCRIT : on relit pour DIRE POURQUOI. Sans ça, une
-        # équipe complète et un code inventé sont le même échec.
-        cible = state.team_by_code(entry["id"], code)
-        if cible is None:
-            return headers.erreur(404, "ce code ne correspond à aucune équipe")
-        if cible["sealed"]:
-            return headers.erreur(
-                409, "cette équipe est déjà confirmée : elle ne peut plus "
-                     "accueillir personne")
-        if cible["members"] >= high:
-            return headers.erreur(
-                409, "cette équipe est complète (%d membres au maximum)" % high)
-        return headers.erreur(503, "la base ne répond pas")
-    _entry, team, _low, _high, refused = _forming(sub, corps.assignment_id)
-    vue = _mon_equipe(sub, entry, team) if team else None
-    if vue is None:
-        return headers.erreur(503, "la base ne répond pas")
-    return {"team": vue}
+    if not state.team_join(sub, entry["id"], team_id, groupe, corps.number,
+                           team_service.TEAM_NAME % corps.number, high):
+        return headers.erreur(
+            409, "cette équipe est complète (%d places)" % high)
+    return available(sub, entry["id"])
 
 
 @router.post("/team/leave")
 def leave(sub: Sub, corps: TeamLeaveIn, request: Request):
-    """Quitter, TANT QUE L'ÉQUIPE N'EST PAS CONFIRMÉE.
+    """Quitter, TANT QUE LE DEVOIR N'EST PAS OUVERT.
 
     Après, non : le document est déjà le travail de tous, et partir le
-    laisserait à trois personnes qui n'ont pas choisi ça. Reste « Supprimer
-    mes données », qui coûte l'XP et les messages -- en faire le seul moyen de
-    partir est le prix du sérieux de la décision.
+    laisserait à trois personnes qui n'ont pas choisi ça. `_choix()` porte la
+    condition, comme pour rejoindre -- c'est la même date, prise au même
+    endroit.
+
+    L'ÉQUIPE VIDÉE RESTE : elle porte peut-être déjà un document, et son
+    numéro est celui de Moodle. Une équipe vide se remplit à nouveau ; une
+    équipe supprimée renumérote tout.
     """
-    entry, team, _low, _high, refused = _forming(sub, corps.assignment_id)
+    entry, _groupe, refused = _choix(sub, corps.assignment_id)
     if refused is not None:
         return refused
-    if team is None:
+    if state.team_of(sub, entry["id"]) is None:
         return headers.erreur(404, "tu n'es dans aucune équipe pour ce devoir")
     freiner_ecriture(request)
     if not state.team_leave(sub, entry["id"]):
-        return headers.erreur(
-            409, "ton équipe est déjà confirmée : on n'en sort plus")
-    return {"ok": True, "team": None}
-
-
-@router.put("/team/settings")
-def settings(sub: Sub, corps: TeamFormIn, request: Request):
-    """Le nom et le groupe, tant que l'équipe n'est pas confirmée.
-
-    N'IMPORTE QUEL MEMBRE, ET PAS DE CHEF. Tout le monde devra reconfirmer
-    ensuite -- changer quelque chose ne fait que redemander l'accord de tous,
-    et c'est ce qui remplace une hiérarchie qu'il faudrait attribuer.
-    """
-    entry, team, _low, _high, refused = _forming(sub, corps.assignment_id)
-    if refused is not None:
-        return refused
-    if team is None:
-        return headers.erreur(404, "tu n'es dans aucune équipe pour ce devoir")
-    label, message = team_service.team_label(corps.label)
-    if message:
-        return headers.erreur(400, message)
-    group, message = forum_groupe(corps.group_number)
-    if message:
-        return headers.erreur(400, message)
-    freiner_ecriture(request)
-    if not state.team_settings(sub, entry["id"], label, group):
-        return headers.erreur(
-            409, "ton équipe est déjà confirmée : son nom et son groupe sont "
-                 "figés")
-    _entry, team, _low, _high, refused = _forming(sub, corps.assignment_id)
-    vue = _mon_equipe(sub, entry, team) if team else None
-    if vue is None:
         return headers.erreur(503, "la base ne répond pas")
-    return {"team": vue}
-
-
-@router.post("/team/lock")
-def lock(sub: Sub, corps: TeamLockIn, request: Request):
-    """Confirmer la composition -- ET SCELLER SI C'ÉTAIT LA DERNIÈRE.
-
-    LES DEUX DANS UNE SEULE INSTRUCTION SQL (voir `state.team_lock`) : deux
-    derniers membres qui confirment au même instant liraient tous les deux
-    « il en reste un » s'il fallait relire après avoir écrit.
-
-    LE SCELLEMENT PEUT NE PAS SE PRODUIRE, et ce n'est pas une erreur : il
-    manque un coéquipier, le groupe n'est pas choisi, quelqu'un n'a pas encore
-    confirmé. La réponse porte `missing`, qui le dit -- un bouton qui ne fait
-    rien sans expliquer est une équipe qui écrit à son enseignant.
-    """
-    entry, team, low, high, refused = _forming(sub, corps.assignment_id)
-    if refused is not None:
-        return refused
-    if team is None:
-        return headers.erreur(404, "tu n'es dans aucune équipe pour ce devoir")
-    if team.get("sealed"):
-        return headers.erreur(
-            409, "ton équipe est déjà confirmée : on ne revient pas dessus")
-    freiner_ecriture(request)
-    if not state.team_lock(sub, entry["id"], corps.locked, low, high):
-        return headers.erreur(503, "la base ne répond pas")
-    _entry, team, _low, _high, refused = _forming(sub, corps.assignment_id)
-    vue = _mon_equipe(sub, entry, team) if team else None
-    if vue is None:
-        return headers.erreur(503, "la base ne répond pas")
-    return {"team": vue}
+    return available(sub, entry["id"])
 
 
 @router.get("/team/mine")
@@ -347,18 +250,25 @@ def mine(sub: Sub):
             # Not an error, and not this student's problem: say nothing rather
             # than name a devoir they cannot open.
             continue
-        vue = _mon_equipe(sub, entry, row)
-        if vue is None:
+        roster = _roster(row["assignment_id"], row["team_id"])
+        if roster is None:
             return headers.erreur(503, "la base ne répond pas")
-        vue.update({
+        profiles = state.forum_profils(roster) or {}
+        out.append({
             "assignment_id": entry["id"],
             "assignment_title": entry.get("title", ""),
             "access": entry.get("access", "archived"),
             "available_from": (entry.get("release") or {}).get("available_from"),
             "deadline": entry.get("deadline"),
-            "team": dict(entry.get("team") or {}),
+            # ENCORE MODIFIABLE ? C'est la même date que `joinable()`, rendue
+            # ici pour que la page sache s'il faut dessiner « Changer
+            # d'équipe » ou expliquer que c'est figé.
+            "joinable": team_service.joinable(entry),
+            "number": row["number"],
+            "label": row["label"] or team_service.TEAM_NAME % row["number"],
+            "group_number": row["group_number"],
+            "members": team_service.members_view(roster, sub, profiles),
         })
-        out.append(vue)
     return {"teams": out}
 
 

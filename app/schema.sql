@@ -370,99 +370,58 @@ CREATE TABLE IF NOT EXISTS display_preference (
 -- the work: the same four students on the next assignment are a new row, and
 -- that is what keeps `team_member` free of a date range nobody would maintain.
 CREATE TABLE IF NOT EXISTS team (
+    -- `g04-e07` : LE GROUPE ET LE NUMÉRO, dans la poignée. Les équipes sont
+    -- numérotées PAR GROUPE DE COURS pour correspondre à Moodle -- « Équipe 7 »
+    -- du groupe 04 et « Équipe 7 » du groupe 06 sont deux équipes, et une
+    -- poignée qui ne porterait que le numéro en ferait une seule.
     team_id       TEXT        NOT NULL,
     assignment_id TEXT        NOT NULL,   -- a PUBLISHED assignment id
-    -- THE GROUP THE TEAM SAYS IT IS IN, chosen before sealing and frozen by
-    -- it. NULLABLE on purpose: a team being formed has not said yet, and a
-    -- column that must lie until it is true is a column nobody believes.
+    -- LE GROUPE DE COURS DE L'ÉQUIPE, et le NUMÉRO qu'elle porte dedans. Les
+    -- deux ensemble sont ce qu'un étudiant lit (« groupe 04 · Équipe 7 ») et
+    -- ce qu'il retrouve dans Moodle.
     --
-    -- IT IS NOT AN AUTHORIZATION AND NEVER WILL BE. Team membership is. This
-    -- one is what an instructor reads to sort submissions by section -- and
-    -- it is self-declared, exactly like `forum_profile.group_number`. What
-    -- makes it worth more than a guess is that EVERY MEMBER approved it: a
-    -- lock covers the whole state of the team, group included, and changing
-    -- it drops every lock (see `team_member.locked_at`).
-    group_number  SMALLINT    CHECK (group_number BETWEEN 1 AND 99),
-    label         TEXT,                   -- what students see: "Équipe 2"
-    -- THE INVITATION CODE, AND IT IS THE WHOLE ACCESS CONTROL FOR JOINING.
-    -- Students form their own teams -- the instructor cannot write a roster,
-    -- because CTester never shows him a `sub` (that is the forum's privacy
-    -- model, and it is not negotiable for this). So joining has to be a
-    -- request, and a request needs something only the team has.
-    --
-    -- WITHOUT IT, EVERY TEAM WOULD NEED AN EJECT BUTTON: an open list means
-    -- anyone can walk in, which means somebody must be able to throw them
-    -- out, which means deciding who -- a whole hierarchy for a problem a
-    -- four-character string does not have.
-    invite_code   TEXT,
-    -- SEALED IS STORED, NOT DERIVED, and that distinction is load-bearing.
-    -- Derived ("every member has locked") would UN-seal a team the moment one
-    -- of them used « Supprimer mes données » -- reopening the door onto work
-    -- already done, which is the one thing this design exists to prevent.
-    -- A seal is a fact: it happened, at a time, and it does not come back.
-    sealed_at     TIMESTAMPTZ,
+    -- L'ÉQUIPE PORTE SON GROUPE, ET C'EST ELLE QUI FAIT FOI une fois qu'on est
+    -- dedans. Le `group_number` du PROFIL -- que l'étudiant tape lui-même --
+    -- ne sert qu'à décider quelle liste montrer à quelqu'un qui n'a pas encore
+    -- d'équipe. Le corriger après coup ne doit pas déplacer une équipe déjà
+    -- rejointe, ni le document qu'elle a écrit.
+    group_number  SMALLINT    NOT NULL CHECK (group_number BETWEEN 1 AND 99),
+    number        SMALLINT    NOT NULL CHECK (number BETWEEN 1 AND 99),
+    label         TEXT,                   -- ce qu'on lit : « Équipe 7 »
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (team_id, assignment_id),
-    -- A SEALED TEAM HAS SAID ITS GROUP. The check is here rather than only in
-    -- Python because it is the sealing statement's last guard: it seals in
-    -- one statement, and a bug there would freeze a team with a NULL group
-    -- that nothing can ever fill in again.
-    CONSTRAINT team_sealed_has_a_group
-        CHECK (sealed_at IS NULL OR group_number IS NOT NULL)
+    PRIMARY KEY (team_id, assignment_id)
 );
 
--- (L'index unique sur `invite_code` est plus bas, avec les migrations : il
--- porte sur une colonne qu'un `ALTER` ajoute, et un index déclaré ici
--- échouerait sur une base qui a déjà la table sans la colonne.)
+-- UN SEUL NUMÉRO PAR GROUPE ET PAR DEVOIR. La poignée le porte déjà, mais
+-- elle est construite en Python : cet index est ce qui empêche deux lignes de
+-- se réclamer « Équipe 7 du groupe 04 » si cette construction change un jour.
+CREATE UNIQUE INDEX IF NOT EXISTS team_number_idx
+    ON team (assignment_id, group_number, number);
 
--- WHO IS ON IT. THE PRIMARY KEY IS THE RULE -- one team per assignment per
--- account -- and Postgres holds it, not a read followed by a write. Without
--- it, a roster loaded twice with a corrected line would leave a student on
--- two teams, and every query below would then have to pick one.
+-- QUI EST DANS QUELLE ÉQUIPE. LA CLÉ PRIMAIRE EST LA RÈGLE -- une seule
+-- équipe par devoir et par compte -- et Postgres la tient, pas une lecture
+-- suivie d'une écriture. Changer d'équipe, c'est sortir de l'une et entrer
+-- dans l'autre : deux écritures dont chacune porte sa condition.
 --
--- The composite foreign key is the one place in this schema where a FK earns
--- its keep: a membership row whose team does not exist would name an
--- assignment nobody can find, and the roster is written by a script, not by
--- the statement that created the team.
+-- La clé étrangère composite est la seule de ce schéma, et elle gagne sa
+-- place : une appartenance dont l'équipe n'existe pas nommerait un devoir
+-- introuvable, et les équipes sont créées à la volée par une AUTRE
+-- instruction que celle qui inscrit.
 CREATE TABLE IF NOT EXISTS team_member (
     team_id       TEXT        NOT NULL,
     assignment_id TEXT        NOT NULL,
     account       TEXT        NOT NULL,   -- the opaque OIDC `sub`
     joined_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- « JE CONFIRME CETTE ÉQUIPE ». Null tant que ce membre n'a pas confirmé;
-    -- quand PLUS PERSONNE n'est null et que la taille tient, l'équipe est
-    -- scellée -- dans la même instruction que le dernier verrou, sinon deux
-    -- derniers simultanés scelleraient deux fois.
-    --
-    -- UN VERROU VAUT POUR L'ÉTAT EXACT QU'ON A VU, et c'est pour ça que TOUTE
-    -- modification de l'équipe -- quelqu'un entre, quelqu'un part, le groupe
-    -- ou le nom changent -- remet cette colonne à NULL pour TOUT LE MONDE.
-    -- Sans ça, on confirmerait une équipe de trois et on se retrouverait
-    -- scellé à quatre sans l'avoir su : le consentement porterait sur autre
-    -- chose que ce qui a été signé.
-    locked_at     TIMESTAMPTZ,
     PRIMARY KEY (assignment_id, account),
     FOREIGN KEY (team_id, assignment_id)
         REFERENCES team (team_id, assignment_id) ON DELETE CASCADE
 );
 
--- The read that matters on the other side: "who else is on my team".
+-- La lecture de l'autre côté : « qui est dans cette équipe », et « combien de
+-- places restent » dans la liste que l'étudiant parcourt.
 CREATE INDEX IF NOT EXISTS team_member_roster_idx
     ON team_member (assignment_id, team_id);
 
--- THE SHARED DOCUMENT: one per (team, exercise), and it is the authoritative
--- one. `exercise_draft` stays exactly what it was -- one row per (account,
--- exercise) -- and nothing here changes it: an exercise outside an assignment
--- never reaches this table, and a student not on a team keeps the individual
--- path. The two live side by side rather than behind an `if team_mode` spread
--- through the state layer.
---
--- LOGGED, unlike `exercise_draft`. The individual draft can be TRUNCATEd
--- after an unclean shutdown because the browser holds a copy; this one is
--- four people's graded work and no browser holds all of it.
---
--- `updated_by` IS WHO SAVED, and it is only ever used to attribute a
--- revision. It is not a lock and not an owner: every member writes here.
 CREATE TABLE IF NOT EXISTS team_document (
     team_id     TEXT        NOT NULL,
     exercise_id TEXT        NOT NULL,
@@ -593,46 +552,49 @@ COMMIT;
 CREATE INDEX IF NOT EXISTS team_member_roster_idx
     ON team_member (assignment_id, team_id);
 
--- TEAMS FORM THEMSELVES SINCE THE ROSTER TURNED OUT TO BE UNWRITABLE: the
--- instructor never sees a `sub`, so he cannot name the students he would put
--- on a team. These four repairs turn a roster-shaped table into one students
--- can fill in themselves. A database created after them already has the
--- columns and skips every line.
-ALTER TABLE team ADD COLUMN IF NOT EXISTS invite_code TEXT;
-ALTER TABLE team ADD COLUMN IF NOT EXISTS sealed_at TIMESTAMPTZ;
-ALTER TABLE team_member ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
--- `group_number` WAS `NOT NULL`: a team being formed has not chosen yet.
-ALTER TABLE team ALTER COLUMN group_number DROP NOT NULL;
-
--- APRÈS LES `ALTER`, ET C'EST TOUT LE SUJET : cet index porte sur
--- `invite_code`, que la ligne du dessus vient d'ajouter. Déclaré avec la
--- table, il passait sur une base neuve et échouait sur une base qui avait
--- déjà `team` -- c'est-à-dire uniquement en production.
+-- LES ÉQUIPES SE REJOIGNENT, ELLES NE SE NÉGOCIENT PAS. Elles préexistent,
+-- numérotées par groupe de cours pour correspondre à Moodle, et un étudiant
+-- prend une place libre dans celle qu'il veut -- exactement le geste qu'il
+-- fait déjà là-bas.
 --
--- Le code est tapé par un étudiant et cherché seul : il doit trouver UNE
--- équipe, jamais deux. Par devoir -- deux devoirs peuvent distribuer les
--- mêmes quatre caractères sans jamais se croiser.
-CREATE UNIQUE INDEX IF NOT EXISTS team_invite_code_idx
-    ON team (assignment_id, invite_code);
+-- CE QUI A ÉTÉ ESSAYÉ AVANT, ET RETIRÉ : un code d'invitation et une
+-- confirmation unanime (`invite_code`, `sealed_at`, `locked_at`). Le protocole
+-- tenait, mais il ne correspondait à rien de ce que les étudiants font déjà,
+-- et surtout il n'était pas nécessaire : LA DATE D'OUVERTURE DU DEVOIR ferme
+-- les équipes toute seule. Tant qu'il est fermé, il n'y a rien à voler dans
+-- une équipe qu'on rejoindrait ; une fois ouvert, plus personne ne bouge.
+-- Trois colonnes et six routes pour ce qu'une date faisait déjà.
+ALTER TABLE team ADD COLUMN IF NOT EXISTS number SMALLINT;
+ALTER TABLE team DROP COLUMN IF EXISTS invite_code;
+ALTER TABLE team DROP COLUMN IF EXISTS sealed_at;
+ALTER TABLE team_member DROP COLUMN IF EXISTS locked_at;
 
--- WHAT AN IMPORTED ROSTER BECOMES: sealed. A team the instructor wrote by
--- hand has his authority already -- asking its members to confirm a
--- composition they never chose would be asking them to approve a decision
--- that was not theirs. Only rows that predate sealing are touched, and only
--- once: a row with a `sealed_at` keeps it.
-UPDATE team SET sealed_at = created_at
- WHERE sealed_at IS NULL AND group_number IS NOT NULL;
-UPDATE team_member SET locked_at = joined_at WHERE locked_at IS NULL;
+-- `group_number` REDEVIENT OBLIGATOIRE : une équipe est numérotée DANS un
+-- groupe, donc elle en a un dès sa création. Il l'était déjà avant le
+-- protocole de confirmation ; c'est ce dernier qui l'avait rendu nullable, le
+-- temps qu'une équipe en formation n'ait pas encore choisi.
+UPDATE team SET group_number = 1 WHERE group_number IS NULL;
+UPDATE team SET number = 1 WHERE number IS NULL;
+ALTER TABLE team ALTER COLUMN group_number SET NOT NULL;
+ALTER TABLE team ALTER COLUMN number SET NOT NULL;
 
 DO $$
 BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint
+                WHERE conname = 'team_sealed_has_a_group') THEN
+        ALTER TABLE team DROP CONSTRAINT team_sealed_has_a_group;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                    WHERE conname = 'team_sealed_has_a_group') THEN
-        ALTER TABLE team ADD CONSTRAINT team_sealed_has_a_group
-            CHECK (sealed_at IS NULL OR group_number IS NOT NULL);
+                    WHERE conname = 'team_number_range') THEN
+        ALTER TABLE team ADD CONSTRAINT team_number_range
+            CHECK (number BETWEEN 1 AND 99);
     END IF;
 END
 $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS team_number_idx
+    ON team (assignment_id, group_number, number);
+DROP INDEX IF EXISTS team_invite_code_idx;
 
 -- --------------------------------------------------------------------------
 -- LES DROITS DU RÔLE APPLICATIF, ICI ET PAS DANS ANSIBLE.
@@ -739,16 +701,18 @@ BEGIN
     -- `group_number` et `sealed_at` bougent avant le scellement. `team_id` et
     -- `assignment_id` ne bougent JAMAIS -- les déplacer emporterait le
     -- document partagé d'une équipe vers une autre.
+    -- INSERT SANS UPDATE : une équipe est CRÉÉE à la volée la première fois
+    -- que quelqu'un prend une place dedans, et elle ne bouge plus jamais --
+    -- son numéro, son groupe et son nom sont ceux que Moodle porte aussi.
+    -- Pas de DELETE non plus : elle tient le document de trois ou quatre
+    -- personnes.
     EXECUTE 'GRANT SELECT, INSERT ON team TO ctester_app';
-    EXECUTE 'GRANT UPDATE (label, group_number, sealed_at, invite_code)'
-            ' ON team TO ctester_app';
 
     -- REJOINDRE (INSERT), QUITTER et « Supprimer mes données » (DELETE).
-    -- `locked_at` est un GRANT DE COLONNE pour la même raison que le forum :
-    -- confirmer son équipe ne doit pas donner le droit de réécrire qui en
-    -- fait partie, ni depuis quand.
+    -- PAS D'UPDATE DU TOUT : changer d'équipe, c'est en sortir et entrer
+    -- ailleurs -- deux écritures dont chacune porte sa condition. Un UPDATE de
+    -- `team_id` les contournerait toutes les deux.
     EXECUTE 'GRANT SELECT, INSERT, DELETE ON team_member TO ctester_app';
-    EXECUTE 'GRANT UPDATE (locked_at) ON team_member TO ctester_app';
 
     -- Le document partagé et la remise s'écrasent (`ON CONFLICT DO UPDATE`),
     -- comme le brouillon et le thème. Pas de DELETE : ils appartiennent à

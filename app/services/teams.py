@@ -126,107 +126,97 @@ def deadline_passed(assignment, now=None):
     return (now or dt.datetime.now(dt.timezone.utc)) > moment
 
 
-# --- Se former une équipe -------------------------------------------------------
-# LE LISTAGE DE L'ENSEIGNANT EST TOMBÉ SUR UN FAIT : CTester ne lui montre
-# jamais un `sub` -- c'est le modèle de confidentialité du forum, et il n'est
-# pas négociable pour ça. Il ne peut donc nommer personne dans un CSV, et un
-# listage que personne ne peut écrire n'est pas une garantie.
+# --- Rejoindre une équipe -------------------------------------------------------
+# LES ÉQUIPES PRÉEXISTENT, NUMÉROTÉES PAR GROUPE DE COURS, et un étudiant prend
+# une place libre dans celle qu'il veut. C'est le geste qu'il fait déjà sur
+# Moodle, et il DOIT correspondre : « Équipe 7 » ici est « Équipe 7 » là-bas,
+# sinon l'enseignant corrige deux listes qui divergent.
 #
-# LES ÉQUIPES SE FORMENT DONC ELLES-MÊMES, sous protocole : on crée, on
-# partage un code, on rejoint, et CHACUN CONFIRME. Quand tout le monde a
-# confirmé -- et seulement là -- l'équipe est SCELLÉE et le devoir s'ouvre.
+# DEUX AUTRES DESSINS ONT ÉTÉ ESSAYÉS ET RETIRÉS, et le savoir évite de les
+# refaire : un listage écrit par l'enseignant (impossible -- CTester ne lui
+# montre jamais un `sub`), puis un code d'invitation avec confirmation unanime
+# (correct, mais sans rapport avec ce que les étudiants font déjà, et pas
+# nécessaire).
 #
-# CE QUI REMPLACE « un étudiant ne peut pas choisir son équipe » :
-#   * une équipe non scellée n'a accès à RIEN, donc il n'y a rien à convoiter
-#     en la rejoignant ;
-#   * une équipe scellée ne se rejoint plus ;
-#   * et le verrou de chacun EST son consentement -- les autres voient qui est
-#     là avant de confirmer, ce qu'un listage ne demandait à personne.
+# CE QUI FERME LES ÉQUIPES EST UNE DATE QUE LE CONTENU PORTE DÉJÀ : on rejoint
+# et on quitte TANT QUE LE DEVOIR EST FERMÉ. Les deux conditions lisent la même
+# valeur -- `access` de l'entrée publiée -- donc elles sont mutuellement
+# exclusives PAR CONSTRUCTION : il n'existe aucun instant où l'on peut à la
+# fois rejoindre une équipe et lire son document.
 
-# L'ALPHABET DU CODE, SANS LES CARACTÈRES QU'ON CONFOND. Pas de I ni de 1, pas
-# de O ni de 0, pas de L. Ce code se lit à voix haute dans un laboratoire
-# bruyant et se recopie d'un téléphone : chaque ambiguïté est un étudiant qui
-# croit avoir le mauvais code et redemande.
-CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-CODE_LENGTH = 6
-# Combien de tirages avant d'abandonner. Une collision sur 31^6 est déjà une
-# curiosité ; cinq de suite est une base qui ne répond pas, pas de la malchance.
-CODE_TRIES = 5
-
-# Ce qu'un nom d'équipe peut valoir. Même esprit que `forum_pseudo` : on borne,
-# on ne rend rien, et l'affichage échappe.
-TEAM_LABEL_MAX = 40
-
-
-def team_label(brut):
-    """(nom|None, erreur) -- le nom que l'équipe se donne.
-
-    IL EST OBLIGATOIRE, contrairement au pseudonyme du forum : une équipe sans
-    nom est « e7f3c1... » dans une liste, et personne ne reconnaît la sienne.
-    Les caractères de contrôle deviennent des espaces plutôt que de
-    disparaître -- les retirer collerait deux mots.
-    """
-    if not isinstance(brut, str):
-        return None, "nom d'équipe manquant"
-    nom = " ".join("".join(c if c >= " " else " " for c in brut).split())
-    if not nom:
-        return None, "donne un nom à ton équipe"
-    if len(nom) > TEAM_LABEL_MAX:
-        return None, f"nom trop long (maximum {TEAM_LABEL_MAX} caractères)"
-    return nom, None
-
-
-def invite_code(hasard=None):
-    """Un code d'invitation. Tiré, pas dérivé.
-
-    DÉRIVÉ DU `team_id` OU DU COMPTE, il serait devinable par quiconque connaît
-    l'un des deux -- et le `team_id` voyage dans le bandeau de l'équipe. Tiré,
-    il ne dit rien de personne.
-    """
-    import random
-
-    tirage = hasard or random.SystemRandom()
-    return "".join(tirage.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+# Ce qu'une équipe s'appelle. Le numéro est celui de Moodle, et le mot est
+# celui de l'énoncé -- rien ici n'est saisi par un étudiant.
+TEAM_NAME = "Équipe %d"
 
 
 def team_size(assignment):
-    """(min, max) pour ce devoir. (1, TEAM_MAX) s'il ne dit rien.
+    """(min, max, count) pour ce devoir, depuis son contenu.
 
-    Le contenu décide : TCH009 demande trois ou quatre, un autre cours
-    demanderait deux. Rien de ça n'est écrit dans l'application.
+    `count` EST COMBIEN D'ÉQUIPES CHAQUE GROUPE A, et c'est ce qui rend la
+    correspondance avec Moodle possible : la liste montre exactement ces
+    équipes-là, ni plus ni moins.
     """
     team = assignment.get("team") or {}
     low = team.get("min") if isinstance(team.get("min"), int) else 1
     high = team.get("max") if isinstance(team.get("max"), int) else low
-    return low, high
+    count = team.get("count") if isinstance(team.get("count"), int) else 0
+    return low, high, count
 
 
-def formation_state(assignment, team, locks):
-    """Ce qui manque pour sceller. UNE fonction, lue par la page ET par l'API.
+def team_handle(group_number, number):
+    """`g04-e07` -- la poignée d'une équipe. CONSTRUITE, jamais saisie.
 
-    L'ÉCRAN DOIT DIRE POURQUOI LE BOUTON NE SUFFIT PAS -- « il manque un
-    coéquipier », « il manque le groupe », « il manque deux confirmations » --
-    parce qu'une équipe bloquée sans explication est une équipe qui écrit à son
-    enseignant. Les trois manques sont cumulables et se disent tous.
+    Elle clé le document partagé, nomme la salle de collaboration et finit
+    dans le nom de l'archive. Elle porte le GROUPE parce que les équipes sont
+    numérotées par groupe : « Équipe 7 » du groupe 04 et « Équipe 7 » du
+    groupe 06 sont deux équipes, et une poignée qui ne porterait que le numéro
+    en ferait une seule -- avec un seul document.
     """
-    low, high = team_size(assignment)
-    membres = len(locks)
-    manque = []
-    if membres < low:
-        manque.append("il manque %d coéquipier%s (%d sur %d)"
-                      % (low - membres, "s" if low - membres > 1 else "",
-                         membres, low))
-    if membres > high:
-        manque.append("vous êtes %d, le maximum est %d" % (membres, high))
-    if team.get("group_number") is None:
-        manque.append("le groupe n'est pas choisi")
-    reste = sum(1 for confirme in locks.values() if not confirme)
-    if reste:
-        manque.append("%d confirmation%s manquante%s"
-                      % (reste, "s" if reste > 1 else "", "s" if reste > 1 else ""))
-    return manque
+    return "g%02d-e%02d" % (int(group_number), int(number))
 
 
+def joinable(assignment):
+    """True tant que le devoir n'est pas ouvert. LA SEULE FERMETURE.
+
+    Pas de scellement, pas de date à part : la date d'ouverture du devoir
+    ferme les équipes toute seule. Tant qu'il est fermé, il n'y a rien à voler
+    dans une équipe qu'on rejoindrait ; une fois ouvert, plus personne ne
+    bouge.
+
+    ELLE LIT `access`, LA MÊME VALEUR QUE `find_assignment()`, et c'est ce qui
+    rend les deux mutuellement exclusives : il n'existe aucun instant où l'on
+    peut à la fois rejoindre une équipe et ouvrir son document. Deux sources --
+    une date ici, une release là -- auraient fini par se croiser.
+    """
+    return bool(assignment) and assignment.get("access") != "available"
+
+
+def available_teams(assignment, group_number, existantes):
+    """La liste que l'étudiant parcourt : les `count` équipes de SON groupe.
+
+    LE CONTENU DIT COMBIEN, LA BASE DIT QUI EST DEDANS. Une équipe que
+    personne n'a rejointe n'a pas de ligne -- la peupler à la publication
+    ferait douze lignes par groupe que personne ne lit -- donc elle apparaît
+    ici avec zéro membre et sera créée le jour où quelqu'un y entre.
+
+    `full` EST CALCULÉ ICI, PAS PAR LA PAGE : une page qui déciderait qu'une
+    équipe a de la place serait une page où l'on s'en déclare une depuis la
+    console. Le `WHERE` de l'INSERT le revérifie de toute façon.
+    """
+    _low, high, count = team_size(assignment)
+    par_numero = {ligne["number"]: ligne for ligne in existantes}
+    liste = []
+    for number in range(1, count + 1):
+        ligne = par_numero.get(number) or {}
+        membres = int(ligne.get("members") or 0)
+        liste.append({
+            "number": number,
+            "name": TEAM_NAME % number,
+            "members": membres,
+            "max": high,
+            "full": membres >= high,
+        })
+    return liste
 def workspace(state, sub, assignment_id):
     """(assignment, team, refusal) -- THE GATE. Nothing opens without it.
 
@@ -247,19 +237,14 @@ def workspace(state, sub, assignment_id):
         return assignment, None, (400, "ce devoir n'est pas un travail d'équipe")
     team = state.team_of(sub, assignment_id)
     if team is None:
+        # LE DEVOIR EST OUVERT (`find_assignment` l'exige) ET CE COMPTE N'A PAS
+        # D'ÉQUIPE : les équipes se choisissaient AVANT l'ouverture, donc il
+        # est trop tard pour en prendre une seul. C'est le seul cas qui demande
+        # l'enseignant, et le message le dit plutôt que de renvoyer vers une
+        # liste qui ne s'ouvrira plus.
         return assignment, None, (
-            403, "tu n'as pas encore d'équipe pour ce devoir — crée-la ou "
-                 "rejoins celle de tes coéquipiers avec leur code")
-    # UNE ÉQUIPE NON SCELLÉE N'A ACCÈS À RIEN, ET C'EST TOUT LE PROTOCOLE.
-    # C'est ce qui fait qu'on ne gagne rien à rejoindre une équipe : tant que
-    # les quatre n'ont pas confirmé la composition, il n'y a pas de document,
-    # pas d'historique, pas de salle et pas de remise. L'ancienne garantie --
-    # « personne ne peut se mettre sur une équipe » -- est remplacée par
-    # celle-ci, qui tient sans que l'enseignant ait à connaître un seul `sub`.
-    if not team.get("sealed"):
-        return assignment, None, (
-            403, "votre équipe n'est pas encore confirmée : le devoir s'ouvre "
-                 "quand tous ses membres l'ont validée")
+            403, "tu n'es dans aucune équipe pour ce devoir, et les équipes "
+                 "sont figées depuis son ouverture — vois avec ton enseignant")
     return assignment, team, None
 
 
@@ -274,7 +259,7 @@ def exercise_in(assignment, exercise_id):
     return exercise_id in set(assignment_exercises(assignment))
 
 
-def members_view(roster, sub, profiles, locks=None):
+def members_view(roster, sub, profiles):
     """The team, as teammates are allowed to see it. NO `sub` COMES OUT.
 
     Same rule as `forum_identite()`: a display name only appears if its owner
@@ -287,7 +272,6 @@ def members_view(roster, sub, profiles, locks=None):
     to correlate against another exercise, another assignment or the forum.
     """
     profiles = profiles or {}
-    locks = locks or {}
     out = []
     for index, account in enumerate(roster):
         profile = profiles.get(account) or {}
@@ -298,10 +282,6 @@ def members_view(roster, sub, profiles, locks=None):
             "name": name if chosen else ANONYMOUS_LABEL % (index + 1),
             "color": COLORS[index % len(COLORS)],
             "you": account == sub,
-            # QUI A CONFIRMÉ, pendant la formation. C'est ce qui rend l'attente
-            # lisible : « on attend Coéquipier 3 » plutôt qu'un bouton grisé
-            # dont personne ne sait ce qu'il attend.
-            "locked": bool(locks.get(account)),
         })
     return out
 

@@ -733,36 +733,37 @@ def deletion():
     # le devoir de trois autres personnes : ce n'est pas un effacement, c'est
     # la suppression des données de quelqu'un d'autre. Ce qui part, c'est
     # l'appartenance d'alice et les révisions qu'elle a signées.
-    assert _rows("SELECT count(*) FROM team_document WHERE team_id = 'e1'") == 1
-    assert _rows("SELECT count(*) FROM team_submission WHERE team_id = 'e1'") == 1
-    assert _rows("SELECT count(*) FROM team WHERE team_id = 'e1'") == 1
+    assert _rows("SELECT count(*) FROM team_document WHERE team_id = 'g04-e01'") == 1
+    assert _rows("SELECT count(*) FROM team_submission WHERE team_id = 'g04-e01'") == 1
+    assert _rows("SELECT count(*) FROM team WHERE team_id = 'g04-e01'") == 1
     assert _rows("SELECT count(*) FROM team_member"
-                 " WHERE team_id = 'e1' AND account = %s", (CLEO,)) == 1
+                 " WHERE team_id = 'g04-e01' AND account = %s", (CLEO,)) == 1
     print("ok   \"Delete my data\" empties the fifteen account tables, leaves "
           "the team's work, and touches nobody else's")
 
 
-def _inscrire(assignment_id, team_id, comptes, group_number=4, label=None):
-    """Ce que `import_teams.py` fait, avec les droits de l'ADMIN.
+def _inscrire(assignment_id, groupe, numero, comptes):
+    """Une équipe déjà constituée, avec les droits de l'ADMIN.
 
     Volontairement écrit ici plutôt qu'appelé via `state` : l'application n'a
-    ni INSERT ni UPDATE sur ces deux tables, et `team_privileges()` plus bas
-    le prouve. Un harnais qui passerait par `state` pour peupler le listage
-    testerait un privilège que la production n'accorde pas.
+    ni UPDATE ni DELETE sur `team`, et `team_privileges()` plus bas le prouve.
     """
     import psycopg
+    team_id = "g%02d-e%02d" % (groupe, numero)
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
-        cx.execute("INSERT INTO team (team_id, assignment_id, group_number, label)"
-                   " VALUES (%s, %s, %s, %s)"
-                   " ON CONFLICT (team_id, assignment_id) DO UPDATE SET"
-                   "   group_number = EXCLUDED.group_number, label = EXCLUDED.label",
-                   (team_id, assignment_id, group_number, label or team_id))
+        cx.execute("INSERT INTO team"
+                   "   (team_id, assignment_id, group_number, number, label)"
+                   " VALUES (%s, %s, %s, %s, %s)"
+                   " ON CONFLICT (team_id, assignment_id) DO NOTHING",
+                   (team_id, assignment_id, groupe, numero,
+                    "Équipe %d" % numero))
         for compte in comptes:
             cx.execute("INSERT INTO team_member (team_id, assignment_id, account)"
                        " VALUES (%s, %s, %s)"
                        " ON CONFLICT (assignment_id, account) DO UPDATE SET"
                        "   team_id = EXCLUDED.team_id",
                        (team_id, assignment_id, compte))
+    return team_id
 
 
 CLEO = "sub-cleo"
@@ -786,140 +787,91 @@ def _reset_teams():
 
 
 def teams():
-    """LE LISTAGE EST LA SEULE AUTORITÉ, et il est lu, jamais écrit.
+    """LE CHOIX D'ÉQUIPE, ET LES DEUX FORMES QUI N'EXISTENT QU'EN VRAI.
 
-    Trois formes qui n'existent qu'en vrai SQL sont éprouvées ici : la
-    jointure de `team_of` (qui est TOUTE l'autorisation), la clé primaire
-    (assignment_id, account) qui EST la règle « une seule équipe par devoir »,
-    et la clé étrangère composite qui refuse une appartenance sans équipe.
+    La première : `team_join` crée l'équipe si personne n'y était encore ET
+    compte la place dans le `WHERE` de l'INSERT -- une CTE modifiante qui
+    alimente un `INSERT ... SELECT ... WHERE`, la forme qui compile dans la
+    tête et échoue en production. Deux étudiants sur la dernière place
+    passeraient tous les deux un `if` posé côté routeur.
+
+    La seconde : la clé primaire `(assignment_id, account)` EST la règle « une
+    seule équipe par devoir », et la clé étrangère composite refuse une
+    appartenance dont l'équipe n'existe pas -- deux instructions différentes
+    les écrivent.
     """
-    import psycopg
-
     _reset_teams()
-    _inscrire("devoir", "e1", [ALICE, CLEO], group_number=4, label="Équipe 1")
-    _inscrire("devoir", "e2", [BOB], group_number=6, label="Équipe 2")
+    # LES ÉQUIPES SONT CRÉÉES À LA VOLÉE : rien n'existe avant que quelqu'un
+    # n'y entre. Peupler douze équipes vides par groupe à la publication
+    # ferait douze lignes que personne ne lit.
+    assert state.team_join(ALICE, "devoir", "g04-e01", 4, 1, "Équipe 1",
+                           4) == "g04-e01"
+    assert state.team_join(CLEO, "devoir", "g04-e01", 4, 1, "Équipe 1",
+                           4) == "g04-e01"
+    # DEUX FOIS, NON : la clé primaire dit qu'on est sur UNE équipe.
+    assert state.team_join(ALICE, "devoir", "g04-e02", 4, 2, "Équipe 2",
+                           4) is None
 
     equipe = state.team_of(ALICE, "devoir")
-    assert equipe["team_id"] == "e1", equipe
-    # LE GROUPE VIENT DE L'ÉQUIPE, pas du profil que l'étudiant remplit.
+    assert equipe["team_id"] == "g04-e01" and equipe["number"] == 1
     assert equipe["group_number"] == 4 and equipe["label"] == "Équipe 1"
-    assert state.team_of(BOB, "devoir")["team_id"] == "e2"
-    # PAS D'ÉQUIPE = None, ET C'EST LA MÊME RÉPONSE QU'UNE BASE MUETTE : sans
-    # appartenance prouvée, rien ne s'ouvre.
     assert state.team_of("sub-personne", "devoir") is None
     assert state.team_of(ALICE, "autre-devoir") is None
-    assert sorted(state.team_roster("devoir", "e1")) == sorted([ALICE, CLEO])
+    assert sorted(state.team_roster("devoir", "g04-e01")) == sorted([ALICE, CLEO])
 
-    # UNE SEULE ÉQUIPE PAR DEVOIR, tenu par la clé primaire. Un listage
-    # rechargé avec une ligne corrigée DÉPLACE l'étudiant au lieu de le mettre
-    # sur deux équipes.
-    _inscrire("devoir", "e2", [CLEO], group_number=6)
-    assert state.team_of(CLEO, "devoir")["team_id"] == "e2"
-    assert sorted(state.team_roster("devoir", "e1")) == [ALICE]
-    _inscrire("devoir", "e1", [CLEO])                       # remis en place
+    # LA PLACE EST COMPTÉE DANS LE `WHERE`, jamais relue avant : une équipe
+    # pleine refuse, et c'est Postgres qui compte.
+    assert state.team_join(BOB, "devoir", "g04-e01", 4, 1, "Équipe 1",
+                           2) is None
+    assert state.team_join(BOB, "devoir", "g06-e01", 6, 1, "Équipe 1",
+                           4) == "g06-e01"
+    # DEUX GROUPES, DEUX « ÉQUIPE 1 », DEUX DOCUMENTS. Sans le groupe dans la
+    # poignée, les deux sections travailleraient dans le même fichier.
+    assert state.team_of(BOB, "devoir")["team_id"] == "g06-e01"
+    assert state.team_roster("devoir", "g04-e01") != state.team_roster(
+        "devoir", "g06-e01")
+
+    # LA LISTE QUE L'ÉTUDIANT PARCOURT : par groupe, avec le remplissage, et
+    # SANS aucun compte -- une liste de choix n'a pas à dire qui est où.
+    liste = state.team_counts("devoir", 4)
+    assert liste[0] == {"number": 1, "team_id": "g04-e01", "label": "Équipe 1",
+                        "members": 2}, liste
+    # `g04-e02` EXISTE ET EST VIDE : la tentative refusée plus haut a quand
+    # même créé l'équipe, parce que la CTE qui la crée s'exécute toujours --
+    # seule l'inscription a été refusée par la clé primaire. Sans effet
+    # visible : le service liste de toute façon les `count` équipes du devoir,
+    # celles qui ont une ligne comme celles qui n'en ont pas. Une ligne de
+    # bruit vaut mieux qu'un aller-retour de vérification avant chaque INSERT.
+    assert [e["members"] for e in liste] == [2, 0], liste
+    assert state.team_counts("devoir", 6)[0]["members"] == 1
+
+    # QUITTER LAISSE L'ÉQUIPE EN PLACE : son numéro est celui de Moodle, et
+    # elle porte peut-être déjà un document. La supprimer renumérioterait tout.
+    assert state.team_leave(CLEO, "devoir")
+    assert state.team_of(CLEO, "devoir") is None
+    assert state.team_counts("devoir", 4)[0]["members"] == 1
 
     # UNE APPARTENANCE SANS ÉQUIPE EST REFUSÉE PAR POSTGRES, pas par du Python.
+    import psycopg
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
         try:
             cx.execute("INSERT INTO team_member (team_id, assignment_id, account)"
-                       " VALUES ('fantome', 'devoir', 'sub-x')")
+                       " VALUES ('g09-e09', 'devoir', 'sub-x')")
             raise AssertionError("une équipe inexistante a été acceptée")
         except psycopg.errors.ForeignKeyViolation:
             pass
+
     # « MES ÉQUIPES », SANS DEVOIR : la lecture qui répond AVANT l'ouverture,
-    # pour qu'un étudiant puisse vérifier son inscription pendant qu'une
-    # erreur de listage se corrige encore. Elle n'ouvre rien -- `workspace()`
-    # reste la porte -- et elle passe par le MÊME GRANT en lecture seule.
-    _inscrire("autre-devoir", "g06-e01", [ALICE], group_number=6)
+    # pour qu'un étudiant vérifie son choix pendant qu'il peut encore le
+    # changer.
+    _inscrire("autre-devoir", 6, 2, [ALICE])
     miennes = state.team_memberships(ALICE)
     assert {m["assignment_id"]: m["team_id"] for m in miennes} == {
-        "devoir": "e1", "autre-devoir": "g06-e01"}, miennes
-    # LE GROUPE VIENT DE L'ÉQUIPE, et deux devoirs peuvent en donner deux
-    # différents au même compte.
-    assert sorted(m["group_number"] for m in miennes) == [4, 6]
+        "devoir": "g04-e01", "autre-devoir": "g06-e02"}, miennes
+    assert sorted(m["number"] for m in miennes) == [1, 2]
     assert state.team_memberships("sub-personne") == []
-    print("ok   teams: le listage est lu, une seule équipe par devoir, "
-          "pas d'appartenance orpheline, et « mes équipes » se lit sans devoir")
-
-
-def team_formation():
-    """LE PROTOCOLE DE FORMATION, ET SES DEUX FORMES QUI N'EXISTENT QU'EN VRAI.
-
-    La première : `team_lock` pose un verrou ET scelle dans UNE instruction,
-    parce que deux derniers membres confirmant au même instant liraient tous
-    les deux « il en reste un » s'il fallait relire après avoir écrit. Le
-    `NOT EXISTS` du scellement doit donc EXCLURE le compte courant -- une CTE
-    modifiante n'est pas visible au reste de la requête, qui lit le snapshot
-    du début. Sans l'exclusion, l'équipe ne se scelle JAMAIS, et ça ne se voit
-    qu'ici : une base simulée en Python voit ses propres écritures.
-
-    La seconde : chaque écriture porte son contrôle d'accès dans son `WHERE`
-    -- on ne rejoint qu'une équipe non scellée, sur présentation de son code,
-    et une équipe scellée ne se rouvre pas. C'est ce qui remplace le privilège
-    absent depuis que les équipes se forment elles-mêmes.
-    """
-    _reset_teams()
-    assert state.team_create(ALICE, "devoir", "e1", "Les matracs", None,
-                             "K7M2X9") == "e1"
-    # UNE SEULE ÉQUIPE PAR DEVOIR, et c'est la clé primaire qui le dit : celui
-    # qui en a déjà une ne peut pas en créer une seconde.
-    assert state.team_create(ALICE, "devoir", "e2", "Autre", None, "ZZZZZZ") is None
-    # UN CODE NE SERT QU'UNE FOIS : l'index unique refuse le doublon, et
-    # `team_create` rend None plutôt que d'annoncer une équipe inexistante.
-    assert state.team_create(BOB, "devoir", "e3", "Autre", None, "K7M2X9") is None
-
-    assert state.team_join(BOB, "devoir", "K7M2X9", 4) == "e1"
-    assert state.team_join(CLEO, "devoir", "MAUVAIS", 4) is None
-    assert state.team_join(CLEO, "devoir", "K7M2X9", 4) == "e1"
-    # PLEINE : le compte est dans le `WHERE` de l'INSERT, pas dans un `if`.
-    assert state.team_join("sub-dan", "devoir", "K7M2X9", 3) is None
-
-    # LE SCELLEMENT N'ARRIVE QU'À LA DERNIÈRE CONFIRMATION, et pas avant.
-    assert state.team_lock(ALICE, "devoir", True, 3, 4)
-    assert state.team_lock(BOB, "devoir", True, 3, 4)
-    assert state.team_of(ALICE, "devoir")["sealed"] is False
-    # ...ET IL VÉRIFIE LE GROUPE : il est choisi au scellement, donc il doit y
-    # être. Une équipe sans groupe reste en formation.
-    assert state.team_lock(CLEO, "devoir", True, 3, 4)
-    assert state.team_of(ALICE, "devoir")["sealed"] is False, \
-        "scellée sans groupe : le CHECK du schéma aurait dû être la dernière barrière"
-
-    # TOUT CHANGEMENT FAIT TOMBER LES VERROUS -- un verrou vaut pour l'état
-    # exact qu'on a vu.
-    assert state.team_settings(ALICE, "devoir", "Les matracs", 4)
-    assert set(state.team_locks("devoir", "e1").values()) == {False}
-    assert state.team_lock(ALICE, "devoir", True, 3, 4)
-    assert state.team_join("sub-dan", "devoir", "K7M2X9", 4) == "e1"
-    assert set(state.team_locks("devoir", "e1").values()) == {False}, \
-        "quelqu'un est entré et les confirmations sont restées"
-    assert state.team_leave("sub-dan", "devoir")
-
-    for compte in (ALICE, BOB, CLEO):
-        assert state.team_lock(compte, "devoir", True, 3, 4)
-    vue = state.team_of(ALICE, "devoir")
-    assert vue["sealed"] is True, "la dernière confirmation n'a pas scellé"
-    # LE CODE DISPARAÎT AVEC LE SCELLEMENT : il n'ouvre plus rien.
-    assert vue["invite_code"] is None
-
-    # ET RIEN NE ROUVRE. Ni rejoindre, ni sortir, ni déconfirmer, ni renommer.
-    assert state.team_join("sub-dan", "devoir", "K7M2X9", 4) is None
-    assert state.team_leave(BOB, "devoir") is False
-    assert state.team_of(BOB, "devoir") is not None
-    assert state.team_settings(ALICE, "devoir", "Renommee", 6) is False
-    assert state.team_of(ALICE, "devoir")["label"] == "Les matracs"
-    state.team_lock(ALICE, "devoir", False, 3, 4)
-    assert state.team_locks("devoir", "e1")[ALICE] is True, \
-        "on a pu retirer sa confirmation d'une équipe scellée"
-
-    # LE CODE RETROUVE SON ÉQUIPE POUR DIRE POURQUOI ÇA A RATÉ : « ce code ne
-    # correspond à rien » et « cette équipe est déjà confirmée » sont deux
-    # réponses différentes, et l'étudiant n'a pas à redemander un code qu'on
-    # lui a bien donné.
-    cible = state.team_by_code("devoir", "K7M2X9")
-    assert cible == {"team_id": "e1", "sealed": True, "members": 3}, cible
-    assert state.team_by_code("devoir", "INEXIST") is None
-    print("ok   team formation: le scellement tient dans UNE instruction, "
-          "et rien ne rouvre une équipe close")
+    print("ok   teams: on prend une place libre, la place est comptée dans le "
+          "WHERE, et deux groupes ont chacun leur « Équipe 1 »")
 
 
 def team_documents():
@@ -936,100 +888,97 @@ def team_documents():
     """
     fenetre = 120
     _reset_teams()
-    _inscrire("devoir", "e1", [ALICE, CLEO], group_number=4, label="Équipe 1")
-    _inscrire("devoir", "e2", [BOB], group_number=6, label="Équipe 2")
+    _inscrire("devoir", 4, 1, [ALICE, CLEO])
+    _inscrire("devoir", 6, 1, [BOB])
 
     def ecrire(compte, texte, window=fenetre):
-        return state.write_team_document("e1", "dev-a", compte,
+        return state.write_team_document("g04-e01", "dev-a", compte,
                                          {"main.c": texte}, uuid.uuid4().hex,
                                          window)
 
     # LE DOCUMENT VIDE ET LA BASE MUETTE NE SE RESSEMBLENT PAS : `{}` est une
     # équipe qui n'a pas commencé.
-    assert state.read_team_document("e1", "dev-a") == {}
+    assert state.read_team_document("g04-e01", "dev-a") == {}
     assert ecrire(ALICE, "un\n")
-    assert state.read_team_document("e1", "dev-a") == {"main.c": "un\n"}
-    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 1
+    assert state.read_team_document("g04-e01", "dev-a") == {"main.c": "un\n"}
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 1
 
     # DANS LA FENÊTRE, LE MÊME AUTEUR N'EN OUVRE PAS UNE SECONDE : c'est ce
     # qui évite une ligne Postgres par frappe.
     assert ecrire(ALICE, "deux\n") and ecrire(ALICE, "trois\n")
-    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 1
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 1
     # ...et le DOCUMENT, lui, a bien suivi : l'UPSERT de la CTE s'exécute même
     # si personne ne le référence.
-    assert state.read_team_document("e1", "dev-a") == {"main.c": "trois\n"}
+    assert state.read_team_document("g04-e01", "dev-a") == {"main.c": "trois\n"}
 
     # UN AUTRE AUTEUR EN OUVRE UNE TOUT DE SUITE : sans ça, la trace du
     # coéquipier qui tape dans la fenêtre de quelqu'un d'autre n'existerait pas.
     assert ecrire(CLEO, "quatre\n")
-    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 2
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 2
 
     # DEUX ÉCRITURES IDENTIQUES N'EN FONT PAS DEUX (`IS DISTINCT FROM`).
     assert ecrire(CLEO, "quatre\n", window=0)
-    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 2
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 2
     # Une fenêtre nulle sur un texte DIFFÉRENT en ouvre une : c'est le chemin
     # de la restauration.
     assert ecrire(CLEO, "cinq\n", window=0)
-    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 3
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 3
 
-    lignes = state.read_team_revisions("e1", "dev-a", 10)
+    lignes = state.read_team_revisions("g04-e01", "dev-a", 10)
     assert [r["account"] for r in lignes] == [CLEO, CLEO, ALICE], lignes
     assert all(r["bytes"] > 0 for r in lignes)
 
     # L'ÉQUIPE EST DANS LE `WHERE` : une révision de l'équipe 1 ne résout pas
     # pour l'équipe 2, et il n'y a donc aucun `if` à oublier côté Python.
     identifiant = lignes[0]["revision_id"]
-    assert state.read_team_revision("e1", identifiant) == {"main.c": "cinq\n"}
-    assert state.read_team_revision("e2", identifiant) == {}
+    assert state.read_team_revision("g04-e01", identifiant) == {"main.c": "cinq\n"}
+    assert state.read_team_revision("g06-e01", identifiant) == {}
 
     # DEUX ÉQUIPES, DEUX DOCUMENTS, sur le même exercice.
-    assert state.write_team_document("e2", "dev-a", BOB, {"main.c": "bob\n"},
+    assert state.write_team_document("g06-e01", "dev-a", BOB, {"main.c": "bob\n"},
                                      uuid.uuid4().hex, fenetre)
-    assert state.read_team_document("e1", "dev-a") == {"main.c": "cinq\n"}
-    assert state.read_team_document("e2", "dev-a") == {"main.c": "bob\n"}
+    assert state.read_team_document("g04-e01", "dev-a") == {"main.c": "cinq\n"}
+    assert state.read_team_document("g06-e01", "dev-a") == {"main.c": "bob\n"}
     print("ok   team_document: un UPSERT et une révision coalescée en UNE "
           "instruction, isolés par équipe")
 
 
 def team_submissions():
     """UNE SEULE REMISE PAR ÉQUIPE, tenue par la clé primaire."""
-    assert state.read_team_submission("devoir", "e1") == {}
-    assert state.write_team_submission("devoir", "e1", ALICE,
+    assert state.read_team_submission("devoir", "g04-e01") == {}
+    assert state.write_team_submission("devoir", "g04-e01", ALICE,
                                        {"Devoir/main.c": "x\n"})
-    assert state.read_team_submission("devoir", "e1")["submitted_by"] == ALICE
+    assert state.read_team_submission("devoir", "g04-e01")["submitted_by"] == ALICE
     # REMETTRE À NOUVEAU REMPLACE, ça n'ajoute pas une seconde remise : une
     # équipe qui trouve un bogue à 22 h doit pouvoir corriger.
-    assert state.write_team_submission("devoir", "e1", CLEO,
+    assert state.write_team_submission("devoir", "g04-e01", CLEO,
                                        {"Devoir/main.c": "y\n"})
-    assert _rows("SELECT count(*) FROM team_submission WHERE team_id = 'e1'") == 1
-    assert state.read_team_submission("devoir", "e1")["submitted_by"] == CLEO
-    assert state.write_team_submission("devoir", "e2", BOB, {"Devoir/main.c": "b\n"})
-    assert state.read_team_submission("devoir", "e2")["submitted_by"] == BOB
+    assert _rows("SELECT count(*) FROM team_submission WHERE team_id = 'g04-e01'") == 1
+    assert state.read_team_submission("devoir", "g04-e01")["submitted_by"] == CLEO
+    assert state.write_team_submission("devoir", "g06-e01", BOB, {"Devoir/main.c": "b\n"})
+    assert state.read_team_submission("devoir", "g06-e01")["submitted_by"] == BOB
     # ET LE LISTAGE DE L'ENSEIGNANT COMPTE SANS NOMMER.
     equipes = {e["team_id"]: e for e in state.read_teams("devoir")}
-    assert equipes["e1"]["members"] == 2 and equipes["e1"]["group_number"] == 4
-    assert equipes["e2"]["members"] == 1
+    assert equipes["g04-e01"]["members"] == 2 and equipes["g04-e01"]["group_number"] == 4
+    assert equipes["g06-e01"]["members"] == 1
     print("ok   team_submission: une seule remise par équipe, remplaçable")
 
 
 def team_privileges():
-    """CE QUI RESTE REFUSÉ MAINTENANT QUE LES ÉQUIPES SE FORMENT ELLES-MÊMES.
+    """CE QUI RESTE REFUSÉ, maintenant que les étudiants prennent leur place.
 
-    La garantie a changé de nature, et il faut le dire. Elle était « rejoindre
-    une équipe est INEXPRIMABLE, il n'y a pas d'INSERT » -- et elle est tombée
-    sur un fait : l'enseignant ne voit jamais un `sub`, donc il ne pouvait
-    nommer personne dans un listage, donc le listage n'était écrivable par
-    personne. Il fallait bien que quelqu'un puisse écrire.
+    La garantie a changé deux fois, et il faut savoir laquelle tient. Elle
+    était « rejoindre est INEXPRIMABLE, il n'y a pas d'INSERT » -- tombée avec
+    le listage, que l'enseignant ne pouvait pas écrire (il ne voit jamais un
+    `sub`). Elle est maintenant :
 
-    CE QUI LA REMPLACE se lit en deux moitiés :
-      * le `WHERE` de chaque écriture (éprouvé par `team_formation()`) -- on ne
-        rejoint qu'une équipe non scellée, sur présentation de son code, et une
-        équipe scellée ne se rouvre pas ;
-      * et CE QUI RESTE HORS DE PORTÉE, ici : les colonnes d'identité. Un GRANT
-        DE COLONNE, pas un UPDATE de table. Se déplacer d'équipe par un UPDATE
-        contournerait tout le protocole -- pas de code à présenter, pas de
-        scellement à respecter -- alors la colonne qui le permettrait n'est pas
-        accordée.
+      * le `WHERE` de chaque écriture (éprouvé par `teams()`) : la place est
+        comptée dans l'INSERT, et le SERVICE n'y laisse passer que tant que le
+        devoir est fermé ;
+      * et CE QUI N'EST PAS ACCORDÉ DU TOUT, ici. Pas d'UPDATE sur `team` ni
+        sur `team_member` : changer d'équipe, c'est en SORTIR et ENTRER
+        ailleurs -- deux écritures dont chacune porte sa condition. Un UPDATE
+        de `team_id` les contournerait toutes les deux, y compris la date.
 
     Non joué quand les deux DSN sont identiques -- il n'y aurait rien à refuser.
     """
@@ -1038,22 +987,18 @@ def team_privileges():
         return
     import psycopg
     refuses = (
-        # UNE ÉQUIPE NE SE SUPPRIME PAS DEPUIS L'APPLICATION : elle porte le
-        # document et la remise de trois ou quatre personnes. Se retirer d'une
-        # équipe est un DELETE sur `team_member`, et rien d'autre.
-        ("team DELETE", "DELETE FROM team WHERE team_id = 'e1'"),
-        # LES DEUX COLONNES D'IDENTITÉ D'UNE ÉQUIPE. Les déplacer emporterait
-        # le document partagé d'une équipe vers une autre.
-        ("team.team_id", "UPDATE team SET team_id = 'pirate'"),
-        ("team.assignment_id", "UPDATE team SET assignment_id = 'autre'"),
-        # LE CŒUR DU PROTOCOLE : changer d'équipe par un UPDATE court-circuite
-        # le code d'invitation ET le scellement. Rejoindre est un INSERT, dont
-        # le `WHERE` porte les deux.
-        ("team_member.team_id", "UPDATE team_member SET team_id = 'e1'"),
+        # UNE ÉQUIPE NE SE SUPPRIME NI NE SE MODIFIE DEPUIS L'APPLICATION :
+        # elle porte le document de trois ou quatre personnes, et son numéro
+        # est celui de Moodle.
+        ("team DELETE", "DELETE FROM team WHERE team_id = 'g04-e01'"),
+        ("team.number", "UPDATE team SET number = 9"),
+        ("team.group_number", "UPDATE team SET group_number = 9"),
+        ("team.label", "UPDATE team SET label = 'Pirate'"),
+        # LE CŒUR : changer d'équipe par un UPDATE court-circuiterait le
+        # comptage des places ET la date de fermeture.
+        ("team_member.team_id", "UPDATE team_member SET team_id = 'g04-e01'"),
         ("team_member.account", "UPDATE team_member SET account = 'sub-x'"),
-        ("team_member.joined_at", "UPDATE team_member SET joined_at = now()"),
-        # L'HISTOIRE NE SE RÉÉCRIT PAS : une révision est un fait, et son
-        # auteur n'est pas une colonne à corriger après coup.
+        # L'HISTOIRE NE SE RÉÉCRIT PAS.
         ("team_revision UPDATE", "UPDATE team_revision SET account = 'sub-x'"),
     )
     manques = []
@@ -1066,18 +1011,14 @@ def team_privileges():
                 pass
     assert not manques, "écriture acceptée sur : " + ", ".join(manques)
     # ET CE QUI DOIT PASSER PASSE : sans cette moitié, un GRANT trop étroit
-    # resterait muet en production et nulle part ailleurs -- exactement comme
-    # l'`UPDATE` manquant du thème.
+    # resterait muet en production et nulle part ailleurs.
     with psycopg.connect(DSN, autocommit=True) as cx:
         cx.execute("SELECT count(*) FROM team")
-        cx.execute("UPDATE team SET label = label, group_number = group_number,"
-                   " sealed_at = sealed_at, invite_code = invite_code")
-        cx.execute("UPDATE team_member SET locked_at = locked_at")
         cx.execute("UPDATE team_document SET sources = sources")
         cx.execute("UPDATE team_submission SET files = files")
         cx.execute("DELETE FROM team_member WHERE account = 'sub-absent'")
-    print("ok   team: on se forme et on se scelle, mais les colonnes "
-          "d'identité restent hors de portée")
+    print("ok   team: on entre et on sort, mais rien ne se modifie -- ni une "
+          "équipe, ni une appartenance")
 
 
 def _rows(sql, params=()):
@@ -1103,7 +1044,6 @@ def main():
     stuck_and_helpful()
     leaderboard_rows()
     teams()
-    team_formation()
     team_documents()
     team_submissions()
     team_privileges()

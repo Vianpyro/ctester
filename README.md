@@ -11,9 +11,9 @@ Students write their code in the browser, submit it, and get immediate feedback 
 * Keep test cases and expected outputs private
 * Run untrusted native code inside isolated, disposable sandboxes
 * Provide optional student accounts, progress tracking, and an assistance forum
-* Host **team assignments**: students form their own teams by unanimous
-  confirmation, then share a live-collaborative workspace with revision history
-  and a single ZIP hand-in per team
+* Host **team assignments**: students pick a team from a numbered list, then
+  share a live-collaborative workspace with revision history and a single ZIP
+  hand-in per team
 * Publish course content independently from the application
 
 The service is designed primarily as a **practice and feedback tool**, not as a grading or anti-cheating system.
@@ -39,7 +39,7 @@ The application is intentionally small: a FastAPI backend, a dependency-free fro
 
 Team assignments add one WebSocket endpoint, which relays [Yjs](https://github.com/yjs/yjs) updates between the members of one team without interpreting them. The server holds the authorization and the durable plain-text copy; the CRDT holds the merge.
 
-Teams form themselves: one student creates a team and shares a code, the others join with it, and **each member confirms the composition**. Only when everyone has confirmed is the team *sealed* — and only then does the assignment open. An unsealed team can reach nothing, and a sealed one can no longer be joined, so there is nothing to gain by joining somebody else's. The instructor never sees an account identifier, which is exactly why he cannot write the roster himself.
+Students pick their own team from a numbered list, the way they already do in Moodle — and the numbers match, which is the point. Teams are numbered per course group, and the lists freeze when the assignment opens: the very date that opens the shared document is the one that closes the lists, so there is never a moment when a student can both join a team and read its work. The instructor never sees an account identifier, which is exactly why he cannot write the roster himself.
 
 ## Tech stack
 

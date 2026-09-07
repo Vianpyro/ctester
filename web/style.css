@@ -1313,3 +1313,18 @@ pre {
    signe la nomme. Une opacité seule ne survit ni au noir et blanc, ni à
    quelqu'un qui distingue mal les gris. */
 .mesequipes .mate .marque { font-style: normal; font-size: 11px; }
+
+/* LA LISTE DES ÉQUIPES : un numéro, un remplissage, un bouton. La même forme
+   que sur Moodle, parce que c'est le même geste et les mêmes numéros. */
+.mesequipes .equipeligne {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .3rem .5rem; border: 1px solid var(--line);
+  border-radius: var(--coin); margin-bottom: .25rem; font-size: 12px;
+}
+.mesequipes .equipeligne.on {
+  border-color: var(--ink); background: var(--ink-wash);
+}
+.mesequipes .equipeligne .nom { font-size: 12.5px; }
+.mesequipes .equipeligne .places {
+  font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+}

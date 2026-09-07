@@ -3403,7 +3403,9 @@ def _contenu_devoir(root, team=True, handin=True, items=None, deadline=None):
               "items": items if items is not None else ["dev-a", "dev-b"],
               "release": {"state": "available"}}
     if team:
-        devoir["team"] = {"min": 3, "max": 4}
+        # `count` EST OBLIGATOIRE : c'est lui qui rend la numerotation
+        # comparable a celle de Moodle, donc il n'a pas de defaut sensé.
+        devoir["team"] = {"min": 3, "max": 4, "count": 6}
     if deadline:
         devoir["deadline"] = deadline
     if handin:
@@ -3428,7 +3430,7 @@ def test_un_devoir_est_valide_projete_et_marque_ses_exercices():
         model = content_catalogue.discover(root)
         assert set(model["assignments"]) == {"devoir"}
         devoir = model["assignments"]["devoir"]
-        assert devoir["team"] == {"min": 3, "max": 4}
+        assert devoir["team"] == {"min": 3, "max": 4, "count": 6}
         assert devoir["items"] == ["dev-a", "dev-b"]
         assert devoir["handin"]["root"] == "Devoir"
         public = content_catalogue.public_catalogue(model)
@@ -3476,12 +3478,18 @@ def test_discover_refuse_chaque_defaut_d_un_devoir():
         # fuseau veut dire quatre heures de plus ou de moins selon le serveur.
         (lambda r: _write_json(devoir(r), avec(deadline="2026-12-05T23:59:00")),
          "deadline must be an ISO date"),
-        (lambda r: _write_json(devoir(r), avec(team={"min": 4, "max": 3})),
+        (lambda r: _write_json(devoir(r), avec(team={"min": 4, "max": 3, "count": 6})),
          "team sizes must satisfy"),
-        (lambda r: _write_json(devoir(r), avec(team={"min": 1, "max": 99})),
+        (lambda r: _write_json(devoir(r), avec(team={"min": 1, "max": 99, "count": 6})),
          "team sizes must satisfy"),
-        (lambda r: _write_json(devoir(r), avec(team={"min": "trois", "max": 4})),
+        (lambda r: _write_json(devoir(r), avec(team={"min": "trois", "max": 4, "count": 6})),
          "team.min must be an integer"),
+        # `count` EST EXIGÉ, et sa borne aussi : sans lui la liste d'équipes
+        # n'a pas de longueur, donc rien à faire correspondre avec Moodle.
+        (lambda r: _write_json(devoir(r), avec(team={"min": 3, "max": 4})),
+         "team.count must be an integer"),
+        (lambda r: _write_json(devoir(r), avec(team={"min": 3, "max": 4, "count": 0})),
+         "team.count must satisfy"),
         (lambda r: _write_json(devoir(r), avec(handin={"root": "../etc", "files": []})),
          "handin.root must be a plain directory name"),
         (lambda r: _write_json(devoir(r), avec(
@@ -3541,45 +3549,35 @@ def test_un_devoir_sans_bloc_team_reste_individuel():
 
 
 class _BaseEquipe:
-    """The one team read `teams.workspace` needs, and nothing else.
+    """The one team read `teams.workspace` needs, and nothing else."""
 
-    `scellees` DIT QUELLES ÉQUIPES SONT CONFIRMÉES, parce que c'est ce qui
-    ouvre le devoir depuis que les équipes se forment elles-mêmes : une équipe
-    en cours de formation existe, a des membres, et n'a accès à rien.
-    """
-
-    def __init__(self, membres, scellees=None):
+    def __init__(self, membres):
         self.membres = membres          # {(assignment, account): team_id}
-        # Par défaut TOUTES scellées : les contrôles qui ne parlent pas de
-        # formation n'ont pas à s'en occuper.
-        self.scellees = scellees
 
     def team_of(self, user, assignment_id):
         team_id = self.membres.get((assignment_id, user))
         if team_id is None:
             return None
-        scellee = True if self.scellees is None else team_id in self.scellees
         return {"team_id": team_id, "assignment_id": assignment_id,
-                "group_number": 4, "label": "Équipe", "sealed": scellee,
-                "locked": scellee, "invite_code": None if scellee else "K7M2"}
+                "group_number": 4, "number": 1, "label": "Équipe 1"}
 
 
 def _publier_devoir(root, dest):
     publish_content.publish(content_catalogue.discover(root), dest)
 
 
-def test_la_porte_d_un_devoir_distingue_quatre_refus():
-    """`workspace()` est LA porte, et ses quatre refus ne disent pas la meme chose.
+def test_la_porte_d_un_devoir_distingue_trois_refus():
+    """`workspace()` est LA porte, et ses trois refus ne disent pas la meme chose.
 
-    "ce devoir n'existe pas", "ce devoir n'est pas un travail d'equipe", "tu
-    n'as pas d'equipe" et "ton equipe n'est pas encore confirmee" envoient
-    l'etudiant a quatre endroits differents -- creer une equipe, en rejoindre
-    une, attendre un coequipier, ou voir son enseignant. Les fondre en un seul
-    403 les enverrait tous les quatre chez l'enseignant.
+    "ce devoir n'existe pas", "ce devoir n'est pas un travail d'equipe" et "tu
+    n'es dans aucune equipe" envoient l'etudiant a trois endroits differents.
+    Les fondre en un seul 403 les enverrait tous les trois chez l'enseignant --
+    alors qu'un seul des trois le justifie.
 
-    LE QUATRIEME EST LE PROTOCOLE LUI-MEME : une equipe non scellee n'a acces
-    a RIEN, et c'est ce qui fait qu'on ne gagne rien a rejoindre l'equipe de
-    quelqu'un d'autre.
+    ET LE TROISIEME DIT POURQUOI C'EST TROP TARD : les equipes se choisissent
+    AVANT l'ouverture du devoir, et `workspace()` n'est atteint qu'une fois
+    ouvert. Renvoyer vers une liste qui ne s'ouvrira plus serait pire que de
+    ne rien dire.
     """
     root = tempfile.mkdtemp(prefix="ctester-devoir-")
     dest = tempfile.mkdtemp(prefix="ctester-publie-")
@@ -3594,18 +3592,11 @@ def test_la_porte_d_un_devoir_distingue_quatre_refus():
         _, equipe, refus = teams.workspace(base, "sub-alice", "devoir")
         assert refus is None and equipe["team_id"] == "e1"
         # BOB N'EST DANS AUCUNE EQUIPE : 403, et pas de document. Le message
-        # lui dit quoi faire -- creer, ou rejoindre avec un code.
+        # dit que c'est FIGE, et renvoie vers l'enseignant -- pas vers une
+        # liste d'equipes qui ne s'ouvrira plus.
         _, equipe, refus = teams.workspace(base, "sub-bob", "devoir")
         assert equipe is None and refus[0] == 403
-        assert "rejoins" in refus[1], refus
-
-        # ET UNE EQUIPE EN COURS DE FORMATION N'OUVRE RIEN : elle existe, elle
-        # a des membres, et le devoir reste ferme jusqu'a ce que tous aient
-        # confirme. C'est ce qui remplace « personne ne choisit son equipe ».
-        formation = _BaseEquipe({("devoir", "sub-alice"): "e1"}, scellees=set())
-        _, equipe, refus = teams.workspace(formation, "sub-alice", "devoir")
-        assert equipe is None and refus[0] == 403
-        assert "confirm" in refus[1], refus
+        assert "figées" in refus[1] and "enseignant" in refus[1], refus
         # L'EXERCICE EST LA SECONDE MOITIE DE LA PORTE. Prouver l'equipe ne
         # prouve pas l'exercice : `solo` n'est pas dans ce devoir.
         devoir, _, _ = teams.workspace(base, "sub-alice", "devoir")
@@ -3907,8 +3898,13 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
     """`import_teams.read_roster` verifie TOUT avant d'ecrire UNE ligne.
 
     Un listage a moitie charge parce que la ligne 30 avait une faute est pire
-    qu'un listage non charge : l'enseignant lit "termine", et trois etudiants
+    qu'un listage non charge : l'enseignant lit « termine », et trois etudiants
     n'ont silencieusement pas d'equipe le matin du laboratoire.
+
+    CE N'EST PLUS LE CHEMIN PRINCIPAL : les etudiants choisissent leur equipe
+    dans une liste numerotee, comme sur Moodle. Ce script reste pour CORRIGER
+    -- deplacer quelqu'un une fois les listes figees, placer celui qui n'a rien
+    choisi.
     """
     import importlib.util
 
@@ -3917,7 +3913,16 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    entete = "team_id,group_number,label,account\n"
+    # LA POIGNEE EST CONSTRUITE DES DEUX COTES, et les deux doivent dire la
+    # meme chose : ce script tourne avec le python de l'HOTE, qui ne voit pas
+    # `app/`, donc la fonction y est recopiee. Sans ce controle, la copie
+    # deriverait et les deux chemins nommeraient deux equipes differentes avec
+    # les memes mots.
+    assert module.team_handle(4, 7) == teams.team_handle(4, 7) == "g04-e07"
+    assert module.team_handle(6, 1) == teams.team_handle(6, 1) == "g06-e01"
+    assert module.TEAM_NAME % 7 == teams.TEAM_NAME % 7 == "Équipe 7"
+
+    entete = "group_number,number,account\n"
     dossier = tempfile.mkdtemp(prefix="ctester-listage-")
     try:
         def ecrire(texte):
@@ -3926,67 +3931,25 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
                 fh.write(texte)
             return chemin_csv
 
-        bon = ecrire(entete
-                     + "g04-e01,4,Equipe 1,sub-alice\n"
-                     + "g04-e01,4,Equipe 1,sub-bob\n"
-                     + "g04-e02,6,Equipe 2,sub-cleo\n")
+        bon = ecrire(entete + "4,1,sub-alice\n4,1,sub-bob\n6,3,sub-cleo\n")
         lignes = module.read_roster(bon)
-        assert len(lignes) == 3, lignes
-        assert module.sizes(lignes) == {"g04-e01": 2, "g04-e02": 1}
-        # LE GROUPE EST UNE COLONNE DU LISTAGE, pas le numero que l'etudiant
-        # tape dans son profil : c'est ce que "un groupe n'est pas une equipe"
-        # veut dire au niveau de la ligne de CSV.
-        assert lignes[2][1] == 6
-        # LE LIBELLE RESTE LIBRE, espaces compris : ce n'est pas lui qui
-        # voyage dans un en-tete.
-        libre = module.read_roster(ecrire(
-            entete + "g04-e01,4,Equipe des braves,sub-a\n"))
-        assert libre[0][2] == "Equipe des braves"
-        # ET LA CONVENTION QUI EVITE LA COLLISION PASSE : le groupe est dans la
-        # POIGNEE, et le LIBELLE reste « Equipe 1 » des deux cotes -- c'est lui
-        # que l'etudiant lit, et il n'a aucune raison d'etre unique.
-        deux = module.read_roster(ecrire(
-            entete + "g04-e01,4,Equipe 1,sub-a\ng06-e01,6,Equipe 1,sub-b\n"))
-        assert module.sizes(deux) == {"g04-e01": 1, "g06-e01": 1}
-        assert deux[0][2] == deux[1][2] == "Equipe 1"
-        # Le refus dit COMMENT corriger, pas seulement que c'est faux.
-        try:
-            module.read_roster(ecrire(entete + "1,4,X,sub-a\n1,6,X,sub-b\n"))
-        except SystemExit as exc:
-            assert "g04-1" in str(exc) and "g06-1" in str(exc), str(exc)
-        # ET L'ARCHIVE NE PORTE JAMAIS RIEN D'AUTRE QUE LA POIGNEE, nettoyee
-        # une SECONDE fois : ceinture et bretelles, parce que le listage est un
-        # tableur edite a la main.
-        assert teams.archive_name({"id": "d", "handin": {"root": "Devoir"}},
-                                  {"team_id": 'e1"; rm -rf /'}) \
-            == "Devoir-e1-rm--rf-.zip"
+        assert lignes == [(4, 1, "sub-alice"), (4, 1, "sub-bob"),
+                          (6, 3, "sub-cleo")], lignes
+        # DEUX GROUPES, DEUX « EQUIPE 1 » : c'est le groupe dans la poignee qui
+        # les separe, et donc leurs documents.
+        assert module.sizes(lignes) == {"g04-e01": 2, "g06-e03": 1}
 
         for texte, attendu in (
-                (entete + ",4,X,sub-a\n", "required"),
-                (entete + "g1,0,X,sub-a\n", "1..99"),
-                (entete + "g1,100,X,sub-a\n", "1..99"),
-                (entete + "g1,4,X,\n", "required"),
-                # UN `team_id` EST UNE POIGNEE, PAS UN LIBELLE : il finit dans
-                # un en-tete `Content-Disposition`, et un guillemet venu d'un
-                # tableur y serait une injection d'en-tete. Le libelle, lui,
-                # reste libre -- il ne traverse qu'en JSON.
-                (entete + 'g"1,4,X,sub-a\n', "team_id must be"),
-                (entete + "g 1,4,X,sub-a\n", "team_id must be"),
+                (entete + ",1,sub-a\n", "group_number must be 1..99"),
+                (entete + "4,,sub-a\n", "number must be 1..99"),
+                (entete + "0,1,sub-a\n", "group_number must be 1..99"),
+                (entete + "4,100,sub-a\n", "number must be 1..99"),
+                (entete + "4,1,\n", "account is required"),
                 (entete, "empty"),
                 # UN COMPTE SUR DEUX EQUIPES est refuse ici en NOMMANT la
                 # ligne, avant que la cle primaire ne le refuse en parlant
                 # d'un index.
-                (entete + "g1,4,X,sub-a\ng2,4,Y,sub-a\n", "two teams"),
-                # UN `team_id` EST GLOBAL AU DEVOIR, pas relatif au groupe : la
-                # cle primaire est (team_id, assignment_id), et `group_number`
-                # n'en fait pas partie. « equipe 1 du groupe 4 » et « equipe 1
-                # du groupe 6 » ecrites `1` seraient donc UNE equipe a cheval
-                # sur deux groupes, partageant UN document -- et Postgres ne
-                # peut pas le voir, les deux lignes sont parfaitement valides.
-                # C'est la facon la plus silencieuse dont ce listage peut mal
-                # tourner, alors elle se refuse ici.
-                (entete + "1,4,Equipe 1,sub-a\n1,6,Equipe 1,sub-b\n",
-                 "global to the assignment")):
+                (entete + "4,1,sub-a\n6,2,sub-a\n", "two teams")):
             try:
                 module.read_roster(ecrire(texte))
             except SystemExit as exc:
@@ -3995,40 +3958,29 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
                 raise AssertionError("listage invalide accepte : " + repr(texte))
 
         # `--sql` : LE MEME LISTAGE, SANS PSYCOPG. Le python de l'hote du Dell
-        # n'a aucun paquet tiers (c'est ce que
-        # `test_le_controle_de_l_hote_ne_depend_d_aucun_tiers` protege), et y
-        # installer psycopg pour charger un listage deux fois par session
-        # mettrait une dependance sur la seule machine que le projet garde
-        # propre. La sortie se passe dans `psql`.
+        # n'a aucun paquet tiers (`test_le_controle_de_l_hote_ne_depend_d_aucun_tiers`),
+        # et y installer psycopg pour deux chargements par session mettrait une
+        # dependance sur la seule machine que le projet garde propre.
         script = module.to_sql(lignes, "devoir")
-        assert script.startswith("BEGIN;") and script.rstrip().endswith("COMMIT;"), \
-            script
+        assert script.startswith("BEGIN;") and script.rstrip().endswith("COMMIT;")
+        assert "'g04-e01'" in script and "'g06-e03'" in script, script
         # UNE SEULE SOURCE POUR LES DEUX CHEMINS : `load()` execute exactement
-        # ces instructions-la. Deux chemins qui ecriraient chacun leur SQL
-        # finiraient par ne plus ecrire la meme chose, et celui qui divergerait
-        # serait celui qu'on utilise le jour ou l'autre ne marche pas.
+        # ces instructions-la.
         assert len(module.statements(lignes, "devoir")) == script.count(";") - 2
         # L'APOSTROPHE EST DOUBLEE, et c'est la seule chose a echapper :
-        # `standard_conforming_strings` est a `on` depuis PostgreSQL 9.1, donc
-        # une barre oblique inverse reste une barre oblique inverse.
-        hostile = module.read_roster(ecrire(
-            entete + "g1,4,L'equipe \\ 1,sub-a\n"))
-        rendu = module.to_sql(hostile, "devoir")
-        assert "'L''equipe \\ 1'" in rendu, rendu
+        # `standard_conforming_strings` est a `on` depuis PostgreSQL 9.1.
+        hostile = module.read_roster(ecrire(entete + "4,1,sub-o'brien\n"))
+        assert "'sub-o''brien'" in module.to_sql(hostile, "devoir")
         # ET RIEN N'EST IMPRIME AVANT LA VERIFICATION : un listage refuse ne
         # produit pas un script a moitie bon qu'on passerait dans psql par
         # reflexe.
         try:
-            module.to_sql(module.read_roster(ecrire(entete + "1,4,X,sub-a\n"
-                                                    + "1,6,X,sub-b\n")), "devoir")
+            module.to_sql(module.read_roster(ecrire(entete + "4,0,sub-a\n")),
+                          "devoir")
         except SystemExit as exc:
-            assert "global to the assignment" in str(exc)
+            assert "number must be" in str(exc)
         else:
             raise AssertionError("un listage refuse a quand meme produit du SQL")
-        # LE LIBELLE EST BORNE : il finit dans du SQL genere, et un saut de
-        # ligne venu d'un tableur y ferait deux instructions.
-        coupe = module.read_roster(ecrire(entete + 'g1,4,"a\nb",sub-a\n'))
-        assert coupe[0][2] == "a b", coupe
     finally:
         shutil.rmtree(dossier)
 

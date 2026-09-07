@@ -195,50 +195,23 @@ class TeamHandinIn(BaseModel):
     assignment_id: str = ""
 
 
-class TeamFormIn(BaseModel):
-    """POST /team/create, PUT /team/settings -- le nom et le groupe de l'équipe.
-
-    PAS DE `team_id` NI DE `account` : l'équipe est celle du compte
-    authentifié, et l'identifiant est tiré par le serveur. Un corps qui
-    nommerait une équipe serait un corps qui pourrait renommer celle des
-    autres.
-    """
-
-    model_config = _CONFIG
-
-    assignment_id: str = ""
-    label: str = ""
-    group_number: int | str | None = None
-
-
 class TeamJoinIn(BaseModel):
-    """POST /team/join -- rejoindre avec le code que l'équipe a partagé.
+    """POST /team/join -- prendre une place dans une équipe, par son NUMÉRO.
 
-    LE CODE EST LE SEUL LAISSEZ-PASSER, et c'est ce qui remplace un listage
-    que l'enseignant ne peut pas écrire : il ne voit jamais un `sub`.
+    LE NUMÉRO, PAS UNE POIGNÉE : `g04-e07` est construit par le serveur à
+    partir du groupe de l'étudiant. Un corps qui porterait la poignée
+    porterait aussi le groupe, c'est-à-dire de quoi entrer dans les équipes
+    d'une autre section.
     """
 
     model_config = _CONFIG
 
     assignment_id: str = ""
-    code: str = ""
-
-
-class TeamLockIn(BaseModel):
-    """POST /team/lock -- confirmer la composition, ou retirer sa confirmation.
-
-    UNE SEULE ROUTE POUR LES DEUX SENS : c'est le même geste, et deux routes
-    seraient deux endroits où vérifier que l'équipe n'est pas déjà scellée.
-    """
-
-    model_config = _CONFIG
-
-    assignment_id: str = ""
-    locked: bool = True
+    number: int = 0
 
 
 class TeamLeaveIn(BaseModel):
-    """POST /team/leave -- quitter, tant que l'équipe n'est pas scellée."""
+    """POST /team/leave -- quitter, tant que le devoir n'est pas ouvert."""
 
     model_config = _CONFIG
 

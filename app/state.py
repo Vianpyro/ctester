@@ -927,230 +927,99 @@ def _minute(value):
 # its promise.
 
 
-# --- Se former une équipe ------------------------------------------------------
-# LES ÉQUIPES SE FORMENT ELLES-MÊMES, et ce n'était pas le dessin de départ.
-# Le listage de l'enseignant est tombé sur un fait : CTester ne lui montre
-# JAMAIS un `sub` (c'est le modèle de confidentialité du forum), donc il ne
-# peut nommer personne dans un CSV. Un listage que personne ne peut écrire
-# n'est pas une garantie, c'est une porte fermée sur une pièce vide.
+# --- Rejoindre une équipe -------------------------------------------------------
+# LES ÉQUIPES PRÉEXISTENT, NUMÉROTÉES PAR GROUPE DE COURS, et un étudiant prend
+# une place libre dans celle qu'il veut. C'est exactement le geste qu'il fait
+# déjà sur Moodle -- et il DOIT correspondre : « Équipe 7 » ici est « Équipe 7 »
+# là-bas, sinon l'enseignant corrige deux listes qui divergent.
 #
-# CE QUI REMPLACE LA GARANTIE, ET IL FAUT LE DIRE : le `WHERE` de chaque
-# écriture, comme `forum_ouvrir_au_groupe`. On ne rejoint qu'une équipe NON
-# SCELLÉE, sur présentation de son code, et une équipe scellée ne se rouvre
-# pas. Un cran plus faible qu'un privilège absent -- et le même standard que
-# tout le reste de ce fichier.
+# LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE (CTester ne lui montre jamais un
+# `sub`), et un code d'invitation avec confirmation unanime a été essayé puis
+# retiré : il ne correspondait à rien de ce que les étudiants font déjà, et il
+# n'était pas nécessaire.
 #
-# POURQUOI ÇA SUFFIT : tant qu'une équipe n'est pas scellée, elle n'a accès à
-# RIEN (`workspace()` l'exige), donc il n'y a rien à convoiter en la
-# rejoignant ; une fois scellée, on ne peut plus entrer. L'objection « un
-# étudiant choisirait l'équipe la plus avancée » tombe des deux côtés.
+# CE QUI TIENT À LA PLACE, ET C'EST UNE DATE QUE LE CONTENU PORTE DÉJÀ : on ne
+# rejoint et on ne quitte que TANT QUE LE DEVOIR EST FERMÉ. Pendant la
+# formation il n'y a rien à voler -- le devoir n'ouvre pas -- et une fois
+# ouvert, plus personne ne bouge. Cette condition-là est dans le SERVICE
+# (`teams.joinable`), parce qu'elle se lit dans le catalogue publié, pas en
+# base : `access()` reste la seule lecture d'une release.
 
 
-def team_create(user, assignment_id, team_id, label, group_number, code):
-    """Crée une équipe et y met son créateur. UNE instruction, ou rien.
+def team_join(user, assignment_id, team_id, group_number, number, label,
+              taille_max):
+    """Prendre une place. L'ÉQUIPE EST CRÉÉE SI ELLE N'EXISTE PAS ENCORE.
 
-    LA CLÉ PRIMAIRE FAIT LE REFUS : `(assignment_id, account)` interdit d'être
-    sur deux équipes, donc quelqu'un qui en a déjà une ne peut pas en créer une
-    seconde -- pas besoin d'aller le vérifier avant, la base le dit.
+    Une équipe est une ligne le jour où quelqu'un y entre, pas le jour où le
+    devoir est publié : peupler douze équipes vides par groupe à la
+    publication, ce serait douze lignes par groupe que personne ne lira. Son
+    numéro et son groupe viennent du CONTENU, pas de la requête -- le service
+    les a bornés contre `team.count` avant d'arriver ici.
 
-    REND LE `team_id` CRÉÉ, OU None -- pas un booléen « la base a répondu ».
-    C'est la différence entre « ton équipe est créée » et « cet identifiant
-    est déjà pris » : un `ON CONFLICT DO NOTHING` réussit sans rien faire, et
-    dire « créée » là-dessus laisserait quelqu'un chercher une équipe qui
-    n'existe pas.
+    TROIS REFUS DANS UNE INSTRUCTION, là où trois `if` en laisseraient chacun
+    un ouvert : l'équipe ne doit pas être pleine, et ce compte ne doit pas être
+    déjà sur une équipe de ce devoir (la clé primaire s'en charge). Rend le
+    `team_id` rejoint, ou None.
     """
     lignes = _query(
-        "WITH nouvelle AS ("
+        "WITH equipe AS ("
         "  INSERT INTO team"
-        "    (team_id, assignment_id, group_number, label, invite_code)"
-        "  VALUES (%(t)s, %(a)s, %(g)s, %(l)s, %(c)s)"
-        "  ON CONFLICT DO NOTHING"
-        "  RETURNING team_id),"
-        "     inscrit AS ("
-        "  INSERT INTO team_member (team_id, assignment_id, account)"
-        "  SELECT team_id, %(a)s, %(u)s FROM nouvelle"
-        "  ON CONFLICT DO NOTHING"
-        "  RETURNING team_id)"
-        " SELECT team_id FROM inscrit",
-        {"t": team_id, "a": assignment_id, "g": group_number, "l": label,
-         "c": code, "u": user}, read=True)
-    return lignes[0][0] if lignes else None
-
-
-def team_join(user, assignment_id, code, taille_max):
-    """Rejoindre par son code. LE `WHERE` EST LE CONTRÔLE D'ACCÈS.
-
-    Quatre refus dans UNE instruction, là où quatre `if` en laisseraient
-    chacun un ouvert : le code doit exister, l'équipe ne doit pas être
-    SCELLÉE, elle ne doit pas être pleine, et ce compte ne doit pas déjà être
-    sur une équipe de ce devoir (la clé primaire).
-
-    ET REJOINDRE FAIT TOMBER TOUS LES VERROUS de l'équipe, dans la même
-    instruction. Sans ça, trois personnes ayant confirmé une équipe de trois
-    se retrouveraient scellées à quatre sans l'avoir vu -- leur consentement
-    porterait sur autre chose que ce qu'elles ont signé.
-
-    Rend le team_id rejoint, ou None.
-    """
-    lignes = _query(
-        "WITH entree AS ("
-        "  INSERT INTO team_member (team_id, assignment_id, account)"
-        "  SELECT t.team_id, t.assignment_id, %(u)s FROM team t"
-        "   WHERE t.assignment_id = %(a)s AND t.invite_code = %(c)s"
-        "     AND t.sealed_at IS NULL"
-        "     AND (SELECT count(*) FROM team_member m"
-        "           WHERE m.assignment_id = t.assignment_id"
-        "             AND m.team_id = t.team_id) < %(n)s"
-        "  ON CONFLICT DO NOTHING"
-        "  RETURNING team_id),"
-        "     rouverts AS ("
-        "  UPDATE team_member SET locked_at = NULL"
-        "   WHERE assignment_id = %(a)s"
-        "     AND team_id = (SELECT team_id FROM entree))"
-        " SELECT team_id FROM entree",
-        {"u": user, "a": assignment_id, "c": code, "n": taille_max}, read=True)
+        "    (team_id, assignment_id, group_number, number, label)"
+        "  VALUES (%(t)s, %(a)s, %(g)s, %(n)s, %(l)s)"
+        "  ON CONFLICT DO NOTHING)"
+        " INSERT INTO team_member (team_id, assignment_id, account)"
+        " SELECT %(t)s, %(a)s, %(u)s"
+        # LA PLACE EST COMPTÉE DANS LE `WHERE`, pas relue avant : deux
+        # étudiants qui cliquent sur la dernière place au même instant
+        # passeraient tous les deux un `if`.
+        "  WHERE (SELECT count(*) FROM team_member m"
+        "          WHERE m.assignment_id = %(a)s AND m.team_id = %(t)s)"
+        "        < %(max)s"
+        " ON CONFLICT DO NOTHING"
+        " RETURNING team_id",
+        {"t": team_id, "a": assignment_id, "g": group_number, "n": number,
+         "l": label, "u": user, "max": taille_max}, read=True)
     return lignes[0][0] if lignes else None
 
 
 def team_leave(user, assignment_id):
-    """Quitter, TANT QUE L'ÉQUIPE N'EST PAS SCELLÉE.
+    """Quitter. La CONDITION DE DATE est au-dessus, dans le service.
 
-    Le `WHERE` porte le scellement : après, on ne part plus -- une équipe
-    scellée est un engagement, et son document est déjà le travail de tous.
-    Reste « Supprimer mes données », qui efface aussi l'XP et les messages :
-    en faire le seul moyen de partir est délibéré, le prix est le sérieux de
-    la décision.
+    Elle ne peut pas être ici : « le devoir est-il ouvert ? » se lit dans le
+    catalogue publié (`access()`), pas en base -- et dupliquer une date de
+    release dans Postgres serait un second endroit où la vérité peut diverger.
 
-    ET PARTIR FAIT TOMBER LES VERROUS DES AUTRES, comme entrer.
-
-    REND True SEULEMENT SI ON EST VRAIMENT PARTI : une équipe scellée ne rend
-    rien, et le service dit « trop tard » plutôt que « c'est fait ».
-    """
-    lignes = _query(
-        "WITH parti AS ("
-        "  DELETE FROM team_member m"
-        "   USING team t"
-        "   WHERE m.assignment_id = %(a)s AND m.account = %(u)s"
-        "     AND t.team_id = m.team_id AND t.assignment_id = m.assignment_id"
-        "     AND t.sealed_at IS NULL"
-        "  RETURNING m.team_id),"
-        "     rouverts AS ("
-        "  UPDATE team_member SET locked_at = NULL"
-        "   WHERE assignment_id = %(a)s"
-        "     AND team_id = (SELECT team_id FROM parti))"
-        " SELECT team_id FROM parti",
-        {"a": assignment_id, "u": user}, read=True)
-    return bool(lignes)
-
-
-def team_settings(user, assignment_id, label, group_number):
-    """Le nom et le groupe de l'équipe, tant qu'elle n'est pas scellée.
-
-    N'IMPORTE QUEL MEMBRE PEUT LES POSER, et personne n'a besoin d'être chef :
-    tout le monde devra confirmer ensuite, donc changer quelque chose ne fait
-    que redemander l'accord de tous. C'est ce qui remplace une hiérarchie.
-
-    ET ÇA FAIT TOMBER LES VERROUS, pour la même raison qu'entrer et sortir.
-
-    REND True SEULEMENT SI QUELQUE CHOSE A CHANGÉ : sur une équipe scellée le
-    `WHERE` ne matche pas, et le service le dit au lieu d'annoncer un
-    enregistrement qui n'a pas eu lieu.
-    """
-    lignes = _query(
-        "WITH change AS ("
-        "  UPDATE team t SET label = %(l)s, group_number = %(g)s"
-        "   WHERE t.assignment_id = %(a)s AND t.sealed_at IS NULL"
-        "     AND EXISTS (SELECT 1 FROM team_member m"
-        "                  WHERE m.assignment_id = t.assignment_id"
-        "                    AND m.team_id = t.team_id AND m.account = %(u)s)"
-        "  RETURNING t.team_id),"
-        "     rouverts AS ("
-        "  UPDATE team_member SET locked_at = NULL"
-        "   WHERE assignment_id = %(a)s"
-        "     AND team_id = (SELECT team_id FROM change))"
-        " SELECT team_id FROM change",
-        {"a": assignment_id, "u": user, "l": label, "g": group_number},
-        read=True)
-    return bool(lignes)
-
-
-def team_lock(user, assignment_id, locked, taille_min, taille_max):
-    """Confirmer (ou retirer sa confirmation), ET SCELLER SI C'ÉTAIT LA DERNIÈRE.
-
-    LES DEUX DANS UNE SEULE INSTRUCTION, et c'est la forme qui compte ici :
-    deux derniers membres qui confirment au même instant liraient tous les
-    deux « il en reste un » s'il fallait relire après avoir écrit. Ici le
-    scellement est décidé par un `NOT EXISTS` évalué APRÈS la pose du verrou,
-    dans la même instruction -- l'un des deux scelle, l'autre voit une équipe
-    déjà scellée et son `WHERE` ne matche plus.
-
-    LE SCELLEMENT VÉRIFIE AUSSI LA TAILLE ET LE GROUPE : une équipe de deux
-    quand le devoir en demande trois ne se scelle pas, et une équipe sans
-    groupe non plus (le CHECK du schéma est la dernière barrière). Elle reste
-    en formation, ce que la page dit.
-
-    DÉVERROUILLER N'EST POSSIBLE QUE TANT QU'ELLE N'EST PAS SCELLÉE : après,
-    il n'y a plus rien à retirer -- c'est tout l'intérêt du scellement.
+    L'ÉQUIPE VIDÉE RESTE, et c'est voulu : elle porte peut-être déjà un
+    document, et son numéro est celui de Moodle. Une équipe vide se remplit à
+    nouveau ; une équipe supprimée renumérote tout.
     """
     return _query(
-        "WITH pose AS ("
-        # `CASE`, PAS UN PARAMETRE : passer la chaine "now()" y mettrait le
-        # TEXTE, que Postgres refuse de lire comme un instant. La fonction doit
-        # etre dans l'instruction, le booleen dans le parametre.
-        # `FROM`, PAS `USING` : `USING` est la syntaxe du DELETE. Un UPDATE
-        # joint avec `FROM`, et Postgres refuse l'autre en bloc.
-        "  UPDATE team_member m"
-        "     SET locked_at = CASE WHEN %(lock)s THEN now() ELSE NULL END"
-        "    FROM team t"
-        "   WHERE m.assignment_id = %(a)s AND m.account = %(u)s"
-        "     AND t.team_id = m.team_id AND t.assignment_id = m.assignment_id"
-        "     AND t.sealed_at IS NULL"
-        "  RETURNING m.team_id)"
-        " UPDATE team t SET sealed_at = now()"
-        "  WHERE t.assignment_id = %(a)s"
-        "    AND t.team_id = (SELECT team_id FROM pose)"
-        "    AND t.sealed_at IS NULL"
-        "    AND %(lock)s"
-        "    AND t.group_number IS NOT NULL"
-        # `m.account <> %(u)s` EST OBLIGATOIRE, et c'est le piège de toute
-        # CTE modifiante : ce `NOT EXISTS` lit `team_member` sur le SNAPSHOT
-        # du debut de l'instruction, donc il ne voit PAS le verrou que `pose`
-        # vient de poser. Sans l'exclusion, il trouve toujours le membre
-        # courant encore a NULL, et l'equipe ne se scelle JAMAIS. On sait que
-        # celui-la vient d'etre verrouille -- c'est le seul dont on n'a pas
-        # besoin de relire l'etat.
-        "    AND NOT EXISTS (SELECT 1 FROM team_member m"
-        "                     WHERE m.assignment_id = t.assignment_id"
-        "                       AND m.team_id = t.team_id"
-        "                       AND m.account <> %(u)s"
-        "                       AND m.locked_at IS NULL)"
-        "    AND (SELECT count(*) FROM team_member m"
-        "          WHERE m.assignment_id = t.assignment_id"
-        "            AND m.team_id = t.team_id) BETWEEN %(lo)s AND %(hi)s",
-        {"a": assignment_id, "u": user, "lock": bool(locked),
-         "lo": taille_min, "hi": taille_max},
-    ) is not None
+        "DELETE FROM team_member WHERE assignment_id = %s AND account = %s",
+        (assignment_id, user)) is not None
 
 
-def team_by_code(assignment_id, code):
-    """L'équipe qui porte ce code, scellée ou non. Pour dire pourquoi ça a raté.
+def team_counts(assignment_id, group_number):
+    """[{number, team_id, label, members}] -- les équipes de CE groupe.
 
-    Lue APRÈS un `team_join` qui n'a rien fait : sans elle, « ce code ne
-    correspond à rien », « cette équipe est déjà scellée » et « cette équipe
-    est complète » seraient le même message, et l'étudiant redemanderait le
-    code à quelqu'un qui le lui a bien donné.
+    LA LISTE QUE L'ÉTUDIANT PARCOURT, et elle ne montre que les équipes qui
+    existent : les autres sont des places libres que le service ajoute depuis
+    `team.count`. Compter en SQL plutôt que de rendre les membres évite de
+    faire traverser des `sub` pour afficher « 3/4 ».
     """
-    lignes = _query(
-        "SELECT t.team_id, t.sealed_at IS NOT NULL,"
+    rows = _query(
+        "SELECT t.number, t.team_id, t.label,"
         "       (SELECT count(*) FROM team_member m"
         "         WHERE m.assignment_id = t.assignment_id"
         "           AND m.team_id = t.team_id)"
-        "  FROM team t WHERE t.assignment_id = %s AND t.invite_code = %s",
-        (assignment_id, code), read=True)
-    if not lignes:
+        "  FROM team t"
+        " WHERE t.assignment_id = %s AND t.group_number = %s"
+        " ORDER BY t.number",
+        (assignment_id, group_number), read=True)
+    if rows is None:
         return None
-    team_id, scellee, membres = lignes[0]
-    return {"team_id": team_id, "sealed": scellee, "members": int(membres)}
+    return [{"number": int(number), "team_id": team_id, "label": label,
+             "members": int(membres)}
+            for number, team_id, label, membres in rows]
 
 
 def team_of(user, assignment_id):
@@ -1167,8 +1036,7 @@ def team_of(user, assignment_id):
     nothing opens.
     """
     rows = _query(
-        "SELECT m.team_id, t.group_number, t.label, t.invite_code,"
-        "       t.sealed_at IS NOT NULL, m.locked_at IS NOT NULL"
+        "SELECT m.team_id, t.group_number, t.number, t.label"
         "  FROM team_member m"
         "  JOIN team t ON t.team_id = m.team_id"
         "             AND t.assignment_id = m.assignment_id"
@@ -1176,14 +1044,9 @@ def team_of(user, assignment_id):
         (assignment_id, user), read=True)
     if not rows:
         return None
-    team_id, group_number, label, code, scellee, verrouille = rows[0]
+    team_id, group_number, number, label = rows[0]
     return {"team_id": team_id, "assignment_id": assignment_id,
-            "group_number": group_number, "label": label,
-            # LE CODE NE SORT QUE POUR UN MEMBRE, et seulement tant que
-            # l'équipe se forme : après le scellement il n'ouvre plus rien, et
-            # continuer à l'afficher inviterait à le partager pour rien.
-            "invite_code": None if scellee else code,
-            "sealed": scellee, "locked": verrouille}
+            "group_number": group_number, "number": number, "label": label}
 
 
 def team_roster(assignment_id, team_id):
@@ -1194,29 +1057,13 @@ def team_roster(assignment_id, team_id):
     makes. No `sub` leaves this application through a team route either.
     """
     rows = _query(
-        "SELECT account, locked_at IS NOT NULL FROM team_member"
+        "SELECT account FROM team_member"
         " WHERE assignment_id = %s AND team_id = %s"
         " ORDER BY joined_at, account",
         (assignment_id, team_id), read=True)
     if rows is None:
         return None
-    # LA LISTE RESTE UNE LISTE DE COMPTES -- c'est ce que tout le reste attend,
-    # et ce dont `member_handle()` tire une position. Les verrous voyagent à
-    # côté, dans un dict, plutôt que de changer la forme que six appelants
-    # lisent déjà.
-    return [account for account, _ in rows]
-
-
-def team_locks(assignment_id, team_id):
-    """{compte: a confirmé} -- qui a verrouillé, dans l'ordre du listage."""
-    rows = _query(
-        "SELECT account, locked_at IS NOT NULL FROM team_member"
-        " WHERE assignment_id = %s AND team_id = %s"
-        " ORDER BY joined_at, account",
-        (assignment_id, team_id), read=True)
-    if rows is None:
-        return None
-    return {account: bool(verrouille) for account, verrouille in rows}
+    return [account for (account,) in rows]
 
 
 def read_team_document(team_id, exercise_id):
@@ -1358,8 +1205,7 @@ def team_memberships(user):
     still the gate for every document, revision, room and hand-in.
     """
     rows = _query(
-        "SELECT m.assignment_id, m.team_id, t.group_number, t.label,"
-        "       t.invite_code, t.sealed_at IS NOT NULL, m.locked_at IS NOT NULL"
+        "SELECT m.assignment_id, m.team_id, t.group_number, t.number, t.label"
         "  FROM team_member m"
         "  JOIN team t ON t.team_id = m.team_id"
         "             AND t.assignment_id = m.assignment_id"
@@ -1369,11 +1215,8 @@ def team_memberships(user):
     if rows is None:
         return None
     return [{"assignment_id": assignment_id, "team_id": team_id,
-             "group_number": group_number, "label": label,
-             "invite_code": None if scellee else code,
-             "sealed": scellee, "locked": verrouille}
-            for assignment_id, team_id, group_number, label, code, scellee,
-                verrouille in rows]
+             "group_number": group_number, "number": number, "label": label}
+            for assignment_id, team_id, group_number, number, label in rows]
 
 
 def read_teams(assignment_id):
