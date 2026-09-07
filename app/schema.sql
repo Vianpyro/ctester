@@ -341,3 +341,72 @@ CREATE TABLE IF NOT EXISTS display_preference (
     theme      TEXT        NOT NULL CHECK (theme IN ('light', 'dark')),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- --------------------------------------------------------------------------
+-- MIGRATIONS: WHAT `CREATE TABLE IF NOT EXISTS` CANNOT DO.
+--
+-- THIS SECTION EXISTS BECAUSE THE FILE ABOVE IS A NO-OP ON A DATABASE THAT
+-- ALREADY HAS ITS TABLES. `IF NOT EXISTS` guards the CREATE, so replaying the
+-- schema on every convergence is free -- but a column ADDED to a table that
+-- already exists is never applied, and the replay says nothing. That is not a
+-- theoretical gap: the redesign added `visibility` to `forum_message`, the
+-- Dell replayed this file without complaint, and the next task in the Ansible
+-- role failed with `column "visibility" of relation "forum_message" does not
+-- exist` -- the GRANT was the first thing to touch a column the schema
+-- believed it had created.
+--
+-- EVERY STATEMENT HERE IS IDEMPOTENT, and that is the whole contract: this
+-- file is replayed at EVERY convergence, so a migration that could only run
+-- once would break the run after it. `ADD COLUMN IF NOT EXISTS` is a no-op on
+-- a fresh database (the CREATE above already made the column) and repairs an
+-- old one.
+--
+-- A MIGRATION STAYS HERE ONCE WRITTEN. Deleting it the day every host has run
+-- it would be safe and pointless: it costs one catalog lookup per column per
+-- convergence, and the day someone restores a backup from before it, the
+-- schema repairs itself again. `migrate_schema_english.sql` is the opposite
+-- case and stays a manual script: renaming tables that hold real data cannot
+-- be made idempotent, and must not run unattended.
+
+-- "Je suis bloqué ici" (design 1g). NOT NULL WITH A DEFAULT on a table that
+-- already holds messages: Postgres backfills without rewriting the table, and
+-- every message written before this column reads as `thread` -- the ordinary
+-- public post, which is exactly what it was.
+ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS step         TEXT;
+ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS blocked_kind TEXT;
+ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS visibility   TEXT NOT NULL
+    DEFAULT 'thread';
+
+-- The CHECK travels separately from the column: `ADD COLUMN IF NOT EXISTS`
+-- carries the DEFAULT but a constraint added inline would be re-added under a
+-- new name on every replay. Named, dropped and re-added, it stays one
+-- constraint no matter how many times this file runs.
+ALTER TABLE forum_message DROP CONSTRAINT IF EXISTS forum_message_visibility_check;
+ALTER TABLE forum_message ADD  CONSTRAINT forum_message_visibility_check
+    CHECK (visibility IN ('private', 'group', 'thread'));
+
+-- The plate, the drawn alias and the leaderboard opt-in (designs 1c/1d).
+-- `false` FOR BOTH FLAGS IS THE ONLY SAFE BACKFILL: an existing account has
+-- consented to nothing, so it joins no ranking and shows no badge until its
+-- owner ticks the box.
+ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS alias              TEXT;
+ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS plate_frame        TEXT;
+ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS badges_public      BOOLEAN
+    NOT NULL DEFAULT false;
+ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS leaderboard_opt_in BOOLEAN
+    NOT NULL DEFAULT false;
+
+-- THE RETAINED ANSWER WIDENED AN EXISTING CHECK, and this is the failure that
+-- would NOT have shown up at deploy time: the old constraint still read
+-- `('hide', 'restore')`, so the schema looked applied and the first click on
+-- "Retenir comme réponse" would have been refused by Postgres, months later,
+-- with nothing in the page to explain it.
+--
+-- ONE TRANSACTION, so there is no instant where the journal accepts an
+-- unknown action. Postgres makes DDL transactional; without the BEGIN, the
+-- drop would commit on its own and leave the table briefly unguarded.
+BEGIN;
+ALTER TABLE forum_moderation DROP CONSTRAINT IF EXISTS forum_moderation_action_check;
+ALTER TABLE forum_moderation ADD  CONSTRAINT forum_moderation_action_check
+    CHECK (action IN ('hide', 'restore', 'retain', 'unretain'));
+COMMIT;

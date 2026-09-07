@@ -89,6 +89,117 @@ def apply_schema():
     print("ok   schema.sql applies, and replays without breaking anything")
 
 
+def schema_repairs_an_older_database():
+    """THE SCHEMA MUST REPAIR A DATABASE, not only create one from nothing.
+
+    THIS IS THE CHECK THAT WAS MISSING, and its absence cost a failed deploy.
+    `schema.sql` guards every table with `CREATE TABLE IF NOT EXISTS`, so
+    replaying it on a host that already has its tables is free -- and that is
+    exactly the trap: a column ADDED to an existing table is never applied,
+    the replay reports success, and the next thing to touch that column is
+    what fails. On the Dell it was the GRANT:
+
+        ERROR: column "visibility" of relation "forum_message" does not exist
+
+    So the migration section at the end of `schema.sql` carries an
+    `ADD COLUMN IF NOT EXISTS` per added column. What is proven here is that
+    those statements DO repair a database missing them: the columns are
+    dropped, the schema is replayed, and they must come back -- with their
+    type, their NOT NULL and their DEFAULT.
+
+    ANY FUTURE COLUMN ADDED TO AN EXISTING TABLE NEEDS ITS LINE THERE TOO, and
+    this test only guards the ones already written. The rule itself is spelled
+    out in `schema.sql`; a host that skips it fails the way this one did.
+    """
+    import psycopg
+    # What the migration section is responsible for. The CHECK travels with
+    # `visibility` because dropping the column drops the constraint too.
+    added = {
+        "forum_message": ("step", "blocked_kind", "visibility"),
+        "forum_profile": ("alias", "plate_frame", "badges_public",
+                          "leaderboard_opt_in"),
+    }
+    with open(os.path.join(HERE, "app", "schema.sql"), encoding="utf-8") as fh:
+        sql = fh.read()
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
+        def columns(table):
+            return {row[0]: (row[1], row[2]) for row in cx.execute(
+                "SELECT column_name, is_nullable, column_default"
+                "  FROM information_schema.columns WHERE table_name = %s",
+                (table,))}
+
+        before = {table: columns(table) for table in added}
+        # DROPPING A COLUMN DESTROYS ITS GRANTS, and that is not a detail of
+        # this test -- it is why the Ansible role applies the schema BEFORE it
+        # grants, and why re-granting is safe to replay. Here it has to be
+        # undone: every check after this one writes as `ctester_app`, and
+        # `forum_open_to_group` would fail on a `visibility` it may no longer
+        # update -- which reads as a broken UPDATE rather than a lost GRANT.
+        privileges = list(cx.execute(
+            "SELECT grantee, table_name, column_name, privilege_type"
+            "  FROM information_schema.column_privileges"
+            " WHERE table_name = ANY(%s) AND column_name = ANY(%s)"
+            "   AND grantee <> current_user",
+            (list(added), [n for names in added.values() for n in names])))
+
+        # BACK TO AN OLDER HOST: drop what the redesign added, and widen
+        # nothing -- this is the shape the Dell was in when the deploy failed.
+        for table, names in added.items():
+            for name in names:
+                cx.execute("ALTER TABLE %s DROP COLUMN IF EXISTS %s"
+                           % (table, name))
+        cx.execute("ALTER TABLE forum_moderation"
+                   " DROP CONSTRAINT IF EXISTS forum_moderation_action_check")
+        cx.execute("ALTER TABLE forum_moderation ADD CONSTRAINT"
+                   " forum_moderation_action_check"
+                   " CHECK (action IN ('hide', 'restore'))")
+
+        cx.execute(sql)                                   # the role's replay
+
+        for table, names in added.items():
+            now = columns(table)
+            for name in names:
+                assert name in now, \
+                    "%s.%s was not restored by replaying schema.sql" % (table, name)
+                assert now[name] == before[table][name], \
+                    "%s.%s came back different: %r then %r" % (
+                        table, name, before[table][name], now[name])
+
+        # AND THE WIDENED CHECK COMES BACK. This is the half that would not
+        # have failed the deploy at all: the old constraint still read
+        # ('hide', 'restore'), and the first click on "Retenir comme réponse"
+        # would have been refused months later with nothing explaining it.
+        action_check = cx.execute(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint"
+            "  WHERE conrelid = 'forum_moderation'::regclass"
+            "    AND conname = 'forum_moderation_action_check'").fetchone()[0]
+        for verb in ("hide", "restore", "retain", "unretain"):
+            assert verb in action_check, (verb, action_check)
+
+        # REPLAYING AGAIN CHANGES NOTHING: the migrations run on every
+        # converge, so one that only worked once would break the next run.
+        cx.execute(sql)
+        for table, names in added.items():
+            assert columns(table) == before[table], table
+
+        # THE GRANTS THE DROP TOOK WITH IT, PUT BACK -- this is exactly what
+        # the role's GRANT tasks do after applying the schema, replayed here
+        # for the same reason: everything below writes as `ctester_app`.
+        for grantee, table, column, privilege in privileges:
+            cx.execute('GRANT %s (%s) ON %s TO "%s"'
+                       % (privilege, column, table, grantee))
+        restored = {(row[0], row[1], row[2], row[3]) for row in cx.execute(
+            "SELECT grantee, table_name, column_name, privilege_type"
+            "  FROM information_schema.column_privileges"
+            " WHERE table_name = ANY(%s) AND column_name = ANY(%s)"
+            "   AND grantee <> current_user",
+            (list(added), [n for names in added.values() for n in names]))}
+        assert restored == {tuple(row) for row in privileges}, \
+            "column grants were not restored: %r" % (restored,)
+    print("ok   schema.sql repairs an older database, and stays idempotent")
+
+
 def append_only():
     """THE PROGRESSION TABLES ARE APPEND-ONLY, AND POSTGRES HOLDS IT.
 
@@ -587,6 +698,7 @@ def deletion():
 
 def main():
     apply_schema()
+    schema_repairs_an_older_database()
     append_only()
     for user in (ALICE, BOB):
         state.forget(user)
