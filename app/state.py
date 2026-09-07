@@ -1101,6 +1101,29 @@ def read_team_submission(assignment_id, team_id):
     return {"submitted_by": submitted_by, "submitted_at": _minute(submitted_at)}
 
 
+def team_memberships(user):
+    """Every team this account is on, across assignments. None on failure.
+
+    READ WITHOUT AN ASSIGNMENT, unlike `team_of()`, and that is the point: it
+    answers "which teams am I on" for a student who wants to check their
+    roster BEFORE the assignment opens. It grants nothing -- `workspace()` is
+    still the gate for every document, revision, room and hand-in.
+    """
+    rows = _query(
+        "SELECT m.assignment_id, m.team_id, t.group_number, t.label"
+        "  FROM team_member m"
+        "  JOIN team t ON t.team_id = m.team_id"
+        "             AND t.assignment_id = m.assignment_id"
+        " WHERE m.account = %s"
+        " ORDER BY m.assignment_id",
+        (user,), read=True)
+    if rows is None:
+        return None
+    return [{"assignment_id": assignment_id, "team_id": team_id,
+             "group_number": group_number, "label": label}
+            for assignment_id, team_id, group_number, label in rows]
+
+
 def read_teams(assignment_id):
     """Every team of one assignment, for the instructor's view. None on failure."""
     rows = _query(

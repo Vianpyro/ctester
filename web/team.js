@@ -545,7 +545,12 @@ function draw() {
               { hour: "2-digit", minute: "2-digit" })));
   }
   head.append(node("span", "tag", context.team.label));
-  head.append(node("span", "tag", "groupe " + context.team.group_number));
+  // SUR DEUX CHIFFRES, comme partout ailleurs dans la page (`groupNumber()`
+   // de forum.js, la plaque de la barre) : « groupe 4 » ici et « groupe 04 »
+   // dans le profil, ce sont deux façons d'écrire une chose dont l'étudiant
+   // finit par se demander si ce sont deux choses.
+  head.append(node("span", "tag",
+                   "groupe " + String(context.team.group_number).padStart(2, "0")));
   band.append(head);
 
   // THE TEAM, AND WHO IS HERE RIGHT NOW. The colour is the one their caret

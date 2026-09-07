@@ -244,6 +244,14 @@ async function chargerProfil() {
   if (!ctester.compte) return;
   const mine = await ctester.compte.getJson("forum/profil");
   profil = mine && typeof mine === "object" ? mine : null;
+  // LES ÉQUIPES SONT LUES ICI PARCE QUE C'EST L'ÉCRAN « QUI JE SUIS ».
+  // Elles ne sont PAS un réglage : rien de ce panneau ne peut les changer, et
+  // c'est tout l'intérêt — un étudiant qui pourrait choisir son équipe
+  // choisirait celle dont le travail est le plus avancé. Ce qu'il peut faire,
+  // c'est constater qu'il est dans la mauvaise et le dire à son enseignant,
+  // AVANT que le devoir n'ouvre.
+  const teams = await ctester.compte.getJson("team/mine");
+  equipes = teams && Array.isArray(teams.teams) ? teams.teams : null;
 }
 
 // The API's error message is REUSED AS-IS when there is one: "message trop
@@ -402,6 +410,53 @@ const groupNumber = (n) => "groupe " + String(n).padStart(2, "0");
 // what others see, with no picture of what others see, is a privacy setting
 // one has to imagine. It redraws on every keystroke and every tick, from the
 // same fields the save button will send.
+// MON ÉQUIPE, EN LECTURE SEULE. Aucun champ, aucun bouton : l'appartenance est
+// posée par l'enseignant et l'application n'a même pas le droit SQL de
+// l'écrire. Ce qui est offert est de la VÉRIFIER — et de le faire avant
+// l'ouverture du devoir, qui est le seul moment où une erreur de listage se
+// corrige encore tranquillement.
+//
+// LES COÉQUIPIERS SONT DES POSITIONS, comme partout ailleurs : « Coéquipier 2 »
+// tant qu'ils n'ont pas choisi d'afficher un nom. Voir « il manque quelqu'un »
+// ou « je ne connais aucun de ces trois-là » ne demande pas de savoir qui ils
+// sont.
+function mesEquipes() {
+  const box = node("div", "mesequipes");
+  box.append(node("h3", "soustitre", equipes.length > 1 ? "Mes équipes" : "Mon équipe"));
+  for (const equipe of equipes) {
+    const ligne = node("div", "equipe");
+    const titre = node("div", "equipetitre");
+    titre.append(node("b", "", equipe.label));
+    titre.append(node("span", "tag", groupNumber(equipe.group_number)));
+    titre.append(node("span", "tag", equipe.assignment_title));
+    // LA DATE D'OUVERTURE PLUTÔT QUE RIEN : sans elle, un devoir programmé
+    // ressemble à une équipe qui ne sert à rien. C'est le même choix que le
+    // cadenas daté du menu.
+    if (equipe.access !== "available") {
+      const quand = new Date(equipe.available_from || "");
+      titre.append(node("span", "tag", isNaN(quand.getTime()) ? "à venir"
+        : "ouvre le " + quand.toLocaleDateString(undefined,
+                                                 { day: "numeric", month: "long" })));
+    }
+    ligne.append(titre);
+    const gens = node("div", "equipegens");
+    for (const membre of equipe.members) {
+      const puce = node("span", "mate" + (membre.you ? " on" : ""));
+      const point = node("i", "dot");
+      point.setAttribute("style", "background:" + membre.color);
+      puce.append(point, node("span", "", membre.name + (membre.you ? " (toi)" : "")));
+      gens.append(puce);
+    }
+    ligne.append(gens);
+    box.append(ligne);
+  }
+  box.append(node("p", "aide", "Ton équipe est fixée par ton enseignant : elle "
+    + "ne se choisit pas ici. Si elle est fausse, dis-le-lui avant la date "
+    + "d'ouverture. Les coéquipiers qui n'ont pas affiché leur nom "
+    + "apparaissent en « Coéquipier »."));
+  return box;
+}
+
 function myIdentity() {
   const block = node("div", "");
   block.append(node("h2", "", "Mon identité"));
@@ -411,6 +466,8 @@ function myIdentity() {
     block.append(closeRow());
     return block;
   }
+
+  if (equipes && equipes.length) block.append(mesEquipes());
 
   const nameId = "forumpseudo";
   const nameLabel = node("label", "", "Nom affiché (facultatif)");
@@ -1219,6 +1276,12 @@ function oublier() {
 // not a reading step: in the thread's column, it used to push the charter
 // and the post form further down on every visit. One single place, so one
 // single place where visibility can drift from what the database says.
+// Les équipes de ce compte, telles que `GET /team/mine` les rend. `null` veut
+// dire « pas lues » (base muette, ou pas de session) et `[]` « aucune équipe » :
+// les deux ne se disent pas pareil, et les confondre annoncerait « tu n'as pas
+// d'équipe » à quelqu'un qui en a une, pendant une panne.
+let equipes = null;
+
 async function ouvrirIdentite() {
   if (!$("identitepanneau").hidden) { closeIdentity(); return; }
   annonce = "";

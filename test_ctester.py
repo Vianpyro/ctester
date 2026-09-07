@@ -3823,6 +3823,18 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
         libre = module.read_roster(ecrire(
             entete + "g04-e01,4,Equipe des braves,sub-a\n"))
         assert libre[0][2] == "Equipe des braves"
+        # ET LA CONVENTION QUI EVITE LA COLLISION PASSE : le groupe est dans la
+        # POIGNEE, et le LIBELLE reste « Equipe 1 » des deux cotes -- c'est lui
+        # que l'etudiant lit, et il n'a aucune raison d'etre unique.
+        deux = module.read_roster(ecrire(
+            entete + "g04-e01,4,Equipe 1,sub-a\ng06-e01,6,Equipe 1,sub-b\n"))
+        assert module.sizes(deux) == {"g04-e01": 1, "g06-e01": 1}
+        assert deux[0][2] == deux[1][2] == "Equipe 1"
+        # Le refus dit COMMENT corriger, pas seulement que c'est faux.
+        try:
+            module.read_roster(ecrire(entete + "1,4,X,sub-a\n1,6,X,sub-b\n"))
+        except SystemExit as exc:
+            assert "g04-1" in str(exc) and "g06-1" in str(exc), str(exc)
         # ET L'ARCHIVE NE PORTE JAMAIS RIEN D'AUTRE QUE LA POIGNEE, nettoyee
         # une SECONDE fois : ceinture et bretelles, parce que le listage est un
         # tableur edite a la main.
@@ -3845,7 +3857,17 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
                 # UN COMPTE SUR DEUX EQUIPES est refuse ici en NOMMANT la
                 # ligne, avant que la cle primaire ne le refuse en parlant
                 # d'un index.
-                (entete + "g1,4,X,sub-a\ng2,4,Y,sub-a\n", "two teams")):
+                (entete + "g1,4,X,sub-a\ng2,4,Y,sub-a\n", "two teams"),
+                # UN `team_id` EST GLOBAL AU DEVOIR, pas relatif au groupe : la
+                # cle primaire est (team_id, assignment_id), et `group_number`
+                # n'en fait pas partie. « equipe 1 du groupe 4 » et « equipe 1
+                # du groupe 6 » ecrites `1` seraient donc UNE equipe a cheval
+                # sur deux groupes, partageant UN document -- et Postgres ne
+                # peut pas le voir, les deux lignes sont parfaitement valides.
+                # C'est la facon la plus silencieuse dont ce listage peut mal
+                # tourner, alors elle se refuse ici.
+                (entete + "1,4,Equipe 1,sub-a\n1,6,Equipe 1,sub-b\n",
+                 "global to the assignment")):
             try:
                 module.read_roster(ecrire(texte))
             except SystemExit as exc:

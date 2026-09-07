@@ -61,6 +61,21 @@ def assignments(now=None):
             and entry.get("access") == "available"]
 
 
+def published_assignment(assignment_id):
+    """This assignment's published entry, OPEN OR NOT. Never a gate.
+
+    `find_assignment()` refuses what is not open, and every route that touches
+    a document goes through it. This one exists for the single case where
+    showing is not giving: telling a student which team they are on before the
+    assignment opens -- the same rule the catalog already follows by carrying
+    locked exercises with their date.
+    """
+    for entry in (load_catalog() or {}).get("assignments") or ():
+        if isinstance(entry, dict) and entry.get("id") == assignment_id:
+            return entry
+    return None
+
+
 def find_assignment(assignment_id):
     """This OPEN assignment's published entry, or None. The catalog gate."""
     for entry in assignments():

@@ -98,6 +98,51 @@ def context(sub: Sub, assignment: str = Query("", alias="assignment")):
     }
 
 
+@router.get("/team/mine")
+def mine(sub: Sub):
+    """Which teams this account is on. READ-ONLY, AND IT OPENS NOTHING.
+
+    THE ONE ROUTE THAT ANSWERS BEFORE THE ASSIGNMENT DOES. Every other route
+    here goes through `workspace()`, which refuses an assignment that is not
+    open yet -- correctly, since there is nothing to work on. But the roster is
+    loaded BEFORE the first class, and "am I on the right team, with the right
+    people?" is exactly the question a student must be able to ask then. A
+    student who can only find out on the morning of the deadline finds out too
+    late.
+
+    SHOWING IS NOT GIVING -- the same rule the catalog already follows by
+    carrying a locked exercise with its date. This returns a label, a group
+    number, teammates as POSITIONS, and the assignment's opening date. No
+    document, no revision, no room: those still go through the gate.
+    """
+    rows = state.team_memberships(sub)
+    if rows is None:
+        return headers.erreur(503, "la base ne répond pas")
+    out = []
+    for row in rows:
+        entry = team_service.published_assignment(row["assignment_id"])
+        if entry is None:
+            # A roster loaded for an assignment that is no longer published.
+            # Not an error, and not this student's problem: say nothing rather
+            # than name a devoir they cannot open.
+            continue
+        roster = _roster(row["assignment_id"], row["team_id"])
+        if roster is None:
+            return headers.erreur(503, "la base ne répond pas")
+        profiles = state.forum_profils(roster) or {}
+        out.append({
+            "assignment_id": entry["id"],
+            "assignment_title": entry.get("title", ""),
+            "access": entry.get("access", "archived"),
+            "available_from": (entry.get("release") or {}).get("available_from"),
+            "deadline": entry.get("deadline"),
+            "label": row["label"] or row["team_id"],
+            "group_number": row["group_number"],
+            "members": team_service.members_view(roster, sub, profiles),
+        })
+    return {"teams": out}
+
+
 @router.get("/team/document")
 def read_document(sub: Sub, assignment: str = Query(""), ex: str = Query("")):
     """The team's shared sources for one exercise -- the CRDT's seed.

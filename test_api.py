@@ -161,6 +161,17 @@ class BaseSimulee:
                 "group_number": meta.get("group_number"),
                 "label": meta.get("label")}
 
+    def team_memberships(self, user):
+        lignes = []
+        for (devoir, compte), equipe in sorted(self.equipes.items()):
+            if compte != user:
+                continue
+            meta = self.equipes_meta.get((equipe, devoir), {})
+            lignes.append({"assignment_id": devoir, "team_id": equipe,
+                           "group_number": meta.get("group_number"),
+                           "label": meta.get("label")})
+        return lignes
+
     def team_roster(self, assignment_id, team_id):
         return sorted(compte for (devoir, compte), equipe in self.equipes.items()
                       if devoir == assignment_id and equipe == team_id)
@@ -3023,6 +3034,71 @@ def test_la_socket_refuse_une_origine_inconnue():
             _hello(socket, "t-alice")
             assert socket.receive_json()["t"] == "ready"
         collab.reset()
+
+
+def test_mon_equipe_se_lit_avant_que_le_devoir_n_ouvre():
+    """LA SEULE ROUTE QUI RÉPOND AVANT LE DEVOIR, et c'est délibéré.
+
+    Le listage est chargé AVANT le premier cours ; « suis-je dans la bonne
+    équipe, avec les bonnes personnes ? » est exactement la question qu'un
+    étudiant doit pouvoir poser à ce moment-là. Toutes les autres routes
+    passent par `workspace()`, qui refuse un devoir pas encore ouvert — et
+    elles ont raison, il n'y a rien à travailler. Celle-ci montre sans donner,
+    comme le catalogue montre un exercice verrouillé avec sa date.
+    """
+    with deploiement_devoir() as (client, faux, tmp):
+        # Le devoir de ce déploiement est OUVERT ; on le referme pour éprouver
+        # précisément le cas qui compte : le listage existe, le devoir non.
+        publie = _publier(tmp, DEVOIR, _devoir_json())
+        racine = os.path.join(tmp, "content")
+        _ecrire_contenu(racine, DEVOIR, devoir=dict(
+            _devoir_json(), release={"state": "scheduled",
+                                     "available_from": "2099-10-16T00:00:00-04:00"}))
+        import content_catalog as content_catalogue
+        import publish_content
+        publish_content.publish(content_catalogue.discover(racine), publie)
+
+        # Le devoir ne résout plus : rien de ce qui touche au travail n'ouvre.
+        for chemin in ("/team/context?assignment=devoir",
+                       "/team/document?assignment=devoir&ex=dev-a",
+                       "/team/handin.zip?assignment=devoir"):
+            assert client.get(chemin, headers=_entetes("t-alice")).status_code == 404, chemin
+
+        # Mais l'équipe, elle, se lit -- avec la date à laquelle ça ouvrira.
+        r = client.get("/team/mine", headers=_entetes("t-alice"))
+        assert r.status_code == 200, r.text
+        [equipe] = r.json()["teams"]
+        assert equipe["label"] == "Équipe 1" and equipe["group_number"] == 4
+        assert equipe["access"] == "scheduled"
+        assert equipe["available_from"].startswith("2099-10-16")
+        # LES COÉQUIPIERS SONT DES POSITIONS, et aucun `sub` ne sort -- même
+        # règle et même contrôle que partout ailleurs.
+        assert [m["id"] for m in equipe["members"]] == ["m1", "m2"]
+        assert [m["you"] for m in equipe["members"]] == [True, False]
+        assert "sub-" not in r.text, r.text
+        # ET ELLE N'OUVRE RIEN : ni document, ni révision, ni salle.
+        assert "sources" not in r.text and "revision" not in r.text
+
+        # UN COMPTE SANS ÉQUIPE OBTIENT UNE LISTE VIDE, PAS UN 403 : « je n'ai
+        # pas d'équipe » est une réponse, et c'est celle qui envoie l'étudiant
+        # voir son enseignant pendant qu'il est encore temps.
+        faux.equipes.pop(("devoir", "sub-bob"))
+        vide = client.get("/team/mine", headers=_entetes("t-bob"))
+        assert vide.status_code == 200 and vide.json() == {"teams": []}
+        # Sans jeton, 401, comme toute route de compte.
+        assert client.get("/team/mine").status_code == 401
+
+
+def test_mon_equipe_dit_une_panne_au_lieu_d_inventer_une_absence():
+    """« La base n'a pas répondu » n'est pas « tu n'as pas d'équipe ».
+
+    Les confondre annoncerait à quelqu'un qu'il n'est inscrit nulle part, un
+    matin de panne Postgres, la veille d'une remise.
+    """
+    with deploiement_devoir() as (client, faux, _):
+        faux.team_memberships = lambda *_: None
+        r = client.get("/team/mine", headers=_entetes("t-alice"))
+        assert r.status_code == 503 and r.json() == {"error": "la base ne répond pas"}
 
 
 if __name__ == "__main__":

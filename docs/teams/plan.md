@@ -86,6 +86,28 @@ saut de ligne venu d'un tableur y serait une injection d'en-tête. Ce que les
 JSON. `archive_name()` renettoie quand même : ceinture et bretelles, parce
 qu'un listage est un tableur édité à la main.
 
+**Le `team_id` est GLOBAL AU DEVOIR, pas relatif au groupe.** La clé primaire
+est `(team_id, assignment_id)`. Deux lignes `1,4,…` et `1,6,…` ne font donc
+pas deux « équipe 1 » indépendantes : elles font **une** équipe à cheval sur
+deux groupes, partageant un document. `read_roster()` refuse la collision et
+propose la correction (`g04-e01`, `g06-e01`) ; le `label` peut rester
+« Équipe 1 » des deux côtés. Mettre le groupe dans la clé aurait fait
+trimballer `(groupe, équipe)` jusque dans le nom de l'archive.
+
+## Voir son équipe avant que le devoir n'ouvre
+
+`GET /team/mine` → les équipes de ce compte, **tous devoirs publiés, ouverts ou
+non**. C'est la seule route qui ne passe pas par `workspace()`, et la raison
+est le calendrier : le listage est chargé avant le premier cours, le devoir
+ouvre des semaines plus tard, et entre les deux un étudiant doit pouvoir dire
+« je ne suis pas dans la bonne équipe » pendant que ça se corrige encore.
+
+Elle **n'ouvre rien** — pas de document, pas de révision, pas de salle — et
+rend exactement ce qu'un étudiant peut voir de ses coéquipiers ailleurs : des
+positions, plus le nom que chacun a choisi d'afficher. Affichée dans
+« Mon identité », **sans un seul champ** : l'appartenance est posée par
+l'enseignant, et l'application n'a même pas le droit SQL de l'écrire.
+
 ## L'édition partagée : Yjs relayé, jamais interprété
 
 **La convergence est celle de Yjs, l'autorisation est la nôtre.** Le serveur

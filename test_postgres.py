@@ -813,8 +813,20 @@ def teams():
             raise AssertionError("une équipe inexistante a été acceptée")
         except psycopg.errors.ForeignKeyViolation:
             pass
+    # « MES ÉQUIPES », SANS DEVOIR : la lecture qui répond AVANT l'ouverture,
+    # pour qu'un étudiant puisse vérifier son inscription pendant qu'une
+    # erreur de listage se corrige encore. Elle n'ouvre rien -- `workspace()`
+    # reste la porte -- et elle passe par le MÊME GRANT en lecture seule.
+    _inscrire("autre-devoir", "g06-e01", [ALICE], group_number=6)
+    miennes = state.team_memberships(ALICE)
+    assert {m["assignment_id"]: m["team_id"] for m in miennes} == {
+        "devoir": "e1", "autre-devoir": "g06-e01"}, miennes
+    # LE GROUPE VIENT DE L'ÉQUIPE, et deux devoirs peuvent en donner deux
+    # différents au même compte.
+    assert sorted(m["group_number"] for m in miennes) == [4, 6]
+    assert state.team_memberships("sub-personne") == []
     print("ok   teams: le listage est lu, une seule équipe par devoir, "
-          "pas d'appartenance orpheline")
+          "pas d'appartenance orpheline, et « mes équipes » se lit sans devoir")
 
 
 def team_documents():

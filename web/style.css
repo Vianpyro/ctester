@@ -1269,3 +1269,25 @@ pre {
 #carets .sel {
   position: absolute; display: block; opacity: .22;
 }
+
+/* MON ÉQUIPE, DANS « Mon identité ». Un FAIT posé par l'enseignant, pas un
+   réglage : ni champ, ni case, ni bouton — d'où l'encadré au trait plutôt que
+   la grammaire des lignes de formulaire au-dessus. Les puces de coéquipiers
+   réutilisent `.mate` du bandeau d'équipe : même couleur de point, même
+   personne, deux écrans. */
+.mesequipes { margin: .5rem 0 .8rem; }
+.mesequipes .equipe {
+  border: 1px solid var(--line); border-radius: var(--coin);
+  background: var(--ink-wash); padding: .4rem .55rem; margin-bottom: .35rem;
+}
+.mesequipes .equipetitre,
+.mesequipes .equipegens {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+}
+.mesequipes .equipegens { margin-top: .35rem; }
+.mesequipes .equipetitre b { font-size: 12.5px; }
+.mesequipes .tag {
+  font-size: 11px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: var(--coin);
+  padding: .05rem .4rem;
+}

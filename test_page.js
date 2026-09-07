@@ -497,6 +497,16 @@ function equipeRepond(url, opts) {
   const corps = opts && opts.body ? JSON.parse(opts.body) : null;
   const chemin = String(url).split("?")[0];
   const ex = decodeURIComponent(String(url).split("ex=")[1] || "");
+  if (chemin === "team/mine") {
+    // PROGRAMMÉ, PAS OUVERT, ET C'EST LE CAS QUI COMPTE : le listage est
+    // chargé avant le premier cours, et c'est là qu'une erreur se corrige
+    // encore tranquillement.
+    return rendJson({ teams: EQUIPE_REFUSEE ? [] : [{
+      assignment_id: "devoir", assignment_title: "Devoir — Analyseur GPS",
+      access: "scheduled", available_from: "2099-10-16T00:00:00-04:00",
+      deadline: "2099-12-05T23:59:00-05:00",
+      label: "Équipe 1", group_number: 4, members: EQUIPE.team.members }] });
+  }
   if (chemin === "team/context") {
     if (EQUIPE_REFUSEE) return rendErreur(403, "tu n'es pas inscrit à une équipe");
     return rendJson(EQUIPE);
@@ -2061,6 +2071,31 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(/Bob B/.test(vuForum) && /groupe 04/.test(vuForum),
         "un nom choisi par un autre s'affiche, avec son groupe sur deux chiffres");
 
+  // MON ÉQUIPE, DANS LE PROFIL, EN LECTURE SEULE ET AVANT L'OUVERTURE.
+  // C'est le seul écran qui répond « suis-je dans la bonne équipe ? » tant que
+  // le devoir est verrouillé -- et c'est justement le moment où la réponse
+  // sert encore à quelque chose.
+  const vuPanneau = profond(panneau);
+  check(/Mon équipe/.test(vuPanneau), "le profil porte l'équipe : " + vuPanneau);
+  check(/Équipe 1/.test(vuPanneau) && /groupe 04/.test(vuPanneau),
+        "avec son libellé et son groupe");
+  check(/ouvre le/.test(vuPanneau),
+        "et la date d'ouverture, sinon une équipe sans devoir ouvert n'a l'air "
+        + "de rien : " + vuPanneau);
+  check(/Coéquipier 1 \(toi\)/.test(vuPanneau) && /Coéquipier 3/.test(vuPanneau),
+        "les coéquipiers sont des positions tant qu'ils n'affichent rien");
+  check(!/sub-/.test(vuPanneau), "et aucun identifiant de compte n'en sort");
+  // AUCUN CHAMP, AUCUN BOUTON : l'appartenance est posée par l'enseignant, et
+  // l'application n'a même pas le droit SQL de l'écrire. Ce qui est offert est
+  // de la CONSTATER.
+  const bloc = tousLesNoeuds(panneau)
+    .find((n) => n.className === "mesequipes");
+  check(!!bloc && !tousLesNoeuds(bloc).some(
+          (n) => n.id === "" && (n.listeners || {}).click),
+        "et rien n'y est cliquable : on ne choisit pas son équipe");
+  check(/fixée par ton enseignant/.test(vuPanneau),
+        "le panneau dit pourquoi, et à qui parler : " + vuPanneau);
+
   const dansPanneau = (texte) => tousLesNoeuds(panneau)
     .find((n) => n.textContent === texte);
   nodes.forumpseudo.value = "Léa";
@@ -2625,7 +2660,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   const bandeau = () => profond(nodes.teamband);
   check(nodes.teamband.hidden === false, "le bandeau du devoir s'affiche");
   check(/Devoir — Analyseur GPS/.test(bandeau()), "il nomme le devoir");
-  check(/Équipe 1/.test(bandeau()) && /groupe 4/.test(bandeau()),
+  check(/Équipe 1/.test(bandeau()) && /groupe 04/.test(bandeau()),
         "il nomme l'ÉQUIPE et le GROUPE, qui ne sont pas la même chose : "
         + bandeau());
   check(/Bob B/.test(bandeau()) && /Coéquipier 3/.test(bandeau()),

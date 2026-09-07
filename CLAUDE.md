@@ -1546,6 +1546,18 @@ d'équipe à modifier dans une URL, un corps JSON ou un message WebSocket. C'est
 `test_api.py` l'éprouve en faisant écrire `{"team_id": "e1"}` par un membre
 d'une autre équipe — l'écriture va dans la sienne.
 
+**UN `team_id` EST GLOBAL AU DEVOIR, PAS RELATIF AU GROUPE.** La clé primaire
+est `(team_id, assignment_id)` — `group_number` n'en fait pas partie. Écrire
+`1,4,Équipe 1,…` et `1,6,Équipe 1,…` ne fait donc PAS deux équipes : ça fait
+UNE équipe à cheval sur deux groupes, partageant un document, avec le dernier
+numéro de groupe écrit. Postgres ne peut pas le voir — les deux lignes sont
+valides — alors `import_teams.read_roster()` le refuse, EN DISANT COMMENT
+corriger : préfixer la poignée (`g04-e01`, `g06-e01`). Le `label`, lui, peut
+rester « Équipe 1 » des deux côtés : c'est ce que l'étudiant lit, et il n'a
+aucune raison d'être unique. Mettre le groupe dans la clé aurait fait porter
+`(groupe, équipe)` à la clé du document, au nom de la salle et à celui de
+l'archive ; une convention de nommage refusée à l'import coûte moins cher.
+
 **PROUVER L'ÉQUIPE NE PROUVE PAS L'EXERCICE.** `exercise_in()` est la seconde
 moitié de la porte : sans elle, un membre atteindrait un document clé sur SON
 équipe et n'importe quel identifiant d'exercice.
@@ -1554,6 +1566,20 @@ moitié de la porte : sans elle, un membre atteindrait un document clé sur SON
 `SELECT, DELETE` sur `team_member`, **pas d'INSERT**. Rejoindre une équipe
 n'est pas « refusé par un `if` », c'est inexprimable.
 `test_postgres.py::team_privileges()` l'éprouve en essayant.
+
+**`GET /team/mine` EST LA SEULE ROUTE QUI RÉPOND AVANT LE DEVOIR**, et c'est
+délibéré. Toutes les autres passent par `workspace()`, qui refuse un devoir
+pas encore ouvert — elles ont raison, il n'y a rien à travailler. Mais le
+listage est chargé AVANT le premier cours, et « suis-je dans la bonne équipe,
+avec les bonnes personnes ? » est exactement la question qu'un étudiant doit
+pouvoir poser à ce moment-là ; celui qui ne l'apprend que le matin de la
+remise l'apprend trop tard. Elle rend un libellé, un numéro de groupe, les
+coéquipiers en POSITIONS et la date d'ouverture — **aucun document, aucune
+révision, aucune salle**. Montrer n'est pas donner, la même règle que le
+catalogue qui porte un exercice verrouillé avec sa date. Elle s'affiche dans
+« Mon identité » (`forum.js`), **en lecture seule : ni champ, ni bouton** —
+on ne choisit pas son équipe, on constate la sienne, et le panneau dit à qui
+parler si elle est fausse.
 
 ### Cinq tables, et trois d'entre elles ne s'effacent pas
 

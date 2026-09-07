@@ -93,6 +93,28 @@ def read_roster(path):
         if seen.setdefault(account, team_id) != team_id:
             errors.append("%s appears on two teams (%s and %s)"
                           % (account[:12] + "…", seen[account], team_id))
+    # A `team_id` IS GLOBAL TO THE ASSIGNMENT, NOT RELATIVE TO A GROUP -- the
+    # primary key is (team_id, assignment_id), and `group_number` is not in it.
+    # So `1,4,...` and `1,6,...` are NOT two independent "team 1"s: they are ONE
+    # team straddling two groups, sharing one document, with whichever group
+    # number was written last. That is the quietest way this roster can go
+    # wrong, and Postgres cannot see it -- both lines are perfectly valid.
+    #
+    # THE FIX IS A NAMING CONVENTION, and this refusal is what makes it one:
+    # `g04-e01` and `g06-e01` carry the group in the handle. `label` is free to
+    # read "Équipe 1" in both -- it is what students see, and it never has to
+    # be unique.
+    groupes = {}
+    for team_id, group, _label, _account in rows:
+        if groupes.setdefault(team_id, group) != group:
+            errors.append(
+                "team_id %r is used by group %d AND group %d -- a team id is "
+                "global to the assignment, so these would be ONE team sharing "
+                "one document. Prefix it with the group (g%02d-%s, g%02d-%s); "
+                "the `label` may stay the same in both."
+                % (team_id, groupes[team_id], group,
+                   groupes[team_id], team_id, group, team_id))
+            groupes[team_id] = group
     if errors:
         raise SystemExit("roster refused, nothing was written:\n- "
                          + "\n- ".join(errors))
