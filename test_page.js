@@ -485,6 +485,8 @@ const EQUIPE = {
 // CE QUE LE COMPTE N'A PAS : `refuse` fait répondre 403 au contexte, comme le
 // ferait un étudiant qui n'est inscrit dans aucune équipe.
 let EQUIPE_REFUSEE = false;
+// La route qui n'existe pas encore -- une API plus vieille que la page.
+let EQUIPE_MUETTE = false;
 const DOCUMENTS = { "dev-a": { "main.c": "int main(void){return 0;}\n" } };
 const REVISIONS = [{ id: "r1", author: "m2", created_at: "2026-09-07T14:32Z",
                      bytes: 640 }];
@@ -498,6 +500,9 @@ function equipeRepond(url, opts) {
   const chemin = String(url).split("?")[0];
   const ex = decodeURIComponent(String(url).split("ex=")[1] || "");
   if (chemin === "team/mine") {
+    // LA ROUTE ABSENTE : c'est ce que l'API répondait tant que le Dell
+    // tournait sur une version antérieure, et la page n'en laissait rien voir.
+    if (EQUIPE_MUETTE) return rendErreur(404, "inconnu");
     // PROGRAMMÉ, PAS OUVERT, ET C'EST LE CAS QUI COMPTE : le listage est
     // chargé avant le premier cours, et c'est là qu'une erreur se corrige
     // encore tranquillement.
@@ -2095,6 +2100,35 @@ const attendre = async () => { await sleep(); await sleep(); };
         "et rien n'y est cliquable : on ne choisit pas son équipe");
   check(/fixée par ton enseignant/.test(vuPanneau),
         "le panneau dit pourquoi, et à qui parler : " + vuPanneau);
+
+  // LES TROIS ÉTATS SE DISENT, et ce n'est pas du confort : le jour où l'API
+  // tournait encore sur une version sans `/team/mine`, ce panneau se taisait
+  // exactement comme s'il n'y avait pas d'équipe -- une page qui répond
+  // « tout va bien » à « suis-je bien inscrit ? ».
+  // PAS DE CACHE À VIDER : `ouvrirIdentite()` relit le profil ET les équipes
+  // à chaque ouverture. Fermer puis rouvrir suffit donc à reposer la question,
+  // et c'est ce qu'un étudiant fait naturellement quand il ne comprend pas ce
+  // qu'il voit.
+  const rouvrir = async () => {
+    await nodes.identite.listeners.click();   // ferme
+    await nodes.identite.listeners.click();   // rouvre, et relit
+    await sleep(); await sleep(); await sleep();
+    return profond(panneau);
+  };
+  EQUIPE_REFUSEE = true;                       // le serveur : aucune équipe
+  const sansEquipe = await rouvrir();
+  check(/Tu n'es inscrit à aucune équipe/.test(sansEquipe),
+        "aucune équipe se DIT, au lieu de ne rien afficher : " + sansEquipe);
+  check(/avant la date d'ouverture/.test(sansEquipe),
+        "et dit quand le signaler pour que ça serve encore");
+  EQUIPE_MUETTE = true;                        // la route ne répond pas
+  const enPanne = await rouvrir();
+  check(/n'a pas pu être lue/.test(enPanne),
+        "une lecture qui échoue ne se lit PAS « aucune équipe » : " + enPanne);
+  check(/ce n'est pas toi, c'est le service/.test(enPanne),
+        "et le dit dans ces termes-là");
+  EQUIPE_MUETTE = false; EQUIPE_REFUSEE = false;
+  await rouvrir();
 
   const dansPanneau = (texte) => tousLesNoeuds(panneau)
     .find((n) => n.textContent === texte);

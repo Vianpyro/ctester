@@ -421,7 +421,40 @@ const groupNumber = (n) => "groupe " + String(n).padStart(2, "0");
 // ou « je ne connais aucun de ces trois-là » ne demande pas de savoir qui ils
 // sont.
 function mesEquipes() {
+  // TROIS ÉTATS, PAS DEUX, et les confondre est exactement ce qui a coûté une
+  // session de diagnostic : « tu n'as pas d'équipe », « la liste n'a pas pu
+  // être lue » et « il n'y a pas de devoir d'équipe sur ce déploiement » se
+  // ressemblaient tous les trois -- c'est-à-dire à rien du tout, un panneau
+  // qui ne dit rien. Le jour où l'API tournait encore sur une version sans
+  // `/team/mine`, la page n'avait aucun moyen de le laisser voir.
+  //
+  // C'est le même invariant que « une projection absente n'est pas un zéro »
+  // de « Mes progrès », et il vaut ici encore plus : cet écran existe pour
+  // qu'un étudiant VÉRIFIE son inscription, et un écran de vérification qui
+  // se tait répond « tout va bien » à toutes les questions.
+  //
+  // RIEN DU TOUT quand le déploiement n'a aucun devoir d'équipe : là, le
+  // silence est la bonne réponse. On le lit dans le catalogue, que le noyau a
+  // déjà chargé -- pas une requête de plus.
+  const devoirs = (ctester.assignments() || []).filter((a) => a && a.team);
+  if (!devoirs.length) return node("span", "");
   const box = node("div", "mesequipes");
+  if (equipes === null) {
+    box.append(node("h3", "soustitre", "Mon équipe"));
+    box.append(node("p", "rate", "La liste de tes équipes n'a pas pu être lue."));
+    box.append(node("p", "aide", "Réessaie dans un instant. Si ça persiste, "
+      + "préviens ton enseignant : ce n'est pas toi, c'est le service."));
+    return box;
+  }
+  if (!equipes.length) {
+    box.append(node("h3", "soustitre", "Mon équipe"));
+    box.append(node("p", "annonce", "Tu n'es inscrit à aucune équipe."));
+    box.append(node("p", "aide", "Les équipes sont posées par ton enseignant, "
+      + "elles ne se choisissent pas ici. S'il y a un devoir d'équipe à ton "
+      + "horaire, dis-lui que tu n'y apparais pas — avant la date d'ouverture, "
+      + "ça se corrige en une minute."));
+    return box;
+  }
   box.append(node("h3", "soustitre", equipes.length > 1 ? "Mes équipes" : "Mon équipe"));
   for (const equipe of equipes) {
     const ligne = node("div", "equipe");
@@ -467,7 +500,7 @@ function myIdentity() {
     return block;
   }
 
-  if (equipes && equipes.length) block.append(mesEquipes());
+  block.append(mesEquipes());
 
   const nameId = "forumpseudo";
   const nameLabel = node("label", "", "Nom affiché (facultatif)");
