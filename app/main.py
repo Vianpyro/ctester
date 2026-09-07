@@ -32,8 +32,8 @@ import headers
 import security
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from routers import (account, catalog, forum, health, page, progress,
-                     submission)
+from routers import (account, catalog, forum, health, leaderboard, page,
+                     progress, submission)
 from starlette.exceptions import HTTPException
 
 
@@ -88,6 +88,7 @@ def create_app():
     app.include_router(submission.router)
     app.include_router(account.router)
     app.include_router(progress.router)
+    app.include_router(leaderboard.router)
     app.include_router(forum.router)
     # LAST, AND ONLY IF THERE IS A PAGE TO SERVE. This router ends with a
     # catch-all `/{nom:path}`: mounted earlier, it would shadow every route

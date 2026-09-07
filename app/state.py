@@ -198,6 +198,32 @@ def read_practice_summary(user):
             for ex, attempts, solved in rows]
 
 
+def read_practice_days(user, days):
+    """[{date, attempts}] for the last `days` days. The calendar of design 1b.
+
+    A `GROUP BY` OVER AN EXISTING TABLE, NOT A NEW ONE. Every attempt is
+    already dated in `practice_attempt`; a second table would be a second
+    place the truth could diverge, for a strip of squares.
+
+    THE DAY ONLY, never the time: this is the same rule as `read_progress`,
+    and "practiced on the 14th" is all the strip draws. At what hour someone
+    worked has no business traveling (privacy.md).
+
+    NO STREAK IS COMPUTED HERE OR ANYWHERE ELSE, and that is the point of the
+    calendar replacing one: a gap takes nothing away, so there is no counter
+    to break and none to defend.
+    """
+    rows = _query(
+        "SELECT date_trunc('day', completed_at)::date AS day, count(*)"
+        "  FROM practice_attempt"
+        " WHERE account = %s AND completed_at >= now() - make_interval(days => %s)"
+        " GROUP BY day ORDER BY day",
+        (user, max(int(days), 1)), read=True)
+    if rows is None:
+        return None
+    return [{"date": _day(day), "attempts": int(count)} for day, count in rows]
+
+
 def grant_first_solve(user, exercise_id, event_id, amount, reason,
                       policy, payload, daily_cap):
     """Record ONE first solve and its XP, in a single statement.
@@ -354,6 +380,87 @@ def read_progress(user):
     }
 
 
+def read_unlock_rates():
+    """({achievement_id: holders}, cohort) -- the OBSERVED rate of each unlock.
+
+    THE RARITY IS MEASURED, NEVER DECREED. A card that says "18 %" must mean
+    "18 % of the people who practised here have it", or the number is
+    decoration -- and a decorative rarity is the exact mechanic
+    student-motivations.md refuses.
+
+    THE COHORT IS "ACCOUNTS THAT HAVE SUBMITTED SOMETHING", not "accounts that
+    exist": an account that never practised cannot hold a card, and counting it
+    would drag every rate down for a reason no student could read.
+
+    The caller must refuse to display a rate under `policy.cohorte_minimale()`:
+    a percentage over four people describes those four people.
+    """
+    holders = _query(
+        "SELECT achievement_id, count(DISTINCT account)"
+        "  FROM achievement_unlocked GROUP BY achievement_id", (), read=True)
+    cohort = _query(
+        "SELECT count(DISTINCT account) FROM practice_attempt", (), read=True)
+    if holders is None or cohort is None:
+        return None
+    return ({row[0]: int(row[1]) for row in holders},
+            int(cohort[0][0]) if cohort else 0)
+
+
+# --- The leaderboard (design 1c) ---------------------------------------------
+# COUNTED ON FIRST SOLVES, WHICH ALREADY EXIST. `xp_transaction` carries one
+# row per `solved:<exercise>` and its primary key is what makes that "first"
+# -- so the aggregate is a `count(*)`, redoing a lab adds nothing, and the
+# daily XP cap (which zeroes `amount`, never the row) has no effect here. That
+# is why we count ROWS and not `sum(amount)`.
+#
+# ponytail: computed on read, no materialized view. It is one indexed scan
+# over a few hundred rows for a cohort of thirty; a refreshed projection would
+# be a second place the truth can diverge, plus a schedule to keep. The
+# threshold is a p95 of `/leaderboard` above a second, which `load_test.py`
+# reports -- same rule as `/progres`.
+
+
+def leaderboard_rows(group_number, days):
+    """[{account, alias, group_number, recent, lifetime}] for OPTED-IN accounts.
+
+    OPT-IN IS THE `WHERE`, NOT A FILTER APPLIED AFTER: an account that did not
+    check the box produces no row at all, so there is nothing to forget to
+    hide downstream. `group_number` None means the whole course.
+
+    An opted-in account with nothing this week IS returned, at zero. Dropping
+    it would make the cohort size depend on the week, and the cohort size is
+    what the privacy threshold reads.
+
+    THE `account` COMES BACK because ranking needs to spot the caller's own
+    row; `services/leaderboard.py` is what drops it, exactly as `forum_vue()`
+    does for a thread. No `sub` crosses HTTP.
+    """
+    rows = _query(
+        "WITH profile AS ("
+        "  SELECT DISTINCT ON (account) account, alias, group_number,"
+        "         leaderboard_opt_in"
+        "    FROM forum_profile"
+        "   ORDER BY account, created_at DESC, profile_id DESC"
+        ") "
+        "SELECT p.account, p.alias, p.group_number,"
+        "       count(x.event_id) FILTER ("
+        "           WHERE x.granted_at >= now() - make_interval(days => %(days)s)),"
+        "       count(x.event_id) "
+        "  FROM profile p"
+        "  LEFT JOIN xp_transaction x ON x.account = p.account"
+        " WHERE p.leaderboard_opt_in"
+        "   AND (%(group)s::smallint IS NULL OR p.group_number = %(group)s) "
+        " GROUP BY p.account, p.alias, p.group_number",
+        {"days": max(int(days), 1),
+         "group": None if group_number is None else int(group_number)},
+        read=True)
+    if rows is None:
+        return None
+    return [{"account": row[0], "alias": row[1],
+             "group_number": None if row[2] is None else int(row[2]),
+             "recent": int(row[3]), "lifetime": int(row[4])} for row in rows]
+
+
 def _day(value):
     """The date of a timestamp, in ISO. The value as a string if it is not one."""
     try:
@@ -427,31 +534,102 @@ def write_theme(user, theme):
 # no business being.
 
 
-def forum_fil(exercise_id, limit):
+def forum_fil(exercise_id, limit, reader=None):
     """An exercise's thread, oldest to newest. None if the database is mute.
 
     Hidden messages ARE returned, with their flag: it is `forum_vue()` that
     strips them for an ordinary student and keeps them for a moderator,
-    because it is the one that knows who is calling.
+    because it is the one that knows who is calling. PRIVATE messages are
+    returned the same way, with their visibility, and `forum_vue()` drops the
+    ones the reader has no business seeing.
+
+    THREE THINGS TRAVEL WITH A MESSAGE NOW, and all three are derived, never
+    stored on the row: whether a moderator has retained it as the answer (the
+    latest `retain`/`unretain` in the journal), how many accounts found it
+    useful, and whether the reader is one of them. Deriving beats a counter
+    column -- there is no number to drift, and no UPDATE grant to widen.
+
+    `reader` is only used to answer "did I already mark this useful"; it never
+    changes which rows come back.
     """
     rows = _query(
-        "SELECT message_id, account, text, hidden, created_at"
-        " FROM forum_message WHERE exercise_id = %s"
-        " ORDER BY created_at, message_id LIMIT %s",
-        (exercise_id, max(int(limit), 0)), read=True)
+        "SELECT m.message_id, m.account, m.text, m.hidden, m.created_at,"
+        "       m.step, m.blocked_kind, m.visibility,"
+        "       COALESCE(r.action = 'retain', false),"
+        "       (SELECT count(*) FROM forum_helpful h"
+        "         WHERE h.message_id = m.message_id),"
+        "       EXISTS (SELECT 1 FROM forum_helpful h"
+        "                WHERE h.message_id = m.message_id AND h.account = %(who)s)"
+        "  FROM forum_message m"
+        "  LEFT JOIN LATERAL ("
+        "       SELECT action FROM forum_moderation"
+        "        WHERE message_id = m.message_id"
+        "          AND action IN ('retain', 'unretain')"
+        "        ORDER BY created_at DESC, action_id DESC LIMIT 1) r ON true"
+        " WHERE m.exercise_id = %(ex)s"
+        " ORDER BY m.created_at, m.message_id LIMIT %(limit)s",
+        {"ex": exercise_id, "limit": max(int(limit), 0), "who": reader or ""},
+        read=True)
     if rows is None:
         return None
     return [{"id": row[0], "account": row[1], "text": row[2],
-             "hidden": bool(row[3]), "created_at": _minute(row[4])} for row in rows]
+             "hidden": bool(row[3]), "created_at": _minute(row[4]),
+             "step": row[5], "blocked_kind": row[6], "visibility": row[7],
+             "retained": bool(row[8]), "helpful": int(row[9]),
+             "helped_me": bool(row[10])} for row in rows]
 
 
-def forum_publier(message_id, exercise_id, user, text):
-    """Add a message. The id is generated by the caller (uuid4)."""
+def forum_publier(message_id, exercise_id, user, text, step=None,
+                  blocked_kind=None, visibility="thread"):
+    """Add a message. The id is generated by the caller (uuid4).
+
+    `step`, `blocked_kind` and `visibility` come from CLOSED lists validated in
+    `services/forum.py`; the CHECK on `visibility` is the same defense as
+    everywhere else -- it holds for a psql session opened at midnight too.
+    """
     return _query(
-        "INSERT INTO forum_message (message_id, exercise_id, account, text)"
-        " VALUES (%s, %s, %s, %s)",
-        (message_id, exercise_id, user, text),
+        "INSERT INTO forum_message"
+        "  (message_id, exercise_id, account, text, step, blocked_kind, visibility)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (message_id, exercise_id, user, text, step, blocked_kind, visibility),
     ) is not None
+
+
+def forum_open_to_group(message_id, user):
+    """Open one's OWN private message to one's group. The only transition.
+
+    [] when the message is not theirs, is not private, or does not exist --
+    the same answer for all three, as everywhere else in this file. None when
+    the database did not answer.
+
+    THE `WHERE` IS THE WHOLE RULE, and it is one-way: `visibility = 'private'`
+    means group -> private cannot be expressed, so nobody can hide what others
+    have already read. That is the immutability social.md sets out, held by
+    Postgres rather than by whoever writes the next query.
+    """
+    return _query(
+        "UPDATE forum_message SET visibility = 'group'"
+        " WHERE message_id = %s AND account = %s AND visibility = 'private'"
+        " RETURNING message_id", (message_id, user), read=True)
+
+
+def forum_mark_helpful(message_id, user):
+    """Mark someone ELSE's message useful. [] if unknown, one's own, or already marked.
+
+    THREE PROTECTIONS IN ONE STATEMENT, like `forum_signaler`: the SELECT
+    forbids a made-up id, `m.account <> %s` forbids marking one's own message,
+    and the primary key forbids the duplicate. A read followed by a write
+    would leave all three races open -- and the middle one is the whole
+    difference between a usefulness counter and a popularity vote one can
+    stuff.
+    """
+    return _query(
+        "INSERT INTO forum_helpful (message_id, account)"
+        " SELECT m.message_id, %(who)s FROM forum_message m"
+        "  WHERE m.message_id = %(id)s AND m.account <> %(who)s"
+        " ON CONFLICT (message_id, account) DO NOTHING"
+        " RETURNING message_id",
+        {"who": user, "id": message_id}, read=True)
 
 
 def forum_supprimer(message_id, user):
@@ -514,6 +692,16 @@ def forum_moderer(action_id, message_id, moderator, action):
     calls, a connection dropped in the middle would leave a message hidden
     that nothing explains -- or the reverse, a journal that lies.
     """
+    if action in ("retain", "unretain"):
+        # NO COLUMN IS TOUCHED, and that is the point: the journal's latest
+        # row IS the retained answer (see `forum_fil`). A `retained` column
+        # would need one more UPDATE grant on a table whose whole design is
+        # that a message cannot be rewritten.
+        return _query(
+            "INSERT INTO forum_moderation (action_id, message_id, account, action)"
+            " SELECT %s, m.message_id, %s, %s FROM forum_message m"
+            "  WHERE m.message_id = %s RETURNING message_id",
+            (action_id, moderator, action, message_id), read=True)
     if action not in ("hide", "restore"):
         return []
     return _query(
@@ -536,12 +724,23 @@ def forum_moderer(action_id, message_id, moderator, action):
 # next query. `DISTINCT ON` reads it in one pass over the index
 # (account, created_at DESC).
 
-_PROFILE_COLUMNS = ("display_name", "group_number", "display_name_public", "group_number_public")
+_PROFILE_COLUMNS = ("display_name", "group_number", "display_name_public",
+                    "group_number_public", "alias", "plate_frame",
+                    "badges_public", "leaderboard_opt_in")
+
+# What an account with no profile row reads as. NOT `{}`: every caller reads
+# these keys, and a missing one would be an outage's None in disguise.
+EMPTY_PROFILE = {"display_name": None, "group_number": None,
+               "display_name_public": False, "group_number_public": False,
+               "alias": None, "plate_frame": None,
+               "badges_public": False, "leaderboard_opt_in": False}
 
 
 def _profil(row):
     return {"display_name": row[1], "group_number": None if row[2] is None else int(row[2]),
-            "display_name_public": bool(row[3]), "group_number_public": bool(row[4])}
+            "display_name_public": bool(row[3]), "group_number_public": bool(row[4]),
+            "alias": row[5], "plate_frame": row[6],
+            "badges_public": bool(row[7]), "leaderboard_opt_in": bool(row[8])}
 
 
 def forum_profils(users):
@@ -555,8 +754,7 @@ def forum_profils(users):
     if not people:
         return {}
     rows = _query(
-        "SELECT DISTINCT ON (account)"
-        "       account, display_name, group_number, display_name_public, group_number_public"
+        "SELECT DISTINCT ON (account) account, " + ", ".join(_PROFILE_COLUMNS) +
         "  FROM forum_profile WHERE account = ANY(%s)"
         " ORDER BY account, created_at DESC, profile_id DESC",
         (people,), read=True)
@@ -570,20 +768,46 @@ def forum_profil(user):
     profiles = forum_profils([user])
     if profiles is None:
         return None
-    return profiles.get(user, {"display_name": None, "group_number": None,
-                              "display_name_public": False, "group_number_public": False})
+    return profiles.get(user, dict(EMPTY_PROFILE))
 
 
 def forum_profil_ecrire(profile_id, user, display_name, group_number, display_name_public,
-                        group_number_public, set_by_moderator=False):
-    """Add a profile row. Older ones stay, and that is intentional."""
+                        group_number_public, set_by_moderator=False, alias=None,
+                        plate_frame=None, badges_public=False,
+                        leaderboard_opt_in=False):
+    """Add a profile row. Older ones stay, and that is intentional.
+
+    EVERY FIELD IS WRITTEN EVERY TIME, because the latest row is the whole
+    profile: a partial write would silently reset the fields it left out. The
+    caller therefore reads the current profile first and passes it back --
+    which is also what makes "clear a reported name" able to keep the group
+    number.
+    """
     return _query(
         "INSERT INTO forum_profile (profile_id, account, display_name, group_number,"
-        "                          display_name_public, group_number_public, set_by_moderator)"
-        " VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        "                          display_name_public, group_number_public,"
+        "                          set_by_moderator, alias, plate_frame,"
+        "                          badges_public, leaderboard_opt_in)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (profile_id, user, display_name, group_number, bool(display_name_public),
-         bool(group_number_public), bool(set_by_moderator)),
+         bool(group_number_public), bool(set_by_moderator), alias, plate_frame,
+         bool(badges_public), bool(leaderboard_opt_in)),
     ) is not None
+
+
+def forum_taken_aliases():
+    """Every alias currently in use. `alias_libre()` draws around this set.
+
+    THE WHOLE COLUMN, not a per-candidate lookup: at thirty accounts this is
+    one small scan, where a "is this one free?" query per attempt would be one
+    round trip per attempt behind the global lock.
+    """
+    rows = _query(
+        "SELECT DISTINCT ON (account) alias FROM forum_profile"
+        " ORDER BY account, created_at DESC, profile_id DESC", (), read=True)
+    if rows is None:
+        return None
+    return {row[0] for row in rows if row[0]}
 
 
 def forum_nom_signaler(message_id, user):
@@ -625,6 +849,41 @@ def forum_noms_signales(limit):
             for row in rows]
 
 
+def forum_help_rows(limit, hours):
+    """"Who needs help", aggregated. The instructor's view (design 1h).
+
+    COUNTS AND STEPS, NEVER PEOPLE. One row per (exercise, step): how many
+    accounts are stuck there, how many of those opened their question to their
+    group, and how long the oldest has been waiting. No `sub`, no name, no
+    text, no code -- a count is what says where to walk in the room, and
+    nothing more is needed for that.
+
+    PRIVATE QUESTIONS ARE COUNTED, NOT REVEALED. They stay unreadable (only
+    their author can open them to a group); this row says a number exists, so
+    six people stuck on the same conversion read as one explanation at the
+    board rather than six unanswered messages.
+
+    Only messages carrying a `step` are aggregated: an ordinary thread post is
+    a discussion, not a call for help, and mixing them would bury the signal.
+    """
+    rows = _query(
+        "SELECT exercise_id, step, blocked_kind,"
+        "       count(DISTINCT account),"
+        "       count(*) FILTER (WHERE visibility = 'group'),"
+        "       min(created_at)"
+        "  FROM forum_message"
+        " WHERE step IS NOT NULL AND NOT hidden"
+        "   AND created_at >= now() - make_interval(hours => %s)"
+        " GROUP BY exercise_id, step, blocked_kind"
+        " ORDER BY count(DISTINCT account) DESC, min(created_at) LIMIT %s",
+        (max(int(hours), 1), max(int(limit), 0)), read=True)
+    if rows is None:
+        return None
+    return [{"exercise_id": row[0], "step": row[1], "blocked_kind": row[2],
+             "people": int(row[3]), "opened": int(row[4]),
+             "since": _minute(row[5])} for row in rows]
+
+
 def forum_auteur(message_id):
     """The `sub` of a message's author, or None. Reserved for name moderation:
     the page only ever has a message as a handle, never an account id."""
@@ -661,7 +920,7 @@ def forget(user):
     The consent sentence shown before redirecting to Rauthy promises this exists,
     so it exists -- not "later".
 
-    TWELVE DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
+    THIRTEEN DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
     statement per table, a connection dropped in the middle would leave half a
     student erased and half not -- and the half that stays is the half nobody
     can see any more to ask for again. Data-modifying CTEs run exactly once each
@@ -686,6 +945,7 @@ def forget(user):
         "     h AS (DELETE FROM forum_moderation    WHERE account = %(u)s),"
         "     i AS (DELETE FROM forum_profile       WHERE account = %(u)s),"
         "     k AS (DELETE FROM forum_reported_name WHERE account = %(u)s),"
+        "     l AS (DELETE FROM forum_helpful       WHERE account = %(u)s),"
         "     p AS (DELETE FROM display_preference  WHERE account = %(u)s)"
         " SELECT 1",
         {"u": user},

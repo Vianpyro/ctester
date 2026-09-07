@@ -19,7 +19,7 @@ exercises is the HTTP boundary, not the SQL. But the progression and forum
 writes are not ordinary SQL -- a data-modifying CTE feeding an INSERT, a
 data-modifying CTE feeding an UPDATE, an `unnest` of a parameterized array, an
 INSERT ... SELECT whose `WHERE` clause IS the access control, a `DISTINCT ON`
-and a LATERAL join for the latest profile, twelve DELETEs in a single
+and a LATERAL join for the latest profile, thirteen DELETEs in a single
 statement. These shapes compile in your head and fail in production; there is
 no middle ground.
 
@@ -53,7 +53,8 @@ if not state.enabled():
 TABLES = ("exercise_draft", "exercise_state", "practice_attempt",
           "progress_event", "xp_transaction", "achievement_unlocked",
           "forum_message", "forum_report", "forum_moderation",
-          "forum_profile", "forum_reported_name", "display_preference")
+          "forum_profile", "forum_reported_name", "forum_helpful",
+          "display_preference")
 
 ALICE, BOB = "sub-alice", "sub-bob"
 
@@ -322,9 +323,12 @@ def identity():
     """
     # Nothing set: not an error, it is anonymity by default.
     assert state.forum_profils([ALICE, BOB]) == {}
-    assert state.forum_profil(ALICE) == {"display_name": None, "group_number": None,
-                                        "display_name_public": False,
-                                        "group_number_public": False}
+    # `EMPTY_PROFILE`, RATHER THAN A LITERAL: the redesign added four
+    # preference columns, and a copy here would have failed this check for the
+    # sole reason that it did not know about them. What is being proven is
+    # that an account with no row reads as an empty profile, not the list of
+    # columns.
+    assert state.forum_profil(ALICE) == state.EMPTY_PROFILE
     assert state.forum_profil_ecrire("p" * 32, ALICE, "Alice", 3, True, False)
     assert state.forum_profil_ecrire("q" * 32, BOB, "Bob", 7, False, True)
     # THE LAST ROW IS AUTHORITATIVE, and the old one stays: changing a name
@@ -332,8 +336,9 @@ def identity():
     assert state.forum_profil_ecrire("r" * 32, ALICE, "Alice B", 3, True, True)
     assert count("forum_profile", ALICE) == 2
     profiles = state.forum_profils([ALICE, BOB, "sub-personne"])
-    assert profiles[ALICE] == {"display_name": "Alice B", "group_number": 3,
-                              "display_name_public": True, "group_number_public": True}
+    assert profiles[ALICE] == dict(state.EMPTY_PROFILE, display_name="Alice B",
+                                   group_number=3, display_name_public=True,
+                                   group_number_public=True)
     assert profiles[BOB]["display_name"] == "Bob" and profiles[BOB]["group_number"] == 7
     assert "sub-personne" not in profiles
     # THE SCHEMA'S CHECK, EXERCISED WITHOUT GOING THROUGH THE PYTHON GUARD: a
@@ -344,7 +349,7 @@ def identity():
         is False
 
     # REPORTING A NAME: same two protections as for a message.
-    message = state.forum_fil("tp2-ex3", 200)[0]["id"]
+    message = state.forum_fil("tp2-ex3", 200, ALICE)[0]["id"]
     assert state.forum_auteur(message) in (ALICE, BOB)
     assert state.forum_auteur("f" * 32) is None
     assert state.forum_nom_signaler(message, BOB) == [(message,)]
@@ -359,10 +364,124 @@ def identity():
     assert reported[0]["report_count"] == 1
     # ALICE REPORTS IN TURN, on another message. Without this line she has NO
     # row in `forum_reported_name`, and `deletion()`'s precondition ("there is
-    # something to erase in the twelve tables") does not hold -- meaning the
+    # something to erase in the thirteen tables") does not hold -- meaning the
     # most recently added table is the only one whose erasure is not exercised.
     assert state.forum_nom_signaler("b" * 32, ALICE) == [("b" * 32,)]
     print("ok   identity: journal, last row wins, schema bounds, reported name")
+
+
+def stuck_and_helpful():
+    """WHAT ONLY A REAL DATABASE PROVES about the redesign's two new writes.
+
+    Both are the kind of statement that compiles in your head and fails in
+    production:
+
+      * `forum_open_to_group` is an UPDATE whose `WHERE` IS the access
+        control AND the one-way rule at once -- `account = %s AND visibility =
+        'private'`. Split into a read then a write, two clicks could race
+        past it; written this way, the second one finds nothing.
+      * `forum_mark_helpful` is an `INSERT ... SELECT` whose `WHERE` refuses
+        one's own message, over a primary key that refuses the duplicate.
+        Three refusals, one statement.
+
+    And `forum_fil`'s LATERAL join, which derives the retained answer from
+    the append-only journal rather than from a column.
+    """
+    BLOQUE = "8" * 32
+    thread = state.forum_fil("tp2-ex3", 200, ALICE)
+    assert thread, "the forum() step should have left a message behind"
+
+    # A "stuck here" post: private by default, and only its author sees it in
+    # the raw row -- `forum_vue` does the filtering, this proves the storage.
+    assert state.forum_publier(BLOQUE, "tp2-ex3", ALICE, "stuck",
+                               "compilation", "unclear-error", "private")
+    stuck = [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+             if m["id"] == BLOQUE][0]
+    assert stuck["visibility"] == "private" and stuck["step"] == "compilation"
+
+    # THE `WHERE` IS THE RULE. Not theirs: nothing. Theirs: once, and only
+    # from `private` -- replaying finds nothing to open, so the reverse
+    # transition cannot be expressed at all.
+    assert state.forum_open_to_group(BLOQUE, BOB) == []
+    assert state.forum_open_to_group(BLOQUE, ALICE) != []
+    assert state.forum_open_to_group(BLOQUE, ALICE) == []
+    assert [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+            if m["id"] == BLOQUE][0]["visibility"] == "group"
+
+    # "HELPFUL MARK": one's own is refused, a stranger's id is refused, the
+    # duplicate is refused -- all three by the one statement.
+    assert state.forum_mark_helpful(BLOQUE, ALICE) == []       # one's own row
+    assert state.forum_mark_helpful("0" * 32, BOB) == []       # unknown id
+    assert state.forum_mark_helpful(BLOQUE, BOB) != []
+    assert state.forum_mark_helpful(BLOQUE, BOB) == []         # duplicate
+    # AND THE OTHER WAY AROUND, on a message BOB posted elsewhere: marking
+    # helpful is symmetric, and `forget` must erase both sides.
+    assert state.forum_mark_helpful("c" * 32, ALICE) != []
+    seen = [m for m in state.forum_fil("tp2-ex3", 200, BOB)
+           if m["id"] == BLOQUE][0]
+    assert seen["helpful"] == 1 and seen["helped_me"] is True
+    assert [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+            if m["id"] == BLOQUE][0]["helped_me"] is False
+
+    # THE RETAINED ANSWER IS DERIVED FROM THE JOURNAL, and reversible, and it
+    # edits NOTHING: the text is byte-for-byte what it was.
+    before = seen["text"]
+    assert state.forum_moderer("m" * 32, BLOQUE, BOB, "retain") != []
+    retained = [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+                if m["id"] == BLOQUE][0]
+    assert retained["retained"] is True and retained["text"] == before
+    assert state.forum_moderer("n" * 32, BLOQUE, BOB, "unretain") != []
+    assert [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+            if m["id"] == BLOQUE][0]["retained"] is False
+
+    # THE INSTRUCTOR'S AGGREGATE: counts and steps, and nothing that names
+    # anyone. `min(created_at)` and the FILTER both need a real planner.
+    rows = state.forum_help_rows(50, 24)
+    line = [r for r in rows if r["step"] == "compilation"][0]
+    assert line["people"] == 1 and line["opened"] == 1, line
+    assert "account" not in line and "text" not in line, line
+
+    # THE CALENDAR: a GROUP BY over dates, which is the whole feature.
+    days = state.read_practice_days(ALICE, 91)
+    assert isinstance(days, list)
+    assert all(set(d) == {"date", "attempts"} for d in days), days
+    print("ok   stuck/helpful: one-way transition, three refusals, "
+          "derived retention")
+
+
+def leaderboard_rows():
+    """THE RANKING'S ONE QUERY, and it is not an ordinary one.
+
+    A `DISTINCT ON` sub-select for the latest profile, a LEFT JOIN so an
+    opted-in account with a quiet week still produces a row, and a
+    `count(...) FILTER (WHERE ...)` for the window. Every part of that
+    compiles in your head and can still be wrong.
+
+    OPT-IN IS THE `WHERE`, not a filter applied afterwards: an account that
+    did not tick the box must produce NO ROW, so there is nothing downstream
+    to forget to hide.
+    """
+    assert state.forum_profil_ecrire("u" * 32, ALICE, "Alice", 3, True, True,
+                                     alias="Rotor cuivre", leaderboard_opt_in=True)
+    assert state.forum_profil_ecrire("v" * 32, BOB, "Bob", 3, False, True,
+                                     alias="Palier lisse", leaderboard_opt_in=False)
+    rows = state.leaderboard_rows(3, 7)
+    assert [r["account"] for r in rows] == [ALICE], rows
+    # A quiet week still produces a row, at zero: the cohort size is what the
+    # privacy threshold reads, and it must not depend on the week.
+    assert rows[0]["recent"] >= 0 and rows[0]["lifetime"] >= rows[0]["recent"]
+    # The whole course, and a group nobody is in.
+    assert [r["account"] for r in state.leaderboard_rows(None, 7)] == [ALICE]
+    assert state.leaderboard_rows(99, 7) == []
+    # Opting in later adds the row, with no other change to the profile.
+    assert state.forum_profil_ecrire("w" * 32, BOB, "Bob", 3, False, True,
+                                     alias="Palier lisse", leaderboard_opt_in=True)
+    assert {r["account"] for r in state.leaderboard_rows(3, 7)} == {ALICE, BOB}
+    assert state.forum_taken_aliases() == {"Rotor cuivre", "Palier lisse"}
+    # THE OBSERVED RARITY: two aggregates over real rows.
+    rates, cohort = state.read_unlock_rates()
+    assert isinstance(rates, dict) and cohort >= 1, (rates, cohort)
+    print("ok   leaderboard: opt-in is the WHERE, a quiet week still counts")
 
 
 def forum_privileges():
@@ -398,6 +517,11 @@ def forum_privileges():
          "UPDATE forum_profile SET display_name_public = true"),
         ("forum_reported_name",
          "UPDATE forum_reported_name SET account = 'sub-x'"),
+        # "CA M'A AIDE" IS A FACT, NOT A COUNTER TO EDIT. Without this
+        # refusal, a stray query could move someone's mark onto another
+        # account -- the same class of rewrite the message text is protected
+        # from.
+        ("forum_helpful", "UPDATE forum_helpful SET account = 'sub-x'"),
     )
     refused = []
     for name, sql in attempts:
@@ -408,12 +532,16 @@ def forum_privileges():
                 refused.append(name)
     assert len(refused) == len(attempts), "UPDATE accepted somewhere: " \
                                        + str(refused)
-    # AND `hidden` GOES THROUGH: it is the only state moderation needs to
-    # change, and the only one the GRANT allows. Without this check, a GRANT
-    # too narrow would leave moderation mute with nothing saying so.
+    # AND THE TWO ALLOWED COLUMNS GO THROUGH. `hidden` is what moderation
+    # changes; `visibility` is what an author changes to open their own
+    # private question to their group. Without this half of the check, a GRANT
+    # too narrow would leave either one mute in production and nowhere else --
+    # which is exactly how the theme's missing `UPDATE` was found.
     with psycopg.connect(DSN, autocommit=True) as cx:
         cx.execute("UPDATE forum_message SET hidden = hidden")
-    print("ok   forum: only `hidden` is writable, the rest is append-only")
+        cx.execute("UPDATE forum_message SET visibility = visibility")
+    print("ok   forum: only `hidden` and `visibility` are writable, "
+          "the rest is append-only")
 
 
 def preferences():
@@ -454,7 +582,7 @@ def deletion():
     assert count("forum_message", BOB) == 2, "message erased from the neighbor!"
     assert count("forum_report", BOB) == 1
     assert state.forget(ALICE)                            # replayable
-    print("ok   \"Delete my data\" empties the twelve tables, and only their own")
+    print("ok   \"Delete my data\" empties the thirteen tables, and only their own")
 
 
 def main():
@@ -470,6 +598,8 @@ def main():
     account_isolation()
     forum()
     identity()
+    stuck_and_helpful()
+    leaderboard_rows()
     forum_privileges()
     preferences()
     deletion()

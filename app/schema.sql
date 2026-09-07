@@ -156,16 +156,36 @@ CREATE TABLE IF NOT EXISTS achievement_unlocked (
 -- these three tables empty out with the database at the end of the course.
 
 -- A message is IMMUTABLE. Its author can delete it (the row disappears), a
--- moderator can only hide or restore it -- hence `hidden`, the only column the
--- API is allowed to update (see the GRANT in VHome: `UPDATE (hidden)`, not
--- `UPDATE`). There is no editing: a message corrected after the fact would
--- make a report unreadable.
+-- moderator can only hide or restore it, and its author can open a private
+-- one to their group -- hence `hidden` and `visibility`, the only two columns
+-- the API is allowed to update (see the GRANT in VHome: `UPDATE (hidden,
+-- visibility)`, not `UPDATE`). ADDING `visibility` TO THAT GRANT IS REQUIRED:
+-- without it "rendre visible à mon groupe" fails in production and nowhere
+-- else, exactly like the theme's `UPDATE` did. There is no editing: a message
+-- corrected after the fact would make a report unreadable, and the text
+-- column stays out of every GRANT for that reason.
 CREATE TABLE IF NOT EXISTS forum_message (
     message_id  TEXT        PRIMARY KEY,   -- uuid4().hex, generated in Python
     exercise_id TEXT        NOT NULL,      -- a PUBLIC catalog id
     account     TEXT        NOT NULL,
     text        TEXT        NOT NULL,
     hidden      BOOLEAN     NOT NULL DEFAULT false,
+    -- "I'm stuck here" (design 1g). WHERE it hurts and WHAT KIND of wall,
+    -- both from CLOSED lists validated in `services/forum.py`: they are what
+    -- the instructor's aggregate groups by, and free text would make that
+    -- aggregate useless on the morning it matters. NULL for an ordinary
+    -- question, which is still the default gesture.
+    step         TEXT,
+    blocked_kind TEXT,
+    -- WHO SEES IT, AND PRIVATE IS THE DEFAULT for a "stuck" post. The only
+    -- transition allowed is private -> group, by its author (see
+    -- `forum_open_to_group`): the reverse would hide what others have
+    -- already read, and break the immutability social.md sets out.
+    --
+    -- `thread` is the ordinary public post -- the only value the forum had
+    -- before this column, hence the DEFAULT: an old row reads as what it was.
+    visibility  TEXT        NOT NULL DEFAULT 'thread'
+                            CHECK (visibility IN ('private', 'group', 'thread')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -197,9 +217,19 @@ CREATE TABLE IF NOT EXISTS forum_moderation (
     action_id  TEXT        PRIMARY KEY,   -- uuid4().hex, generated in Python
     message_id TEXT        NOT NULL,
     account    TEXT        NOT NULL,      -- the MODERATOR who acted
-    action     TEXT        NOT NULL CHECK (action IN ('hide', 'restore')),
+    -- FOUR ACTIONS, AND THE LAST TWO CARRY THEIR OWN STATE. `hide`/`restore`
+    -- mirror `forum_message.hidden`; `retain`/`unretain` mark the answer the
+    -- instructor stands behind, and there is NO column for them -- the latest
+    -- row for a message is the answer. Retaining an answer edits nothing,
+    -- which is the whole point of an immutable message.
+    action     TEXT        NOT NULL CHECK (action IN ('hide', 'restore',
+                                                      'retain', 'unretain')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- The read that matters for retained answers: the latest action per message.
+CREATE INDEX IF NOT EXISTS forum_moderation_latest_idx
+    ON forum_moderation (message_id, created_at DESC);
 
 -- THE CHOSEN IDENTITY, AND IT IS OPTIONAL ON BOTH SIDES. A name one gave
 -- oneself, a group number, and for each the right not to show it. Nothing
@@ -221,6 +251,23 @@ CREATE TABLE IF NOT EXISTS forum_profile (
     group_number          SMALLINT    CHECK (group_number BETWEEN 1 AND 99),
     display_name_public   BOOLEAN     NOT NULL DEFAULT false,
     group_number_public   BOOLEAN     NOT NULL DEFAULT false,
+    -- THE LEADERBOARD NAME IS DRAWN, NOT DERIVED. Stored here rather than
+    -- computed from the `sub`, because a name derived from the sub could
+    -- never be redrawn -- and being able to redraw it as often as one likes
+    -- is what makes the leaderboard bearable. It is NEVER the display name:
+    -- someone who shows their name in a thread still appears under this one
+    -- in a ranking. Append-only, so the previous alias stays readable, which
+    -- is what a moderator needs when an alias gets reported.
+    alias                 TEXT,
+    -- THE PLATE FRAME, and it is decoration only: no advantage, no access,
+    -- nothing another student can be measured against. An unknown value
+    -- simply does not display (see `policy.FRAMES`) rather than raising.
+    plate_frame           TEXT,
+    badges_public         BOOLEAN     NOT NULL DEFAULT false,
+    -- OPT-IN, AND NOWHERE ELSE. False means the account is absent from every
+    -- ranking, including its own group's -- not "ranked but hidden". The
+    -- aggregate reads this column; there is no second filter to forget.
+    leaderboard_opt_in    BOOLEAN     NOT NULL DEFAULT false,
     set_by_moderator      BOOLEAN     NOT NULL DEFAULT false,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -237,6 +284,26 @@ CREATE INDEX IF NOT EXISTS forum_profile_latest_idx
 CREATE TABLE IF NOT EXISTS forum_reported_name (
     message_id TEXT        NOT NULL,
     account    TEXT        NOT NULL,      -- the author of the REPORT
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (message_id, account)
+);
+
+-- "THIS HELPED ME": a usefulness counter, NOT a popularity vote. Same shape
+-- and same rule as `forum_report` -- the primary key IS "once per account" --
+-- and deliberately the same shape for a reason: an account can mark a message
+-- useful once, and Postgres holds that, not a read followed by a write.
+--
+-- IT GRANTS NOTHING. No XP, no achievement, no card: a message written to be
+-- upvoted is a message written for the counter. What it buys is a thread
+-- where the answer that worked is findable, which is the whole ask of
+-- design 1f.
+--
+-- NO SELF-MARKING is enforced by the API (`forum_mark_helpful`), not by a CHECK: the
+-- constraint would need the message's author in this row, i.e. a second copy
+-- of a `sub` this table has no reason to carry.
+CREATE TABLE IF NOT EXISTS forum_helpful (
+    message_id TEXT        NOT NULL,
+    account    TEXT        NOT NULL,      -- the one who found it useful
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, account)
 );

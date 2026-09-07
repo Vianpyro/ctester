@@ -72,11 +72,33 @@ class PreferencesIn(BaseModel):
 
 
 class ForumMessageIn(_AvecExercice):
-    """POST /forum -- post into a published exercise's thread."""
+    """POST /forum -- post into a published exercise's thread.
+
+    `step`, `blocked_kind` and `visibility` carry "je suis bloqué ici". SHAPE
+    ONLY here, as everywhere: which steps exist, which visibility a stuck post
+    may take and the private-by-default rule all live in `services/forum.py`,
+    where they produce a sentence a student can act on.
+    """
 
     model_config = _CONFIG
 
     text: str | None = None
+    step: str | None = None
+    blocked_kind: str | None = None
+    visibility: str | None = None
+
+
+class ForumTargetIn(BaseModel):
+    """A message to act on, by its handle. Nothing else.
+
+    Used by "rendre visible à mon groupe" and "ça m'a aidé": both take one
+    message id, and both derive WHO is acting from the token -- there is no
+    author field here, and there must not be one.
+    """
+
+    model_config = _CONFIG
+
+    id: str = ""
 
 
 class ForumSignalementIn(BaseModel):
@@ -122,3 +144,10 @@ class ForumProfilIn(BaseModel):
     group_number: int | str | None = None
     display_name_public: bool = False
     group_number_public: bool = False
+    # The plate and the leaderboard (designs 1c/1d). `plate_frame` is checked
+    # against the frames the ACCOUNT's level unlocked, server-side; the alias
+    # is NOT here, because it is drawn rather than typed -- letting a body set
+    # it would put student-written text into a ranking nobody moderates.
+    plate_frame: str | None = None
+    badges_public: bool = False
+    leaderboard_opt_in: bool = False

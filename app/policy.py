@@ -73,6 +73,99 @@ POLICY = {
                         "un exercice de pratique."},
     ],
 
+    # THE COLLECTION (design 1e): ONE CARD PER EXERCISE FAMILY, and the
+    # criterion is a list of exercises to have SOLVED. Nothing is drawn, nothing
+    # is bought, nothing expires, and a card grants no advantage -- it is a
+    # trace of what was done, which is the only kind of collectible that
+    # survives student-motivations.md's "no pay-to-win, no fear of missing out".
+    #
+    # THE SAME MECHANISM AS AN ACHIEVEMENT, ON PURPOSE: cards land in
+    # `achievement_unlocked` under their own id, so there is no new table, no
+    # new GRANT, nothing more to erase in `forget()`, and the primary key is
+    # again what makes "once only" true. `card:` prefixes the id so a card and
+    # an achievement can never collide, and so a card never shows up in the
+    # achievements list.
+    #
+    # `exercises` LISTS PUBLISHED IDS. A card whose exercises are not all open
+    # is simply unreachable, and displays as locked with its condition -- a
+    # condition one can read is the difference between a collection and a
+    # slot machine.
+    "cards": [
+        {"id": "E-01", "name": "Résistance", "family": "electrical",
+         "exercises": ["tp2-ex3"],
+         "condition": "Réussir la loi d'Ohm (TP2)"},
+        {"id": "M-04", "name": "Roulement", "family": "mechanical",
+         "exercises": ["tp2-ex0", "tp2-ex1", "tp2-ex2", "tp2-ex3", "tp2-ex4"],
+         "condition": "Réussir tout le TP2"},
+        {"id": "E-07", "name": "Relais", "family": "electrical",
+         "exercises": ["verif-tp1"],
+         "condition": "Réussir la vérification du TP1"},
+        {"id": "M-02", "name": "Engrenage", "family": "mechanical",
+         "exercises": ["tp1-ex1"],
+         "condition": "Réussir le premier exercice du TP1"},
+        {"id": "P-03", "name": "Vérin", "family": "production",
+         "exercises": ["tp3-ex1", "tp3-ex2", "tp3-ex3"],
+         "condition": "Réussir trois exercices du TP3"},
+        {"id": "E-12", "name": "Diode", "family": "electrical",
+         "exercises": ["verif-tp2"],
+         "condition": "Réussir la vérification du TP2"},
+        {"id": "M-09", "name": "Ressort", "family": "mechanical",
+         "exercises": ["tp2-ex5", "tp2-ex6"],
+         "condition": "Réussir les deux derniers exercices du TP2"},
+        {"id": "P-06", "name": "Capteur", "family": "production",
+         "exercises": ["verif-tp2-debogage"],
+         "condition": "Réussir la vérification de débogage du TP2"},
+    ],
+
+    # THE LEADERBOARD (design 1c). OPT-IN, WEEKLY, AND COUNTED ON FIRST
+    # SOLVES ONLY -- which is already phase 1's idempotence key
+    # (`solved:<exercise>`), so redoing a lab earns nothing here either and the
+    # daily cap has no business applying.
+    #
+    # `minimum_cohort` IS A PRIVACY CONTROL, not a display nicety: under it,
+    # a ranking of three people names everyone including the last, and
+    # privacy.md forbids exactly that. Below the threshold, only one's own line
+    # comes back.
+    #
+    # `visible_rows` IS WHY NOBODY IS NAMED LAST. Only the top of the table is
+    # listed; everyone else sees their own row and the step to the one above.
+    "leaderboard": {
+        "minimum_cohort": 5,
+        "visible_rows": 5,
+        # The divisions, low to high, by first solves accumulated over the
+        # term. THEY ONLY GO UP: a bad month takes nothing away (ranked.md),
+        # so the service reads the best ever reached, never the current week.
+        "divisions": [
+            {"id": "atelier", "title": "Atelier", "threshold": 0},
+            {"id": "machiniste", "title": "Machiniste", "threshold": 8},
+            {"id": "ingenierie", "title": "Ingénierie", "threshold": 20},
+        ],
+    },
+
+    # THE DRAWN ALIAS: a closed vocabulary, so nothing typed by a student can
+    # ever land in it. Two lists, one adjective and one part -- 18 x 18 = 324
+    # combinations for a cohort of about thirty, which is enough for
+    # `draw_alias()` to find a free one in a handful of tries.
+    "aliases": {
+        "parts": ["Rotor", "Palier", "Came", "Bobine", "Vilebrequin", "Ressort",
+                  "Engrenage", "Roulement", "Vérin", "Relais", "Diode",
+                  "Capteur", "Poulie", "Arbre", "Piston", "Soupape",
+                  "Culasse", "Cardan"],
+        "adjectives": ["cuivré", "lisse", "excentrée", "primaire", "trempé",
+                       "rodé", "hélicoïdal", "conique", "pneumatique",
+                       "bistable", "zener", "inductif", "crantée", "cannelé",
+                       "flottant", "tarée", "culottée", "homocinétique"],
+    },
+
+    # PLATE FRAMES: decoration, and nothing else. `threshold` is the level
+    # from which one is offered; the first is always available so an account
+    # that never levels still has a frame.
+    "frames": [
+        {"id": "simple", "title": "Trait simple", "threshold": 1},
+        {"id": "coupe", "title": "Trait de coupe", "threshold": 3},
+        {"id": "tolerance", "title": "Cote de tolérance", "threshold": 6},
+    ],
+
     # VERIFIED MASTERY: LABELS, AND NO THRESHOLD.
     #
     # A skill's band is read by COVERAGE -- how many of its open verifications
@@ -176,3 +269,73 @@ def bande_maitrise(reussies, tentees, total):
     if reussies >= 1:
         return "en-progression"
     return "a-consolider"
+
+
+# --- The collection (design 1e) ----------------------------------------------
+# A card is an achievement wearing another coat: same table, same primary key,
+# same "once only". The prefix is what keeps the two apart in one namespace.
+
+CARD_PREFIX = "card:"
+
+CARDS = {CARD_PREFIX + c["id"]: c for c in POLICY["cards"]}
+
+
+def cards_earned(solved):
+    """The ids of cards these solved exercises unlock, in declared order.
+
+    ALL of a card's exercises must be solved: a partial family unlocks
+    nothing, and the card says which ones are missing rather than hiding the
+    rule. `solved` is a set of PUBLISHED exercise ids -- a card whose
+    exercises are not open is simply unreachable, never granted by default.
+    """
+    solved = set(solved or ())
+    return [CARD_PREFIX + c["id"] for c in POLICY["cards"]
+            if c["exercises"] and solved.issuperset(c["exercises"])]
+
+
+# --- The leaderboard (design 1c) ---------------------------------------------
+
+
+def minimum_cohort():
+    return int(POLICY["leaderboard"]["minimum_cohort"])
+
+
+def visible_rows():
+    return int(POLICY["leaderboard"]["visible_rows"])
+
+
+def division(total):
+    """The division for this many first solves, ever. Never below the first.
+
+    DIVISIONS ONLY GO UP, so the caller passes a lifetime count, never a
+    weekly one: a quiet week must not demote anybody (ranked.md).
+    """
+    divisions = POLICY["leaderboard"]["divisions"]
+    reached = divisions[0]
+    for entry in divisions:
+        if int(total or 0) >= entry["threshold"]:
+            reached = entry
+    return dict(reached)
+
+
+def divisions():
+    return [dict(d) for d in POLICY["leaderboard"]["divisions"]]
+
+
+def possible_aliases():
+    """Every drawable alias, in a stable order. The caller picks, not this."""
+    vocabulary = POLICY["aliases"]
+    return [part + " " + adjective
+            for part in vocabulary["parts"]
+            for adjective in vocabulary["adjectives"]]
+
+
+# --- Plate frames -------------------------------------------------------------
+
+
+FRAMES = {c["id"]: c for c in POLICY["frames"]}
+
+
+def unlocked_frames(rank):
+    """The frames unlocked at this level. Always at least one."""
+    return [dict(c) for c in POLICY["frames"] if int(rank or 1) >= c["threshold"]]

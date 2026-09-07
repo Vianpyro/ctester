@@ -220,6 +220,11 @@ function signOut() {
   // readable signed in, and leaving it on screen would show messages to
   // someone the server no longer recognizes.
   if (ctester.forum) ctester.forum.oublier();
+  // AND SO DO THE TWO OTHER PRIVATE SCREENS. A ranking or a collection left
+  // on screen after a sign-out shows one account's standing to whoever sits
+  // down next -- the same reason the projection leaves.
+  if (ctester.leaderboard) ctester.leaderboard.oublier();
+  if (ctester.collection) ctester.collection.oublier();
 }
 
 async function loadStates() {

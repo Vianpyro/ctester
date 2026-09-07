@@ -12,7 +12,7 @@ const loaded = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260904-catalogue-v2";
+const ASSET_REVISION = "20260906-refonte";
 
 // ponytail: <script> injection, not import(). See above. Move to ES modules
 // the day shared state is truly separated.
@@ -509,11 +509,45 @@ function refreshAccount() {
   // SAME CONDITION AS "Discussions": the name and group number only matter
   // there, and the form lives in that view.
   $("identite").hidden = !on || !(oidc && oidc.forum);
+  // THE LEADERBOARD AND THE COLLECTION ARE OPT-IN AND PRIVATE, but their
+  // BUTTONS only need an account: hiding the leaderboard button until someone
+  // opted in would hide the very screen that explains what opting in means.
+  $("leaderboard").hidden = !on;
+  $("collection").hidden = !on;
   $("moi").hidden = !on;
   $("moi").textContent = on ? "connecté" : "";
   // The menu only opens on an account: "Se connecter" stays outside, because
   // burying the entry in a menu makes it disappear.
   $("menucompte").hidden = !on;
+  drawPlate(on ? plate : null);
+}
+
+// THE PLATE IN THE BAR (design 1d): initials, the chosen name, the group.
+// EVERY PIECE OF IT IS OPTIONAL, and empty is the default: an account that
+// chose nothing reads "Compte", not a name guessed from a token claim. What
+// shows here is exactly what `forum.js` saved, so what one sees in one's own
+// bar is what others see in a thread.
+let plate = null;
+
+function setPlate(profile) {
+  plate = profile || null;
+  if (token) drawPlate(plate);
+}
+
+// The initials of a chosen name, at most two letters. Never derived from a
+// `sub`, which is opaque, and never from an email, which we do not have.
+function initials(name) {
+  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map(w => w[0].toUpperCase()).join("");
+}
+
+function drawPlate(profile) {
+  const name = (profile && profile.display_name) || "";
+  $("whoami").textContent = name || "Compte";
+  $("initials").textContent = initials(name);
+  const group = profile && profile.group_number;
+  $("mygroup").hidden = !group;
+  $("mygroup").textContent = group ? "g." + String(group).padStart(2, "0") : "";
 }
 
 // ONE VIEW AT A TIME, AND THE ARBITRATION LIVES HERE. "Mes progrès" and
@@ -523,18 +557,25 @@ function refreshAccount() {
 let currentView = "";
 
 function showView(name) {
-  // "" (the exercise) | "progres" | "forum" | "moderation"
+  // "" (the exercise) | "progres" | "forum" | "moderation" | "leaderboard"
+  //                   | "collection"
   // "Mes exercices" merged into "Mes progrès": two destinations used to
   // answer "where do I stand", with two counts of the same exercises.
   currentView = name;
   $("vueprogres").hidden = name !== "progres";
   $("vueforum").hidden = name !== "forum";
   $("vuemoderation").hidden = name !== "moderation";
+  $("viewleaderboard").hidden = name !== "leaderboard";
+  $("viewcollection").hidden = name !== "collection";
   $("travail").hidden = name !== "";
   $("mesprogres").textContent =
     name === "progres" ? "Retour à l'exercice" : "Mes progrès";
   $("discussions").textContent =
     name === "forum" ? "Retour à l'exercice" : "Discussions";
+  $("leaderboard").textContent =
+    name === "leaderboard" ? "Retour à l'exercice" : "Classement";
+  $("collection").textContent =
+    name === "collection" ? "Retour à l'exercice" : "Collection";
 }
 
 // AN EXERCISE'S STATUS, IN THE CORE. It used to live only in "Mes
@@ -553,7 +594,11 @@ function setStatuses(map) {
 }
 
 const STATUS_MARK = { solved: "✓", attempted: "•" };
-const STATUS_WORD = { solved: "validé", attempted: "essayé" };
+// ONE WORD PER STATE, ACROSS THE WHOLE PAGE. The strip, the menu and "Mes
+// progrès" all say "réussi" -- the redesign's word, and the one the
+// leaderboard column already used. Two words for one state ("validé" here,
+// "réussi" there) is a student wondering whether they are two things.
+const STATUS_WORD = { solved: "réussi", attempted: "essayé" };
 // The CSS classes stay "valide"/"essaye" -- style.css's selectors were left
 // untouched on purpose, so the wire values need a translation on the way in.
 const STATUS_CLASS = { solved: "valide", attempted: "essaye" };
@@ -755,52 +800,212 @@ function stripLabel(ex) {
   return bare.length > 20 ? bare.slice(0, 19) + "…" : bare;
 }
 
+// A TILE'S STATE. The border carries it, and the WORD carries it too -- in
+// the tooltip and in off-screen text -- because a border nobody can name is
+// decoration, and a color alone survives neither black and white nor most
+// kinds of color blindness.
+//
+// THIS IS PROGRESS, NOT LOCATION, and the two are deliberately separate axes.
+// "Ouvert dans l'éditeur" is where one IS; "réussi" is what one has DONE, and
+// an exercise can be both. Folding them into one value made a solved exercise
+// stop reading as solved the moment it was opened -- which is exactly when a
+// student looks at it. Location is marked by `courant` plus `aria-current`,
+// added by whoever draws the tile.
+//
+// ORDER MATTERS: locked beats everything, since there is nothing to report
+// about an exercise one cannot open yet.
+function tileState(ex, locked) {
+  if (locked) return { cls: "afaire", word: "pas encore ouvert" };
+  const status = statuses[ex.id] || "";
+  if (status === "solved") return { cls: "reussi", word: "réussi" };
+  if (ex.verification) return { cls: "verif", word: "vérification" };
+  if (status === "attempted") return { cls: "afaire", word: "essayé" };
+  return { cls: "afaire", word: "à faire" };
+}
+
+// THE FIVE LEGENDS, in the strip's own order. Written once here and rendered
+// once below: two copies of this list would drift, and the copy that drifted
+// would be the one explaining a border that no longer exists.
+const STRIP_LEGEND = [
+  ["reussi", "fond bleuté = réussi"],
+  ["courant", "trait épais = ouvert dans l'éditeur"],
+  ["verif", "trait bleu = vérification (compte pour la maîtrise)"],
+  ["afaire", "trait simple = à faire"],
+  ["bonus", "tirets = bonus facultatif"],
+];
+
+// A BONUS IS RECOGNIZED BY ITS LABEL, not by a catalog field: the content
+// names them "bonus" and there is no flag for it. If one ever appears,
+// `groupeExportable` and the counters keep treating it as an ordinary
+// exercise -- only the border changes, which is the honest amount of meaning
+// a naming convention deserves.
+const isBonus = (ex) => /bonus/i.test(ex.short || "");
+
+// WHERE I AM AND WHAT IS LEFT (design 1a). One line: the lab, how many
+// exercises it holds and how many are solved -- the last of which used to
+// require opening "Mes progrès".
+function renderLabContext(tp, neighbors) {
+  const box = $("labcontext");
+  box.innerHTML = "";
+  box.hidden = !tp || neighbors.length < 2;
+  if (box.hidden) return;
+  box.append(node("span", "labo", tp.group));
+  const solved = neighbors.filter(e => statuses[e.id] === "solved").length;
+  box.append(node("span", "tag", plural(neighbors.length, "exercice")));
+  // ZERO SOLVED SAYS SO, rather than disappearing: "0 réussi" is a starting
+  // point, an absent line is a page that forgot to load.
+  box.append(node("span", "tag" + (solved ? " accent" : ""),
+                   solved + " réussi" + (solved > 1 ? "s" : "")));
+  const change = node("button", "nav", "Changer de labo");
+  change.type = "button";
+  // IT OPENS THE MENU THAT ALREADY EXISTS. A second collection picker would
+  // be a second place where "which labs are there" is answered, and the two
+  // would eventually disagree about a lock.
+  change.addEventListener("click", () => openCatalog());
+  const find = node("button", "nav", "Rechercher");
+  find.type = "button";
+  find.append(node("span", "shortcut", "Ctrl+K"));
+  find.addEventListener("click", () => openCatalog(true));
+  box.append(node("span", "grow"), change, find);
+}
+
+const plural = (n, word) => n + " " + word + (n > 1 ? "s" : "");
+
+// THE MENU, OPENED AND OPTIONALLY FOCUSED ON THE FILTER. One function, so
+// "Changer de labo", "Rechercher" and Ctrl+K cannot end up doing three
+// slightly different things.
+function openCatalog(focusSearch) {
+  $("menuex").open = true;
+  if (focusSearch && $("search").focus) $("search").focus();
+}
+
+// THE LAB STRIP: the displayed collection's exercises as tiles, with their
+// state. This is the navigation a student does twenty times a session --
+// going from ex.2 to ex.3 -- and it used to require opening a menu that
+// covers the screen for a target one step away.
+//
+// IT DOES NOT REPLACE THE MENU: that one stays the switch between
+// collections, which is rare, and it keeps locked exercises with their date.
+// Two scopes, two mechanisms -- the usual global/local split.
+//
+// FEWER THAN TWO EXERCISES, NO STRIP: a strip of one item would help nothing
+// and would steal a line from the statement.
 function renderStrip() {
   const box = $("bandelabo");
   box.innerHTML = "";
   const tp = currentExercise();
-  const neighbors = tp ? catalog.filter(t => t.group === tp.group) : [];
+  // LOCKED EXERCISES OF THE SAME LAB ARE IN THE STRIP TOO, with their date:
+  // making them vanish the day before they open looked like an outage, which
+  // is exactly what the menu's lock exists to avoid. They come from
+  // `collections` -- `catalog` only holds what is open.
+  const neighbors = tp ? stripNeighbors(tp.group) : [];
+  renderLabContext(tp, neighbors);
   box.hidden = neighbors.length < 2;
+  $("striplegend").hidden = box.hidden;
   if (box.hidden) return;
   for (const ex of neighbors) {
-    const isCurrent = ex.id === selectedId;
-    const status = statuses[ex.id] || "";
-    const pill = node("button", "puce" + (isCurrent ? " on" : "")
-                                 + (status ? " " + (STATUS_CLASS[status] || status) : ""),
-                       stripLabel(ex));
+    const note = lockNote(ex);
+    const state = tileState(ex, !!note);
+    const here = ex.id === selectedId;
+    const pill = node("button", "tile " + (isBonus(ex) ? "bonus" : state.cls)
+                                 + (here ? " courant" : ""), stripLabel(ex));
     pill.type = "button";
-    // THE FULL NAME STAYS REACHABLE: on hover for the mouse, and in
-    // off-screen text for a reader -- the pill itself only says "ex.3".
-    pill.setAttribute("title", ex.short);
-    pill.append(node("span", "horsecran", " — " + ex.short));
+    // THE FULL NAME AND THE STATE STAY REACHABLE: on hover for the mouse, in
+    // off-screen text for a reader -- the tile itself only says "ex.3".
+    // BOTH AXES IN THE WORDS TOO, not only in the borders: a tile that is
+    // solved AND open says both, in that order.
+    const said = (note || state.word) + (here ? ", ouvert dans l'éditeur" : "");
+    pill.setAttribute("title", ex.short + " — " + said);
+    pill.append(node("span", "horsecran", " — " + said));
     // `aria-current` RATHER THAN A COLOR: that is what says "you are here"
-    // to a screen reader, and the `on` class means nothing to anyone else.
-    if (isCurrent) pill.setAttribute("aria-current", "true");
-    if (status) {
-      // THE WORD IN ADDITION TO THE SIGN. A green check mark alone
-      // disappears in black and white, under color blindness, and does not
-      // read aloud.
-      pill.append(node("i", "marque", STATUS_MARK[status] || ""));
-      pill.setAttribute("title", ex.short + " — " + (STATUS_WORD[status] || status));
-      pill.append(node("span", "horsecran", " — " + (STATUS_WORD[status] || status)));
+    // to a screen reader, and the `courant` class means nothing to anyone else.
+    if (here) pill.setAttribute("aria-current", "true");
+    if (statuses[ex.id]) {
+      // THE SIGN IN ADDITION TO THE WORD, never instead of it.
+      pill.append(node("i", "marque", STATUS_MARK[statuses[ex.id]] || ""));
     }
-    pill.addEventListener("click", () => {
-      if (ex.id !== selectedId) fillExercises(ex.id);
-    });
+    if (note) {
+      // `aria-disabled` AND NOT `disabled`: a `disabled` button drops out of
+      // the tab order, and the opening date is the whole reason the tile is
+      // still displayed. Reachable, announced as unavailable, no listener.
+      pill.setAttribute("aria-disabled", "true");
+      pill.append(node("span", "cadenas", "🔒"));
+    } else {
+      pill.addEventListener("click", () => {
+        if (ex.id !== selectedId) fillExercises(ex.id);
+      });
+    }
     box.append(pill);
   }
+  renderLegend();
 }
+
+// The lab's exercises IN CATALOG ORDER, open and locked alike. Read from
+// `collections` because `catalog` drops what is not open, and deduplicated
+// because an exercise may belong to two collections (invariant 3).
+function stripNeighbors(group) {
+  const seen = new Set();
+  const rows = [];
+  for (const col of collections) {
+    if (col.titre !== group) continue;
+    for (const ex of col.items) {
+      if (seen.has(ex.id)) continue;
+      seen.add(ex.id);
+      rows.push(ex);
+    }
+  }
+  return rows;
+}
+
+function renderLegend() {
+  const box = $("striplegend");
+  box.innerHTML = "";
+  box.append(node("span", "quoi", "Légende :"));
+  for (const [cls, text] of STRIP_LEGEND) {
+    const item = node("span", "item");
+    item.append(node("i", "tile " + cls, ""));
+    item.append(node("span", "", text));
+    box.append(item);
+  }
+}
+
+// WHAT THE FILTER FIELD HOLDS. Kept in a variable rather than read from the
+// input, because `renderMenu()` also runs when statuses arrive -- reading the
+// DOM there would be fine, but writing the filter from two places would not.
+let menuFilter = "";
+
+// AN EXERCISE MATCHES ITS TITLE OR ITS COLLECTION, accent-insensitively:
+// somebody typing "vitesse" must find "vitesse limite" without knowing where
+// it lives, and typing "tp2" must find the lab. `normalize("NFD")` strips the
+// accents a French title is full of -- without it, "réussi" would not match
+// "reussi", and the student would conclude the search is broken.
+const fold = (text) => String(text || "").normalize("NFD")
+  .replace(/[̀-ͯ]/g, "").toLowerCase();
+
+const matchesFilter = (ex, group) =>
+  !menuFilter || fold(ex.short + " " + ex.id + " " + group).includes(menuFilter);
 
 function renderMenu() {
   const box = $("exliste");
   box.innerHTML = "";
+  let shown = 0;
   for (const col of collections) {
+    const items = col.items.filter(ex => matchesFilter(ex, col.titre));
+    // A COLLECTION WITH NO MATCH DISAPPEARS while filtering, and comes back
+    // when the field is emptied: an empty `<details>` one can open onto
+    // nothing is worse than no row at all.
+    if (!items.length) continue;
+    shown += items.length;
     const block = document.createElement("details");
     block.className = "col";
     // COLLAPSED EXCEPT THE ONE BEING WORKED ON: with eleven collections and
     // seventy-three exercises, unfolding all of them is the same as not
     // organizing anything.
-    block.open = col.items.some(ex => ex.id === selectedId || ex.id === spotlighted);
+    // FILTERING OPENS EVERYTHING IT KEPT: a match hidden inside a collapsed
+    // collection is a search that answers "nothing found" while having found
+    // something.
+    block.open = !!menuFilter
+      || col.items.some(ex => ex.id === selectedId || ex.id === spotlighted);
     const head = document.createElement("summary");
     const title = document.createElement("span");
     title.textContent = col.titre;
@@ -813,12 +1018,33 @@ function renderMenu() {
       head.append(mark);
     }
     block.append(head);
-    for (const ex of col.items) block.append(menuRow(ex));
+    for (const ex of items) block.append(menuRow(ex));
     box.append(block);
+  }
+  // "NOTHING MATCHES" IS SAID, not left as an empty panel: an empty menu
+  // reads as a catalog that failed to load, which is a different problem
+  // with a different fix.
+  if (menuFilter && !shown) {
+    box.append(node("p", "aide", "Aucun exercice ne correspond à « "
+      + menuFilter + " »."));
   }
   const open = currentExercise();
   $("excourant").textContent = open ? open.short : "Exercices";
 }
+
+$("search").addEventListener("input", () => {
+  menuFilter = fold($("search").value);
+  renderMenu();
+});
+
+// Ctrl+K / ⌘K OPENS THE CATALOG AND LANDS IN THE FILTER. Captured on the
+// document rather than on the field, since the point is to reach it from the
+// editor -- which is where the student's cursor actually is.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "k" || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+  e.preventDefault();
+  openCatalog(true);
+});
 
 // `/catalog.json` IS THE ONLY SOURCE since phase 8. The `tps.json` fallback
 // existed for pages left in a student's cache during the switch; that
@@ -1224,6 +1450,18 @@ $("discussions").addEventListener("click", async () => {
   if (!await activateModule("forum", "les discussions")) return;
   await ctester.forum.basculer();
 });
+// SAME CONTRACT AGAIN: signed in only, and the file comes down on click. A
+// student who never opens the leaderboard pays nothing for it -- which
+// matters more here than anywhere else, since taking part is optional and
+// most accounts will never opt in.
+$("leaderboard").addEventListener("click", async () => {
+  if (!await activateModule("leaderboard", "le classement")) return;
+  await ctester.leaderboard.basculer();
+});
+$("collection").addEventListener("click", async () => {
+  if (!await activateModule("collection", "la collection")) return;
+  await ctester.collection.basculer();
+});
 $("deconnexion").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.signOut();
 });
@@ -1314,6 +1552,20 @@ Object.assign(ctester, {
   // progres.js would make two tables to keep in sync, one of which would go
   // stale silently.
   skillLabel: (id) => SKILL_LABELS[id] || id,
+  // THE WHOLE TREE, open and locked alike. `catalogue()` only carries what is
+  // open, which is right for a counter and wrong for "Mes progrès"'s grid --
+  // a lab whose exercises are all still locked must show as locked, not as
+  // absent. One accessor each, so no screen has to remember which is which.
+  collections: () => collections,
+  // The lock's WORD AND DATE, so a tile in "Mes progrès" says the same thing
+  // as the same tile in the menu. Copying the function into the module would
+  // make two ways of writing the same date.
+  noteVerrou: lockNote,
+  // The plate in the bar. `forum.js` owns the identity form and pushes what
+  // it saved here -- the direction stays one-way, and the anonymous visitor
+  // triggers nothing.
+  poserPlaque: setPlate,
+  tuileEtat: tileState,
 });
 
 let keyboardEscape = false;

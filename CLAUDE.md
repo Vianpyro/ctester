@@ -97,10 +97,11 @@ les deux fait servir un catalogue introuvable, ou une page introuvable.
 `CTESTER_STATIC` a disparu avec la phase 8 : il n'y a plus rien à servir sous
 `app/`.
 
-La page est en neuf fichiers, tous servis par la liste blanche de `app/routers/page.py` :
+La page est en onze fichiers, tous servis par la liste blanche de `app/routers/page.py` :
 `index.html` (le markup seul), `style.css`, `config.js` (l'adresse de l'API),
-`app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js`, `forum.js` et
-`exporter.js`, que le noyau va chercher **à la demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
+`app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js`, `forum.js`,
+`exporter.js`, `classement.js` et `collection.js`, que le noyau va chercher
+**à la demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
 `web/vendor/` (marked et DOMPurify), servies par la même liste blanche et
 chargées seulement à l'ouverture des discussions — voir `web/vendor/README.md`.
 Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
@@ -358,7 +359,14 @@ docker stop pg
   vérifications). Un exercice sans corrigé apparaît « non prouvé » : rien ne
   garantit alors que son test soit juste. Appelle `catalogue(tout=True)` pour
   qu'un exercice qui ouvre en novembre soit prouvé en septembre.
-- **`test_postgres.py`** — le SEUL contrôle qui éprouve le SQL. Les autres
+- **`test_postgres.py`** — le SEUL contrôle qui éprouve le SQL. **La refonte y
+  a ajouté trois formes qui ne se prouvent qu'en vrai** : l'UPDATE dont le
+  `WHERE` porte à la fois le contrôle d'accès et la transition à sens unique
+  (`forum_ouvrir_au_groupe`), l'`INSERT ... SELECT` qui refuse son propre
+  message par-dessus une clé primaire qui refuse le doublon (`forum_utile`),
+  et la jointure LATERAL qui dérive la réponse retenue du journal plutôt que
+  d'une colonne (`forum_fil`). Plus la requête du classement, qui empile un
+  `DISTINCT ON`, un LEFT JOIN et un `count(...) FILTER`. Les autres
   simulent la base : ils vérifient la frontière HTTP, pas les instructions. Or
   les écritures de progression et de forum ne sont pas du SQL ordinaire — une CTE
   modifiante qui alimente un INSERT, une CTE modifiante qui alimente un UPDATE, un
@@ -377,6 +385,11 @@ docker stop pg
   temporelle (une variable redéclarée dans un bloc `try` qui masquait la charge
   utile utilisée deux lignes plus haut). Le `fetch` ne partait jamais, le `catch`
   affichait « le serveur ne répond pas », et les logs du conteneur étaient vides.
+  **Il refuse aussi qu'un module déclare deux fois la même fonction** : la
+  dernière gagne, en silence, et l'appelant reçoit l'autre — c'est la panne qui
+  a coûté une session de débogage (`activer` contre `activerModule`), et elle
+  s'est reproduite pendant la refonte (un `exportRow` avait survécu à son
+  remplaçant). Cinq lignes, en tête du fichier.
   **Il a maintenant UNE dépendance, de test seulement : `jsdom`** (`npm ci`).
   DOMPurify refuse de travailler sans DOM — `isSupported` passe à faux et
   `sanitize()` rend alors son entrée **telle quelle**. Un harnais qui l'utilisait
@@ -837,7 +850,7 @@ refaire, là où l'XP ne compte que ce qu'il a soumis. Le contrat complet est da
 une ligne d'`evenement_progression` — le journal en ajout seul existe déjà, son
 `type` est libre et sa `charge` est du JSON. Le GRANT `SELECT, INSERT, DELETE`
 posé en phase 1 suffit, `forget()` les efface déjà, et le schéma porte toujours
-douze tables. `test_postgres.py` le rejoue avec le rôle applicatif et ses seuls
+treize tables. `test_postgres.py` le rejoue avec le rôle applicatif et ses seuls
 droits : c'est là que se vérifie qu'aucun privilège n'a été ajouté en douce.
 
 **Une vérification est un exercice ORDINAIRE, marqué.** `"verification": true`
@@ -1012,7 +1025,7 @@ des soumissions), et il ne couvre que les écritures : un quota qui empêcherait
 relire un fil empêcherait de suivre la réponse qu'on attend.
 
 **Ajouter une table de forum sans l'ajouter à `forget()` fait échouer
-`test_ctester.py`** — le contrôle lit `schema.sql` et compte douze tables.
+`test_ctester.py`** — le contrôle lit `schema.sql` et compte treize tables.
 
 ## Le thème enregistré sur le compte
 
@@ -1321,7 +1334,8 @@ structure, aucun script. Ce qu'il faut savoir avant d'y toucher :
   poser dans `switchMode()` ferait attribuer le code de l'exercice précédent,
   toujours affiché, à l'identifiant du nouveau dès le prochain `saveDraft()`.
 
-### quiz.js, compte.js, progres.js, forum.js et exporter.js — à la demande
+### quiz.js, compte.js, progres.js, forum.js, exporter.js, classement.js
+### et collection.js — à la demande
 
 - **Sens unique, jamais de cycle.** `app.js` détient l'état partagé (jeton,
   catalogue, brouillons) et l'expose une fois dans `window.ctester` ; les deux
@@ -1337,8 +1351,8 @@ structure, aucun script. Ce qu'il faut savoir avant d'y toucher :
 - **Un échec de chargement n'est pas gardé.** `charger()` oublie la promesse
   rejetée : sans ça, une coupure d'une seconde condamnerait la fonction pour
   toute la visite, le second clic retombant sur le rejet sans jamais retenter.
-- **Le parcours anonyme ne télécharge rien de `compte.js`, `progres.js` ni
-  `forum.js`**, même sur un déploiement où la connexion et le forum sont
+- **Le parcours anonyme ne télécharge rien de `compte.js`, `progres.js`,
+  `forum.js`, `classement.js` ni `collection.js`**, même sur un déploiement où la connexion et le forum sont
   offerts. `test_page.js` le vérifie ; c'est la raison d'être du découpage.
   `progres.js` et `forum.js` vont plus loin : leur bouton n'apparaît que
   connecté, et le fichier ne descend qu'au clic — un étudiant connecté qui
@@ -1359,6 +1373,112 @@ structure, aucun script. Ce qu'il faut savoir avant d'y toucher :
   annonçait « à faire » sur un exercice réussi. Rien ne le signalait parce que
   le harnais n'éprouvait que le parcours anonyme ; il couvre maintenant les
   deux.
+
+## La refonte (Claude Design « Industry »)
+
+Huit écrans maquettés dans `ctester-am-lioration-plateforme-tudiante/`, tous
+implémentés. La maquette est le contrat visuel ; ce qui suit est ce que
+l'implémentation a tranché **autrement**, et pourquoi.
+
+**Le vocabulaire visuel est retenu, la typographie non.** Accent acier, coins
+carrés (`--coin`, une seule variable), cadres au trait avec repères d'angle
+(`.plan`). Mais **pas de webfont** : la CSP est `default-src 'none'` sans
+`font-src`, elle existe en deux copies qu'un test compare directive par
+directive, et la page part vers GitHub Pages où le `<meta>` est la seule
+politique. Barlow aurait coûté deux éditions de CSP et 200 Ko sur une page qui
+en fait 65 ; la note de conception appelle la typo un « parti pris », pas un
+invariant. **Et le thème sombre reste le défaut** : le bouton et sa
+synchronisation sur le compte ne bougent pas.
+
+**Une tuile porte DEUX axes, pas un.** La maquette fond « réussi » et « ouvert
+dans l'éditeur » en un seul état ; un exercice réussi cessait alors de se lire
+comme réussi au moment précis où on l'ouvre. `tuileEtat()` rend donc la
+PROGRESSION (`reussi` / `verif` / `afaire`, plus le verrou), et `courant`
+s'ajoute par-dessus pour le lieu. Un seul mot par état dans toute la page :
+**« réussi », plus jamais « validé »** — deux mots pour un état, c'est un
+étudiant qui se demande si ce sont deux choses.
+
+**Aucune vue matérialisée pour le classement**, contrairement à la note de
+conception. C'est un `count(*)` indexé sur quelques centaines de lignes pour
+une cohorte de trente ; une projection rafraîchie serait un second endroit où
+la vérité peut diverger, plus une planification à tenir. Même seuil que
+`/progres` : un p95 au-dessus d'une seconde, que `load_test.py` signale.
+
+**Trois règles tiennent le classement, et elles sont dans le service** (donc
+éprouvables par appel direct) : l'opt-in EST le `WHERE` SQL (une case non
+cochée ne produit aucune ligne, il n'y a donc rien à oublier de masquer
+ensuite) ; sous `cohorte_minimale` il n'y a **aucun tableau** — pas un tableau
+tronqué, qui divulguerait exactement les mêmes personnes ; et seul le haut du
+tableau plus SA PROPRE ligne descendent, **donc personne n'est nommé dernier**.
+La marche annoncée est vers le haut seulement.
+
+**Le pseudonyme est tiré d'un vocabulaire fermé** (`policy.alias_possibles()`,
+324 combinaisons) : rien de ce qu'un étudiant tape ne peut atteindre un
+classement, **donc il n'y a pas de classement à modérer**. « Un autre nom »
+garde l'alias courant dans l'ensemble des pris, sinon le bouton pourrait rendre
+le même nom et aurait l'air cassé.
+
+**Une carte de collection est un succès déguisé** : même table
+(`achievement_unlocked`), même clé primaire, même « une seule fois », même
+`forget()`. Le préfixe `carte:` est ce qui les sépare dans un seul espace de
+noms. **Aucune table nouvelle pour la collection, donc aucun GRANT nouveau.**
+La rareté est un **taux observé** sur les comptes ayant pratiqué, retenu sous
+`cohorte_minimale` — un pourcentage sur quatre comptes décrit ces quatre
+comptes.
+
+**« Je suis bloqué ici » passe par la route qui existe déjà**, et la différence
+est `step` : avec, c'est une demande d'aide, **privée par défaut** ; sans, c'est
+la question publique ordinaire. Deux routes auraient été deux endroits où
+borner la longueur d'un message, et celui qui dérive est celui qui cesse de
+borner. **Aucun code n'est transmis** — il n'y a pas de champ pour en porter.
+
+**Une seule transition de visibilité, et elle est dans le `WHERE`** :
+`account = %s AND visibility = 'private'`. L'inverse n'est donc pas exprimable,
+pas « refusé par un `if` » : on ne peut pas cacher ce que d'autres ont déjà lu.
+Deux clics simultanés ne peuvent pas la doubler.
+
+**Épingler n'édite rien.** La réponse retenue est la DERNIÈRE ligne
+`retain`/`unretain` du journal `forum_moderation`, dérivée à la lecture. Pas de
+colonne `retained`, donc pas d'UPDATE de plus sur une table dont tout le dessin
+est qu'un message ne se réécrit pas.
+
+**« Ça m'a aidé » n'accorde rien** — ni XP, ni succès, ni carte : un message
+écrit pour être voté est un message écrit pour le compteur. Trois refus dans
+UNE instruction (identifiant inventé, son propre message, doublon), là où trois
+`if` en laisseraient chacun un ouvert.
+
+**La vue enseignant compte sans nommer.** Agrégat par exercice et par étape :
+aucun `sub`, aucun nom, aucun texte, aucun code. **Les questions privées y sont
+comptées sans être révélées** — c'est exactement ce que le formulaire de
+l'étudiant promet, et le compromis tient à ce que rien d'autre ne sorte.
+
+### Ce que la refonte a ajouté au schéma
+
+| Quoi | Où | GRANT |
+|---|---|---|
+| `step`, `blocked_kind`, `visibility` | `forum_message` | `UPDATE (hidden, **visibility**)` — **à ajouter dans `VHome`**, sinon « Rendre visible à mon groupe » échoue en production et nulle part ailleurs |
+| `alias`, `plate_frame`, `badges_public`, `leaderboard_opt_in` | `forum_profile` | aucun : le profil est en ajout seul, la dernière ligne fait foi |
+| `forum_helpful` (la 13e table) | nouvelle | `SELECT, INSERT, DELETE`, comme le reste du forum |
+
+**Écrire un profil, c'est le réécrire EN ENTIER.** La dernière ligne EST le
+profil : une écriture partielle remettrait à zéro les champs qu'elle omet, et
+celui qu'elle remettrait à zéro le plus souvent est une case de visibilité.
+`_effacer_nom()` et `POST /forum/profil` repassent donc tous les champs lus.
+
+### Les cinq routes neuves
+
+```
+GET  /classement?portee=groupe|cours   le rang, la marche, les divisions
+POST /classement/alias                 retirer un pseudonyme (corps `{}`)
+GET  /collection                       toutes les cartes, tenues ou non
+POST /forum/visibilite                 privé -> groupe, par son auteur
+POST /forum/utile                      « ça m'a aidé », une fois par compte
+GET  /forum/aide                       qui a besoin d'aide (modérateur)
+```
+
+**Tout POST doit porter un corps**, même vide : le middleware borne avant de
+parser, et un `Content-Length` absent compte comme hors bornes. C'est ce qui a
+fait répondre 413 au premier « Un autre nom ».
 
 ## Raccourcis assumés (ponytail)
 
@@ -1394,6 +1514,20 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   objet global `window.ctester`, pas des modules ES : voir la section « La page »
   ci-dessus pour la raison (TDZ sur import circulaire). À reprendre le jour où
   l'état partagé est vraiment séparé, pas avant.
+- **`services/leaderboard.py`** — le classement est calculé À LA LECTURE, pas
+  de vue matérialisée : un `count(*)` indexé sur quelques centaines de lignes
+  pour une cohorte de trente. Une projection rafraîchie le jour où le p95 de
+  `/classement` dépasse la seconde, et pas avant — même seuil que `/progres`,
+  signalé par le même script.
+- **`routers/leaderboard.py`** — le tirage d'alias marche en avant depuis une
+  graine aléatoire dans une liste de 324, au lieu de tirer sans remise : à
+  trente comptes, la première tentative est libre presque toujours, et le
+  parcours garantit qu'on en trouve un s'il en reste un.
+- **`services/forum.py`** — `etat_du_fil()` rend UN état pour le fil entier,
+  parce qu'il y a un fil par exercice et pas d'identifiant de question. Le jour
+  où une question devient une entité, cette fonction est le seul endroit à
+  reprendre — et les trois compteurs qu'elle rend sont déjà la forme d'une
+  liste.
 - **`forum.js`** — un fil se lit en entier (200 messages au plus), sans
   pagination ni chargement incrémental. À 27 étudiants et un exercice ouvert à
   la fois, un fil dépasse rarement la dizaine. Paginer le jour où la borne se

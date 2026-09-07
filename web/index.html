@@ -7,8 +7,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>TCH009 — Tester mon code</title>
-<script src="config.js?v=20260904-catalogue-v2"></script>
-<link rel="stylesheet" href="style.css?v=20260904-catalogue-v2">
+<script src="config.js?v=20260906-refonte"></script>
+<link rel="stylesheet" href="style.css?v=20260906-refonte">
 </head>
 <body>
 <div id="top">
@@ -18,7 +18,16 @@
   <span class="sep"></span>
   <details class="menu" id="menuex">
     <summary class="nav" id="excourant">Exercices</summary>
-    <div class="menupanneau" id="exliste"></div>
+    <div class="menupanneau">
+      <!-- THE SEARCH FIELD IS PART OF THE MENU, not a separate palette. The
+           menu is already the list of everything; a palette would be a second
+           list of the same thing, with its own overlay to dismiss. Ctrl/⌘+K
+           opens this one and lands here. -->
+      <label class="horsecran" for="search">Filtrer les exercices</label>
+      <input type="search" id="search" autocomplete="off"
+             placeholder="Filtrer… (Ctrl+K)">
+      <div id="exliste"></div>
+    </div>
   </details>
   <span class="field">
     <button type="button" id="prev" class="nav" aria-label="Exercice précédent"
@@ -30,13 +39,24 @@
   <span class="groupe">
     <button type="button" id="mesprogres" class="nav" hidden>Mes progrès</button>
     <button type="button" id="discussions" class="nav" hidden>Discussions</button>
+    <button type="button" id="leaderboard" class="nav" hidden>Classement</button>
+    <button type="button" id="collection" class="nav" hidden>Collection</button>
   </span>
   <span class="sep"></span>
   <button type="button" id="theme" class="nav" title="Changer de thème"
           aria-label="Changer de thème">☀</button>
   <button type="button" id="connexion" class="nav" hidden>Se connecter</button>
   <details class="menu" id="menucompte" hidden>
-    <summary class="nav">Compte</summary>
+    <!-- THE PLATE, and it is what others see in the discussions (design 1d).
+         Initials, the chosen name, the group -- all three drawn by
+         `refreshAccount()` from what the account actually chose, never from a
+         token claim. Empty until a name is chosen: "Compte" is the fallback,
+         not a placeholder identity. -->
+    <summary class="nav plate" id="plate">
+      <span class="initials" id="initials" aria-hidden="true"></span>
+      <span id="whoami">Compte</span>
+      <span class="groupe" id="mygroup" hidden></span>
+    </summary>
     <div class="menupanneau">
       <span id="moi" hidden></span>
       <button type="button" id="identite" class="nav" hidden>Mon identité</button>
@@ -89,7 +109,15 @@
          from ex.2 to ex.3 of the same lab. It used to go through a global
          menu that covers the screen, for a target one step away. The menu
          stays, for switching between collections -- which is rare. -->
+    <!-- WHERE I AM, AND WHAT IS LEFT (design 1a). One line above the strip:
+         the lab, its theme, how many exercises and how many solved. It used
+         to take opening "Mes progrès" to learn the last two. -->
+    <div id="labcontext" hidden></div>
     <nav id="bandelabo" aria-label="Exercices de ce laboratoire" hidden></nav>
+    <!-- THE LEGEND OF THE STRIP. Five borders carry five meanings, and a
+         border nobody can name is decoration: this line is what makes the
+         tiles readable without color. -->
+    <div id="striplegend" hidden></div>
 
     <div id="editor">
       <div class="phead">
@@ -144,6 +172,11 @@
 </div>
 
 <section id="vueprogres" aria-labelledby="progrestitre" hidden></section>
+<!-- THE LEADERBOARD AND THE COLLECTION ARE THEIR OWN DESTINATIONS, like "Mes
+     progrès": both are optional, both are private by default, and neither has
+     any business appearing inside the exercise screen. -->
+<section id="viewleaderboard" aria-labelledby="leaderboardtitle" hidden></section>
+<section id="viewcollection" aria-labelledby="collectiontitle" hidden></section>
 <section id="vueforum" aria-labelledby="forumtitre" hidden></section>
 
 <!-- MODERATION IS A SEPARATE DESTINATION, not one more block in the student
@@ -159,6 +192,6 @@
 <div id="annonce" role="status" class="horsecran"></div>
 </main>
 
-<script src="app.js?v=20260904-catalogue-v2"></script>
+<script src="app.js?v=20260906-refonte"></script>
 </body>
 </html>

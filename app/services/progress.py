@@ -232,8 +232,8 @@ def recompenser(user, entry, job_id):
         return
     facts = progression_facts(user)
     if facts is not None:
-        state.unlock(user, policy.succes_atteints(facts), event_id,
-                    policy.VERSION)
+        state.unlock(user, policy.succes_atteints(facts)
+                     + cards_to_grant(user), event_id, policy.VERSION)
 
 
 def enregistrer_verification(user, entry, job_id, reussi):
@@ -257,11 +257,71 @@ def enregistrer_verification(user, entry, job_id, reussi):
         return
     facts = progression_facts(user)
     if facts is not None:
-        state.unlock(user, policy.succes_atteints(facts),
+        # A CARD FAMILY CAN INCLUDE A VERIFICATION, so cards are recomputed
+        # here too. They still grant no XP -- `unlock` writes to
+        # `achievement_unlocked`, and nothing in that table produces value.
+        state.unlock(user, policy.succes_atteints(facts) + cards_to_grant(user),
                     "verification:" + entry["id"], policy.VERSION)
 
 
-def progress_payload(entries, facts, states, practice, evidences):
+# --- The collection (design 1e) ----------------------------------------------
+# A CARD IS AN ACHIEVEMENT WEARING ANOTHER COAT: same table, same primary key,
+# same "once only", same `forget()`. What differs is the criterion (a family of
+# exercises all solved) and the presentation (a grid rather than a list).
+#
+# NOTHING IS DRAWN AND NOTHING EXPIRES. The condition of a locked card is
+# printed on the card: a collection whose rules one can read is the opposite of
+# a loot box, and that is the line student-motivations.md draws.
+
+
+def cards_to_grant(user):
+    """The card ids this account has now earned. [] when the database is mute.
+
+    Read from the SOLVED exercises of the PUBLISHED catalog: a card whose
+    family is not fully open cannot be earned by accident, and one whose
+    exercise was withdrawn stops being reachable rather than being revoked --
+    `achievement_unlocked` is append-only, and an earned card stays earned.
+    """
+    states = state.read_states(user)
+    if states is None:
+        return []
+    published = {e["id"] for e in exercices_ouverts()}
+    solved = {row.get("exercise_id") for row in states
+              if row.get("status") == "solved"} & published
+    return policy.cards_earned(solved)
+
+
+def collection_view(unlocked, rates, cohort):
+    """[{id, name, family, condition, held, rarity}] -- every card, held or not.
+
+    A LOCKED CARD IS SHOWN, WITH ITS CONDITION. Hiding it would turn the grid
+    into a surprise, and a surprise is the mechanic this collection exists
+    without.
+
+    `rarity` IS AN OBSERVED RATE OR None, never a decreed tier. It is withheld
+    under `policy.minimum_cohort()`: a percentage over four accounts
+    describes those four accounts, which is the same disclosure the leaderboard
+    threshold refuses.
+    """
+    held = {row["id"] for row in unlocked or ()}
+    cohort = int(cohort or 0)
+    views = []
+    for key, card in policy.CARDS.items():
+        holders = int((rates or {}).get(key, 0))
+        views.append({
+            "id": card["id"],
+            "name": card["name"],
+            "family": card["family"],
+            "condition": card["condition"],
+            "held": key in held,
+            "rarity": (round(holders * 100 / cohort)
+                       if cohort >= policy.minimum_cohort() else None),
+        })
+    return views
+
+
+def progress_payload(entries, facts, states, practice, evidences,
+                     practice_days=None):
     """GET /progres's contract: bounded, derived, and with nothing secret.
 
     No submitted code, no verdict detail, no test path: counters, public
@@ -294,7 +354,17 @@ def progress_payload(entries, facts, states, practice, evidences):
                     "description": policy.SUCCES[row["id"]]["description"],
                     "unlocked_at": row["unlocked_at"]}
                    for row in facts["achievements"] if row["id"] in policy.SUCCES],
+        # CARDS SHARE THE TABLE, NOT THE LIST. Both live in
+        # `achievement_unlocked`; the `card:` prefix is what keeps a card out
+        # of the achievements section and vice versa.
+        "cards": sum(1 for row in facts["achievements"]
+                     if row["id"] in policy.CARDS),
         "next": recommander(pratique, touched, solved),
+        # THE PRACTICE CALENDAR (design 1b), and it replaces a streak on
+        # purpose: a day with no square takes nothing away, so there is no
+        # counter to break and none to defend. Derived from
+        # `practice_attempt`, never stored.
+        "practice_days": practice_days or [],
         # The display/export of grants, already bounded by state.py.
         "transactions": facts["transactions"],
     }

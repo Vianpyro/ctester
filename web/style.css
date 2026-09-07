@@ -1,9 +1,28 @@
+/* THE INDUSTRY LOOK, RETUNED IN PLACE. The redesign's vocabulary is the
+   dimensioned drawing: one steel accent, square corners, hairline frames with
+   registration marks at the corners. What it is NOT is a new stylesheet --
+   dark stays the default, the theme toggle and its account sync are
+   untouched, and `config.js` still paints before the first frame.
+
+   NO WEBFONT. The design proposed Barlow over Barlow Condensed; the CSP here
+   is `default-src 'none'` with no `font-src`, it exists in two copies that a
+   test compares directive by directive, and the page is heading for GitHub
+   Pages where the `<meta>` is the only policy there is. System fonts carry
+   the same layout at 0 KB and 0 requests -- the design note calls the type a
+   "parti pris", not an invariant. */
 :root {
   color-scheme: dark;
   --bg: #14171d; --panel: #1a1e26; --card: #21262f;
   --line: #2c323d; --line-2: #3a424f;
   --fg: #dfe3ea; --muted: #8b94a3;
-  --ink: #22c3d6; --ink-fg: #06232a;
+  /* THE STEEL ACCENT, derived from the Industry ramp (#597ea3) and lifted
+     for a dark ground: the same hue, enough luminance to clear 4.5:1 on
+     `--panel`. `--ink-fg` is what sits ON the accent. */
+  --ink: #8fb6dc; --ink-fg: #10202e;
+  /* Two more steps of the same ramp. `--ink-fill` is the flat accent used
+     behind text (a filled bar, a "solved" pill); `--ink-wash` is the tint a
+     block sits on without becoming a second surface. */
+  --ink-fill: #597ea3; --ink-wash: #1d2c3a;
   --ok: #6cc48a; --bad: #f2837c; --wait: #d8bb6a;
   --syn-comment: #6e7a70; --syn-string: #9ecf8a; --syn-pre: #d68fd0;
   --syn-key: #7fb0f2; --syn-num: #e0a06a; --syn-fn: #e8d08a;
@@ -11,18 +30,23 @@
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono",
           "Roboto Mono", Consolas, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* SQUARE, AND IT IS ONE VARIABLE so the decision is reversible in one
+     line rather than in ninety selectors. */
+  --coin: 0;
 }
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #eef1f5; --panel: #fff; --card: #fff;
-  --line: #d7dde5; --line-2: #c2cbd6;
-  --fg: #1b1f27; --muted: #5b6675;
-  --ink: #0d7f92; --ink-fg: #fff;
+  --bg: #f2f2f3; --panel: #f5f5f8; --card: #fff;
+  --line: #d4d4d7; --line-2: #b7b7ba;
+  --fg: #1d1f20; --muted: #5d5d60;
+  --ink: #416180; --ink-fg: #f5f5f8;
+  --ink-fill: #597ea3; --ink-wash: #eef6ff;
   --ok: #1f7a3d; --bad: #b3261e; --wait: #8a6d1f;
   --syn-comment: #7d8a7d; --syn-string: #1f7a3d; --syn-pre: #9b2f8f;
   --syn-key: #1d4ed8; --syn-num: #a55200; --syn-fn: #7a5c00;
   --syn-const: #8a3d9b;
 }
+
 * { box-sizing: border-box; }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
@@ -58,7 +82,7 @@ h1 {
 #live[hidden] { display: none; }
 #live::before {
   content: ""; display: inline-block; width: .4rem; height: .4rem;
-  margin-right: .35rem; border-radius: 999px; background: #3fb950;
+  margin-right: .35rem; border-radius: 999px; background: var(--ok);
   vertical-align: baseline;
 }
 .sep { width: 1px; align-self: stretch; background: var(--line); }
@@ -75,7 +99,7 @@ h1 {
 
 select, button, textarea, input {
   font: inherit; color: inherit; background: var(--card);
-  border: 1px solid var(--line); border-radius: 6px; padding: .35rem .55rem;
+  border: 1px solid var(--line); border-radius: var(--coin); padding: .35rem .55rem;
 }
 button { cursor: pointer; font-weight: 600; }
 button:hover:not(:disabled) { border-color: var(--line-2); }
@@ -93,7 +117,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .menu[hidden] { display: none; }
 .menu > summary {
   display: inline-block; list-style: none; cursor: pointer;
-  background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--coin);
   padding: .3rem .6rem; line-height: 1.2; font-size: 12.5px; color: var(--muted);
 }
 .menu > summary::-webkit-details-marker { display: none; }
@@ -104,7 +128,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   display: flex; flex-direction: column; align-items: stretch; gap: .35rem;
   min-width: 13rem; padding: .5rem;
   background: var(--panel); border: 1px solid var(--line);
-  border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  border-radius: var(--coin); box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
 }
 .menupanneau button { text-align: left; }
 .menupanneau #moi { padding: 0 .2rem .2rem; }
@@ -147,7 +171,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
    tell someone colorblind that this is not a practice exercise. */
 #exliste .verif {
   flex: 0 0 auto; font-size: 11px; letter-spacing: .02em; white-space: nowrap;
-  padding: .05rem .35rem; border: 1px solid var(--line); border-radius: 999px;
+  padding: .05rem .35rem; border: 1px solid var(--line); border-radius: var(--coin);
   color: var(--muted);
 }
 #excourant { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -204,7 +228,7 @@ main {
 #now .badge {
   font-size: 11.5px; letter-spacing: .02em;
   color: var(--muted);
-  border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
+  border: 1px solid var(--line); border-radius: var(--coin); padding: .05rem .5rem;
 }
 #now .learning { color: var(--muted); font-size: 11.5px; letter-spacing: .02em;
                  text-transform: none; }
@@ -223,7 +247,7 @@ main {
   font: inherit; font-size: 12.5px; cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   background: transparent; color: var(--muted);
-  border: 1px solid transparent; border-radius: 5px; padding: .2rem .6rem;
+  border: 1px solid transparent; border-radius: var(--coin); padding: .2rem .6rem;
 }
 .tab:hover { color: var(--fg); }
 .tab.on { background: var(--card); color: var(--fg); border-color: var(--line); }
@@ -274,7 +298,7 @@ main {
   caret-color: var(--ink);
 }
 #code::placeholder { color: var(--muted); opacity: 1; }
-#code::selection { background: rgba(34, 195, 214, .3); }
+#code::selection { background: color-mix(in srgb, var(--ink) 30%, transparent); }
 
 .tc { color: var(--syn-comment); font-style: italic; }
 .ts { color: var(--syn-string); }
@@ -294,7 +318,7 @@ main {
 .btn {
   display: inline-block; cursor: pointer; font-size: 12.5px;
   padding: .35rem .6rem; border: 1px solid var(--line);
-  border-radius: 6px; background: var(--card); color: var(--muted);
+  border-radius: var(--coin); background: var(--card); color: var(--muted);
 }
 .btn:hover { color: var(--fg); border-color: var(--line-2); }
 #file:focus-visible + .btn { outline: 2px solid var(--ink); outline-offset: 2px; }
@@ -348,9 +372,9 @@ main {
 .aide + .aide { margin-top: .35rem; }
 
 .ticks { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 .6rem; }
-.ticks i { width: 11px; height: 6px; border-radius: 1px; background: var(--line); }
+.ticks i { width: 11px; height: 6px; border-radius: var(--coin); background: var(--line); }
 .ticks i.on { background: var(--ok); }
-.barre { height: 2px; margin: 0 0 .6rem; border-radius: 2px;
+.barre { height: 2px; margin: 0 0 .6rem; border-radius: var(--coin);
          background: var(--line); overflow: hidden; }
 .barre i { display: block; height: 100%; width: 30%; background: var(--ink); }
 @media (prefers-reduced-motion: no-preference) {
@@ -368,7 +392,7 @@ main {
 }
 
 .case {
-  margin-top: .5rem; border: 1px solid var(--line); border-radius: 6px;
+  margin-top: .5rem; border: 1px solid var(--line); border-radius: var(--coin);
   background: var(--bg); overflow: hidden;
 }
 .case > summary {
@@ -386,7 +410,7 @@ main {
 .avert {
   margin-top: .8rem; padding: .55rem .7rem;
   border: 1px solid var(--line); border-left: 3px solid var(--wait);
-  border-radius: 6px; background: var(--bg);
+  border-radius: var(--coin); background: var(--bg);
 }
 .avert .titre { color: var(--wait); font-weight: 600; font-size: 12.5px; }
 .avert .quoi { font-family: var(--sans); color: var(--muted);
@@ -398,7 +422,7 @@ main {
 #out li.rien { color: var(--muted); }
 pre {
   margin: .4rem 0 0; padding: .6rem; overflow-x: auto;
-  background: var(--card); border: 1px solid var(--line); border-radius: 6px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--coin);
   font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
 }
 
@@ -425,40 +449,25 @@ pre {
   width: min(30rem, calc(100vw - 2rem));
   padding: .85rem 1rem; background: var(--panel);
   border: 1px solid var(--line); border-left: 3px solid var(--ink);
-  border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+  border-radius: var(--coin); box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
 }
 #consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: 13px; }
 #consentement .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
-/* THE EXERCISE LIST: a SECTION of "Mes progrès" now, no longer its own
-   destination. It keeps its id, hence all the styling below -- copying it
-   under another name would have made two sheets to keep in sync for zero
-   visible change. */
-#liste .ligne {
-  display: flex; align-items: center; gap: .6rem; width: 100%;
-  padding: .45rem .6rem; margin-bottom: .25rem; text-align: left;
-  font-weight: 400; background: var(--panel);
-  border: 1px solid var(--line); border-radius: 6px;
+/* THE FLAT EXERCISE LIST IS GONE, replaced by the per-lab tile grid of the
+   redesign (see `#vueprogres .grille`): ninety rows of prose where the eye
+   found no landmark became one row per lab. What the list carried has moved
+   rather than disappeared -- the state onto the tile, the attempt count into
+   its title, the export to the end of its lab's row.
+
+   `.exportligne` / `.exportetat` KEEP THEIR NAMES, unscoped now: the grid
+   still draws them, and renaming them would have meant editing two files for
+   no visible change. */
+.exportligne {
+  display: inline-flex; align-items: center; gap: .4rem;
 }
-#liste .ligne:hover { border-color: var(--ink); }
-#liste .tpname { color: var(--muted); font-size: 12.5px; flex: 0 0 5rem; }
-#liste .titre { flex: 1 1 auto; }
-#liste .puce {
-  flex: 0 0 auto; font-size: 12px; color: var(--muted);
-  border: 1px solid var(--line); border-radius: 999px; padding: .05rem .5rem;
-}
-#liste .puce::before { content: "\25CF\00a0"; }
-#liste .valide { color: var(--ok); }
-#liste .essaye { color: var(--wait); }
-/* The lab's hand-in, below the group's last row. Indented and with no
-   frame: it is an action ON the list above, not one more row inside it --
-   without this, one clicks it believing it opens an exercise. */
-#liste .exportligne {
-  display: flex; align-items: center; gap: .6rem;
-  margin: -.05rem 0 .9rem 5.6rem;
-}
-#liste .exportetat { font-size: 12px; color: var(--muted); }
-#liste .exportetat.rate { color: var(--bad); font-weight: 600; }
+.exportetat { font-size: 12px; color: var(--muted); }
+.exportetat.rate { color: var(--bad); font-weight: 600; }
 
 /* "Mes progrès": the same spot as the list view, the same components.
    Nothing here depends on color alone -- every gauge is doubled by text
@@ -471,7 +480,7 @@ pre {
 #vueprogres h2 { font-size: 1rem; margin: 0 0 .35rem; }
 #vueprogres .bloc {
   margin: .9rem 0 0; padding: .75rem .85rem;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
 }
 /* Level and XP are SECONDARY, and it shows: a dashed border, no
    background, after what has been practiced and what is left to do. */
@@ -484,7 +493,7 @@ pre {
 #vueprogres p:last-child { margin-bottom: 0; }
 #vueprogres .rate { color: var(--bad); font-weight: 600; }
 #vueprogres .jauge {
-  display: block; height: 6px; margin: .3rem 0 .5rem; border-radius: 999px;
+  display: block; height: 6px; margin: .3rem 0 .5rem; border-radius: var(--coin);
   background: var(--line); overflow: hidden;
 }
 #vueprogres .jauge i { display: block; height: 100%; background: var(--ok); }
@@ -499,7 +508,7 @@ pre {
    what tells them apart is legible text, and it reads aloud. */
 #vueprogres .bande {
   display: inline-block; font-size: 11.5px; letter-spacing: .02em;
-  padding: .05rem .4rem; border: 1px solid var(--line); border-radius: 999px;
+  padding: .05rem .4rem; border: 1px solid var(--line); border-radius: var(--coin);
   color: var(--muted);
 }
 #vueprogres .bande.verifie { color: var(--ok); border-color: var(--ok); }
@@ -539,7 +548,7 @@ pre {
    that bounds it. */
 :is(#vueforum, #vuemoderation) .bloc {
   margin: .9rem 0 0; padding: .75rem .85rem;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
 }
 :is(#vueforum, #vuemoderation) .bloc.second { background: none; border-style: dashed; }
 :is(#vueforum, #vuemoderation) .soustitre {
@@ -561,7 +570,7 @@ pre {
 :is(#vueforum, #vuemoderation) input[type="number"] {
   width: 100%; font-family: var(--sans); font-size: 13.5px;
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
-  border: 1px solid var(--line-2); border-radius: 6px;
+  border: 1px solid var(--line-2); border-radius: var(--coin);
 }
 :is(#vueforum, #vuemoderation) textarea { min-height: 5.5rem; resize: vertical; }
 /* A checkbox is a checkbox, not a block: the `label` rule above would
@@ -574,7 +583,7 @@ pre {
 /* The group number: a pill, next to the name and never in its place. */
 :is(#vueforum, #vuemoderation) .groupe {
   font-size: 12px; color: var(--muted); padding: 0 .4rem;
-  border: 1px solid var(--line-2); border-radius: 999px;
+  border: 1px solid var(--line-2); border-radius: var(--coin);
 }
 :is(#vueforum, #vuemoderation) button { margin-top: .5rem; }
 :is(#vueforum, #vuemoderation) .regles { margin: 0 0 .5rem; padding-left: 1.1rem; }
@@ -582,7 +591,7 @@ pre {
 :is(#vueforum, #vuemoderation) .fil { list-style: none; margin: 0; padding: 0; }
 :is(#vueforum, #vuemoderation) .message {
   padding: .55rem .6rem; margin-bottom: .5rem; background: var(--card);
-  border: 1px solid var(--line); border-radius: 6px;
+  border: 1px solid var(--line); border-radius: var(--coin);
 }
 :is(#vueforum, #vuemoderation) .qui { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline;
                  margin: 0 0 .3rem; }
@@ -593,7 +602,7 @@ pre {
    disappears in black and white as under color blindness. */
 :is(#vueforum, #vuemoderation) .etat {
   font-size: 12px; color: var(--wait); border: 1px solid var(--wait);
-  border-radius: 999px; padding: 0 .4rem;
+  border-radius: var(--coin); padding: 0 .4rem;
 }
 /* `pre-wrap`: when Markdown rendering could not be loaded, the message
    falls back to plain text and must keep its line breaks. Rendering itself
@@ -616,12 +625,12 @@ pre {
 }
 :is(#vueforum, #vuemoderation) .md code {
   font-family: var(--mono); font-size: 12.5px; padding: 0 .25rem;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
 }
 :is(#vueforum, #vuemoderation) .md a { color: var(--ink); overflow-wrap: anywhere; }
 :is(#vueforum, #vuemoderation) .apercu {
   margin: 0; padding: .5rem .6rem; min-height: 2.2rem;
-  background: var(--card); border: 1px dashed var(--line-2); border-radius: 6px;
+  background: var(--card); border: 1px dashed var(--line-2); border-radius: var(--coin);
   font-size: 13.5px;
 }
 
@@ -630,7 +639,7 @@ pre {
   width: min(32rem, calc(100vw - 2rem));
   padding: .85rem 1rem; background: var(--panel);
   border: 1px solid var(--line); border-left: 3px solid var(--ink);
-  border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+  border-radius: var(--coin); box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
   font-family: var(--sans);
 }
 #charte[hidden] { display: none; }
@@ -648,7 +657,7 @@ pre {
   width: min(26rem, calc(100vw - 2rem));
   padding: .85rem 1rem; background: var(--panel);
   border: 1px solid var(--line); border-left: 3px solid var(--ink);
-  border-radius: 8px; box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+  border-radius: var(--coin); box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
   font-family: var(--sans);
 }
 #identitepanneau[hidden] { display: none; }
@@ -661,7 +670,7 @@ pre {
 #identitepanneau input[type="text"], #identitepanneau input[type="number"] {
   width: 100%; font-family: var(--sans); font-size: 13.5px;
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
-  border: 1px solid var(--line-2); border-radius: 6px;
+  border: 1px solid var(--line-2); border-radius: var(--coin);
 }
 #identitepanneau .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
@@ -721,7 +730,7 @@ pre {
 .etapes .pas {
   display: flex; flex-direction: column; gap: .1rem;
   padding: .3rem .6rem;
-  border: 1px solid var(--line); border-radius: 6px;
+  border: 1px solid var(--line); border-radius: var(--coin);
   border-left-width: 3px; border-left-color: var(--line-2);
 }
 .etapes b { font-size: 12.5px; font-weight: 600; color: var(--muted); }
@@ -754,7 +763,7 @@ pre {
   margin: 1rem 0 0; padding: .55rem .7rem;
   font-family: var(--sans); font-size: 13px;
   background: var(--card); border: 1px solid var(--line);
-  border-left: 3px solid var(--ink); border-radius: 6px;
+  border-left: 3px solid var(--ink); border-radius: var(--coin);
 }
 .suite > span::before { content: "\2192\00a0"; color: var(--ink); }
 
@@ -824,23 +833,9 @@ pre {
   border-bottom: 1px solid var(--line); background: var(--bg);
 }
 #bandelabo[hidden] { display: none; }
-#bandelabo .puce {
-  display: inline-flex; align-items: center; gap: .3rem;
-  padding: .25rem .6rem; font-size: 12.5px; font-weight: 400;
-  color: var(--muted); background: var(--card);
-  border: 1px solid var(--line); border-radius: 999px;
-}
-#bandelabo .puce:hover:not(:disabled) { color: var(--fg); border-color: var(--line-2); }
-/* "You are here." Doubled by aria-current: color means nothing to a
-   screen reader, and the outline alone disappears under some forms of
-   color blindness. */
-#bandelabo .puce.on {
-  color: var(--fg); font-weight: 600;
-  border-color: var(--ink); background: var(--panel);
-}
-#bandelabo .puce .marque { font-style: normal; font-size: 11px; }
-#bandelabo .puce.valide .marque { color: var(--ok); }
-#bandelabo .puce.essaye .marque { color: var(--wait); }
+/* The strip's items are `.tile` elements (see the tile system below): the
+   old `.puce` rules that used to style them were dead code left behind when
+   the strip switched to tiles, and are gone. */
 
 /* The status, where one chooses. */
 #exliste .exline .etat {
@@ -872,3 +867,317 @@ pre {
    "sans XP": that is the question one asks on arriving at it, and the
    answer must not depend on having unfolded the statement. */
 #now .badge.verif { color: var(--fg); border-color: var(--ink); }
+
+/* ===========================================================================
+   THE REDESIGN'S SHARED VOCABULARY (Claude Design "Industry").
+
+   Five things, used by every new screen: a framed block with registration
+   marks, a tag, an exercise tile, a calendar square and a collection card.
+   They live here rather than in each view's module so the four screens cannot
+   drift apart -- the same reason skill labels live in the core.
+   =========================================================================== */
+
+/* THE BLUEPRINT FRAME. A hairline box with four corner marks drawn OUTSIDE
+   it, the way a drawing carries its registration crosses. Pure CSS on one
+   element: no wrapper, no four `<i>` children to remember to add -- the
+   design's prototype used them, this does not need to.
+
+   THE 9px WIDTH/HEIGHT IS THE MARK'S ARM, not a radius: the corners stay
+   square, that is the whole look. */
+.plan {
+  position: relative;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.plan::before, .plan::after {
+  content: ""; position: absolute; pointer-events: none;
+  width: 9px; height: 9px;
+}
+/* Top-left and bottom-right, which is enough to read as a drawing: four marks
+   on a dense grid of tiles becomes noise. */
+.plan::before { top: -1px; left: -1px;
+  border-top: 2px solid var(--ink); border-left: 2px solid var(--ink); }
+.plan::after { bottom: -1px; right: -1px;
+  border-bottom: 2px solid var(--ink); border-right: 2px solid var(--ink); }
+
+/* A TAG. Three tones, and each spells its meaning out in words -- none of
+   them is a color carrying information on its own. */
+.tag {
+  display: inline-flex; align-items: center; gap: .25rem;
+  font-size: 11.5px; line-height: 1.4; padding: .1rem .45rem;
+  border: 1px solid var(--line); border-radius: var(--coin);
+  color: var(--muted); white-space: nowrap;
+}
+.tag.accent { border-color: var(--ink); color: var(--ink); background: var(--ink-wash); }
+.tag.contour { border-color: var(--ink); color: var(--ink); }
+.tag.alerte { border-color: var(--bad); color: var(--bad); }
+
+/* AN EXERCISE TILE, the unit of "Mes progrès" (design 1b) and of the lab
+   strip (1a). FIVE STATES, and each is a different BORDER, not a different
+   fill: a fill alone disappears in black and white and under most kinds of
+   color blindness. The word is always in the `title` and in off-screen text.
+
+     .reussi   solved -- tinted ground plus a full border
+     .courant  open in the editor -- a thick border, layered over the above
+     .afaire   not started -- the quiet default
+     .bonus    optional -- dashed, which reads as "not required"
+     .verif    a verification -- accent border, and it says so in words */
+.tile {
+  display: inline-flex; align-items: center; gap: .3rem;
+  min-width: 2.4rem; justify-content: center;
+  padding: .2rem .45rem; font-size: 12px; line-height: 1.4;
+  border: 1px solid var(--line); border-radius: var(--coin);
+  background: none; color: var(--muted); cursor: pointer;
+}
+.tile:hover:not([aria-disabled="true"]) { border-color: var(--line-2); color: var(--fg); }
+.tile.reussi { border-color: var(--ink); background: var(--ink-wash); color: var(--fg); }
+/* WHERE ONE IS, layered ON TOP of what one has done: `courant` only thickens
+   the border, so a solved-and-open tile keeps its tinted ground and gains the
+   thick edge. One class per axis is what lets them coexist. */
+.tile.courant { border-width: 2px; border-color: var(--fg); color: var(--fg); font-weight: 600; }
+.tile.afaire { border-color: var(--line); }
+.tile.bonus { border-style: dashed; }
+.tile.verif { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.tile[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.tile .marque { font-style: normal; font-size: 11px; color: var(--ink); }
+
+/* THE PRACTICE CALENDAR (design 1b). Thirteen columns of squares, and it
+   REPLACES A STREAK on purpose: a gap takes nothing away, so there is no
+   counter to break and nothing to defend on a bad week. */
+.calendar {
+  display: grid; grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 3px; margin: .5rem 0;
+}
+.calendar span {
+  aspect-ratio: 1; border: 1px solid var(--line); border-radius: var(--coin);
+  background: var(--card);
+}
+/* Four steps of the one accent, so "more that day" reads as "darker" without
+   introducing a second hue. */
+.calendar span.n1 { background: color-mix(in srgb, var(--ink-fill) 30%, var(--card)); }
+.calendar span.n2 { background: color-mix(in srgb, var(--ink-fill) 55%, var(--card)); }
+.calendar span.n3 { background: color-mix(in srgb, var(--ink-fill) 78%, var(--card)); }
+.calendar span.n4 { background: var(--ink-fill); border-color: var(--ink-fill); }
+
+/* A COLLECTION CARD (design 1e). Held cards carry the accent, locked ones
+   stay muted AND SAY THEIR CONDITION -- a condition one can read is the
+   difference between a collection and a slot machine. */
+.cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: .7rem; margin: .5rem 0 0;
+}
+.card {
+  display: flex; flex-direction: column; gap: .3rem;
+  padding: .6rem; border: 1px solid var(--line); border-radius: var(--coin);
+  background: var(--card);
+}
+.card.held { border-color: var(--ink); }
+.card.locked { opacity: .68; }
+.card .code { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.card .header { display: flex; justify-content: space-between; gap: .4rem; }
+.card .drawing {
+  height: 4rem; display: grid; place-items: center;
+  color: var(--muted); margin: .2rem 0;
+}
+.card.held .drawing { color: var(--ink); }
+.card .name { font-size: 13.5px; font-weight: 600; color: var(--fg); }
+.card .quoi { font-size: 11.5px; color: var(--muted); }
+
+/* --- The bar: the plate, the filter (design 1a/1d) ------------------------- */
+
+/* THE PLATE IN THE BAR is the same object as the preview in "Mon identité":
+   one identity, one rendering. Initials in a square box -- the design's
+   drawing vocabulary, and a box rather than a circle so it matches the rest. */
+.plate { display: inline-flex; align-items: center; gap: .4rem; }
+.initials {
+  width: 1.4rem; height: 1.4rem; display: inline-grid; place-items: center;
+  border: 1px solid var(--ink); color: var(--ink);
+  font-size: 10px; font-weight: 700; letter-spacing: .02em;
+}
+.initials:empty { display: none; }
+#menucompte .groupe { color: var(--muted); font-size: 11px; }
+
+#recherche {
+  width: 100%; margin-bottom: .4rem;
+  background: var(--bg); font-size: 12.5px;
+}
+
+/* --- The lab context row and the strip's legend (design 1a) ---------------- */
+
+/* `flex: 0 0 auto` LIKE EVERY OTHER CHILD OF #droite: that column hands its
+   growth to the editor and the quiz alone, and a child that forgets to say so
+   takes room from whichever of the two is on screen. */
+#labcontext {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  padding: .35rem .9rem; border-bottom: 1px solid var(--line);
+}
+#labcontext[hidden] { display: none; }
+#labcontext .labo {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+}
+/* The shortcut, on the button that opens the filter. Discreet: it is a
+   convenience, not the way in -- the button next to it is. */
+.shortcut {
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  margin-left: .3rem;
+}
+
+#striplegend {
+  flex: 0 0 auto;
+  display: flex; flex-wrap: wrap; gap: .3rem .9rem; align-items: center;
+  padding: .25rem .9rem .4rem; font-size: 11px; color: var(--muted);
+}
+#striplegend[hidden] { display: none; }
+#striplegend .item { display: inline-flex; align-items: center; gap: .3rem; }
+/* The legend's swatches are the real tiles, emptied: a legend drawn with
+   different boxes than the thing it explains explains the wrong thing. */
+#striplegend .tile {
+  width: 1.1rem; height: .8rem; min-width: 0; padding: 0; cursor: default;
+}
+
+/* --- "Mes progrès": the cards and the lab grid (design 1b) ----------------- */
+
+/* THE THREE CARDS ON TOP, in a grid that collapses on a narrow screen. */
+#vueprogres .tableau {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: .7rem; margin-bottom: .7rem;
+}
+#vueprogres .kicker {
+  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink); margin-bottom: .3rem;
+}
+#vueprogres .gros { font-size: 1.05rem; font-weight: 600; color: var(--fg); }
+#vueprogres .bandeligne {
+  display: flex; gap: .4rem; align-items: baseline; flex-wrap: wrap;
+  font-size: 12.5px;
+}
+
+/* ONE ROW PER LAB: name and theme, then the tiles, then how far along. Three
+   columns on a wide screen so the eye can run down the counts; stacked below,
+   where a three-column row would wrap into soup. */
+#vueprogres .grille { display: grid; gap: 0; }
+#vueprogres .labo {
+  display: grid; gap: .5rem; align-items: center;
+  padding: .55rem 0; border-top: 1px solid var(--line);
+}
+@media (min-width: 56rem) {
+  #vueprogres .labo {
+    grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr) auto;
+  }
+}
+#vueprogres .labo .name { display: block; font-size: 13.5px; font-weight: 600; }
+#vueprogres .labo .theme { font-size: 11.5px; color: var(--muted); }
+#vueprogres .labo .tiles { display: flex; flex-wrap: wrap; gap: .25rem; }
+#vueprogres .labo .compte {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  font-size: 12.5px; color: var(--muted);
+}
+#vueprogres .labo .exportligne { display: inline-flex; align-items: center; gap: .4rem; }
+
+/* --- The leaderboard (design 1c) ------------------------------------------- */
+
+#viewleaderboard, #viewcollection {
+  flex: 1 1 auto; overflow-y: auto; padding: .9rem;
+}
+#viewleaderboard[hidden], #viewcollection[hidden] { display: none; }
+#viewleaderboard h2, #viewcollection h2 { font-size: 1rem; margin: 0 0 .35rem; }
+#viewleaderboard .bloc, #viewcollection .bloc {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--coin); padding: .7rem; margin-bottom: .7rem;
+}
+#viewleaderboard p, #viewcollection p { margin: 0 0 .5rem; font-size: 13.5px; }
+#viewleaderboard p:last-child, #viewcollection p:last-child { margin-bottom: 0; }
+#viewleaderboard .rate, #viewcollection .rate { color: var(--bad); font-weight: 600; }
+#viewleaderboard .aide, #viewcollection .aide {
+  font-family: var(--sans); color: var(--muted); font-size: 12.5px;
+}
+#viewleaderboard .annonce { color: var(--ink); }
+#viewleaderboard .soustitre, #viewcollection .soustitre {
+  font-size: 12px; letter-spacing: .04em; color: var(--muted);
+  font-weight: 600; margin: 0 0 .4rem;
+}
+
+/* The scope switch. Two buttons, and `aria-pressed` carries the state -- the
+   tint is the second signal, never the only one. */
+.tabs { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: .5rem; }
+.tabs .nav[aria-pressed="true"], .tabs .nav.on {
+  color: var(--fg); border-bottom: 2px solid var(--ink);
+}
+
+/* ONE'S OWN STANDING: the rank big, the sentence next to it. The number is
+   the answer to the question one opened this screen with. */
+#viewleaderboard .rang { display: flex; align-items: center; gap: .8rem; }
+#viewleaderboard .chiffre {
+  font-size: 2rem; font-weight: 700; line-height: 1; color: var(--ink);
+}
+.aliasrow { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.alias-value {
+  padding: .1rem .4rem; border: 1px solid var(--ink); color: var(--ink);
+  font-weight: 600;
+}
+
+.rank-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rank-table th {
+  text-align: left; font-size: 11px; letter-spacing: .04em; font-weight: 600;
+  color: var(--muted); padding: .3rem .4rem;
+  border-bottom: 1px solid var(--line);
+}
+.rank-table td {
+  padding: .3rem .4rem; border-bottom: 1px solid var(--line);
+}
+.rank-table .num { font-family: var(--mono); text-align: right; width: 3rem; }
+/* One's own row, tinted AND bold: the tint alone disappears in black and
+   white, and finding one's own line is the whole point of the table. */
+.rank-table .mine { background: var(--ink-wash); font-weight: 600; }
+
+.divisions {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: .4rem; margin-bottom: .5rem;
+}
+.division {
+  padding: .5rem; text-align: center;
+  border: 1px solid var(--line); border-radius: var(--coin);
+}
+.division.on { border: 2px solid var(--ink); background: var(--ink-wash); }
+.division .name { display: block; font-size: 13px; font-weight: 600; }
+.division .quoi { font-size: 11.5px; color: var(--muted); }
+
+/* --- The identity preview and the forum's new states (1d/1f/1g) ------------ */
+
+.previewplate { margin: .3rem 0 .5rem; }
+.previewplate .plate {
+  display: inline-flex; flex-direction: column; gap: .3rem; align-items: flex-start;
+  padding: .5rem .6rem; background: var(--card);
+}
+.previewplate .row { display: flex; align-items: center; gap: .4rem; }
+.previewplate .name { font-size: 13px; font-weight: 600; }
+.previewplate .tags { display: flex; gap: .25rem; flex-wrap: wrap; }
+/* The unlocked frames, as the design draws them: a line, a cut line, a
+   tolerance callout. Decoration only -- no advantage, no access. */
+.previewplate .frame-coupe { border: 2px solid var(--ink); }
+.previewplate .frame-tolerance { border: 1px dashed var(--ink); }
+
+/* A radio group in the post form. `.coche` already styles a checkbox row; a
+   radio row is the same object with a different input. */
+.choix { margin: .4rem 0 .6rem; }
+.choix > label:first-child {
+  display: block; font-size: 12.5px; color: var(--muted); margin-bottom: .2rem;
+}
+.choix .coche { margin: .15rem 0; }
+.choix .coche .aide { color: var(--muted); font-size: 11.5px; }
+
+/* The thread's state, above the messages. */
+.etatfil { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: .5rem; }
+
+/* THE RETAINED ANSWER IS FRAMED, not merely tinted, and it carries the words
+   "réponse retenue" in its header: this is the one message a reader is
+   looking for, and it must be findable without color. */
+.message.retenue {
+  border: 1px solid var(--ink); background: var(--ink-wash);
+  padding: .5rem; border-radius: var(--coin);
+}
+/* A private question is set apart by a rule down its side -- the same
+   vocabulary the verdict channel already uses for state. */
+.message.privee { border-left: 3px solid var(--line-2); padding-left: .5rem; }

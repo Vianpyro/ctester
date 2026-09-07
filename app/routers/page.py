@@ -31,7 +31,11 @@ SERVIS = dict(
      "favicon.svg": "image/svg+xml"},
     **{nom: "text/javascript; charset=utf-8"
        for nom in ("config.js", "app.js", "quiz.js", "compte.js",
-                   "progres.js", "forum.js", "exporter.js")},
+                   "progres.js", "forum.js", "exporter.js",
+                   # A module absent from this list falls to a 404 and the
+                   # button goes inert with a message -- which is exactly what
+                   # happened the first time `exporter.js` was added.
+                   "leaderboard.js", "collection.js")},
     **{nom: "text/javascript; charset=utf-8" for nom in config.VENDOR},
 )
 

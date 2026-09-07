@@ -18,6 +18,7 @@ serré, et c'est l'étudiant qui la découvre à 23 h la veille de la remise.
 
 import contextlib
 import json
+import re
 import os
 import shutil
 import sys
@@ -40,6 +41,7 @@ import deps        # noqa: E402
 import state        # noqa: E402
 import main        # noqa: E402
 import security    # noqa: E402
+import policy as politique  # noqa: E402
 from services import quotas  # noqa: E402
 
 CONNUE = "https://tch009.thevhome.com"
@@ -77,12 +79,19 @@ class BaseSimulee:
     THEMES = ("light", "dark")
     enabled = staticmethod(lambda: True)
 
+    EMPTY_PROFILE = {"display_name": None, "group_number": None,
+                   "display_name_public": False, "group_number_public": False,
+                   "alias": None, "plate_frame": None,
+                   "badges_public": False, "leaderboard_opt_in": False}
+
     def __init__(self):
         self.brouillons, self.etats, self.themes = {}, {}, {}
         self.messages, self.profils = [], {}
         self.pratique, self.jobs = {}, set()
         self.evenements, self.xp, self.succes = {}, {}, {}
         self.faits = []          # le journal, dans l'ordre d'écriture
+        self.utiles = set()      # (message, account) -- "ça m'a aidé"
+        self.retenus = {}        # message -> retained by a moderator?
 
     # -- comptes
     def read_resume(self, user, ex):
@@ -165,21 +174,93 @@ class BaseSimulee:
                                     "policy": policy})
         return True
 
+    def read_practice_days(self, user, days):
+        # Un seul jour, celui de tout ce harnais : ce qu'on eprouve ici est que
+        # la route porte le calendrier, pas que Postgres sache grouper.
+        n = sum(a for (u, _), (a, _) in self.pratique.items() if u == user)
+        return [{"date": "2026-09-04", "attempts": n}] if n else []
+
+    def read_unlock_rates(self):
+        compte = {}
+        for (_, succes_id) in self.succes:
+            compte[succes_id] = compte.get(succes_id, 0) + 1
+        return compte, len({u for (u, _) in self.pratique})
+
+    def leaderboard_rows(self, group_number, days):
+        rows = []
+        for compte, profil in self.profils.items():
+            if not profil.get("leaderboard_opt_in"):
+                continue
+            if group_number is not None and profil.get("group_number") != group_number:
+                continue
+            n = sum(1 for (u, _) in self.xp if u == compte)
+            rows.append({"account": compte, "alias": profil.get("alias"),
+                         "group_number": profil.get("group_number"),
+                         "recent": n, "lifetime": n})
+        return rows
+
+    def forum_taken_aliases(self):
+        return {p["alias"] for p in self.profils.values() if p.get("alias")}
+
     def read_progress(self, user):
         mien = lambda t: [v for (u, _), v in sorted(t.items()) if u == user]  # noqa: E731
         return {"xp": sum(t["amount"] for t in mien(self.xp)),
                 "achievements": mien(self.succes), "transactions": mien(self.xp)}
 
     # -- forum
-    def forum_fil(self, ex, limite):
-        return [dict(m) for m in self.messages
-                if m["exercise_id"] == ex][:limite]
+    def forum_fil(self, ex, limite, reader=None):
+        views = []
+        for m in self.messages:
+            if m["exercise_id"] != ex:
+                continue
+            views.append(dict(m, retained=self.retenus.get(m["id"], False),
+                              helpful=sum(1 for (i, _) in self.utiles if i == m["id"]),
+                              helped_me=(m["id"], reader or "") in self.utiles))
+        return views[:limite]
 
-    def forum_publier(self, mid, ex, user, texte):
+    def forum_publier(self, mid, ex, user, texte, step=None, blocked_kind=None,
+                      visibility="thread"):
         self.messages.append({"id": mid, "exercise_id": ex, "account": user,
                               "text": texte, "hidden": False,
+                              "step": step, "blocked_kind": blocked_kind,
+                              "visibility": visibility,
                               "created_at": "2026-09-04"})
         return True
+
+    def forum_open_to_group(self, mid, user):
+        # THE SAME RULE AS THE SQL `WHERE`: one's own, and private only.
+        for m in self.messages:
+            if (m["id"] == mid and m["account"] == user
+                    and m.get("visibility") == "private"):
+                m["visibility"] = "group"
+                return [mid]
+        return []
+
+    def forum_mark_helpful(self, mid, user):
+        for m in self.messages:
+            if m["id"] == mid and m["account"] != user:
+                if (mid, user) in self.utiles:
+                    return []
+                self.utiles.add((mid, user))
+                return [mid]
+        return []
+
+    def forum_help_rows(self, limit, hours):
+        groups = {}
+        for m in self.messages:
+            if not m.get("step") or m["hidden"]:
+                continue
+            key = (m["exercise_id"], m["step"], m.get("blocked_kind"))
+            row = groups.setdefault(key, {"exercise_id": key[0], "step": key[1],
+                                          "blocked_kind": key[2], "people": 0,
+                                          "opened": 0, "since": m["created_at"],
+                                          "accounts": set()})
+            row["accounts"].add(m["account"])
+            row["people"] = len(row["accounts"])
+            row["opened"] += int(m.get("visibility") == "group")
+        rows = [{k: v for k, v in row.items() if k != "accounts"}
+               for row in groups.values()]
+        return sorted(rows, key=lambda row: -row["people"])[:limit]
 
     def forum_supprimer(self, mid, user):
         avant = len(self.messages)
@@ -202,7 +283,12 @@ class BaseSimulee:
     def forum_moderer(self, aid, mid, moderateur, action):
         for m in self.messages:
             if m["id"] == mid:
-                m["hidden"] = (action == "hide")
+                # RETAINING EDITS NOTHING: the message stays identical, only
+                # the mark moves -- like the journal in the real database.
+                if action in ("retain", "unretain"):
+                    self.retenus[mid] = (action == "retain")
+                else:
+                    m["hidden"] = (action == "hide")
                 return True
         return False
 
@@ -213,18 +299,23 @@ class BaseSimulee:
         return None
 
     def forum_profil(self, user):
-        return self.profils.get(user, {"display_name": None, "group_number": None,
-                                       "display_name_public": False,
-                                       "group_number_public": False})
+        return self.profils.get(user, dict(self.EMPTY_PROFILE))
 
     def forum_profils(self, users):
         return {u: self.profils[u] for u in users if u in self.profils}
 
     def forum_profil_ecrire(self, pid, user, pseudo, groupe, pseudo_public,
-                            groupe_public, set_by_moderator=False):
+                            groupe_public, set_by_moderator=False, alias=None,
+                            plate_frame=None, badges_public=False,
+                            leaderboard_opt_in=False):
+        # LA DERNIERE LIGNE EST LE PROFIL, comme en base : on remplace tout,
+        # et c'est ce qui fait echouer une ecriture partielle ici aussi.
         self.profils[user] = {"display_name": pseudo, "group_number": groupe,
                               "display_name_public": pseudo_public,
-                              "group_number_public": groupe_public}
+                              "group_number_public": groupe_public,
+                              "alias": alias, "plate_frame": plate_frame,
+                              "badges_public": badges_public,
+                              "leaderboard_opt_in": leaderboard_opt_in}
         return True
 
 
@@ -1348,6 +1439,221 @@ def test_eta_somme_les_durees_mesurees_et_retombe_sur_une_moyenne():
             assert r.status_code == 200 and r.json()["eta"] > 0, r.text
         finally:
             config.WORKERS = garde
+
+
+# --- The redesign: private help, helpful marks, leaderboard, collection -----
+
+
+def test_a_private_question_does_not_cross_the_http_boundary():
+    """THE LEAK THAT MUST BE PROVEN FOR REAL, not only in unit tests.
+
+    "Only the lab instructor" is written on the student's form. This check
+    goes through the real router, with two real accounts, because that is the
+    promise easiest to break by changing one request.
+    """
+    tokens = {"alice": "sub-alice", "bob": "sub-bob", "prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        # Alice asks for help: private by default, without even saying so.
+        r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "stuck",
+                                   "step": "compilation",
+                                   "blocked_kind": "unclear-error"},
+                   headers=auth("alice"))
+        assert r.status_code == 200, r.text
+        assert fake.messages[0]["visibility"] == "private", fake.messages
+        assert fake.messages[0]["step"] == "compilation"
+
+        seen = lambda who: c.get("/forum?ex=tp2-ex3", headers=auth(who)).json()["messages"]
+        assert [m["id"] for m in seen("alice")]         # its own author sees it
+        assert seen("bob") == []                        # nobody else
+        assert len(seen("prof")) == 1                   # the moderator, yes
+
+        # AND ITS AUTHOR CAN OPEN IT TO THEIR GROUP, in one click, with no republishing.
+        mid = fake.messages[0]["id"]
+        assert c.post("/forum/visibility", json={"id": mid},
+                      headers=auth("bob")).status_code == 404   # not theirs
+        assert c.post("/forum/visibility", json={"id": mid},
+                      headers=auth("alice")).status_code == 200
+        assert fake.messages[0]["visibility"] == "group"
+        # THE TRANSITION IS ONE-WAY: replayed, it no longer finds a private
+        # message -- so nothing to close back, and nothing to hide behind
+        # after others have read it.
+        assert c.post("/forum/visibility", json={"id": mid},
+                      headers=auth("alice")).status_code == 404
+
+
+def test_helpful_mark_cannot_be_self_voted_and_counts_once():
+    """A usefulness counter, not a popularity vote -- and it grants NOTHING.
+
+    Three refusals in a single database statement: the made-up id, one's own
+    message, and the duplicate. All three return the same response.
+    """
+    tokens = {"alice": "sub-alice", "bob": "sub-bob"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "my answer"},
+               headers=auth("alice"))
+        mid = fake.messages[0]["id"]
+        # One's own message: refused, like a made-up id.
+        assert c.post("/forum/helpful", json={"id": mid},
+                      headers=auth("alice")).status_code == 404
+        assert c.post("/forum/helpful", json={"id": "0" * 32},
+                      headers=auth("bob")).status_code == 404
+        assert c.post("/forum/helpful", json={"id": mid},
+                      headers=auth("bob")).status_code == 200
+        # Twice: the primary key refuses, and the route says the same thing.
+        assert c.post("/forum/helpful", json={"id": mid},
+                      headers=auth("bob")).status_code == 404
+        seen = c.get("/forum?ex=tp2-ex3", headers=auth("bob")).json()["messages"][0]
+        assert seen["helpful"] == 1 and seen["helped_me"] is True
+        # AND NO XP COMES OUT OF IT: marking helpful does not touch progression.
+        assert fake.xp == {} and fake.succes == {}
+
+
+def test_retaining_an_answer_does_not_edit_the_message():
+    """Retaining an answer edits nothing: the text is identical before and after.
+
+    That is the message's immutability, which is what keeps a report
+    readable. The action lives in the journal, and it is reversible.
+    """
+    tokens = {"alice": "sub-alice", "prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "the answer"},
+               headers=auth("alice"))
+        mid, before = fake.messages[0]["id"], fake.messages[0]["text"]
+        # Reserved to the moderator, like hiding.
+        assert c.post("/forum/moderation", json={"id": mid, "action": "retain"},
+                      headers=auth("alice")).status_code == 403
+        assert c.post("/forum/moderation", json={"id": mid, "action": "retain"},
+                      headers=auth("prof")).status_code == 200
+        assert fake.messages[0]["text"] == before, "the message was edited"
+        thread = c.get("/forum?ex=tp2-ex3", headers=auth("alice")).json()
+        assert thread["messages"][0]["retained"] is True
+        assert thread["state"]["resolved"] == 1
+        # REVERSIBLE, and the message still has not moved.
+        assert c.post("/forum/moderation", json={"id": mid, "action": "unretain"},
+                      headers=auth("prof")).status_code == 200
+        assert fake.messages[0]["text"] == before
+        assert c.get("/forum?ex=tp2-ex3",
+                     headers=auth("alice")).json()["messages"][0]["retained"] is False
+
+
+def test_who_needs_help_counts_without_naming_and_stays_restricted():
+    """The instructor's aggregate: accounts and steps, never people.
+
+    A private question is COUNTED there without being revealed -- that is
+    exactly what the student's form promises, and the compromise holds only
+    because nothing else comes out.
+    """
+    tokens = {"alice": "sub-alice", "bob": "sub-bob", "prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        for who in ("alice", "bob"):
+            c.post("/forum", json={"exercise_id": "tp2-ex3",
+                                   "text": "I don't understand the error",
+                                   "step": "compilation"}, headers=auth(who))
+        assert c.get("/forum/help", headers=auth("alice")).status_code == 403
+        r = c.get("/forum/help", headers=auth("prof"))
+        assert r.status_code == 200, r.text
+        rows = r.json()["rows"]
+        assert len(rows) == 1 and rows[0]["people"] == 2, rows
+        assert rows[0]["step"] == "compilation"
+        # NO `sub`, NO TEXT, NO CODE: a count is enough to know where to go.
+        payload = r.text
+        for forbidden in ("sub-alice", "sub-bob", "I don't understand"):
+            assert forbidden not in payload, payload
+
+
+def test_the_leaderboard_is_opt_in_and_mute_under_the_cohort():
+    """An unticked box is not a hidden row: it is an absence.
+
+    And the alias is DRAWN by the server the moment one ticks the box --
+    otherwise ticking the box would lead to a nameless leaderboard, or to a
+    400 telling one to press another button first.
+    """
+    tokens = {"alice": "sub-alice"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        r = c.get("/leaderboard", headers=auth("alice"))
+        assert r.status_code == 200 and r.json()["participating"] is False
+
+        r = c.post("/forum/profil",
+                   json={"group_number": 4, "leaderboard_opt_in": True},
+                   headers=auth("alice"))
+        assert r.status_code == 200, r.text
+        alias = fake.profils["sub-alice"]["alias"]
+        assert alias and alias in politique.possible_aliases(), alias
+
+        view = c.get("/leaderboard", headers=auth("alice")).json()
+        assert view["participating"] is True and view["me"]["rank"] == 1
+        # UNDER THE MINIMUM COHORT: one's own row, no table.
+        assert view["rows"] == [] and view["cohort"] < view["minimum"]
+        # AND NO `sub` COMES OUT, no more than elsewhere.
+        assert "sub-alice" not in c.get("/leaderboard", headers=auth("alice")).text
+
+        # THE ALIAS REDRAWS, as often as one likes.
+        # A BODY, EVEN EMPTY: the middleware bounds every POST before
+        # parsing, and a missing `Content-Length` counts as out of bounds.
+        r = c.post("/leaderboard/alias", json={}, headers=auth("alice"))
+        assert r.status_code == 200 and r.json()["alias"] != alias
+
+        # OPTING OUT ERASES NOTHING ELSE: the group and the name stay.
+        c.post("/forum/profil", json={"group_number": 4,
+                                      "leaderboard_opt_in": False},
+               headers=auth("alice"))
+        assert fake.profils["sub-alice"]["group_number"] == 4
+        assert c.get("/leaderboard", headers=auth("alice")
+                     ).json()["participating"] is False
+
+
+def test_a_locked_frame_is_refused():
+    """The frame is decorative, but "which ones do I have" is still a fact.
+
+    The list comes from the server, computed on the level actually reached:
+    the browser never gets to assert it.
+    """
+    with contexte(jetons={"alice": "sub-alice"},
+                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        offered = c.get("/forum/profil", headers=auth("alice")).json()["frames"]
+        assert [f["id"] for f in offered] == ["simple"], offered
+        r = c.post("/forum/profil", json={"plate_frame": "tolerance"},
+                   headers=auth("alice"))
+        assert r.status_code == 400, r.text
+        assert c.post("/forum/profil", json={"plate_frame": "simple"},
+                      headers=auth("alice")).status_code == 200
+
+
+def test_the_collection_shows_locked_cards_with_their_condition():
+    """A grey card says under what condition it drops. Nothing is drawn.
+
+    That is the difference between a collection and a loot box, and it reads
+    in the payload: every card carries its condition, held or not.
+    """
+    with contexte(jetons={"alice": "sub-alice"},
+                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.get("/collection", headers=auth("alice"))
+        assert r.status_code == 200, r.text
+        cards = r.json()["cards"]
+        assert len(cards) == len(politique.POLICY["cards"])
+        assert all(not card["held"] for card in cards)
+        assert all(card["condition"] for card in cards), cards
+        # Under the minimum cohort, no rarity is announced.
+        assert all(card["rarity"] is None for card in cards)
+
+
+def test_a_mute_database_answers_503_on_the_new_screens():
+    """No invented number during an outage, on either new screen.
+
+    "0 XP", "nobody on the leaderboard", "no card": all three tell someone
+    their work is gone, and all three would be false.
+    """
+    class Mute(BaseSimulee):
+        leaderboard_rows = staticmethod(lambda *a: None)
+        read_unlock_rates = staticmethod(lambda *a: None)
+        read_practice_days = staticmethod(lambda *a: None)
+
+    with contexte(jetons={"alice": "sub-alice"}, base=Mute(),
+                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        for route in ("/leaderboard", "/collection", "/progres"):
+            r = c.get(route, headers=auth("alice"))
+            assert r.status_code == 503, (route, r.status_code, r.text)
+            assert not re.search(r"\\d", r.json().get("error", "")), r.text
 
 
 if __name__ == "__main__":

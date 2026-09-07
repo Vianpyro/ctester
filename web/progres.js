@@ -76,8 +76,8 @@ function exerciseLabel(id) {
 }
 
 function nextAction(view) {
-  const block = node("div", "bloc");
-  block.append(title("Action suivante"));
+  const block = node("div", "bloc plan");
+  block.append(node("div", "kicker", "Action suivante"));
   const next = view.next;
   if (!next) {
     block.append(node("p", "", view.exercises.total
@@ -103,6 +103,91 @@ function openExercise(id) {
   if (!tp) return;
   ctester.fillExercises(tp.id);
   ctester.afficherVue("");
+}
+
+// THE MASTERY CARD: the headline of the section further down, so the top of
+// the screen answers "what can I actually do?" before "how much have I
+// done?". THE SAME NUMBERS AS THE SECTION -- both read `view.mastery`, so
+// there is no second computation to disagree with the first.
+function masteryCard(view) {
+  const block = node("div", "bloc plan");
+  block.append(node("div", "kicker", "Maîtrise vérifiée"));
+  const rows = (view.mastery || {}).skills || [];
+  if (!rows.length) {
+    block.append(node("p", "aide", "Aucune vérification n'est ouverte pour "
+      + "l'instant."));
+    return block;
+  }
+  const verified = rows.filter(r => r.band === "verifie").length;
+  block.append(node("p", "gros", verified + " compétence"
+    + (verified > 1 ? "s" : "") + " sur " + rows.length));
+  const bands = {};
+  for (const b of (view.mastery || {}).bands || []) bands[b.id] = b.title;
+  // ONE LINE PER BAND, with the skills it holds. Grouping by band is what
+  // makes "where are the holes" a glance rather than a read-through -- and
+  // the band's WORD is on the line, never a color on its own.
+  for (const id of ["verifie", "en-progression", "a-consolider", "non-verifie"]) {
+    const named = rows.filter(r => r.band === id);
+    if (!named.length) continue;
+    const line = node("p", "bandeligne");
+    line.append(node("span", "tag" + (id === "verifie" ? " accent" : ""),
+                      bands[id] || id));
+    line.append(node("span", "", named.map(r => ctester.skillLabel(r.id)).join(", ")));
+    block.append(line);
+  }
+  return block;
+}
+
+// THE PRACTICE CALENDAR (design 1b), and it REPLACES A STREAK on purpose:
+// there is no counter to break, so a bad week takes nothing away and nothing
+// has to be defended. Thirteen weeks of squares, one per day.
+//
+// NOTHING IS COMPUTED HERE EITHER: the server sends the days it observed, and
+// this fills in the gaps. A page that decided for itself which days counted
+// would be a page where one gives oneself a habit from the console.
+const CALENDAR_DAYS = 91;
+
+// FOUR STEPS, and the top one is open-ended: somebody who submitted thirty
+// times in a day is not four times darker than somebody who submitted four.
+function calendarStep(attempts) {
+  if (!attempts) return "";
+  if (attempts >= 8) return "n4";
+  if (attempts >= 4) return "n3";
+  if (attempts >= 2) return "n2";
+  return "n1";
+}
+
+const isoDay = (date) => date.toISOString().slice(0, 10);
+
+function calendarSection(view) {
+  const block = node("div", "bloc plan");
+  block.append(node("div", "kicker", "Ce que tu as pratiqué"));
+  const counts = {};
+  for (const row of view.practice_days || []) {
+    if (row && typeof row.date === "string") counts[row.date] = row.attempts | 0;
+  }
+  const grid = node("div", "calendar");
+  const today = new Date();
+  for (let back = CALENDAR_DAYS - 1; back >= 0; back--) {
+    const day = new Date(today.getTime() - back * 86400000);
+    const key = isoDay(day);
+    const n = counts[key] || 0;
+    const cell = node("span", calendarStep(n));
+    // THE TOOLTIP CARRIES THE DAY AND THE COUNT: ninety-one unlabeled
+    // squares are a texture, not information, and a texture reads aloud as
+    // nothing at all.
+    cell.setAttribute("title", day.toLocaleDateString(undefined,
+      { day: "numeric", month: "long" }) + " — "
+      + (n ? plural(n, "test") : "aucune pratique"));
+    grid.append(cell);
+  }
+  block.append(grid);
+  const active = Object.keys(counts).length;
+  block.append(node("p", "", plural(active, "jour") + " de pratique sur les "
+    + "treize dernières semaines."));
+  block.append(node("p", "aide", "Une case foncée = un jour où tu as testé du "
+    + "code. Il n'y a pas de série à maintenir : un trou ne retire rien."));
+  return block;
 }
 
 function practiceSection(view) {
@@ -237,18 +322,72 @@ function achievementsSection(view) {
   return block;
 }
 
-// --- THE EXERCISE LIST -------------------------------------------------------
+// --- THE LAB GRID -----------------------------------------------------------
+// THE GRID, ONE ROW PER LAB (design 1b). It replaces a flat list of
+// seventy-three sentences where the eye found no landmark: one glance now
+// says what is done, what is left, and where the holes are.
+//
 // IT DOES NOT DEPEND ON `GET /progres`. A mute database drops the
-// projection's numbers, not this list: it draws itself from what `compte.js`
-// has already read, and the export must stay reachable on an evening when
+// projection's numbers, not this grid: it draws itself from what `compte.js`
+// has already read, and a lab's export must stay reachable on an evening when
 // the database is down.
-const STATE_WORD = { solved: "validé", attempted: "essayé" };
-// The CSS classes stay "valide"/"essaye" -- style.css's selectors were left
-// untouched on purpose, so the wire values need a translation on the way in.
-const STATE_CLASS = { solved: "valide", attempted: "essaye" };
+// The same single word as the core (`STATUS_WORD`), spelled here because
+// this module does not import it -- see the one-way rule.
+const STATE_WORD = { solved: "réussi", attempted: "essayé" };
+
+// THE SAME FIVE STATES AS THE STRIP, and they come from the SAME function
+// (`ctester.tuileEtat`). Two tables of states would drift, and the one that
+// drifted would be the one nobody looks at twice.
+function tile(ex, states, stats) {
+  const note = ctester.noteVerrou(ex);
+  let state = ctester.tuileEtat(ex, !!note);
+  const done = states[ex.id];
+  const count = (stats || {})[ex.id];
+  // TWO SOURCES SAY "SOLVED", AND EITHER IS ENOUGH -- this is what the flat
+  // list did before the grid replaced it. `/etats` carries the state the
+  // server wrote from the verdict; `/pratique` carries the attempts it
+  // counted. An account that practised before `exercise_state` existed only
+  // has the second, and must still read as solved.
+  if (!note && count && count.successes) state = { cls: "reussi", word: "réussi" };
+  const label = node("button", "tile " + state.cls, tileLabel(ex));
+  label.type = "button";
+  // THE ATTEMPT COUNT SURVIVED THE GRID, in the tile's own words. The list
+  // this replaced spelled out "3 tentatives — réussie" on every row; ninety
+  // rows of that is what made it unreadable, but the number itself is worth
+  // keeping -- it is the only place a student sees that an exercise took them
+  // seven tries. So it moves into the tile's title and its off-screen text,
+  // which is where a tile keeps everything it cannot draw.
+  const tries = count && count.attempts
+    ? ", " + count.attempts + " tentative" + (count.attempts > 1 ? "s" : "")
+    : "";
+  const word = (note || STATE_WORD[done] || state.word) + tries;
+  label.setAttribute("title", ex.short + " — " + word);
+  label.append(node("span", "horsecran", " — " + word));
+  if (note) {
+    label.setAttribute("aria-disabled", "true");
+    label.append(node("span", "cadenas", "🔒"));
+  } else {
+    label.addEventListener("click", () => openExercise(ex.id));
+  }
+  return label;
+}
+
+// "ex.3" ON A TILE, "vérif" ON A VERIFICATION. The full name lives in the
+// tooltip and off-screen: eleven thirty-character tiles fill three lines and
+// stop being a glance.
+function tileLabel(ex) {
+  if (ex.verification) return "vérif";
+  const bare = (ex.short || "").replace(/^[^:]*:\s*/, "");
+  const number = bare.match(/^ex\.?\s*(\d+)/i);
+  if (number) return number[1];
+  return bare.length > 8 ? bare.slice(0, 7) + "…" : bare;
+}
 
 function exportRow(group) {
-  const block = node("div", "exportligne");
+  const block = node("span", "exportligne");
+  // THE LAB'S NAME STAYS IN THE BUTTON even though the row already names it:
+  // this is the button's accessible name, and four rows of "Exporter en
+  // main.c" are four identical buttons to anyone tabbing through them.
   const button = node("button", "nav", "Exporter le " + group + " en main.c");
   button.type = "button";
   const status = node("span", "exportetat");
@@ -271,41 +410,60 @@ function exportRow(group) {
   return block;
 }
 
-function exerciseList() {
-  // THE `liste` ID IS KEPT: all of the old destination's styling hangs off
-  // it, and copying it under another name would have made two sheets to keep
-  // in sync for zero visible change.
-  const box = node("div");
-  box.id = "liste";
-  const states = ctester.compte ? ctester.compte.etats() : {};
-  const stats = ctester.compte ? ctester.compte.pratique() : {};
-  const tps = ctester.catalogue();
-  for (let rank = 0; rank < tps.length; rank++) {
-    const tp = tps[rank];
-    const row = node("button", "ligne");
-    row.type = "button";
-    row.append(node("span", "tpname", tp.group));
-    row.append(node("span", "titre", tp.short || tp.label));
-    const count = stats[tp.id];
-    const state = states[tp.id] || "";
-    const dot = node("span", "puce " + (count && count.successes ? "valide" : (STATE_CLASS[state] || "")),
-      count
-        ? count.attempts + " tentative" + (count.attempts > 1 ? "s" : "")
-          + (count.successes ? " — réussie" + (count.successes > 1 ? "s" : "") : "")
-        : STATE_WORD[state] || "à faire");
-    row.append(dot);
-    row.addEventListener("click", () => openExercise(tp.id));
-    box.append(row);
-    // THE BUTTON CLOSES THE GROUP, it does not open it: it comes after the
-    // lab's last row, right after reading what is left to do in it.
-    const next = tps[rank + 1];
-    if ((!next || next.group !== tp.group)
-        && ctester.groupeExportable(tp.group)) {
-      box.append(exportRow(tp.group));
+// A LAB'S ROW: its name, its theme, its tiles, and how far along it is.
+function labRow(col, states, stats) {
+  const row = node("div", "labo");
+  const head = node("div", "quoi");
+  head.append(node("span", "name", col.titre));
+  // THE THEME IS THE LAB'S SKILLS, deduplicated and in order. It comes from
+  // the catalog rather than from a second table of hand-written blurbs --
+  // which would go stale the first time a lab is reorganized.
+  const theme = labTheme(col);
+  if (theme) head.append(node("span", "theme", theme));
+  row.append(head);
+  const tiles = node("div", "tiles");
+  for (const ex of col.items) tiles.append(tile(ex, states, stats));
+  row.append(tiles);
+  const tail = node("div", "compte");
+  const open = col.items.filter(ex => !ctester.noteVerrou(ex));
+  const solved = open.filter(ex => states[ex.id] === "solved").length;
+  // A LAB THAT IS NOT OPEN SAYS SO instead of reading "0 sur 0": the two look
+  // identical in a column of numbers and mean opposite things.
+  tail.append(node("span", "", open.length
+    ? solved + " sur " + open.length + " réussi" + (solved > 1 ? "s" : "")
+    : "pas encore ouvert"));
+  if (ctester.groupeExportable(col.titre)) tail.append(exportRow(col.titre));
+  row.append(tail);
+  return row;
+}
+
+function labTheme(col) {
+  const skills = [];
+  for (const ex of col.items) {
+    for (const skill of (ex.learning || {}).skills || []) {
+      const word = ctester.skillLabel(skill);
+      if (!skills.includes(word)) skills.push(word);
     }
   }
+  return skills.slice(0, 4).join(", ");
+}
+
+function labGrid() {
+  const states = ctester.compte ? ctester.compte.etats() : {};
+  const stats = ctester.compte ? ctester.compte.pratique() : {};
+  const box = node("div", "grille");
+  // THE WHOLE TREE, locked labs included: a lab that opens next week must
+  // show as locked, not be absent. `catalogue()` only carries what is open,
+  // which is right for a counter and wrong for a map.
+  for (const col of ctester.collections()) {
+    if (col.items.length) box.append(labRow(col, states, stats));
+  }
   const block = node("div", "bloc");
-  block.append(title("Tes exercices"));
+  block.append(title("Par laboratoire"));
+  if (!box.children.length) {
+    block.append(node("p", "aide", "Aucun exercice n'est publié pour l'instant."));
+    return block;
+  }
   block.append(box);
   return block;
 }
@@ -325,13 +483,21 @@ function render() {
     //
     // BUT THE LIST STAYS: it does not come from the projection, and a lab's
     // export must not disappear on the evening Postgres coughs.
-    box.append(node("p", "rate", error), exerciseList());
+    box.append(node("p", "rate", error), labGrid());
     return;
   }
   // MASTERY BEFORE PRACTICE: it is the new subject, and the one that answers
   // "could I do this again on my own?". XP stays last, secondary.
-  box.append(nextAction(projection), exerciseList(), masterySection(projection),
-             practiceSection(projection), levelSection(projection), achievementsSection(projection));
+  // THE THREE CARDS FIRST (design 1b): what to do next, where mastery
+  // stands, and the practice calendar. Then the map of the labs, then the
+  // detail. XP stays last and secondary -- it is a count of activity, and the
+  // layout says so before the sentence does.
+  const cards = node("div", "tableau");
+  cards.append(nextAction(projection), masteryCard(projection),
+               calendarSection(projection));
+  box.append(cards, labGrid(), masterySection(projection),
+             practiceSection(projection), levelSection(projection),
+             achievementsSection(projection));
 }
 
 // --- Entry points -------------------------------------------------------------

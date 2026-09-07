@@ -159,6 +159,16 @@ let nomsSignales = null;
 let profil = null;
 let moderateur = false;
 let maxTexte = 0;
+// THE TWO CLOSED LISTS AND THE THREAD'S STATE, all sent with the thread as a
+// legend. Kept rather than copied into constants here: the server groups its
+// instructor aggregate by these ids, and a second copy would drift from the
+// one that actually counts.
+let steps = [];
+let blockedKinds = [];
+let threadStateInfo = null;
+// The instructor's "who needs help" rows (design 1h). `null` until read, and
+// `null` is not "nobody" -- during an outage those are opposite claims.
+let helpRows = null;
 let erreur = "";
 let annonce = "";
 let exercice = "";
@@ -206,6 +216,9 @@ async function charger(id) {
   fil = response.messages;
   moderateur = !!response.moderator;
   maxTexte = response.max || 0;
+  steps = Array.isArray(response.steps) ? response.steps : [];
+  blockedKinds = Array.isArray(response.blocked_kinds) ? response.blocked_kinds : [];
+  threadStateInfo = response.state || null;
   erreur = "";
   // The report queue is only ever requested by a moderator, and the server
   // refuses everyone else: this check just avoids a needless 403, it
@@ -215,6 +228,11 @@ async function charger(id) {
     signalements = queue && Array.isArray(queue.reports)
       ? queue.reports : null;
     nomsSignales = queue && Array.isArray(queue.reported_names) ? queue.reported_names : null;
+    // "QUI A BESOIN D'AIDE" IS READ WITH THE QUEUE, not on its own tab: an
+    // instructor opening moderation during a lab wants both, and two clicks
+    // for two halves of the same question is one click too many.
+    const helpResponse = await ctester.compte.getJson("forum/help");
+    helpRows = helpResponse && Array.isArray(helpResponse.rows) ? helpResponse : null;
   }
   await chargerProfil();
 }
@@ -254,8 +272,10 @@ function redessiner() {
   else dessiner();
 }
 
-async function publier(text) {
-  const ok = await ecrire("forum", "POST", { exercise_id: exercice, text: text },
+async function publier(text, extra) {
+  const ok = await ecrire("forum", "POST",
+                          Object.assign({ exercise_id: exercice, text: text },
+                                        extra || {}),
                           "Message publié.", "Message non publié");
   // CLEAR AFTERWARD, AND ONLY IF IT ACTUALLY WENT THROUGH. `ecrire` has
   // already redrawn, so `zone` is the new field. A refusal -- message too
@@ -279,6 +299,20 @@ const signaler = (id) => ecrire(
 const signalerNom = (id) => ecrire(
   "forum/signalement", "POST", { id: id, kind: "name" },
   "Nom signalé. Un responsable du cours va le lire.", "Signalement impossible");
+
+// THE ONE TRANSITION (design 1g): private -> group, and only on one's own
+// message. The server holds the rule in its `WHERE`; this only asks.
+const openToGroup = (id) => ecrire(
+  "forum/visibility", "POST", { id: id },
+  "Ta question est maintenant visible par ton groupe.",
+  "Impossible de l'ouvrir à ton groupe");
+
+// A USEFULNESS COUNTER, NOT A VOTE, and it grants nothing. The server refuses
+// one's own message and the duplicate; both come back as the same refusal.
+const markHelpful = (id) => ecrire(
+  "forum/helpful", "POST", { id: id },
+  "Merci — ça aide les suivants à trouver la bonne réponse.",
+  "Impossible de marquer ce message");
 
 const effacerNom = (id) => ecrire(
   "forum/moderation", "POST", { id: id, action: "clear-name" },
@@ -359,6 +393,15 @@ const groupNumber = (n) => "groupe " + String(n).padStart(2, "0");
 // default: checking a box is a deliberate act, doing nothing keeps
 // anonymity. The server revalidates everything -- this form only bounds
 // input to save a round trip, it authorizes nothing.
+// MY IDENTITY (design 1d). The name, the group, the plate and the ranking,
+// all OPTIONAL and all INVISIBLE by default: ticking a box is a deliberate
+// act, doing nothing keeps anonymity. The server revalidates everything --
+// this form only bounds input to save a round trip, it authorizes nothing.
+//
+// THE PREVIEW IS THE POINT OF THE REDESIGN HERE. Four checkboxes describing
+// what others see, with no picture of what others see, is a privacy setting
+// one has to imagine. It redraws on every keystroke and every tick, from the
+// same fields the save button will send.
 function myIdentity() {
   const block = node("div", "");
   block.append(node("h2", "", "Mon identité"));
@@ -413,33 +456,130 @@ function myIdentity() {
   const groupLabel = node("label", "", "Groupe (facultatif)");
   groupLabel.setAttribute("for", groupId);
 
-  const [showName, nameRow] = checkbox(
-    "forumvoirnom", "Afficher mon nom dans les discussions",
-    profil.display_name_public);
-  const [showGroup, groupRow] = checkbox(
-    "forumvoirgroupe", "Afficher mon numéro de groupe",
-    profil.group_number_public);
+  const [showName, nameRow] = checkbox("forumvoirnom",
+    "Afficher mon nom dans les discussions", profil.display_name_public);
+  const [showGroup, groupRow] = checkbox("forumvoirgroupe",
+    "Afficher mon numéro de groupe", profil.group_number_public);
+  const [showBadges, badgesRow] = checkbox("forumshowplate",
+    "Afficher ma plaque et mes écussons", profil.badges_public);
+  const [joinLeaderboard, leaderboardRow] = checkbox("forumleaderboard",
+    "Participer au classement de mon groupe", profil.leaderboard_opt_in);
 
-  block.append(nameLabel, nameField, groupLabel, groupField, nameRow, groupRow);
-  // WHAT THE CHECKBOX DOES NOT COVER, and it must be said: the instructor
-  // sees the group number at all times. Letting anyone believe otherwise
-  // would be consent obtained the wrong way.
+  block.append(nameLabel, nameField, groupLabel, groupField);
+  const frameField = plateFramePicker(block);
+
+  // THE RANKING NAME IS READ-ONLY AND REDRAWN, never typed: a leaderboard
+  // carrying student-written text would need moderating, and this one does
+  // not, because nothing typed can reach it.
+  if (profil.alias) block.append(aliasBlock());
+
+  const preview = node("div", "previewplate");
+  const readForm = () => ({
+    display_name: nameField.value,
+    group_number: groupField.value,
+    display_name_public: showName.checked,
+    group_number_public: showGroup.checked,
+    badges_public: showBadges.checked,
+    leaderboard_opt_in: joinLeaderboard.checked,
+    plate_frame: frameField ? frameField.value : (profil.plate_frame || ""),
+  });
+  const redraw = () => drawPlatePreview(preview, readForm());
+  const watched = [nameField, groupField, showName, showGroup, showBadges];
+  if (frameField) watched.push(frameField);
+  for (const field of watched) {
+    field.addEventListener("input", redraw);
+    field.addEventListener("change", redraw);
+  }
+
+  block.append(nameRow, groupRow, badgesRow, leaderboardRow);
   if (!profil.display_name && profil.suggestion) {
     block.append(node("p", "aide", "Nom proposé par ta connexion — modifie-le si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
   }
   block.append(node("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
     + "autres. L'enseignant, lui, voit toujours ton numéro de groupe — "
     + "jamais ton nom si tu ne l'affiches pas."));
+  block.append(node("h3", "soustitre", "Aperçu"));
+  block.append(preview);
+  block.append(node("p", "aide", "Voilà exactement ce que les autres verront."));
+  redraw();
+
   const row = node("div", "row");
-  row.append(button("Enregistrer", "", () => enregistrerProfil({
-    display_name: nameField.value,
-    group_number: groupField.value,
-    display_name_public: showName.checked,
-    group_number_public: showGroup.checked,
-  })));
+  row.append(button("Enregistrer", "", () => enregistrerProfil(readForm())));
   row.append(button("Fermer", "nav", closeIdentity));
   block.append(row);
   return block;
+}
+
+// THE FRAMES COME FROM THE SERVER, computed from the level this account
+// actually reached. Offering one it has not unlocked would be a form that
+// lies, then a 400 the student cannot act on. One frame means no choice to
+// make, so no picker.
+function plateFramePicker(block) {
+  const frames = Array.isArray(profil.frames) ? profil.frames : [];
+  if (frames.length < 2) return null;
+  const field = node("select");
+  field.id = "forumcadre";
+  const none = node("option", "", "— aucun —");
+  none.value = "";
+  field.append(none);
+  for (const f of frames) {
+    const o = node("option", "", f.title);
+    o.value = f.id;
+    field.append(o);
+  }
+  field.value = profil.plate_frame || "";
+  const label = node("label", "", "Cadre de plaque");
+  label.setAttribute("for", "forumcadre");
+  block.append(label, field);
+  return field;
+}
+
+function aliasBlock() {
+  const box = node("div", "");
+  box.append(node("label", "", "Nom de classement (tiré au hasard)"));
+  const line = node("p", "aliasrow");
+  line.append(node("b", "alias-value", profil.alias));
+  line.append(button("Un autre", "nav", async () => {
+    const answer = await ctester.compte.sendJson("leaderboard/alias", "POST", {});
+    annonce = answer && answer.ok ? "Nouveau pseudonyme."
+                                  : "Le pseudonyme n'a pas pu être changé.";
+    await chargerProfil();
+    renderPanel();
+  }));
+  box.append(line);
+  box.append(node("p", "aide", "C'est ce nom, et lui seul, qui apparaît au "
+    + "classement. Rechange-le quand tu veux."));
+  return box;
+}
+
+// WHAT THE OTHERS WILL SEE, drawn from the FORM's current values and not from
+// what is saved: the preview has to answer "if I tick this, what changes?",
+// which a preview of the saved state cannot do.
+//
+// IT APPLIES THE SAME RULES AS THE SERVER: an unticked box shows nothing, and
+// a ticked box over an empty field shows nothing either -- which is exactly
+// what `forum_pseudo`/`forum_groupe` enforce. A preview promising more than
+// the server delivers would be worse than no preview at all.
+function drawPlatePreview(box, form) {
+  box.innerHTML = "";
+  const plate = node("div", "plate plan"
+    + (form.plate_frame ? " frame-" + form.plate_frame : ""));
+  const name = form.display_name_public ? String(form.display_name || "").trim() : "";
+  const line = node("div", "row");
+  line.append(node("span", "initials", initialsOf(name)));
+  line.append(node("span", "name", name || "Participant"));
+  plate.append(line);
+  const tags = node("div", "tags");
+  const group = form.group_number_public ? String(form.group_number || "").trim() : "";
+  if (group) tags.append(node("span", "tag", groupNumber(group)));
+  if (form.badges_public) tags.append(node("span", "tag accent", "écussons visibles"));
+  if (tags.children.length) plate.append(tags);
+  box.append(plate);
+}
+
+function initialsOf(name) {
+  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map(w => w[0].toUpperCase()).join("");
 }
 
 function closeRow() {
@@ -494,16 +634,52 @@ function exercisePicker() {
   return block;
 }
 
+// WHICH FORM IS OPEN. "question" is the ordinary public post the forum has
+// always had; "bloque" is design 1g's help request, which is PRIVATE by
+// default and carries a step. One state, so the two can never be half-open at
+// once.
+let composeMode = "question";
+let chosenStep = "";
+let chosenBlockedKind = "";
+let chosenVisibility = "private";
+
 function postForm() {
   const block = node("div", "bloc");
-  block.append(node("h3", "soustitre", "Poser une question"));
-  const label = node("label", "", "Ta question ou ton explication"
+  const tabs = node("div", "tabs");
+  const modes = [["question", "Poser une question"], ["bloque", "Je suis bloqué ici"]];
+  for (const pair of modes) {
+    const tab = button(pair[1], "nav" + (composeMode === pair[0] ? " on" : ""), () => {
+      if (composeMode === pair[0]) return;
+      composeMode = pair[0];
+      dessiner();
+    });
+    tab.setAttribute("aria-pressed", composeMode === pair[0] ? "true" : "false");
+    tabs.append(tab);
+  }
+  block.append(tabs);
+
+  const stuck = composeMode === "bloque";
+  if (stuck) {
+    // WHAT GOES WITH THE QUESTION, SAID BEFORE IT IS WRITTEN. The exercise
+    // and the step travel; THE CODE DOES NOT, and that is what keeps the
+    // charter tenable -- there is no field here that could carry a source
+    // file, and the sentence says so where it will be read.
+    block.append(node("p", "aide", "Ta question partira avec l'exercice et "
+      + "l'étape. Ton code, lui, ne part pas — décris ce que tu observes."));
+    block.append(stepPicker());
+    block.append(blockedPicker());
+  }
+
+  const label = node("label", "", (stuck
+      ? "Ce que tu as déjà essayé"
+      : "Ta question ou ton explication")
     + (maxTexte ? " (" + maxTexte + " caractères au plus)" : ""));
   label.setAttribute("for", "forumtexte");
   zone = document.createElement("textarea");
   zone.id = "forumtexte";
   zone.value = saisie;
   zone.setAttribute("rows", "4");
+  if (stuck) zone.placeholder = "J'ai vérifié le type de ma variable, mais…";
   block.append(label, zone);
 
   block.append(node("p", "aide", renderAvailable
@@ -530,13 +706,83 @@ function postForm() {
     zone.addEventListener("input", () => { saisie = zone.value; });
   }
 
+  if (stuck) block.append(visibilityPicker());
+
   block.append(button("Publier", "", () => {
     saisie = zone.value;
     const text = saisie;
-    if (ctester.sessionGet(CHARTE_VUE)) publier(text);
-    else showGuidelines(() => publier(text));
+    const extra = stuck ? { step: chosenStep || "statement",
+                            blocked_kind: chosenBlockedKind || undefined,
+                            visibility: chosenVisibility } : {};
+    if (ctester.sessionGet(CHARTE_VUE)) publier(text, extra);
+    else showGuidelines(() => publier(text, extra));
   }));
   return block;
+}
+
+// THE STEP AND THE KIND COME FROM THE SERVER'S CLOSED LISTS. Radio buttons
+// rather than a free field, because these are exactly what the instructor's
+// aggregate groups by: six spellings of "compilation" would read as six
+// different problems on the morning that count matters.
+function stepPicker() {
+  const box = node("div", "choix");
+  box.append(node("label", "", "Où ça coince"));
+  for (const step of steps) {
+    const row = node("label", "coche");
+    const input = node("input");
+    input.type = "radio";
+    input.name = "forumetape";
+    input.checked = chosenStep ? chosenStep === step.id : step === steps[0];
+    if (input.checked) chosenStep = step.id;
+    input.addEventListener("change", () => { chosenStep = step.id; });
+    row.append(input, node("span", "", step.title));
+    box.append(row);
+  }
+  return box;
+}
+
+function blockedPicker() {
+  const box = node("div", "choix");
+  box.append(node("label", "", "Ce qui bloque"));
+  for (const kind of blockedKinds) {
+    const row = node("label", "coche");
+    const input = node("input");
+    input.type = "radio";
+    input.name = "forumblocage";
+    input.checked = chosenBlockedKind ? chosenBlockedKind === kind.id : kind === blockedKinds[0];
+    if (input.checked) chosenBlockedKind = kind.id;
+    input.addEventListener("change", () => { chosenBlockedKind = kind.id; });
+    row.append(input, node("span", "", kind.title));
+    box.append(row);
+  }
+  return box;
+}
+
+// PRIVATE IS THE DEFAULT, AND IT IS THE FIRST OPTION. Asking for help should
+// not require deciding, in the same breath, to say so publicly -- and the
+// second option says what one gains by choosing it, since that is the whole
+// reason to.
+function visibilityPicker() {
+  const box = node("div", "choix");
+  box.append(node("label", "", "Qui la voit"));
+  const options = [
+    ["private", "Seulement le chargé de lab", "par défaut"],
+    ["group", "Aussi les autres de mon groupe", "quelqu'un peut répondre tout de suite"],
+  ];
+  for (const option of options) {
+    const row = node("label", "coche");
+    const input = node("input");
+    input.type = "radio";
+    input.name = "forumvisibilite";
+    input.checked = chosenVisibility === option[0];
+    input.addEventListener("change", () => { chosenVisibility = option[0]; });
+    row.append(input, node("span", "", option[1]),
+               node("span", "aide", "— " + option[2]));
+    box.append(row);
+  }
+  box.append(node("p", "aide", "Tu pourras la rendre visible au groupe plus "
+    + "tard, en un clic, sans la republier."));
+  return box;
 }
 
 // THE READER'S TIME, NOT THE SERVER'S. The server sends the instant in UTC
@@ -555,28 +801,65 @@ function messageBody(text) {
   return body;
 }
 
+// A MESSAGE (designs 1f and 1g). Four things were added to it, and each one
+// is a state the reader can act on rather than a decoration:
+//
+//   * "réponse retenue" -- the answer a moderator stands behind. It is drawn
+//     from the journal, so pinning EDITS NOTHING: the message is immutable,
+//     which is what keeps a report readable.
+//   * "Ça m'a aidé" -- a usefulness counter, deduplicated per account by the
+//     database. It grants NO XP: a message written to be upvoted is a message
+//     written for the counter.
+//   * "privée" / "ouverte a mon groupe" -- who can read a "bloqué ici".
+//   * "Rendre visible à mon groupe" -- the ONE transition, and only on one's
+//     own private message. The server refuses the reverse; this button simply
+//     does not offer it.
 function messageItem(m) {
   const item = document.createElement("li");
-  item.className = "message";
+  item.className = "message"
+    + (m.retained ? " retenue" : "")
+    + (m.visibility === "private" ? " privee" : "");
   // THE AUTHOR IS A WORD, NOT AN ID: "Vous", "Participant" or "Enseignant",
   // derived by the server. Nothing here lets two messages be tied back to
   // the same student.
   const head = node("p", "qui");
+  if (m.retained) head.append(node("span", "tag accent", "réponse retenue"));
   head.append(node("span", "auteur", m.author));
   if (m.group) head.append(node("span", "groupe", groupNumber(m.group)));
   const when = node("time", "quand", localTime(m.created_at));
   when.setAttribute("datetime", String(m.created_at).replace(" ", "T"));
   head.append(when);
-  // "Masqué" SPELLED OUT, not only in gray: a state that only reads through
-  // color does not read at all for some people.
+  // EVERY STATE IS SPELLED OUT, not only tinted: a state that only reads
+  // through color does not read at all for some people.
   if (m.hidden) head.append(node("span", "etat", "masqué"));
+  if (m.visibility === "private") head.append(node("span", "tag", "privée"));
+  if (m.visibility === "group") head.append(node("span", "tag", "ouverte à ton groupe"));
+  if (m.step) head.append(node("span", "tag", stepLabel(m.step)));
   item.append(head, messageBody(m.text));
 
   const actions = node("div", "row");
   if (m.mine) {
     actions.append(button("Supprimer mon message", "nav", () => supprimer(m.id)));
+    // THE ESCAPE HATCH OF DESIGN 1G: a private question nobody answered is a
+    // question one can open to the group, in one click and without
+    // republishing it. The reverse is not offered and not accepted.
+    if (m.visibility === "private") {
+      actions.append(button("Rendre visible à mon groupe", "", () => openToGroup(m.id)));
+    }
   } else {
+    // "ÇA M'A AIDÉ" IS NOT A VOTE, and it is not offered on one's own message
+    // -- the server refuses that in SQL, and offering a button that always
+    // fails would be a button that lies. Already marked: the count stays,
+    // the button goes.
+    actions.append(m.helped_me
+      ? node("span", "tag accent", "tu as trouvé ça utile")
+      : button("Ça m'a aidé" + (m.helpful ? " (" + m.helpful + ")" : ""),
+               "nav", () => markHelpful(m.id)));
     actions.append(button("Signaler", "nav", () => signaler(m.id)));
+  }
+  if (m.mine && m.helpful) {
+    actions.append(node("span", "tag", m.helpful + " personne"
+      + (m.helpful > 1 ? "s ont" : " a") + " trouvé ça utile"));
   }
   // ONLY WHAT IS DISPLAYED CAN BE REPORTED: the button only exists on a name
   // someone else chose. "Participant" cannot be reported, there is nothing
@@ -588,9 +871,43 @@ function messageItem(m) {
     actions.append(m.hidden
       ? button("Rétablir", "nav", () => moderer(m.id, "restore"))
       : button("Masquer", "nav", () => moderer(m.id, "hide")));
+    // RETENIR N'ÉDITE RIEN. The action goes into the append-only journal and
+    // the latest one wins -- so it is reversible, and it is journalled.
+    actions.append(m.retained
+      ? button("Ne plus retenir", "nav", () => moderer(m.id, "unretain"))
+      : button("Retenir comme réponse", "nav", () => moderer(m.id, "retain")));
   }
   item.append(actions);
   return item;
+}
+
+// THE LABELS COME FROM THE SERVER, sent with the thread as a legend. A second
+// copy here would drift from the closed list the aggregate groups by, and the
+// copy that drifted would be the one the student reads.
+function stepLabel(id) {
+  const found = (steps || []).find(e => e.id === id);
+  return found ? found.title : id;
+}
+
+function blockedLabel(id) {
+  const found = (blockedKinds || []).find(b => b.id === id);
+  return found ? found.title : id;
+}
+
+// THE THREAD'S STATE, as three counters the server derived from what THIS
+// caller can see. Not a filter: with one thread per exercise there is nothing
+// to filter, and showing it as tabs would promise a list that does not exist.
+function threadState() {
+  if (!threadStateInfo) return null;
+  const row = node("div", "etatfil");
+  const words = [["resolved", "résolue", "accent"],
+                 ["answered", "répondue", "contour"],
+                 ["unanswered", "sans réponse", ""]];
+  for (const entry of words) {
+    if (!threadStateInfo[entry[0]]) continue;
+    row.append(node("span", "tag " + entry[2], entry[1]));
+  }
+  return row.children.length ? row : null;
 }
 
 function theThread() {
@@ -600,8 +917,16 @@ function theThread() {
     block.append(node("p", "aide", "Personne n'a encore écrit sur cet exercice. Une question bien posée en aide souvent plusieurs."));
     return block;
   }
+  const state = threadState();
+  if (state) block.append(state);
   const list = node("ul", "fil");
-  for (const m of fil) list.append(messageItem(m));
+  // RETAINED FIRST, then chronological. A thread one comes to for an answer
+  // must not make one scroll past nine messages to find the one the course
+  // stands behind -- and the rest stays in order, because a discussion read
+  // out of order is not a discussion.
+  const retained = fil.filter(m => m.retained);
+  const rest = fil.filter(m => !m.retained);
+  for (const m of retained.concat(rest)) list.append(messageItem(m));
   block.append(list);
   return block;
 }
@@ -737,15 +1062,78 @@ function moderationDoor() {
   const block = node("div", "bloc second");
   block.append(node("h3", "soustitre", "Modération"));
   const count = (signalements || []).length + (nomsSignales || []).length;
+  const stuck = ((helpRows || {}).rows || []).reduce((n, r) => n + r.people, 0);
   block.append(node("p", "", count
     ? count + (count > 1 ? " éléments signalés" : " élément signalé")
       + " à examiner."
     : "Rien de signalé pour l'instant."));
+  if (stuck) {
+    block.append(node("p", "", stuck > 1
+      ? stuck + " personnes ont signalé être bloquées."
+      : "1 personne a signalé être bloquée."));
+  }
   const openButton = node("button", "", "Ouvrir la modération");
   openButton.type = "button";
   openButton.addEventListener("click", () => basculerModeration());
   block.append(openButton);
   return block;
+}
+
+// "QUI A BESOIN D'AIDE" (design 1h). COUNTS AND STEPS, NEVER PEOPLE: no
+// name, no text, no code -- a number is what says where to walk in the room,
+// and six people on the same conversion is one explanation at the board
+// rather than six replies.
+//
+// PRIVATE QUESTIONS ARE COUNTED, NOT SHOWN. Their author is the only one who
+// can open them; this table says a number exists, which is exactly what the
+// student's form promised ("seulement le chargé de lab").
+function helpQueue() {
+  const block = node("div", "bloc");
+  block.append(node("h3", "soustitre", "Qui a besoin d'aide"));
+  if (helpRows === null) {
+    // NOT "personne n'est bloqué": during an outage those are opposite
+    // claims, and the wrong one sends an instructor home.
+    block.append(node("p", "rate", "Le tableau d'aide n'a pas pu être lu."));
+    return block;
+  }
+  block.append(node("p", "aide", "Agrégé par exercice et par étape sur les "
+    + helpRows.hours + " dernières heures. Aucun code, aucun nom : un compte de "
+    + "personnes suffit pour savoir où aller dans le local."));
+  if (!helpRows.rows.length) {
+    block.append(node("p", "aide", "Personne n'a signalé être bloqué pour l'instant."));
+    return block;
+  }
+  const table = document.createElement("table");
+  table.className = "rank-table";
+  const head = document.createElement("tr");
+  const labels = ["Exercice", "Où ça coince", "Personnes", "Ouvertes au groupe", "Depuis"];
+  for (const label of labels) head.append(node("th", "", label));
+  table.append(head);
+  for (const row of helpRows.rows) {
+    const tr = document.createElement("tr");
+    tr.append(node("td", "", exerciseLabel(row.exercise_id)));
+    tr.append(node("td", "", stepLabel(row.step)
+      + (row.blocked_kind ? " — " + blockedLabel(row.blocked_kind) : "")));
+    tr.append(node("td", "num", String(row.people)));
+    // "0 ouvertes" IS INFORMATION, not an empty cell: it says every one of
+    // them is private, so nobody in the room can answer them but the
+    // instructor.
+    tr.append(node("td", "num", row.opened + " sur " + row.people));
+    tr.append(node("td", "", localTime(row.since)));
+    table.append(tr);
+  }
+  block.append(table);
+  block.append(node("p", "aide", "Une question privée reste privée : seul son "
+    + "auteur peut l'ouvrir à son groupe. Ce tableau les compte toutes, parce "
+    + "que c'est le compte qui dit où aller."));
+  return block;
+}
+
+// The exercise's own words rather than its id, read from the catalog the core
+// already loaded. An id nobody recognizes is a row nobody can act on.
+function exerciseLabel(id) {
+  const found = ctester.catalogue().find(t => t.id === id);
+  return found ? (found.label || found.short || id) : id;
 }
 
 // THE MODERATION SCREEN, kept apart. It has no business in a student's
@@ -765,7 +1153,9 @@ function dessinerModeration() {
     box.append(node("p", "rate", "Cette page est réservée à la modération."));
     return;
   }
-  box.append(moderationQueue(), nameQueue());
+  // THE AGGREGATE COMES FIRST: during a lab it is the actionable half, and
+  // the report queue is the one that can wait ten minutes.
+  box.append(helpQueue(), moderationQueue(), nameQueue());
 }
 
 async function basculerModeration() {
@@ -809,6 +1199,14 @@ function oublier() {
   saisie = "";
   profil = null;
   nomsSignales = null;
+  // THE NEW STATE LEAVES TOO. `helpRows` is a moderator's aggregate and
+  // `threadStateInfo` a thread's, both about people who are still here -- neither has
+  // any business surviving the session that read them.
+  helpRows = null;
+  threadStateInfo = null;
+  steps = [];
+  blockedKinds = [];
+  composeMode = "question";
   $("charte").hidden = true;
   // THE IDENTITY PANEL LEAVES WITH THE SESSION: it carries someone's name,
   // and signing out must not leave it open on screen.

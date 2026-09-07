@@ -41,6 +41,23 @@ if (!appRevision || !js.includes('const ASSET_REVISION = "' + appRevision + '"')
   throw new Error("index.html et app.js doivent partager la révision des assets");
 }
 
+// TWO FUNCTIONS OF THE SAME NAME DO NOT WARN EACH OTHER: the last one wins,
+// and the caller silently gets the other. That is the bug that already cost
+// a debugging session (`activer` vs `activerModule`), and it recurred while
+// splitting up "Mes progres" -- a leftover `exportRow` survived its
+// replacement. Five lines here, and it can no longer pass unnoticed.
+for (const file of ["app.js", "quiz.js", "compte.js", "progres.js",
+                    "forum.js", "exporter.js", "leaderboard.js",
+                    "collection.js"]) {
+  const names = [...lire(file).matchAll(/^function (\w+)\s*\(/gm)]
+    .map((m) => m[1]);
+  const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
+  if (duplicates.length) {
+    throw new Error(file + " declares twice: " + [...new Set(duplicates)]
+      + " -- the last one wins, silently");
+  }
+}
+
 // --- DOM en carton --------------------------------------------------------
 // CE QUE LE MARKUP MASQUE DEJA. `<section id="vueprogres" hidden>` part masque
 // dans un vrai navigateur ; un faux DOM qui le rend visible fait basculer a
@@ -177,7 +194,18 @@ const charges = [];
 const declares = new Set(
   [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
 
+// LISTENERS ATTACHED TO THE DOCUMENT ITSELF. The Ctrl+K shortcut sets one:
+// without this half of the fake DOM, the page would throw on load -- exactly
+// the class of bug this file exists to catch, but on the wrong side of the
+// fence.
+const documentListeners = {};
+
 global.document = {
+  addEventListener: (name, fn) => { (documentListeners[name] ||= []).push(fn); },
+  // SVG GOES THROUGH `createElementNS`: the collection draws its parts as
+  // nodes, never as `innerHTML`. The fake DOM does not distinguish
+  // namespaces -- it does not have to, it renders nothing.
+  createElementNS: (ns, tag) => el("<" + tag + ">"),
   getElementById: (id) => {
     if (!declares.has(id)) {
       throw new Error("getElementById(\"" + id + "\") : aucun element de ce nom "
@@ -1139,11 +1167,14 @@ const attendre = async () => { await sleep(); await sleep(); };
 
   // LE STATUT, LÀ OÙ ON CHOISIT.
   global.ctester.poserStatuts({ "tp2-ex0": "solved" });
-  const marquee = puces().find(p => /valide/.test(p.className));
+  // `reussi`, NO LONGER `valide`: the redesign gives the strip's items the
+  // tile vocabulary shared with "Mes progres" (five states, five borders).
+  // The contract itself has not moved -- the mark AND the word.
+  const marquee = puces().find(p => /reussi/.test(p.className));
   check(!!marquee, "un exercice validé porte sa marque dans la bande");
-  check(/validé/.test(profond(marquee)),
+  check(/réussi/.test(profond(marquee)),
         "et le MOT, pas seulement la coche : " + profond(marquee).trim());
-  const ligneMenu = lignesDe("TP 2").find(l => /validé/.test(libelle(l)));
+  const ligneMenu = lignesDe("TP 2").find(l => /réussi/.test(libelle(l)));
   check(!!ligneMenu, "et le menu du catalogue le montre aussi");
   global.ctester.poserStatuts({});
 
@@ -1642,14 +1673,34 @@ const attendre = async () => { await sleep(); await sleep(); };
         "le focus suit l'écran : sans ça, la tabulation repart du haut et un "
         + "lecteur d'écran n'annonce rien");
 
-  // « MES EXERCICES » A FUSIONNE DANS « MES PROGRES » : deux destinations
-  // repondaient a « ou j'en suis », avec deux comptes des memes exercices.
-  const lignes = nodes.liste.children.map(texteDe);
-  check(lignes.some(l => /3 tentatives — réussie/.test(l)),
-        "et un exercice reussi le dit, au lieu de « a faire » : "
-        + lignes.join(" // "));
-  check(lignes.some(l => /à faire/.test(l)),
-        "les autres restent a faire");
+  // "MES EXERCICES" MERGED INTO "MES PROGRES", then the flat list became A
+  // GRID OF TILES PER LAB (redesign 1b): ninety sentences where the eye found
+  // no landmark became one row per lab. WHAT IS EXERCISED HERE HAS NOT
+  // CHANGED: a solved exercise says so, the others stay "to do", and the
+  // ATTEMPT COUNT survives -- it only moved into the tile's title, the one
+  // place a tile can keep what it does not draw.
+  const tiles = tousLesNoeuds(nodes.vueprogres)
+    .filter((n) => /\btile\b/.test(n.className || ""));
+  check(tiles.length >= 4, "the grid places one tile per exercise: " + tiles.length);
+  const titleOf = (t) => t.getAttribute("title") || "";
+  check(tiles.some((t) => /reussi/.test(t.className) && /réussi/.test(titleOf(t))),
+        "a solved exercise says so, instead of \"to do\": "
+        + tiles.map(titleOf).join(" // "));
+  // TWO SOURCES SAY "SOLVED", and either is enough: `/etats` carries
+  // tp2-ex0, `/pratique` carries a success on tp2-ex3. The flat list already
+  // read both, the grid must keep doing so.
+  const practiced = tiles.find((t) => /3 tentatives/.test(titleOf(t)));
+  check(!!practiced, "and the attempt count was not lost along the way: "
+        + tiles.map(titleOf).join(" // "));
+  check(!!practiced && /reussi/.test(practiced.className),
+        "a success seen via `/pratique` counts like the others: "
+        + (practiced && practiced.className));
+  check(tiles.some((t) => /à faire/.test(t.getAttribute("title") || "")),
+        "the others stay to do");
+  // THE COUNT PER LAB, which existed nowhere before: one had to read ninety
+  // rows to know where a lab stood.
+  check(/1 sur \d+ réussi/.test(texteDe(nodes.vueprogres)),
+        "and every lab says where it stands");
 
 
   const vu = texteDe(nodes.vueprogres);
@@ -2419,7 +2470,11 @@ const attendre = async () => { await sleep(); await sleep(); };
   // quand on pense « remise » plutot que « exercice courant ».
   await nodes.mesprogres.listeners.click();
   await attendre(); await attendre();
-  const lignesExport = nodes.liste.children
+  // THE EXPORT BUTTON FOLLOWED THE GRID: it now lives at the end of its
+  // lab's row, where one reads what is left to do there. The contract does
+  // not change -- one button only, the one for the lab being exported, and
+  // it NAMES its lab.
+  const lignesExport = tousLesNoeuds(nodes.vueprogres)
     .filter((c) => c.className === "exportligne")
     .map((c) => c.children[0].textContent);
   check(lignesExport.length === 1 && lignesExport[0] === "Exporter le TP 2 en main.c",

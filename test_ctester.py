@@ -39,6 +39,7 @@ import runner     # noqa: E402
 import security   # noqa: E402
 from services import catalog as catalogue    # noqa: E402
 from services import forum        # noqa: E402
+from services import leaderboard  # noqa: E402
 from services import progress as progression  # noqa: E402
 from services import quotas       # noqa: E402
 from services import spool        # noqa: E402
@@ -1057,11 +1058,11 @@ def test_suppression_couvre_toutes_les_tables():
     schema = lire(os.path.join(HERE, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
-    assert len(tables) == 12, tables
+    assert len(tables) == 13, tables
     efface = lire(os.path.join(HERE, "app", "state.py"))
     efface = efface[efface.index("def forget(user):"):]
     assert set(re.findall(r"DELETE FROM (\w+)", efface)) == tables
-    # UNE SEULE INSTRUCTION : six `_query` en autocommit laisseraient un
+    # UNE SEULE INSTRUCTION : treize `_query` en autocommit laisseraient un
     # etudiant a moitie efface si la connexion tombe au milieu.
     assert efface.count("_query(") == 1
 
@@ -1887,6 +1888,208 @@ def test_run_job_sert_le_cache_sans_recompiler():
         runner.SPOOL, runner.tp_path = garde_spool, garde_tp
         runner._juger, runner.CACHE_MAX = garde_juger, garde_max
         shutil.rmtree(racine, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# The redesign: message visibility, leaderboard, collection
+# --------------------------------------------------------------------------
+
+def _message(mid, account, visibility="thread", **extra):
+    """A thread message, in the shape `state.forum_fil` renders it."""
+    base = {"id": mid, "account": account, "text": "t", "hidden": False,
+            "created_at": "2026-09-04T10:00Z", "step": None,
+            "blocked_kind": None, "visibility": visibility,
+            "retained": False, "helpful": 0, "helped_me": False}
+    base.update(extra)
+    return base
+
+
+def test_private_question_only_reaches_its_author_and_the_moderator():
+    """THE VISIBILITY RULE, AND IT IS A SECURITY BOUNDARY.
+
+    "Only the lab instructor" is written on the student's form. If a private
+    message leaked to a classmate, that would be a promise written on screen
+    and broken in silence -- the worst kind of leak, the one nobody checks for.
+    """
+    thread = [_message("m1", "alice", "private"),
+              _message("m2", "bob", "thread"),
+              _message("m3", "alice", "group")]
+    profiles = {"alice": {"group_number": 4}, "bob": {"group_number": 6},
+               "carol": {"group_number": 4}}
+
+    seen = lambda who, mod=False: [v["id"] for v in
+                                   forum.forum_vue(thread, who, mod, profiles)]
+    # Its own author sees everything they wrote, private included.
+    assert seen("alice") == ["m1", "m2", "m3"]
+    # Bob is NOT in group 4: neither the private one nor the group one.
+    assert seen("bob") == ["m2"]
+    # Carol is in group 4: she sees the group one, never the private one.
+    assert seen("carol") == ["m2", "m3"]
+    # The moderator sees everything: a private question IS addressed to them.
+    assert seen("zoe", True) == ["m1", "m2", "m3"]
+    # AND NO `sub` CROSSES THE BOUNDARY, even in the most detailed view. Same
+    # check as an ordinary thread, redone here because these three fields
+    # are new.
+    payload = json.dumps(forum.forum_vue(thread, "zoe", True, profiles))
+    for account in ("alice", "bob", "carol"):
+        assert account not in payload, payload
+
+
+def test_an_author_with_no_group_opens_to_nobody():
+    """A `group` message with no group number publishes to nobody else.
+
+    Without this case, "opened to my group" on an account with no chosen
+    group would open to EVERYONE without one either -- that is, to most
+    accounts by default.
+    """
+    thread = [_message("m1", "alice", "group")]
+    profiles = {"alice": {}, "bob": {}}
+    assert [v["id"] for v in forum.forum_vue(thread, "bob", False, profiles)] == []
+    assert [v["id"] for v in forum.forum_vue(thread, "alice", False, profiles)] == ["m1"]
+
+
+def test_the_closed_lists_of_stuck_here():
+    """Step, blocked kind and visibility: closed lists, and a private default.
+
+    They are closed because they are what the instructor's aggregate groups
+    by: six ways of writing "compilation" would read as six different
+    problems on the morning that count matters.
+    """
+    assert forum.forum_step("compilation") == ("compilation", None)
+    assert forum.forum_step(None) == (None, None)      # an ordinary question
+    assert forum.forum_step("bogus")[1]
+    assert forum.forum_blocked_kind("wrong-result") == ("wrong-result", None)
+    assert forum.forum_blocked_kind("bogus")[1]
+
+    # A HELP REQUEST IS PRIVATE BY DEFAULT, an ordinary question is public:
+    # asking for help must not require deciding, in the same breath, to say
+    # so publicly.
+    assert forum.forum_visibility(None, True) == ("private", None)
+    assert forum.forum_visibility(None, False) == ("thread", None)
+    assert forum.forum_visibility("group", True) == ("group", None)
+    # AND THE TWO PATHS STAY DISTINCT: a help request does not become a
+    # thread post, or the aggregate would count discussions.
+    assert forum.forum_visibility("thread", True)[1]
+    assert forum.forum_visibility("private", False)[1]
+    assert forum.forum_visibility("bogus", True)[1]
+
+
+def test_thread_state_reads_on_what_one_can_see():
+    """Resolved / answered / unanswered, derived -- and never stored.
+
+    ON WHAT THE READER SEES: a private message nobody else can read must not
+    inflate anyone else's "unanswered".
+    """
+    # ON VIEWS, not on raw rows: it is `forum_vue`'s output that the state
+    # counts, so it is what the reader sees.
+    alone = forum.forum_vue([_message("m1", "alice")], "alice", False, {})
+    assert forum.thread_state(alone)["unanswered"] == 1
+    answered = [_message("m1", "alice"), _message("m2", "bob")]
+    views = forum.forum_vue(answered, "alice", False, {})
+    assert forum.thread_state(views)["answered"] == 1
+    resolved = forum.forum_vue(
+        answered[:1] + [_message("m2", "bob", retained=True)], "alice", False, {})
+    assert forum.thread_state(resolved)["resolved"] == 1
+    assert forum.thread_state([])["unanswered"] == 0
+
+
+def test_the_leaderboard_never_names_the_last_one():
+    """THREE RULES, and each one protects someone.
+
+    Opt-in (an absent row is not a hidden row), the minimum cohort (a
+    leaderboard of four names those four, last one included) and the top of
+    the table alone (nobody is named last). None of the three can be relaxed
+    without a student ending up singled out.
+    """
+    rows = [{"account": "u%d" % i, "alias": "Piece %d" % i,
+            "recent": 10 - i, "lifetime": 30 - i} for i in range(9)]
+    view = leaderboard.leaderboard_view(rows, "u7", 4)
+    # The top of the table, plus ONE'S OWN row -- nothing in between.
+    assert [r["rank"] for r in view["rows"]] == [1, 2, 3, 4, 5, 8], view["rows"]
+    assert view["me"]["rank"] == 8 and view["me"]["mine"]
+    assert view["rows"][-1]["mine"]
+    # THE STEP IS UPWARD, never downward: "two more and you pass 7th" is
+    # made, "someone is catching up" is not.
+    assert view["gap"] == {"rank": 7, "solved": 1}
+    # NO `sub` COMES OUT: the leaderboard reads `account` to find its own
+    # row, and drops it afterward.
+    assert "u7" not in json.dumps(view), view
+
+    # UNDER THE MINIMUM COHORT, NO TABLE AT ALL -- not a truncated one, which
+    # would disclose exactly the same people.
+    small = rows[:politique.minimum_cohort() - 1]
+    view = leaderboard.leaderboard_view(small, small[0]["account"], 4)
+    assert view["rows"] == [] and view["me"]["rank"] == 1
+    assert view["cohort"] < view["minimum"]
+
+    # WHO DID NOT OPT IN IS NOT RANKED, and that is not an error: the screen
+    # then offers the checkbox, rather than an empty leaderboard that would
+    # look broken.
+    outside = leaderboard.leaderboard_view(rows, "unknown", 4)
+    assert outside["participating"] is False
+    assert outside["me"] is None and outside["rows"] == []
+
+
+def test_the_alias_is_drawn_from_a_closed_list_and_avoids_taken_ones():
+    """Nothing a student types can ever reach a leaderboard.
+
+    That is what makes it possible NOT to moderate the leaderboard: the
+    vocabulary is closed, so there is no name to report.
+    """
+    every_alias = politique.possible_aliases()
+    assert len(every_alias) > 100 and len(set(every_alias)) == len(every_alias)
+    assert leaderboard.draw_alias(set(), 0) == every_alias[0]
+    # A taken name is skipped, never handed out twice.
+    assert leaderboard.draw_alias({every_alias[0]}, 0) == every_alias[1]
+    # Vocabulary exhausted: None, and the caller answers 503 rather than
+    # manufacturing a duplicate.
+    assert leaderboard.draw_alias(set(every_alias), 0) is None
+
+
+def test_divisions_only_go_up_never_down():
+    """They are read on the CUMULATIVE total, never on the week.
+
+    A quiet week must not demote anybody (ranked.md): this is the only place
+    that choice shows, and it hinges on the argument passed in.
+    """
+    assert politique.division(0)["id"] == "atelier"
+    assert politique.division(8)["id"] == "machiniste"
+    assert politique.division(1000)["id"] == "ingenierie"
+    # `lifetime`, not `recent`: a week at zero keeps its division.
+    rows = [{"account": "u1", "alias": "A", "recent": 0, "lifetime": 25}]
+    assert leaderboard.leaderboard_view(rows, "u1", 4)["division"]["id"] == "ingenierie"
+    view = leaderboard.divisions_view(rows)
+    assert [d["accounts"] for d in view] == [0, 0, 1]
+
+
+def test_a_card_drops_on_a_whole_family_and_its_rarity_is_measured():
+    """A card is an achievement in disguise: same table, same key, same "once".
+
+    AND NONE OF THEM IS DRAWN AT RANDOM. The condition is printed on the
+    locked card, so it is readable before aiming for it -- that is the
+    difference between a collection and a loot box.
+    """
+    # A partial family grants nothing.
+    assert politique.cards_earned({"tp2-ex0", "tp2-ex1"}) == []
+    assert politique.cards_earned({"tp2-ex3"}) == ["card:E-01"]
+    complete = {"tp2-ex0", "tp2-ex1", "tp2-ex2", "tp2-ex3", "tp2-ex4"}
+    assert set(politique.cards_earned(complete)) == {"card:E-01", "card:M-04"}
+
+    # Every card displays with NO color and no image: a name and a condition.
+    for card in politique.POLICY["cards"]:
+        assert card["name"] and card["condition"] and card["exercises"]
+    # And a card id can never be mistaken for an achievement's.
+    assert not set(politique.CARDS) & set(politique.SUCCES)
+
+    # RARITY IS MEASURED, and withheld under the minimum cohort: a percentage
+    # over four accounts describes those four accounts.
+    views = {c["id"]: c for c in progression.collection_view(
+        [{"id": "card:E-01"}], {"card:E-01": 6}, 10)}
+    assert views["E-01"]["held"] and views["E-01"]["rarity"] == 60
+    assert views["M-04"]["held"] is False
+    assert views["M-04"]["condition"]          # the condition is always stated
+    muted = progression.collection_view([], {"card:E-01": 1}, 2)
+    assert all(c["rarity"] is None for c in muted), muted
 
 
 if __name__ == "__main__":

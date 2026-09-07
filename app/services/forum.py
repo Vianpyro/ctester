@@ -121,6 +121,120 @@ def forum_groupe(brut):
     return numero, None
 
 
+# --- "Je suis bloqué ici" (design 1g) ----------------------------------------
+# TWO CLOSED LISTS AND A VISIBILITY, and they are closed for one reason: they
+# are what the instructor's aggregate groups by (design 1h). Free text there
+# would make that aggregate useless on the morning it matters -- six ways of
+# writing "compilation" read as six different problems.
+#
+# The labels are French because they are shown as-is; the ids are the stored
+# values. Adding a step is one line here and nothing else.
+
+STEPS = {
+    "statement": "l'énoncé",
+    "compilation": "la compilation",
+    "execution": "l'exécution",
+    "result": "le résultat",
+}
+
+BLOCKED_KINDS = {
+    "statement-unclear": "Je ne comprends pas l'énoncé",
+    "wrong-result": "Ça compile mais le résultat est faux",
+    "unclear-error": "Je ne comprends pas le message d'erreur",
+}
+
+# PRIVATE IS THE DEFAULT, and `thread` is what an ordinary question has always
+# been. `group` is reachable only from `private`, and only by the author.
+VISIBILITIES = ("private", "group", "thread")
+
+
+def forum_step(raw):
+    """(step id|None, error). None means "an ordinary question", not a refusal."""
+    if raw is None or raw == "":
+        return None, None
+    value = str(raw)
+    if value not in STEPS:
+        return None, "étape inconnue"
+    return value, None
+
+
+def forum_blocked_kind(raw):
+    """(blocked-kind id|None, error). Same rule as the step."""
+    if raw is None or raw == "":
+        return None, None
+    value = str(raw)
+    if value not in BLOCKED_KINDS:
+        return None, "type de blocage inconnu"
+    return value, None
+
+
+def forum_visibility(raw, with_step):
+    """(visibility, error) -- private by default for a "stuck" post.
+
+    A POST WITH A STEP DEFAULTS TO PRIVATE, an ordinary one to `thread`. That
+    asymmetry is the design: asking for help should not require deciding, in
+    the same breath, to say so publicly. `thread` is refused on a stuck post --
+    the two paths stay distinguishable, which is what lets the aggregate count
+    "opened to the group" as a separate number.
+    """
+    if raw is None or raw == "":
+        return ("private" if with_step else "thread"), None
+    value = str(raw)
+    if value not in VISIBILITIES:
+        return None, "visibilité inconnue"
+    if with_step and value == "thread":
+        return None, "une demande d'aide est privée ou ouverte à ton groupe"
+    if not with_step and value != "thread":
+        return None, "une question ordinaire est visible du fil"
+    return value, None
+
+
+def can_see(message, sub, moderateur, my_group, groups):
+    """Can THIS reader see this message? The only visibility rule.
+
+    FOUR CASES, AND THE ORDER MATTERS:
+      * one's own message, always -- including one's own private ones;
+      * a moderator, always: a private question is addressed to them, that is
+        what "seulement le chargé de lab" means on the form;
+      * `thread`, the ordinary public post everyone sees;
+      * `group`, only for someone whose group number matches the author's.
+
+    A `group` MESSAGE FROM AN AUTHOR WITH NO GROUP is visible to nobody but
+    them and a moderator: without a group there is no group to open it to, and
+    guessing one would publish it wider than asked.
+    """
+    if message["account"] == sub or moderateur:
+        return True
+    # ABSENT READS AS `thread`, the same default the column carries: a row
+    # written before this column existed is an ordinary public post, and
+    # treating it as private would make old threads vanish.
+    visibility = message.get("visibility") or "thread"
+    if visibility == "thread":
+        return True
+    if visibility != "group":
+        return False
+    their_group = groups.get(message["account"])
+    return their_group is not None and my_group is not None and their_group == my_group
+
+
+def forum_frame(raw, unlocked):
+    """(frame id|None, error) -- a plate frame among those this account unlocked.
+
+    THE LIST OF UNLOCKED FRAMES IS RECOMPUTED SERVER-SIDE from the level, and
+    never taken from the request: a frame is decoration, but "which ones do I
+    have" is still a fact about an account, and a fact about an account is not
+    something the browser gets to assert.
+
+    Empty is not an error -- it is the default, and it stays on offer.
+    """
+    if raw is None or raw == "":
+        return None, None
+    value = str(raw)
+    if value not in {c["id"] for c in unlocked}:
+        return None, "ce cadre n'est pas débloqué"
+    return value, None
+
+
 def forum_identite(profil, sub, auteur, moderateur_lecteur):
     """(displayed author, displayed group number, is the name chosen).
 
@@ -156,12 +270,24 @@ def forum_vue(messages, sub, moderateur, profils=None):
     never crosses.
 
     Hidden messages only ever go out to a moderator: they are the one who
-    must be able to restore them.
+    must be able to restore them. PRIVATE messages go out to their author and
+    to a moderator, group ones to the author's group -- `can_see()` is the
+    single rule, applied here and nowhere else.
+
+    A MESSAGE'S OWN GROUP NUMBER IS NOT WHAT DECIDES: `groupes` is built from
+    the profiles already read for this thread, so the visibility rule reads
+    the same source as the displayed group. Two sources would drift, and the
+    one that drifted would be the one that shows too much.
     """
     profils = profils or {}
+    groups = {account: (p or {}).get("group_number")
+             for account, p in profils.items()}
+    my_group = (profils.get(sub) or {}).get("group_number")
     vus = []
     for m in messages:
         if not (moderateur or not m["hidden"]):
+            continue
+        if not can_see(m, sub, moderateur, my_group, groups):
             continue
         nom, groupe, signalable = forum_identite(
             profils.get(m["account"]), sub, m["account"], moderateur)
@@ -169,5 +295,46 @@ def forum_vue(messages, sub, moderateur, profils=None):
                     "author": nom, "group": groupe,
                     "reportable_name": signalable,
                     "mine": m["account"] == sub,
-                    "hidden": m["hidden"]})
+                    "hidden": m["hidden"],
+                    # "Bloqué ici": the step and the kind travel as ids, and
+                    # the page owns the labels -- the same split as skills.
+                    "step": m.get("step"),
+                    "blocked_kind": m.get("blocked_kind"),
+                    "visibility": m.get("visibility") or "thread",
+                    # The retained answer and the usefulness counter, both
+                    # derived server-side (see `state.forum_fil`). `helped_me`
+                    # is what turns the button off for someone who already
+                    # clicked it, without a second round trip.
+                    "retained": bool(m.get("retained")),
+                    "helpful": int(m.get("helpful") or 0),
+                    "helped_me": bool(m.get("helped_me"))})
     return vus
+
+
+# --- The thread's state (design 1f) -------------------------------------------
+# A QUESTION HAS A STATE, and the state is DERIVED, never stored: a thread
+# where the answer that worked is findable is the whole ask. Storing it would
+# be one more column to keep true; deriving it means a moderator retaining an
+# answer changes the state with no second write.
+
+
+def thread_state(views):
+    """{"unanswered": n, "answered": n, "resolved": n} for this rendered thread.
+
+    Read on what the CALLER can see, so the counts match the messages under
+    them: a private question nobody else can read must not inflate anyone
+    else's "sans réponse".
+
+    ONE THREAD PER EXERCISE is still the model (there is no question id): the
+    thread is "resolved" once a moderator has retained an answer in it,
+    "answered" once someone other than the first author has written, and
+    "unanswered" otherwise. That is a state one can act on without inventing
+    a question/answer schema the forum does not have.
+    """
+    if not views:
+        return {"unanswered": 0, "answered": 0, "resolved": 0}
+    if any(v["retained"] for v in views):
+        return {"unanswered": 0, "answered": 0, "resolved": 1}
+    if len(views) > 1 and len({v["author"] for v in views}) > 1:
+        return {"unanswered": 0, "answered": 1, "resolved": 0}
+    return {"unanswered": 1, "answered": 0, "resolved": 0}
