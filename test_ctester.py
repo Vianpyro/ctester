@@ -325,7 +325,25 @@ def test_current_survives_a_broken_pointer():
 
 
 def test_prune_keeps_only_the_latest_releases():
-    """The rollback IS the old releases: `keep` says how many."""
+    """The rollback IS the old releases: `keep` says how many.
+
+    THE MTIMES ARE FLATTENED ON PURPOSE, and that is the whole point of this
+    test now. `_elaguer` used to sort on `getmtime`, whose granularity is the
+    FILESYSTEM's: on Linux that is a kernel tick, so five publications a few
+    milliseconds apart share one timestamp, and the sort fell through to the
+    tuple's second element -- the revision HASH. It kept an arbitrary release
+    and deleted one it had promised to keep.
+
+    IT PASSED ON WINDOWS (100 ns timestamps) AND FAILED ON THE DELL, which is
+    the worst shape a bug can take: green on the machine that writes the code,
+    red on the machine that runs it, and only once the hashes happened to fall
+    the wrong way. Publishing an assignment changed every hash, and that is
+    what finally rolled the dice badly.
+
+    `os.utime` to a single instant reproduces the Dell here, deterministically.
+    Without it, this test only fails when the hashes cooperate -- which is to
+    say, one deployment out of some.
+    """
     root = tempfile.mkdtemp(prefix="ctester-content-")
     dest = tempfile.mkdtemp(prefix="ctester-published-")
     try:
@@ -337,6 +355,11 @@ def test_prune_keeps_only_the_latest_releases():
                 "release": {"state": "available"}})
             model = content_catalogue.discover(root)
             revisions.append(publish_content.publish(model, dest, keep=3))
+            # LE DELL, ICI : tout le repertoire dans le meme tick d'horloge.
+            for name in os.listdir(dest):
+                chemin = os.path.join(dest, name)
+                if os.path.isdir(chemin):
+                    os.utime(chemin, (1_000_000, 1_000_000))
         assert len(set(revisions)) == 5, revisions   # five contents, five revisions
         remaining = {name for name in os.listdir(dest)
                     if os.path.isdir(os.path.join(dest, name))}
@@ -345,6 +368,18 @@ def test_prune_keeps_only_the_latest_releases():
         # it is the rollback that counts, not the archive.
         assert remaining == set(revisions[-3:]), (remaining, revisions)
         assert publish_content.current(dest) == os.path.join(dest, revisions[-1])
+        # ET LE REPLI TIENT : une revision sans manifest -- un deploiement
+        # copie a moitie, un repertoire pose a la main -- doit rester elaguable
+        # plutot que de devenir immortelle et de manger la place des vraies.
+        orpheline = os.path.join(dest, "0" * 16)
+        os.makedirs(orpheline)
+        os.utime(orpheline, (1_000_000, 1_000_000))
+        _minimal_valid_content(root)
+        _write_json(os.path.join(root, "exercises", "ex1", "exercise.json"), {
+            "schema_version": 1, "id": "ex1", "title": "Exercise 9",
+            "release": {"state": "available"}})
+        publish_content.publish(content_catalogue.discover(root), dest, keep=3)
+        assert not os.path.isdir(orpheline), "une revision sans manifest survit"
     finally:
         shutil.rmtree(root)
         shutil.rmtree(dest)

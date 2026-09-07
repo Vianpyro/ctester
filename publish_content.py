@@ -141,9 +141,47 @@ def publish(model, dest, now=None, keep=3):
     return rev
 
 
+def _publie_le(dest, name):
+    """When this release was published. THE MANIFEST SAYS SO, the mtime is the
+    fallback.
+
+    NOT `getmtime` AS THE PRIMARY SOURCE, and that is a bug already paid for.
+    A directory's mtime has the granularity the FILESYSTEM gives it -- on
+    Linux that is a kernel tick, so several publications a few milliseconds
+    apart share one timestamp. `_elaguer` then sorted on the tuple's SECOND
+    element, the revision hash, i.e. on nothing at all: it kept an arbitrary
+    release and deleted one it had promised to keep. It passed on Windows
+    (100 ns timestamps) and failed on the Dell, which is the worst place for
+    a difference like this to live.
+
+    `published_at` is written by `publish()` itself, from
+    `datetime.now(timezone.utc)` -- microseconds, and the same everywhere
+    because it never touches the filesystem's clock. Two publications cannot
+    share it: writing a release takes longer than a microsecond.
+
+    THE FALLBACK IS NOT DECORATION: a release published by an older version
+    has a manifest without... no, it has one -- but a half-copied deploy or a
+    directory somebody made by hand does not, and it must still be prunable
+    rather than immortal.
+    """
+    chemin = os.path.join(dest, name)
+    try:
+        with open(os.path.join(chemin, "manifest.json"), encoding="utf-8") as fh:
+            return dt.datetime.fromisoformat(json.load(fh)["published_at"]).timestamp()
+    except (OSError, ValueError, KeyError, TypeError):
+        return os.path.getmtime(chemin)
+
+
 def _elaguer(dest, garder, keep):
-    """Old releases are the rollback: a few of them are kept."""
-    releases = [(os.path.getmtime(os.path.join(dest, name)), name)
+    """Old releases are the rollback: a few of them are kept.
+
+    THE ONES KEPT ARE THE LATEST PUBLISHED, and that has to be true even when
+    two publications land in the same clock tick -- see `_publie_le`. The name
+    stays in the sort key so the order is TOTAL: two releases that genuinely
+    share an instant are still pruned in a reproducible order, rather than in
+    whatever order `listdir` happened to return.
+    """
+    releases = [(_publie_le(dest, name), name)
                 for name in os.listdir(dest)
                 if name != garder and os.path.isdir(os.path.join(dest, name))]
     for _, name in sorted(releases, reverse=True)[max(keep - 1, 0):]:

@@ -152,6 +152,19 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
   lien à l'attache : rebasculer ne se verrait qu'au redémarrage du conteneur.
 - **Un contenu invalide ne remplace jamais la publication active** : `discover()`
   lève avant la première écriture, et le pointeur ne bouge qu'en dernier.
+- **L'élagage garde les DERNIÈRES PUBLIÉES, et c'est le `manifest.json` qui le
+  dit — pas le `mtime`.** Le mtime d'un répertoire a la granularité que lui
+  donne le SYSTÈME DE FICHIERS : sur Linux c'est un tick du noyau, donc
+  plusieurs publications à quelques millisecondes d'écart le partagent, et le
+  tri retombait alors sur le hachage de la révision, c'est-à-dire sur rien —
+  il gardait une révision arbitraire et supprimait une de celles qu'il avait
+  promis de garder. **Vert sur Windows (100 ns), rouge sur le Dell**, et
+  seulement quand les hachages tombaient mal : publier un devoir les a tous
+  changés, et le dé est tombé du mauvais côté. `published_at` est écrit par
+  `publish()` lui-même, en microsecondes, et ne dépend d'aucune horloge de
+  disque. Le test aplatit maintenant les mtime avec `os.utime` pour reproduire
+  le Dell **de façon déterministe** : sans ça, il n'échouait qu'un déploiement
+  sur quelques-uns.
 - **Le catalogue porte TOUS les exercices, ouverts ou non** (cadenas + date) ;
   le détail et le quiz ne sont écrits que pour ce qui est ouvert. Montrer n'est
   pas donner — la v1 les faisait disparaître, ce qui ressemblait à une panne.
