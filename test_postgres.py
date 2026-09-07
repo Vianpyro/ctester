@@ -842,8 +842,92 @@ def teams():
           "pas d'appartenance orpheline, et « mes équipes » se lit sans devoir")
 
 
+def team_formation():
+    """LE PROTOCOLE DE FORMATION, ET SES DEUX FORMES QUI N'EXISTENT QU'EN VRAI.
+
+    La première : `team_lock` pose un verrou ET scelle dans UNE instruction,
+    parce que deux derniers membres confirmant au même instant liraient tous
+    les deux « il en reste un » s'il fallait relire après avoir écrit. Le
+    `NOT EXISTS` du scellement doit donc EXCLURE le compte courant -- une CTE
+    modifiante n'est pas visible au reste de la requête, qui lit le snapshot
+    du début. Sans l'exclusion, l'équipe ne se scelle JAMAIS, et ça ne se voit
+    qu'ici : une base simulée en Python voit ses propres écritures.
+
+    La seconde : chaque écriture porte son contrôle d'accès dans son `WHERE`
+    -- on ne rejoint qu'une équipe non scellée, sur présentation de son code,
+    et une équipe scellée ne se rouvre pas. C'est ce qui remplace le privilège
+    absent depuis que les équipes se forment elles-mêmes.
+    """
+    _reset_teams()
+    assert state.team_create(ALICE, "devoir", "e1", "Les matracs", None,
+                             "K7M2X9") == "e1"
+    # UNE SEULE ÉQUIPE PAR DEVOIR, et c'est la clé primaire qui le dit : celui
+    # qui en a déjà une ne peut pas en créer une seconde.
+    assert state.team_create(ALICE, "devoir", "e2", "Autre", None, "ZZZZZZ") is None
+    # UN CODE NE SERT QU'UNE FOIS : l'index unique refuse le doublon, et
+    # `team_create` rend None plutôt que d'annoncer une équipe inexistante.
+    assert state.team_create(BOB, "devoir", "e3", "Autre", None, "K7M2X9") is None
+
+    assert state.team_join(BOB, "devoir", "K7M2X9", 4) == "e1"
+    assert state.team_join(CLEO, "devoir", "MAUVAIS", 4) is None
+    assert state.team_join(CLEO, "devoir", "K7M2X9", 4) == "e1"
+    # PLEINE : le compte est dans le `WHERE` de l'INSERT, pas dans un `if`.
+    assert state.team_join("sub-dan", "devoir", "K7M2X9", 3) is None
+
+    # LE SCELLEMENT N'ARRIVE QU'À LA DERNIÈRE CONFIRMATION, et pas avant.
+    assert state.team_lock(ALICE, "devoir", True, 3, 4)
+    assert state.team_lock(BOB, "devoir", True, 3, 4)
+    assert state.team_of(ALICE, "devoir")["sealed"] is False
+    # ...ET IL VÉRIFIE LE GROUPE : il est choisi au scellement, donc il doit y
+    # être. Une équipe sans groupe reste en formation.
+    assert state.team_lock(CLEO, "devoir", True, 3, 4)
+    assert state.team_of(ALICE, "devoir")["sealed"] is False, \
+        "scellée sans groupe : le CHECK du schéma aurait dû être la dernière barrière"
+
+    # TOUT CHANGEMENT FAIT TOMBER LES VERROUS -- un verrou vaut pour l'état
+    # exact qu'on a vu.
+    assert state.team_settings(ALICE, "devoir", "Les matracs", 4)
+    assert set(state.team_locks("devoir", "e1").values()) == {False}
+    assert state.team_lock(ALICE, "devoir", True, 3, 4)
+    assert state.team_join("sub-dan", "devoir", "K7M2X9", 4) == "e1"
+    assert set(state.team_locks("devoir", "e1").values()) == {False}, \
+        "quelqu'un est entré et les confirmations sont restées"
+    assert state.team_leave("sub-dan", "devoir")
+
+    for compte in (ALICE, BOB, CLEO):
+        assert state.team_lock(compte, "devoir", True, 3, 4)
+    vue = state.team_of(ALICE, "devoir")
+    assert vue["sealed"] is True, "la dernière confirmation n'a pas scellé"
+    # LE CODE DISPARAÎT AVEC LE SCELLEMENT : il n'ouvre plus rien.
+    assert vue["invite_code"] is None
+
+    # ET RIEN NE ROUVRE. Ni rejoindre, ni sortir, ni déconfirmer, ni renommer.
+    assert state.team_join("sub-dan", "devoir", "K7M2X9", 4) is None
+    assert state.team_leave(BOB, "devoir") is False
+    assert state.team_of(BOB, "devoir") is not None
+    assert state.team_settings(ALICE, "devoir", "Renommee", 6) is False
+    assert state.team_of(ALICE, "devoir")["label"] == "Les matracs"
+    state.team_lock(ALICE, "devoir", False, 3, 4)
+    assert state.team_locks("devoir", "e1")[ALICE] is True, \
+        "on a pu retirer sa confirmation d'une équipe scellée"
+
+    # LE CODE RETROUVE SON ÉQUIPE POUR DIRE POURQUOI ÇA A RATÉ : « ce code ne
+    # correspond à rien » et « cette équipe est déjà confirmée » sont deux
+    # réponses différentes, et l'étudiant n'a pas à redemander un code qu'on
+    # lui a bien donné.
+    cible = state.team_by_code("devoir", "K7M2X9")
+    assert cible == {"team_id": "e1", "sealed": True, "members": 3}, cible
+    assert state.team_by_code("devoir", "INEXIST") is None
+    print("ok   team formation: le scellement tient dans UNE instruction, "
+          "et rien ne rouvre une équipe close")
+
+
 def team_documents():
     """LA CTE MODIFIANTE QUI ALIMENTE L'INSERT DE RÉVISION, et sa coalescence.
+
+    Repart du listage de `teams()` -- `team_formation()` vient de laisser une
+    équipe scellée sous le même nom, et ce qui est éprouvé ici est le
+    document, pas la façon dont l'équipe s'est constituée.
 
     C'est exactement la forme que ce fichier existe pour attraper : un UPSERT
     dans une CTE non référencée (qui doit s'exécuter quand même), suivi d'un
@@ -851,6 +935,9 @@ def team_documents():
     plus un `IS DISTINCT FROM` sur une sous-requête ordonnée.
     """
     fenetre = 120
+    _reset_teams()
+    _inscrire("devoir", "e1", [ALICE, CLEO], group_number=4, label="Équipe 1")
+    _inscrire("devoir", "e2", [BOB], group_number=6, label="Équipe 2")
 
     def ecrire(compte, texte, window=fenetre):
         return state.write_team_document("e1", "dev-a", compte,
@@ -926,13 +1013,23 @@ def team_submissions():
 
 
 def team_privileges():
-    """LE LISTAGE EST EN LECTURE SEULE POUR L'APPLICATION, et c'est Postgres
-    qui le tient -- pas la discipline de `state.py`.
+    """CE QUI RESTE REFUSÉ MAINTENANT QUE LES ÉQUIPES SE FORMENT ELLES-MÊMES.
 
-    C'est LA garantie qui fait qu'un étudiant ne peut pas choisir son équipe :
-    il n'y a aucun chemin de code, distrait ou non, par lequel une requête
-    peut écrire dans `team` ou insérer dans `team_member`. Le seul DELETE
-    autorisé est celui de « Supprimer mes données ».
+    La garantie a changé de nature, et il faut le dire. Elle était « rejoindre
+    une équipe est INEXPRIMABLE, il n'y a pas d'INSERT » -- et elle est tombée
+    sur un fait : l'enseignant ne voit jamais un `sub`, donc il ne pouvait
+    nommer personne dans un listage, donc le listage n'était écrivable par
+    personne. Il fallait bien que quelqu'un puisse écrire.
+
+    CE QUI LA REMPLACE se lit en deux moitiés :
+      * le `WHERE` de chaque écriture (éprouvé par `team_formation()`) -- on ne
+        rejoint qu'une équipe non scellée, sur présentation de son code, et une
+        équipe scellée ne se rouvre pas ;
+      * et CE QUI RESTE HORS DE PORTÉE, ici : les colonnes d'identité. Un GRANT
+        DE COLONNE, pas un UPDATE de table. Se déplacer d'équipe par un UPDATE
+        contournerait tout le protocole -- pas de code à présenter, pas de
+        scellement à respecter -- alors la colonne qui le permettrait n'est pas
+        accordée.
 
     Non joué quand les deux DSN sont identiques -- il n'y aurait rien à refuser.
     """
@@ -941,18 +1038,20 @@ def team_privileges():
         return
     import psycopg
     refuses = (
-        ("team INSERT",
-         "INSERT INTO team (team_id, assignment_id, group_number)"
-         " VALUES ('pirate', 'devoir', 4)"),
-        ("team UPDATE", "UPDATE team SET group_number = 9"),
+        # UNE ÉQUIPE NE SE SUPPRIME PAS DEPUIS L'APPLICATION : elle porte le
+        # document et la remise de trois ou quatre personnes. Se retirer d'une
+        # équipe est un DELETE sur `team_member`, et rien d'autre.
         ("team DELETE", "DELETE FROM team WHERE team_id = 'e1'"),
-        # LE CŒUR DU CONTRAT : rejoindre une équipe est un INSERT, et il est
-        # refusé par la base. Sans ce refus, "l'appartenance est autoritaire"
-        # ne serait qu'une phrase dans un docstring.
-        ("team_member INSERT",
-         "INSERT INTO team_member (team_id, assignment_id, account)"
-         " VALUES ('e1', 'devoir', 'sub-pirate')"),
-        ("team_member UPDATE", "UPDATE team_member SET team_id = 'e1'"),
+        # LES DEUX COLONNES D'IDENTITÉ D'UNE ÉQUIPE. Les déplacer emporterait
+        # le document partagé d'une équipe vers une autre.
+        ("team.team_id", "UPDATE team SET team_id = 'pirate'"),
+        ("team.assignment_id", "UPDATE team SET assignment_id = 'autre'"),
+        # LE CŒUR DU PROTOCOLE : changer d'équipe par un UPDATE court-circuite
+        # le code d'invitation ET le scellement. Rejoindre est un INSERT, dont
+        # le `WHERE` porte les deux.
+        ("team_member.team_id", "UPDATE team_member SET team_id = 'e1'"),
+        ("team_member.account", "UPDATE team_member SET account = 'sub-x'"),
+        ("team_member.joined_at", "UPDATE team_member SET joined_at = now()"),
         # L'HISTOIRE NE SE RÉÉCRIT PAS : une révision est un fait, et son
         # auteur n'est pas une colonne à corriger après coup.
         ("team_revision UPDATE", "UPDATE team_revision SET account = 'sub-x'"),
@@ -967,14 +1066,18 @@ def team_privileges():
                 pass
     assert not manques, "écriture acceptée sur : " + ", ".join(manques)
     # ET CE QUI DOIT PASSER PASSE : sans cette moitié, un GRANT trop étroit
-    # resterait muet en production et nulle part ailleurs.
+    # resterait muet en production et nulle part ailleurs -- exactement comme
+    # l'`UPDATE` manquant du thème.
     with psycopg.connect(DSN, autocommit=True) as cx:
         cx.execute("SELECT count(*) FROM team")
+        cx.execute("UPDATE team SET label = label, group_number = group_number,"
+                   " sealed_at = sealed_at, invite_code = invite_code")
+        cx.execute("UPDATE team_member SET locked_at = locked_at")
         cx.execute("UPDATE team_document SET sources = sources")
         cx.execute("UPDATE team_submission SET files = files")
         cx.execute("DELETE FROM team_member WHERE account = 'sub-absent'")
-    print("ok   team: le listage est en lecture seule, le document est "
-          "modifiable, l'historique est en ajout seul")
+    print("ok   team: on se forme et on se scelle, mais les colonnes "
+          "d'identité restent hors de portée")
 
 
 def _rows(sql, params=()):
@@ -1000,6 +1103,7 @@ def main():
     stuck_and_helpful()
     leaderboard_rows()
     teams()
+    team_formation()
     team_documents()
     team_submissions()
     team_privileges()

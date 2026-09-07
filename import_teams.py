@@ -17,6 +17,15 @@ anything.
     `forum_profile`, whose group number the STUDENT types in for themselves.
     The two are never compared.
 
+THIS IS NO LONGER THE MAIN PATH, AND THAT IS THE POINT. Students form their
+own teams -- create, share a code, join, and everyone confirms -- because the
+instructor cannot write a roster: CTester never shows him a `sub`. What is
+left here is the CORRECTION tool: unblock a team, force a composition, undo a
+mistake. A team written by hand is SEALED on arrival, with no invitation
+code: it carries the instructor's authority already, and asking its members
+to approve a composition they did not choose would be asking them to ratify
+somebody else's decision.
+
 THE CSV IS THE ROSTER, AND IT IS AUTHORITATIVE. Memberships for this
 assignment that are not in the file are removed; teams that are not in it are
 left alone, because deleting a team would orphan the documents it wrote. To
@@ -147,12 +156,24 @@ def statements(rows, assignment_id):
         equipes[team_id] = (group_number, label)
     sql = []
     for team_id, (group_number, label) in sorted(equipes.items()):
+        # SCELLÉE D'OFFICE, et c'est le seul endroit où ça se fait sans que
+        # les membres aient confirmé. Une équipe que l'enseignant écrit à la
+        # main porte DÉJÀ son autorité : demander à ses membres d'approuver
+        # une composition qu'ils n'ont pas choisie serait leur faire valider
+        # une décision qui n'était pas la leur.
+        #
+        # PAS DE CODE D'INVITATION : elle est close en naissant, il n'ouvrirait
+        # rien. C'est ce qui distingue les deux chemins -- les étudiants se
+        # forment avec un code, l'enseignant tranche sans.
         sql.append((
-            "INSERT INTO team (team_id, assignment_id, group_number, label)"
-            " VALUES (%s, %s, %s, %s)"
+            "INSERT INTO team"
+            "   (team_id, assignment_id, group_number, label, sealed_at)"
+            " VALUES (%s, %s, %s, %s, now())"
             " ON CONFLICT (team_id, assignment_id) DO UPDATE SET"
             "   group_number = EXCLUDED.group_number,"
-            "   label = EXCLUDED.label",
+            "   label = EXCLUDED.label,"
+            "   sealed_at = COALESCE(team.sealed_at, now()),"
+            "   invite_code = NULL",
             (team_id, assignment_id, group_number, label)))
     # THE FILE IS THE ROSTER: a membership that is no longer in it goes.
     # Scoped to THIS assignment -- another assignment's teams are not this
@@ -165,11 +186,16 @@ def statements(rows, assignment_id):
         # A STUDENT MOVED BETWEEN TEAMS IS AN UPDATE, not a duplicate: the
         # primary key is (assignment_id, account), so the conflict target is
         # the student, and what changes is their team.
+        # `locked_at` POSÉ AUSSI : sur une équipe déjà scellée, un membre sans
+        # confirmation serait un état que rien ne peut plus résoudre -- on ne
+        # confirme plus une équipe close.
         sql.append((
-            "INSERT INTO team_member (team_id, assignment_id, account)"
-            " VALUES (%s, %s, %s)"
+            "INSERT INTO team_member"
+            "   (team_id, assignment_id, account, locked_at)"
+            " VALUES (%s, %s, %s, now())"
             " ON CONFLICT (assignment_id, account) DO UPDATE SET"
-            "   team_id = EXCLUDED.team_id",
+            "   team_id = EXCLUDED.team_id,"
+            "   locked_at = COALESCE(team_member.locked_at, now())",
             (team_id, assignment_id, account)))
     return sql
 

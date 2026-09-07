@@ -101,7 +101,8 @@ class BaseSimulee:
         # moitie du contrat que le GRANT tient en vrai (`SELECT` seulement),
         # et la moitie que ce harnais peut tenir.
         self.equipes = {}        # (assignment, account) -> team_id
-        self.equipes_meta = {}   # (team_id, assignment) -> {group_number, label}
+        self.equipes_meta = {}   # (team_id, assignment) -> {group_number, label, ...}
+        self.verrous = {}        # (assignment, account) -> a confirme ?
         self.documents = {}      # (team_id, exercise) -> sources
         self.revisions = []      # append-only, newest last
         self.remises = {}        # (assignment, team_id) -> {...}
@@ -145,31 +146,140 @@ class BaseSimulee:
 
     # -- equipes
     def inscrire(self, assignment_id, team_id, comptes, group_number=4,
-                 label=None):
-        """Ce que `import_teams.py` fait, cote harnais. AUCUNE ROUTE NE LE FAIT."""
+                 label=None, code=None, sealed=True):
+        """Une equipe deja formee. `sealed=False` pour eprouver la formation.
+
+        SCELLEE PAR DEFAUT : les controles qui parlent du document, de la
+        remise ou de la socket n'ont pas a former une equipe pour y arriver --
+        c'est un autre sujet, et le melanger ferait de chacun d'eux un test du
+        protocole de formation.
+        """
         self.equipes_meta[(team_id, assignment_id)] = {
-            "group_number": group_number, "label": label or team_id}
+            "group_number": group_number, "label": label or team_id,
+            "invite_code": code or "K7M2", "sealed": sealed}
         for compte in comptes:
             self.equipes[(assignment_id, compte)] = team_id
+            self.verrous[(assignment_id, compte)] = sealed
+
+    def _meta(self, team_id, assignment_id):
+        return self.equipes_meta.setdefault(
+            (team_id, assignment_id),
+            {"group_number": None, "label": team_id, "invite_code": None,
+             "sealed": False})
 
     def team_of(self, user, assignment_id):
         team_id = self.equipes.get((assignment_id, user))
         if team_id is None:
             return None
-        meta = self.equipes_meta.get((team_id, assignment_id), {})
+        meta = self._meta(team_id, assignment_id)
         return {"team_id": team_id, "assignment_id": assignment_id,
                 "group_number": meta.get("group_number"),
-                "label": meta.get("label")}
+                "label": meta.get("label"),
+                # LE CODE DISPARAIT AVEC LE SCELLEMENT, comme en base : il
+                # n'ouvre plus rien, et l'afficher inviterait a le partager
+                # pour rien.
+                "invite_code": None if meta["sealed"] else meta.get("invite_code"),
+                "sealed": meta["sealed"],
+                "locked": bool(self.verrous.get((assignment_id, user)))}
+
+    # -- formation
+    def _membres(self, assignment_id, team_id):
+        return [compte for (devoir, compte), equipe in sorted(self.equipes.items())
+                if devoir == assignment_id and equipe == team_id]
+
+    def _rouvrir(self, assignment_id, team_id):
+        """TOUT CHANGEMENT FAIT TOMBER LES VERROUS -- un verrou vaut pour
+        l'etat exact qu'on a vu."""
+        for compte in self._membres(assignment_id, team_id):
+            self.verrous[(assignment_id, compte)] = False
+
+    def team_create(self, user, assignment_id, team_id, label, group_number, code):
+        if (assignment_id, user) in self.equipes:
+            return None
+        if any(m.get("invite_code") == code
+               for (t, d), m in self.equipes_meta.items() if d == assignment_id):
+            return None
+        self.equipes_meta[(team_id, assignment_id)] = {
+            "group_number": group_number, "label": label,
+            "invite_code": code, "sealed": False}
+        self.equipes[(assignment_id, user)] = team_id
+        self.verrous[(assignment_id, user)] = False
+        return team_id
+
+    def team_join(self, user, assignment_id, code, taille_max):
+        if (assignment_id, user) in self.equipes:
+            return None
+        for (team_id, devoir), meta in self.equipes_meta.items():
+            if devoir != assignment_id or meta.get("invite_code") != code:
+                continue
+            if meta["sealed"] or len(self._membres(devoir, team_id)) >= taille_max:
+                return None
+            self.equipes[(assignment_id, user)] = team_id
+            self._rouvrir(assignment_id, team_id)
+            return team_id
+        return None
+
+    def team_leave(self, user, assignment_id):
+        team_id = self.equipes.get((assignment_id, user))
+        if team_id is None or self._meta(team_id, assignment_id)["sealed"]:
+            return False
+        del self.equipes[(assignment_id, user)]
+        self.verrous.pop((assignment_id, user), None)
+        self._rouvrir(assignment_id, team_id)
+        return True
+
+    def team_settings(self, user, assignment_id, label, group_number):
+        team_id = self.equipes.get((assignment_id, user))
+        if team_id is None:
+            return False
+        meta = self._meta(team_id, assignment_id)
+        if meta["sealed"]:
+            return False
+        meta["label"], meta["group_number"] = label, group_number
+        self._rouvrir(assignment_id, team_id)
+        return True
+
+    def team_lock(self, user, assignment_id, locked, taille_min, taille_max):
+        team_id = self.equipes.get((assignment_id, user))
+        if team_id is None:
+            return True
+        meta = self._meta(team_id, assignment_id)
+        if meta["sealed"]:
+            return True
+        self.verrous[(assignment_id, user)] = bool(locked)
+        membres = self._membres(assignment_id, team_id)
+        # LE SCELLEMENT EST DECIDE ICI, comme en SQL dans la meme instruction :
+        # tout le monde a confirme, la taille tient, le groupe est choisi.
+        if (locked and meta["group_number"] is not None
+                and taille_min <= len(membres) <= taille_max
+                and all(self.verrous.get((assignment_id, m)) for m in membres)):
+            meta["sealed"] = True
+        return True
+
+    def team_by_code(self, assignment_id, code):
+        for (team_id, devoir), meta in self.equipes_meta.items():
+            if devoir == assignment_id and meta.get("invite_code") == code:
+                return {"team_id": team_id, "sealed": meta["sealed"],
+                        "members": len(self._membres(devoir, team_id))}
+        return None
+
+    def team_locks(self, assignment_id, team_id):
+        return {compte: bool(self.verrous.get((assignment_id, compte)))
+                for compte in self._membres(assignment_id, team_id)}
 
     def team_memberships(self, user):
         lignes = []
         for (devoir, compte), equipe in sorted(self.equipes.items()):
             if compte != user:
                 continue
-            meta = self.equipes_meta.get((equipe, devoir), {})
+            meta = self._meta(equipe, devoir)
             lignes.append({"assignment_id": devoir, "team_id": equipe,
                            "group_number": meta.get("group_number"),
-                           "label": meta.get("label")})
+                           "label": meta.get("label"),
+                           "invite_code": (None if meta.get("sealed")
+                                           else meta.get("invite_code")),
+                           "sealed": bool(meta.get("sealed")),
+                           "locked": bool(self.verrous.get((devoir, compte)))})
         return lignes
 
     def team_roster(self, assignment_id, team_id):
@@ -3099,6 +3209,236 @@ def test_mon_equipe_dit_une_panne_au_lieu_d_inventer_une_absence():
         faux.team_memberships = lambda *_: None
         r = client.get("/team/mine", headers=_entetes("t-alice"))
         assert r.status_code == 503 and r.json() == {"error": "la base ne répond pas"}
+
+
+# --- Se former une équipe -------------------------------------------------------
+# LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE : CTester ne lui montre jamais un
+# `sub`. Les équipes se forment donc elles-mêmes, sous protocole -- créer,
+# partager un code, rejoindre, et CHACUN confirme. Ce qui est éprouvé ici, c'est
+# que le protocole ne s'ouvre jamais par le milieu.
+
+
+@contextlib.contextmanager
+def deploiement_formation(**kw):
+    """Un déploiement avec le devoir publié et AUCUNE équipe inscrite."""
+    base = BaseSimulee()
+    with contexte(jetons=JETONS_EQUIPE, moderateurs=("sub-prof",), base=base,
+                  exercices=DEVOIR, devoir=_devoir_json(**kw)) as (c, faux, tmp):
+        yield c, faux, tmp
+
+
+def test_une_equipe_se_forme_puis_se_scelle():
+    """LE PROTOCOLE COMPLET, dans l'ordre où un étudiant le vit."""
+    with deploiement_formation() as (client, faux, _):
+        # 1. Créer. L'identifiant est TIRÉ par le serveur -- jamais choisi :
+        #    il clé le document partagé et nomme la salle de collaboration.
+        creee = client.post("/team/create", headers=_entetes("t-alice"),
+                            json={"assignment_id": "devoir",
+                                  "label": "Les matracs", "group_number": 4})
+        assert creee.status_code == 200, creee.text
+        equipe = creee.json()["team"]
+        code = equipe["invite_code"]
+        assert code and len(code) == 6, equipe
+        assert not set(code) & set("ILO01"), \
+            "le code évite les caractères qu'on confond : " + code
+        assert equipe["sealed"] is False and equipe["label"] == "Les matracs"
+        assert "sub-" not in creee.text, creee.text
+
+        # 2. Deux fois, non : la clé primaire dit qu'on est sur UNE équipe.
+        assert client.post("/team/create", headers=_entetes("t-alice"),
+                           json={"assignment_id": "devoir", "label": "Autre",
+                                 "group_number": 4}).status_code == 409
+
+        # 3. Rejoindre. QUATRE REFUS, QUATRE PHRASES -- un seul message les
+        #    enverrait tous redemander le code à quelqu'un qui l'a bien donné.
+        faux_code = client.post("/team/join", headers=_entetes("t-bob"),
+                                json={"assignment_id": "devoir", "code": "ZZZZZZ"})
+        assert faux_code.status_code == 404
+        assert "aucune équipe" in faux_code.json()["error"]
+        for jeton in ("t-bob", "t-cleo"):
+            r = client.post("/team/join", headers=_entetes(jeton),
+                            json={"assignment_id": "devoir", "code": code})
+            assert r.status_code == 200, r.text
+        # LE CODE EST INSENSIBLE À LA CASSE : il se recopie d'un téléphone.
+        assert client.post("/team/join", headers=_entetes("t-prof"),
+                           json={"assignment_id": "devoir",
+                                 "code": code.lower()}).status_code == 200
+
+        # 4. LE DEVOIR RESTE FERMÉ tant que l'équipe n'est pas confirmée --
+        #    c'est ce qui fait qu'on ne gagne RIEN à rejoindre une équipe.
+        ferme = client.get("/team/document?assignment=devoir&ex=dev-a",
+                           headers=_entetes("t-alice"))
+        assert ferme.status_code == 403
+        assert "confirm" in ferme.json()["error"], ferme.text
+
+        # 5. Confirmer. Le scellement n'arrive qu'à la DERNIÈRE.
+        for jeton in ("t-alice", "t-bob", "t-cleo"):
+            r = client.post("/team/lock", headers=_entetes(jeton),
+                            json={"assignment_id": "devoir", "locked": True})
+            assert r.status_code == 200, r.text
+            assert r.json()["team"]["sealed"] is False, jeton + " a scellé trop tôt"
+            # ET L'ÉCRAN DIT CE QUI MANQUE : un bouton qui ne fait rien sans
+            # expliquer est une équipe qui écrit à son enseignant.
+            assert r.json()["team"]["missing"], r.text
+        dernier = client.post("/team/lock", headers=_entetes("t-prof"),
+                              json={"assignment_id": "devoir", "locked": True})
+        scellee = dernier.json()["team"]
+        assert scellee["sealed"] is True, dernier.text
+        assert scellee["missing"] == []
+        # LE CODE DISPARAÎT AVEC LE SCELLEMENT : il n'ouvre plus rien.
+        assert scellee["invite_code"] is None
+
+        # 6. ET LE DEVOIR S'OUVRE.
+        assert client.get("/team/document?assignment=devoir&ex=dev-a",
+                          headers=_entetes("t-alice")).status_code == 200
+
+
+def test_une_equipe_scellee_ne_se_rouvre_jamais():
+    """LA MOITIÉ QUI REMPLACE « personne ne choisit son équipe ».
+
+    Une équipe non scellée n'a accès à rien, donc rien à convoiter ; une
+    équipe scellée ne se rejoint plus, donc rien à voler. Les deux ensemble
+    referment ce que la perte du listage avait ouvert.
+    """
+    with deploiement_formation() as (client, faux, _):
+        faux.inscrire("devoir", "e1", ["sub-alice", "sub-cleo"], code="AAAAAA")
+        for chemin, corps in (
+                ("/team/join", {"assignment_id": "devoir", "code": "AAAAAA"}),):
+            r = client.post(chemin, headers=_entetes("t-bob"), json=corps)
+            assert r.status_code == 409, r.text
+            assert "déjà confirmée" in r.json()["error"]
+        # On n'en sort plus, on ne la renomme plus, on ne la déconfirme plus.
+        for chemin, corps in (
+                ("/team/leave", {"assignment_id": "devoir"}),
+                ("/team/lock", {"assignment_id": "devoir", "locked": False})):
+            r = client.post(chemin, headers=_entetes("t-alice"), json=corps)
+            assert r.status_code == 409, (chemin, r.text)
+        r = client.put("/team/settings", headers=_entetes("t-alice"),
+                       json={"assignment_id": "devoir", "label": "Renommee",
+                             "group_number": 6})
+        assert r.status_code == 409, r.text
+        assert faux.equipes_meta[("e1", "devoir")]["label"] == "e1"
+
+
+def test_tout_changement_fait_tomber_les_confirmations():
+    """UN VERROU VAUT POUR L'ÉTAT EXACT QU'ON A VU.
+
+    Sans ça, trois personnes confirmant une équipe de trois se retrouveraient
+    scellées à quatre sans l'avoir su : leur consentement porterait sur autre
+    chose que ce qu'elles ont signé. C'est LA propriété qui rend le
+    verrouillage honnête, et elle vaut pour les quatre changements possibles.
+    """
+    with deploiement_formation() as (client, faux, _):
+        creee = client.post("/team/create", headers=_entetes("t-alice"),
+                            json={"assignment_id": "devoir", "label": "Eq",
+                                  "group_number": 4})
+        code = creee.json()["team"]["invite_code"]
+        client.post("/team/join", headers=_entetes("t-bob"),
+                    json={"assignment_id": "devoir", "code": code})
+        confirme = lambda: [m["locked"] for m in client.get(  # noqa: E731
+            "/team/mine", headers=_entetes("t-alice")).json()["teams"][0]["members"]]
+
+        client.post("/team/lock", headers=_entetes("t-alice"),
+                    json={"assignment_id": "devoir", "locked": True})
+        assert confirme() == [True, False]
+        # QUELQU'UN ENTRE -> tout retombe.
+        client.post("/team/join", headers=_entetes("t-cleo"),
+                    json={"assignment_id": "devoir", "code": code})
+        assert confirme() == [False, False, False], "entrer n'a pas rouvert"
+        # QUELQU'UN PART -> pareil.
+        client.post("/team/lock", headers=_entetes("t-alice"),
+                    json={"assignment_id": "devoir", "locked": True})
+        client.post("/team/leave", headers=_entetes("t-cleo"),
+                    json={"assignment_id": "devoir"})
+        assert confirme() == [False, False], "partir n'a pas rouvert"
+        # LE NOM OU LE GROUPE CHANGENT -> pareil : on confirme une composition
+        # ET un groupe, pas seulement une liste de noms.
+        client.post("/team/lock", headers=_entetes("t-alice"),
+                    json={"assignment_id": "devoir", "locked": True})
+        client.put("/team/settings", headers=_entetes("t-bob"),
+                   json={"assignment_id": "devoir", "label": "Eq",
+                         "group_number": 6})
+        assert confirme() == [False, False], "changer le groupe n'a pas rouvert"
+
+
+def test_le_scellement_verifie_la_taille_et_le_groupe():
+    """Une équipe de deux ne se scelle pas quand le devoir en demande trois.
+
+    ELLE RESTE EN FORMATION, ce que la page dit -- plutôt qu'un bouton qui ne
+    répond pas. Et le groupe est une condition au même titre : il est CHOISI
+    au scellement, donc il doit y être.
+    """
+    with deploiement_formation() as (client, faux, _):
+        creee = client.post("/team/create", headers=_entetes("t-alice"),
+                            json={"assignment_id": "devoir", "label": "Eq",
+                                  "group_number": 4})
+        code = creee.json()["team"]["invite_code"]
+        client.post("/team/join", headers=_entetes("t-bob"),
+                    json={"assignment_id": "devoir", "code": code})
+        for jeton in ("t-alice", "t-bob"):
+            r = client.post("/team/lock", headers=_entetes(jeton),
+                            json={"assignment_id": "devoir", "locked": True})
+        # DEUX SUR TROIS : pas scellée, et elle DIT combien il en manque.
+        vue = r.json()["team"]
+        assert vue["sealed"] is False
+        assert any("manque 1 coéquipier" in m for m in vue["missing"]), vue
+        # LE GROUPE EST BORNÉ PAR LA MÊME RÈGLE QUE LE FORUM (`forum_groupe`),
+        # donc une session qui liste ses groupes en refuse un autre.
+        refus = client.put("/team/settings", headers=_entetes("t-alice"),
+                           json={"assignment_id": "devoir", "label": "Eq",
+                                 "group_number": 99})
+        assert refus.status_code == 400 and "groupe" in refus.json()["error"]
+
+
+def test_former_une_equipe_n_ouvre_aucun_document():
+    """LES CINQ ROUTES DE FORMATION N'OUVRENT RIEN, et c'est le partage des
+    rôles : `workspace()` reste la porte du document, de l'historique, de la
+    salle et de la remise. Former et travailler sont deux choses.
+    """
+    with deploiement_formation() as (client, faux, _):
+        creee = client.post("/team/create", headers=_entetes("t-alice"),
+                            json={"assignment_id": "devoir", "label": "Eq",
+                                  "group_number": 4})
+        assert "sources" not in creee.text and "revision" not in creee.text
+        for chemin in ("/team/context?assignment=devoir",
+                       "/team/document?assignment=devoir&ex=dev-a",
+                       "/team/revisions?assignment=devoir&ex=dev-a",
+                       "/team/handin.zip?assignment=devoir"):
+            r = client.get(chemin, headers=_entetes("t-alice"))
+            assert r.status_code == 403, (chemin, r.status_code)
+        # ET LA SOCKET NON PLUS.
+        assert _code_de_fermeture(
+            client, lambda s: _hello(s, "t-alice")) == 4403
+        collab.reset()
+
+
+def test_la_formation_repond_avant_que_le_devoir_n_ouvre():
+    """C'EST TOUT L'INTÉRÊT : le listage se constitue AVANT le premier cours.
+
+    Un étudiant qui ne pourrait former son équipe qu'une fois le devoir ouvert
+    la formerait le matin de la remise.
+    """
+    with deploiement_formation(deadline=None) as (client, faux, tmp):
+        publie = _publier(tmp, DEVOIR, _devoir_json())
+        racine = os.path.join(tmp, "content")
+        _ecrire_contenu(racine, DEVOIR, devoir=dict(
+            _devoir_json(), release={"state": "scheduled",
+                                     "available_from": "2099-10-16T00:00:00-04:00"}))
+        import content_catalog as content_catalogue
+        import publish_content
+        publish_content.publish(content_catalogue.discover(racine), publie)
+
+        # Le devoir ne résout plus...
+        assert client.get("/team/context?assignment=devoir",
+                          headers=_entetes("t-alice")).status_code == 404
+        # ...et l'équipe se forme quand même.
+        creee = client.post("/team/create", headers=_entetes("t-alice"),
+                            json={"assignment_id": "devoir", "label": "Eq",
+                                  "group_number": 4})
+        assert creee.status_code == 200, creee.text
+        mine = client.get("/team/mine", headers=_entetes("t-alice")).json()
+        assert mine["teams"][0]["access"] == "scheduled"
+        assert mine["teams"][0]["sealed"] is False
 
 
 if __name__ == "__main__":

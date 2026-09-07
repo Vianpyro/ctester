@@ -410,83 +410,255 @@ const groupNumber = (n) => "groupe " + String(n).padStart(2, "0");
 // what others see, with no picture of what others see, is a privacy setting
 // one has to imagine. It redraws on every keystroke and every tick, from the
 // same fields the save button will send.
-// MON ÉQUIPE, EN LECTURE SEULE. Aucun champ, aucun bouton : l'appartenance est
-// posée par l'enseignant et l'application n'a même pas le droit SQL de
-// l'écrire. Ce qui est offert est de la VÉRIFIER — et de le faire avant
-// l'ouverture du devoir, qui est le seul moment où une erreur de listage se
-// corrige encore tranquillement.
+// MON ÉQUIPE, ET C'EST ICI QU'ELLE SE FORME.
 //
-// LES COÉQUIPIERS SONT DES POSITIONS, comme partout ailleurs : « Coéquipier 2 »
-// tant qu'ils n'ont pas choisi d'afficher un nom. Voir « il manque quelqu'un »
-// ou « je ne connais aucun de ces trois-là » ne demande pas de savoir qui ils
-// sont.
+// LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE : CTester ne lui montre jamais
+// un `sub`, donc il ne peut nommer personne dans un CSV. Les équipes se
+// forment donc elles-mêmes -- créer, partager un code, rejoindre, et CHACUN
+// confirme. Le devoir s'ouvre au dernier verrou, et pas avant.
+//
+// POURQUOI DANS « Mon identité » ET PAS DANS L'ÉCRAN DU DEVOIR : le devoir
+// ouvre en octobre, et l'équipe se forme en septembre. Un écran qui n'existe
+// qu'une fois le devoir ouvert ferait former les équipes le matin de la
+// remise. Ici, c'est l'écran « qui je suis », et « avec qui je remets » en
+// fait partie.
+//
+// RIEN N'EST CALCULÉ ICI. Ce qui manque pour sceller (`missing`), qui a
+// confirmé (`locked`), le code : tout arrive décidé du serveur. Une page qui
+// déciderait qu'une équipe est complète serait une page où on se le déclare
+// depuis la console.
+
+// L'ACTION QUI VIENT DE SE PASSER, ou son refus. Le panneau est redessiné en
+// entier après chaque appel, donc ce texte est le seul lien entre « j'ai
+// cliqué » et « voilà ce qui s'est passé ».
+let motEquipe = "";
+
+async function actionEquipe(chemin, methode, corps) {
+  const reponse = await ctester.compte.sendJson(chemin, methode, corps);
+  if (!reponse) {
+    motEquipe = "Le serveur ne répond pas. Réessaie dans un instant.";
+  } else if (!reponse.ok) {
+    // LE MESSAGE DU SERVEUR, PAS LE NÔTRE : c'est lui qui sait si le code est
+    // faux, si l'équipe est complète ou si elle est déjà confirmée -- trois
+    // choses qui envoient à trois endroits différents.
+    motEquipe = (reponse.corps && reponse.corps.error)
+      || "Ça n'a pas marché. Réessaie dans un instant.";
+  } else {
+    motEquipe = "";
+  }
+  await chargerProfil();
+  renderPanel();
+}
+
+function equipeDe(assignmentId) {
+  return (equipes || []).find((e) => e.assignment_id === assignmentId) || null;
+}
+
+// LE CHAMP DE GROUPE, IDENTIQUE À CELUI DU PROFIL : même liste fermée, même
+// règle côté serveur (`forum_groupe`). Deux façons de saisir un groupe
+// finiraient par en accepter deux jeux différents.
+function champGroupe(id, valeur) {
+  const groupes = Array.isArray(profil && profil.group_numbers)
+    ? profil.group_numbers : [];
+  let champ;
+  if (groupes.length) {
+    champ = node("select");
+    const vide = node("option", "", "— choisis ton groupe —");
+    vide.value = "";
+    champ.append(vide);
+    for (const g of groupes) {
+      const o = node("option", "", groupNumber(g));
+      o.value = String(g);
+      champ.append(o);
+    }
+  } else {
+    champ = node("input");
+    champ.type = "number";
+    champ.min = "1";
+    champ.max = "99";
+  }
+  champ.id = id;
+  champ.value = valeur === null || valeur === undefined ? "" : String(valeur);
+  return champ;
+}
+
+// SANS ÉQUIPE : créer, ou rejoindre avec le code d'un coéquipier. Les deux
+// côte à côte, parce qu'un seul des quatre crée et que les trois autres
+// cherchent l'autre moitié de l'écran.
+function formerUneEquipe(devoir) {
+  const box = node("div", "equipe");
+  box.append(node("div", "equipetitre", devoir.title));
+  box.append(node("p", "aide", "Vous serez " + devoir.team.min
+    + (devoir.team.max > devoir.team.min ? " à " + devoir.team.max : "")
+    + ". L'un de vous crée l'équipe et partage le code ; les autres le "
+    + "saisissent ici. Le devoir s'ouvre quand tout le monde a confirmé."));
+
+  const nom = node("input");
+  nom.id = "equipenom";
+  nom.type = "text";
+  nom.maxLength = 40;
+  nom.placeholder = "Nom de votre équipe";
+  const groupe = champGroupe("equipegroupe", null);
+  const creer = button("Créer l'équipe", "", () => actionEquipe(
+    "team/create", "POST", { assignment_id: devoir.id, label: nom.value,
+                             group_number: groupe.value }));
+  box.append(node("label", "", "Créer une équipe"), nom, groupe,
+             node("div", "row", ""));
+  box.children[box.children.length - 1].append(creer);
+
+  const code = node("input");
+  code.id = "equipecode";
+  code.type = "text";
+  code.maxLength = 8;
+  code.placeholder = "Code reçu (ex. K7M2X9)";
+  const rejoindre = button("Rejoindre", "nav", () => actionEquipe(
+    "team/join", "POST", { assignment_id: devoir.id, code: code.value }));
+  box.append(node("label", "", "…ou rejoindre celle de tes coéquipiers"), code,
+             node("div", "row", ""));
+  box.children[box.children.length - 1].append(rejoindre);
+  return box;
+}
+
+// EN FORMATION : le code à partager, qui a confirmé, ce qui manque encore.
+function equipeEnFormation(equipe) {
+  const box = node("div", "equipe");
+  const titre = node("div", "equipetitre");
+  titre.append(node("b", "", equipe.label));
+  titre.append(node("span", "tag", equipe.assignment_title));
+  titre.append(node("span", "tag", "en formation"));
+  box.append(titre);
+
+  // LE CODE EST LA MOITIÉ UTILE DE CET ÉCRAN : c'est ce qu'on copie dans
+  // Discord. En gros, en monospace, et seul sur sa ligne.
+  const partage = node("div", "equipecode");
+  partage.append(node("span", "quoi", "Code à partager"));
+  partage.append(node("b", "code", equipe.invite_code || "—"));
+  box.append(partage);
+
+  box.append(membresDe(equipe));
+
+  // CE QUI MANQUE, DIT PAR LE SERVEUR. Un bouton qui ne fait rien sans
+  // expliquer est une équipe qui écrit à son enseignant.
+  // `|| []` : une API plus vieille que la page ne porte pas `missing`, et un
+  // écran qui plante là-dessus laisse l'étudiant sans équipe DU TOUT plutôt
+  // que sans la phrase qui explique ce qui manque.
+  const reste = equipe.missing || [];
+  if (reste.length) {
+    box.append(node("p", "aide", "Il reste : " + reste.join(", ") + "."));
+  }
+
+  const reglages = node("div", "row");
+  const nom = node("input");
+  nom.id = "equipenom";
+  nom.type = "text";
+  nom.maxLength = 40;
+  nom.value = equipe.label;
+  const groupe = champGroupe("equipegroupe", equipe.group_number);
+  // « Enregistrer L'ÉQUIPE » : le panneau porte DÉJÀ un « Enregistrer », celui
+  // du profil, juste en dessous. Deux boutons du même nom dans le même écran,
+  // c'est un étudiant qui enregistre l'autre chose -- et un harnais qui
+  // clique sur le mauvais, ce qui vient d'arriver.
+  reglages.append(nom, groupe, button("Enregistrer l'équipe", "nav", () => actionEquipe(
+    "team/settings", "PUT", { assignment_id: equipe.assignment_id,
+                              label: nom.value, group_number: groupe.value })));
+  box.append(node("label", "", "Nom et groupe de l'équipe"), reglages);
+  box.append(node("p", "aide", "Changer le nom, le groupe ou la composition "
+    + "annule toutes les confirmations : chacun confirme ce qu'il a vu."));
+
+  const actions = node("div", "row");
+  actions.append(equipe.locked
+    ? button("Retirer ma confirmation", "nav", () => actionEquipe(
+        "team/lock", "POST", { assignment_id: equipe.assignment_id,
+                               locked: false }))
+    : button("Je confirme cette équipe", "", () => actionEquipe(
+        "team/lock", "POST", { assignment_id: equipe.assignment_id,
+                               locked: true })));
+  actions.append(button("Quitter l'équipe", "nav", () => {
+    if (typeof confirm !== "function"
+        || confirm("Quitter « " + equipe.label + " » ? Tu pourras rejoindre "
+                   + "une autre équipe, mais celle-ci devra reconfirmer.")) {
+      actionEquipe("team/leave", "POST",
+                   { assignment_id: equipe.assignment_id });
+    }
+  }));
+  box.append(actions);
+  return box;
+}
+
+// SCELLÉE : plus rien à décider, et c'est le but. Ce qui reste est ce qu'on
+// vient vérifier -- qui, quel groupe, et quand le devoir ouvre.
+function equipeScellee(equipe) {
+  const box = node("div", "equipe");
+  const titre = node("div", "equipetitre");
+  titre.append(node("b", "", equipe.label));
+  if (equipe.group_number !== null && equipe.group_number !== undefined) {
+    titre.append(node("span", "tag", groupNumber(equipe.group_number)));
+  }
+  titre.append(node("span", "tag", equipe.assignment_title));
+  titre.append(node("span", "tag ok", "confirmée"));
+  // LA DATE D'OUVERTURE PLUTÔT QUE RIEN : sans elle, une équipe confirmée sur
+  // un devoir fermé n'a l'air de rien. Même choix que le cadenas daté du menu.
+  if (equipe.access !== "available") {
+    const quand = new Date(equipe.available_from || "");
+    titre.append(node("span", "tag", isNaN(quand.getTime()) ? "à venir"
+      : "ouvre le " + quand.toLocaleDateString(undefined,
+                                               { day: "numeric", month: "long" })));
+  }
+  box.append(titre);
+  box.append(membresDe(equipe));
+  return box;
+}
+
+// LES COÉQUIPIERS, AVEC LEUR COULEUR DE CURSEUR ET LEUR CONFIRMATION. La
+// couleur est la même que dans l'éditeur partagé : c'est le seul lien entre
+// « le curseur orange » et « Coéquipier 2 ».
+function membresDe(equipe) {
+  const gens = node("div", "equipegens");
+  for (const membre of equipe.members || []) {
+    const puce = node("span", "mate" + (membre.locked ? " on" : ""));
+    const point = node("i", "dot");
+    point.setAttribute("style", "background:" + membre.color);
+    puce.append(point, node("span", "", membre.name + (membre.you ? " (toi)" : "")));
+    // LE SIGNE EN PLUS DE L'ÉTAT, jamais à la place : une opacité seule ne se
+    // lit ni en noir et blanc, ni par quelqu'un qui distingue mal les gris.
+    puce.append(node("i", "marque", membre.locked ? "✓" : "…"));
+    puce.title = membre.locked ? "a confirmé" : "n'a pas encore confirmé";
+    gens.append(puce);
+  }
+  return gens;
+}
+
 function mesEquipes() {
-  // TROIS ÉTATS, PAS DEUX, et les confondre est exactement ce qui a coûté une
-  // session de diagnostic : « tu n'as pas d'équipe », « la liste n'a pas pu
-  // être lue » et « il n'y a pas de devoir d'équipe sur ce déploiement » se
-  // ressemblaient tous les trois -- c'est-à-dire à rien du tout, un panneau
-  // qui ne dit rien. Le jour où l'API tournait encore sur une version sans
-  // `/team/mine`, la page n'avait aucun moyen de le laisser voir.
-  //
-  // C'est le même invariant que « une projection absente n'est pas un zéro »
-  // de « Mes progrès », et il vaut ici encore plus : cet écran existe pour
-  // qu'un étudiant VÉRIFIE son inscription, et un écran de vérification qui
-  // se tait répond « tout va bien » à toutes les questions.
+  // TROIS ÉTATS, PAS DEUX, et les confondre est ce qui a coûté une session de
+  // diagnostic : « tu n'as pas d'équipe », « la liste n'a pas pu être lue » et
+  // « il n'y a pas de devoir d'équipe » se ressemblaient tous les trois --
+  // c'est-à-dire à rien du tout. Un écran de vérification qui se tait répond
+  // « tout va bien » à toutes les questions.
   //
   // RIEN DU TOUT quand le déploiement n'a aucun devoir d'équipe : là, le
-  // silence est la bonne réponse. On le lit dans le catalogue, que le noyau a
-  // déjà chargé -- pas une requête de plus.
+  // silence est la bonne réponse. Lu dans le catalogue que le noyau a déjà
+  // chargé -- pas une requête de plus.
   const devoirs = (ctester.assignments() || []).filter((a) => a && a.team);
   if (!devoirs.length) return node("span", "");
   const box = node("div", "mesequipes");
+  box.append(node("h3", "soustitre", devoirs.length > 1 ? "Mes équipes" : "Mon équipe"));
+  if (motEquipe) box.append(node("p", "rate", motEquipe));
   if (equipes === null) {
-    box.append(node("h3", "soustitre", "Mon équipe"));
     box.append(node("p", "rate", "La liste de tes équipes n'a pas pu être lue."));
     box.append(node("p", "aide", "Réessaie dans un instant. Si ça persiste, "
       + "préviens ton enseignant : ce n'est pas toi, c'est le service."));
     return box;
   }
-  if (!equipes.length) {
-    box.append(node("h3", "soustitre", "Mon équipe"));
-    box.append(node("p", "annonce", "Tu n'es inscrit à aucune équipe."));
-    box.append(node("p", "aide", "Les équipes sont posées par ton enseignant, "
-      + "elles ne se choisissent pas ici. S'il y a un devoir d'équipe à ton "
-      + "horaire, dis-lui que tu n'y apparais pas — avant la date d'ouverture, "
-      + "ça se corrige en une minute."));
-    return box;
+  for (const devoir of devoirs) {
+    const equipe = equipeDe(devoir.id);
+    if (!equipe) box.append(formerUneEquipe(devoir));
+    else if (equipe.sealed) box.append(equipeScellee(equipe));
+    else box.append(equipeEnFormation(equipe));
   }
-  box.append(node("h3", "soustitre", equipes.length > 1 ? "Mes équipes" : "Mon équipe"));
-  for (const equipe of equipes) {
-    const ligne = node("div", "equipe");
-    const titre = node("div", "equipetitre");
-    titre.append(node("b", "", equipe.label));
-    titre.append(node("span", "tag", groupNumber(equipe.group_number)));
-    titre.append(node("span", "tag", equipe.assignment_title));
-    // LA DATE D'OUVERTURE PLUTÔT QUE RIEN : sans elle, un devoir programmé
-    // ressemble à une équipe qui ne sert à rien. C'est le même choix que le
-    // cadenas daté du menu.
-    if (equipe.access !== "available") {
-      const quand = new Date(equipe.available_from || "");
-      titre.append(node("span", "tag", isNaN(quand.getTime()) ? "à venir"
-        : "ouvre le " + quand.toLocaleDateString(undefined,
-                                                 { day: "numeric", month: "long" })));
-    }
-    ligne.append(titre);
-    const gens = node("div", "equipegens");
-    for (const membre of equipe.members) {
-      const puce = node("span", "mate" + (membre.you ? " on" : ""));
-      const point = node("i", "dot");
-      point.setAttribute("style", "background:" + membre.color);
-      puce.append(point, node("span", "", membre.name + (membre.you ? " (toi)" : "")));
-      gens.append(puce);
-    }
-    ligne.append(gens);
-    box.append(ligne);
-  }
-  box.append(node("p", "aide", "Ton équipe est fixée par ton enseignant : elle "
-    + "ne se choisit pas ici. Si elle est fausse, dis-le-lui avant la date "
-    + "d'ouverture. Les coéquipiers qui n'ont pas affiché leur nom "
-    + "apparaissent en « Coéquipier »."));
+  box.append(node("p", "aide", "Une équipe confirmée ne se modifie plus : "
+    + "c'est ce qui garantit que personne ne rejoint la vôtre une fois le "
+    + "travail commencé. Si elle est fausse, dis-le à ton enseignant avant "
+    + "de confirmer."));
   return box;
 }
 

@@ -482,11 +482,8 @@ const EQUIPE = {
     { id: "m3", name: "Coéquipier 3", color: "#7d57c1", you: false }] },
   submission: {},
 };
-// CE QUE LE COMPTE N'A PAS : `refuse` fait répondre 403 au contexte, comme le
-// ferait un étudiant qui n'est inscrit dans aucune équipe.
-let EQUIPE_REFUSEE = false;
-// La route qui n'existe pas encore -- une API plus vieille que la page.
-let EQUIPE_MUETTE = false;
+// (`EQUIPE_REFUSEE` et `EQUIPE_MUETTE` sont déclarés avec le serveur de
+// formation plus bas : c'est lui qui les lit.)
 const DOCUMENTS = { "dev-a": { "main.c": "int main(void){return 0;}\n" } };
 const REVISIONS = [{ id: "r1", author: "m2", created_at: "2026-09-07T14:32Z",
                      bytes: 640 }];
@@ -499,18 +496,8 @@ function equipeRepond(url, opts) {
   const corps = opts && opts.body ? JSON.parse(opts.body) : null;
   const chemin = String(url).split("?")[0];
   const ex = decodeURIComponent(String(url).split("ex=")[1] || "");
-  if (chemin === "team/mine") {
-    // LA ROUTE ABSENTE : c'est ce que l'API répondait tant que le Dell
-    // tournait sur une version antérieure, et la page n'en laissait rien voir.
-    if (EQUIPE_MUETTE) return rendErreur(404, "inconnu");
-    // PROGRAMMÉ, PAS OUVERT, ET C'EST LE CAS QUI COMPTE : le listage est
-    // chargé avant le premier cours, et c'est là qu'une erreur se corrige
-    // encore tranquillement.
-    return rendJson({ teams: EQUIPE_REFUSEE ? [] : [{
-      assignment_id: "devoir", assignment_title: "Devoir — Analyseur GPS",
-      access: "scheduled", available_from: "2099-10-16T00:00:00-04:00",
-      deadline: "2099-12-05T23:59:00-05:00",
-      label: "Équipe 1", group_number: 4, members: EQUIPE.team.members }] });
+  if (chemin.startsWith("team/") && FORMATION[chemin.slice(5)]) {
+    return FORMATION[chemin.slice(5)](corps);
   }
   if (chemin === "team/context") {
     if (EQUIPE_REFUSEE) return rendErreur(403, "tu n'es pas inscrit à une équipe");
@@ -539,6 +526,128 @@ function equipeRepond(url, opts) {
   }
   return rendErreur(404, "inconnu");
 }
+
+// --- La formation d'équipe, côté serveur, en carton mais VIVANTE ------------
+// LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE (il ne voit jamais un `sub`),
+// donc les équipes se forment elles-mêmes : créer, partager un code,
+// rejoindre, et chacun confirme. Ce modèle-ci tient l'état pour de vrai --
+// un bouchon qui répondrait toujours la même chose ne prouverait pas que la
+// page relit le serveur au lieu de tenir sa propre idée de qui a confirmé.
+let MON_EQUIPE = null;          // l'équipe de CE compte, ou null
+let EQUIPE_MUETTE = false;      // la route qui n'existe pas encore
+let EQUIPE_REFUSEE = false;     // ce compte n'a aucune équipe
+// Une AUTRE équipe, déjà scellée : c'est elle qu'on essaie de rejoindre pour
+// vérifier qu'une équipe close ne se rouvre pas.
+const CODE_SCELLEE = "ZZZZ99";
+
+const equipeVue = () => MON_EQUIPE && Object.assign({}, MON_EQUIPE, {
+  assignment_id: "devoir", assignment_title: "Devoir — Analyseur GPS",
+  access: "scheduled", available_from: "2099-10-16T00:00:00-04:00",
+  deadline: "2099-12-05T23:59:00-05:00",
+  // CE QUI MANQUE EST DÉCIDÉ PAR LE SERVEUR, jamais par la page : une page
+  // qui déciderait qu'une équipe est complète serait une page où on se le
+  // déclare depuis la console.
+  invite_code: MON_EQUIPE.sealed ? null : MON_EQUIPE.invite_code,
+  missing: MON_EQUIPE.sealed ? [] : [].concat(
+    MON_EQUIPE.members.length < 3
+      ? ["il manque " + (3 - MON_EQUIPE.members.length) + " coéquipier"] : [],
+    MON_EQUIPE.group_number === null ? ["le groupe n'est pas choisi"] : [],
+    MON_EQUIPE.members.some((m) => !m.locked)
+      ? [MON_EQUIPE.members.filter((m) => !m.locked).length
+         + " confirmation(s) manquante(s)"] : []),
+});
+
+// TOUT CHANGEMENT FAIT TOMBER LES CONFIRMATIONS : un verrou vaut pour l'état
+// exact qu'on a vu. C'est la règle du serveur, et le carton doit la tenir
+// aussi, sinon le harnais éprouverait une page contre un modèle plus laxiste.
+const rouvrir = () => MON_EQUIPE.members.forEach((m) => { m.locked = false; });
+
+const FORMATION = {
+  mine: () => {
+    if (EQUIPE_MUETTE) return rendErreur(404, "inconnu");
+    return rendJson({ teams: (EQUIPE_REFUSEE || !MON_EQUIPE)
+      ? [] : [equipeVue()] });
+  },
+  create: (corps) => {
+    equipeEnvois.push({ url: "team/create", corps });
+    if (MON_EQUIPE) return rendErreur(409, "tu es déjà dans une équipe");
+    if (!String(corps.label || "").trim()) {
+      return rendErreur(400, "donne un nom à ton équipe");
+    }
+    MON_EQUIPE = {
+      id: "e-tirage", label: corps.label, invite_code: "K7M2X9",
+      group_number: corps.group_number === "" ? null : Number(corps.group_number),
+      sealed: false, locked: false,
+      members: [{ id: "m1", name: "Coéquipier 1", color: "#e0533d",
+                  you: true, locked: false }],
+    };
+    EQUIPE_REFUSEE = false;
+    return rendJson({ team: equipeVue() });
+  },
+  join: (corps) => {
+    equipeEnvois.push({ url: "team/join", corps });
+    if (MON_EQUIPE) return rendErreur(409, "tu es déjà dans une équipe");
+    const code = String(corps.code || "").toUpperCase();
+    // UNE ÉQUIPE SCELLÉE NE SE REJOINT PLUS -- c'est ce qui fait qu'on ne
+    // gagne rien à rejoindre l'équipe de quelqu'un d'autre.
+    if (code === CODE_SCELLEE) {
+      return rendErreur(409, "cette équipe est déjà confirmée : elle ne peut "
+                             + "plus accueillir personne");
+    }
+    if (code !== "K7M2X9") {
+      return rendErreur(404, "ce code ne correspond à aucune équipe");
+    }
+    MON_EQUIPE = {
+      id: "e-tirage", label: "Les matracs", invite_code: "K7M2X9",
+      group_number: 4, sealed: false, locked: false,
+      // DEUX DÉJÀ LÀ, ET MOI : trois, ce que le devoir demande. Rejoindre une
+      // équipe qui ne pourra jamais sceller n'éprouverait pas le scellement.
+      members: [{ id: "m1", name: "Coéquipier 1", color: "#e0533d",
+                  you: false, locked: true },
+                { id: "m2", name: "Coéquipier 2", color: "#2f8fd8",
+                  you: false, locked: true },
+                { id: "m3", name: "Coéquipier 3", color: "#7d57c1",
+                  you: true, locked: false }],
+    };
+    EQUIPE_REFUSEE = false;
+    return rendJson({ team: equipeVue() });
+  },
+  leave: (corps) => {
+    equipeEnvois.push({ url: "team/leave", corps });
+    if (MON_EQUIPE && MON_EQUIPE.sealed) {
+      return rendErreur(409, "ton équipe est déjà confirmée : on n'en sort plus");
+    }
+    MON_EQUIPE = null;
+    return rendJson({ ok: true, team: null });
+  },
+  settings: (corps) => {
+    equipeEnvois.push({ url: "team/settings", corps });
+    if (!MON_EQUIPE) return rendErreur(404, "aucune équipe");
+    if (MON_EQUIPE.sealed) return rendErreur(409, "déjà confirmée");
+    MON_EQUIPE.label = corps.label;
+    MON_EQUIPE.group_number = corps.group_number === ""
+      ? null : Number(corps.group_number);
+    rouvrir();
+    MON_EQUIPE.locked = false;
+    return rendJson({ team: equipeVue() });
+  },
+  lock: (corps) => {
+    equipeEnvois.push({ url: "team/lock", corps });
+    if (!MON_EQUIPE) return rendErreur(404, "aucune équipe");
+    if (MON_EQUIPE.sealed) return rendErreur(409, "déjà confirmée");
+    MON_EQUIPE.locked = !!corps.locked;
+    const moi = MON_EQUIPE.members.find((m) => m.you);
+    if (moi) moi.locked = MON_EQUIPE.locked;
+    // LE SCELLEMENT N'ARRIVE QU'À LA DERNIÈRE CONFIRMATION, et il vérifie la
+    // taille ET le groupe -- il est choisi au scellement, donc il doit y être.
+    if (MON_EQUIPE.members.every((m) => m.locked)
+        && MON_EQUIPE.members.length >= 3
+        && MON_EQUIPE.group_number !== null) {
+      MON_EQUIPE.sealed = true;
+    }
+    return rendJson({ team: equipeVue() });
+  },
+};
 
 // LA SOCKET, EN CARTON MAIS SYMÉTRIQUE : ce que la page envoie est retenu, et
 // le harnais peut lui pousser une trame comme le ferait un coéquipier. C'est
@@ -2076,58 +2185,123 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(/Bob B/.test(vuForum) && /groupe 04/.test(vuForum),
         "un nom choisi par un autre s'affiche, avec son groupe sur deux chiffres");
 
-  // MON ÉQUIPE, DANS LE PROFIL, EN LECTURE SEULE ET AVANT L'OUVERTURE.
-  // C'est le seul écran qui répond « suis-je dans la bonne équipe ? » tant que
-  // le devoir est verrouillé -- et c'est justement le moment où la réponse
-  // sert encore à quelque chose.
-  const vuPanneau = profond(panneau);
-  check(/Mon équipe/.test(vuPanneau), "le profil porte l'équipe : " + vuPanneau);
-  check(/Équipe 1/.test(vuPanneau) && /groupe 04/.test(vuPanneau),
-        "avec son libellé et son groupe");
-  check(/ouvre le/.test(vuPanneau),
-        "et la date d'ouverture, sinon une équipe sans devoir ouvert n'a l'air "
-        + "de rien : " + vuPanneau);
-  check(/Coéquipier 1 \(toi\)/.test(vuPanneau) && /Coéquipier 3/.test(vuPanneau),
-        "les coéquipiers sont des positions tant qu'ils n'affichent rien");
-  check(!/sub-/.test(vuPanneau), "et aucun identifiant de compte n'en sort");
-  // AUCUN CHAMP, AUCUN BOUTON : l'appartenance est posée par l'enseignant, et
-  // l'application n'a même pas le droit SQL de l'écrire. Ce qui est offert est
-  // de la CONSTATER.
-  const bloc = tousLesNoeuds(panneau)
-    .find((n) => n.className === "mesequipes");
-  check(!!bloc && !tousLesNoeuds(bloc).some(
-          (n) => n.id === "" && (n.listeners || {}).click),
-        "et rien n'y est cliquable : on ne choisit pas son équipe");
-  check(/fixée par ton enseignant/.test(vuPanneau),
-        "le panneau dit pourquoi, et à qui parler : " + vuPanneau);
-
-  // LES TROIS ÉTATS SE DISENT, et ce n'est pas du confort : le jour où l'API
-  // tournait encore sur une version sans `/team/mine`, ce panneau se taisait
-  // exactement comme s'il n'y avait pas d'équipe -- une page qui répond
-  // « tout va bien » à « suis-je bien inscrit ? ».
-  // PAS DE CACHE À VIDER : `ouvrirIdentite()` relit le profil ET les équipes
-  // à chaque ouverture. Fermer puis rouvrir suffit donc à reposer la question,
-  // et c'est ce qu'un étudiant fait naturellement quand il ne comprend pas ce
-  // qu'il voit.
+  // --- SE FORMER UNE ÉQUIPE, DANS « Mon identité » -------------------------
+  // LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE : CTester ne lui montre
+  // jamais un `sub`. Les équipes se forment donc elles-mêmes, et c'est ici --
+  // l'écran « qui je suis » -- parce que « avec qui je remets » en fait
+  // partie, et parce que le devoir n'ouvre qu'en octobre alors que les
+  // équipes se forment en septembre.
+  //
+  // PAS DE CACHE À VIDER : `ouvrirIdentite()` relit le profil ET les équipes à
+  // chaque ouverture. Fermer puis rouvrir suffit à reposer la question, et
+  // c'est ce qu'un étudiant fait quand il ne comprend pas ce qu'il voit.
   const rouvrir = async () => {
     await nodes.identite.listeners.click();   // ferme
     await nodes.identite.listeners.click();   // rouvre, et relit
     await sleep(); await sleep(); await sleep();
     return profond(panneau);
   };
-  EQUIPE_REFUSEE = true;                       // le serveur : aucune équipe
-  const sansEquipe = await rouvrir();
-  check(/Tu n'es inscrit à aucune équipe/.test(sansEquipe),
-        "aucune équipe se DIT, au lieu de ne rien afficher : " + sansEquipe);
-  check(/avant la date d'ouverture/.test(sansEquipe),
-        "et dit quand le signaler pour que ça serve encore");
-  EQUIPE_MUETTE = true;                        // la route ne répond pas
+  const boutonPanneau = (mot) => tousLesNoeuds(panneau)
+    .find((n) => (n.textContent || "").indexOf(mot) === 0 && n.listeners.click);
+
+  const sansEquipe = profond(panneau);
+  check(/L'un de vous crée l'équipe et partage le code/.test(sansEquipe),
+        "sans équipe, l'écran explique le protocole : " + sansEquipe);
+  check(/Vous serez 3 à 4/.test(sansEquipe),
+        "et la taille vient du DEVOIR, pas de l'application");
+
+  // 1. CRÉER. Un nom vide est refusé par le SERVEUR, et son message remonte.
+  await boutonPanneau("Créer l'équipe").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(/donne un nom à ton équipe/.test(profond(panneau)),
+        "un nom vide est refusé, avec la phrase du serveur : " + profond(panneau));
+  nodes.equipenom.value = "Les matracs";
+  nodes.equipegroupe.value = "4";
+  await boutonPanneau("Créer l'équipe").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  const creee = profond(panneau);
+  check(/Les matracs/.test(creee) && /en formation/.test(creee),
+        "l'équipe est créée, et elle se dit EN FORMATION : " + creee);
+  check(/K7M2X9/.test(creee),
+        "le code à partager est affiché -- c'est la moitié utile de l'écran");
+  check(/il manque 2 coéquipier/.test(creee),
+        "et le serveur dit ce qui manque, plutôt qu'un bouton muet : " + creee);
+
+  // 2. CONFIRMER NE SCELLE PAS TOUT SEUL : il manque des coéquipiers.
+  await boutonPanneau("Je confirme").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(!!boutonPanneau("Retirer ma confirmation"),
+        "une équipe de un ne se scelle pas : on peut encore se déconfirmer");
+  check(/il manque 2 coéquipier/.test(profond(panneau)),
+        "et l'écran dit toujours ce qui manque");
+
+  // 3. CHANGER LE GROUPE FAIT TOMBER LES CONFIRMATIONS. C'est LA propriété
+  //    qui rend le verrouillage honnête : on confirme un état, pas une
+  //    intention.
+  nodes.equipenom.value = "Les matracs";
+  nodes.equipegroupe.value = "6";
+  await boutonPanneau("Enregistrer l'équipe").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(!!boutonPanneau("Je confirme cette équipe"),
+        "changer le groupe a annulé la confirmation : chacun confirme ce "
+        + "qu'il a vu");
+  check(/annule toutes les confirmations/.test(profond(panneau)),
+        "et l'écran le disait AVANT qu'on clique");
+
+  // 4. QUITTER, tant que rien n'est scellé.
+  global.confirm = () => true;
+  await boutonPanneau("Quitter l'équipe").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(/L'un de vous crée l'équipe/.test(profond(panneau)),
+        "quitter ramène à l'écran de formation");
+
+  // 5. REJOINDRE avec un code. Trois refus, trois phrases -- un seul message
+  //    les enverrait tous redemander un code qu'on leur a bien donné.
+  nodes.equipecode.value = "MAUVAIS";
+  await boutonPanneau("Rejoindre").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(/ne correspond à aucune équipe/.test(profond(panneau)),
+        "un code inventé le dit : " + profond(panneau));
+  nodes.equipecode.value = "ZZZZ99";
+  await boutonPanneau("Rejoindre").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(/déjà confirmée/.test(profond(panneau)),
+        "et une équipe scellée ne se rejoint plus -- c'est ce qui fait qu'on "
+        + "ne gagne rien à rejoindre celle d'un autre : " + profond(panneau));
+  nodes.equipecode.value = "k7m2x9";        // en minuscules, exprès
+  await boutonPanneau("Rejoindre").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  const rejointe = profond(panneau);
+  check(/Les matracs/.test(rejointe),
+        "le code se recopie d'un téléphone : la casse n'y change rien");
+  check(/Coéquipier 1/.test(rejointe) && /Coéquipier 3 \(toi\)/.test(rejointe),
+        "les coéquipiers sont des positions tant qu'ils n'affichent rien : "
+        + rejointe);
+  check(!/sub-/.test(rejointe), "et aucun identifiant de compte n'en sort");
+
+  // 6. LA DERNIÈRE CONFIRMATION SCELLE, et le devoir s'ouvre.
+  await boutonPanneau("Je confirme").listeners.click();
+  await sleep(); await sleep(); await sleep();
+  const scellee = profond(panneau);
+  check(/confirmée/.test(scellee) && /ouvre le/.test(scellee),
+        "scellée, avec la date d'ouverture -- sans elle une équipe confirmée "
+        + "sur un devoir fermé n'a l'air de rien : " + scellee);
+  check(!/K7M2X9/.test(scellee),
+        "et le code disparaît : il n'ouvre plus rien");
+  check(!boutonPanneau("Quitter l'équipe") && !boutonPanneau("Retirer ma"),
+        "on ne sort plus d'une équipe confirmée, et on ne la déconfirme plus");
+
+  // 7. LES DEUX AUTRES ÉTATS SE DISENT AUSSI. Le jour où l'API tournait
+  //    encore sans `/team/mine`, ce panneau se taisait exactement comme s'il
+  //    n'y avait pas d'équipe -- une page qui répond « tout va bien » à
+  //    « suis-je bien inscrit ? ».
+  EQUIPE_MUETTE = true;
   const enPanne = await rouvrir();
   check(/n'a pas pu être lue/.test(enPanne),
         "une lecture qui échoue ne se lit PAS « aucune équipe » : " + enPanne);
   check(/ce n'est pas toi, c'est le service/.test(enPanne),
         "et le dit dans ces termes-là");
-  EQUIPE_MUETTE = false; EQUIPE_REFUSEE = false;
+  EQUIPE_MUETTE = false;
   await rouvrir();
 
   const dansPanneau = (texte) => tousLesNoeuds(panneau)

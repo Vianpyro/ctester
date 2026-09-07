@@ -11,8 +11,9 @@ Students write their code in the browser, submit it, and get immediate feedback 
 * Keep test cases and expected outputs private
 * Run untrusted native code inside isolated, disposable sandboxes
 * Provide optional student accounts, progress tracking, and an assistance forum
-* Host **team assignments**: a shared, live-collaborative workspace for teams of
-  three or four, with revision history and a single ZIP hand-in per team
+* Host **team assignments**: students form their own teams by unanimous
+  confirmation, then share a live-collaborative workspace with revision history
+  and a single ZIP hand-in per team
 * Publish course content independently from the application
 
 The service is designed primarily as a **practice and feedback tool**, not as a grading or anti-cheating system.
@@ -36,7 +37,9 @@ The web-facing API never compiles or executes student code and never has access 
 
 The application is intentionally small: a FastAPI backend, a dependency-free frontend, and a small set of Python scripts handling content publication and test execution.
 
-Team assignments add one WebSocket endpoint, which relays [Yjs](https://github.com/yjs/yjs) updates between the members of one team without interpreting them. The server holds the authorization and the durable plain-text copy; the CRDT holds the merge. Team membership is loaded by the instructor and is read-only to the application — the database itself refuses an `INSERT`, so no request can put an account on a team.
+Team assignments add one WebSocket endpoint, which relays [Yjs](https://github.com/yjs/yjs) updates between the members of one team without interpreting them. The server holds the authorization and the durable plain-text copy; the CRDT holds the merge.
+
+Teams form themselves: one student creates a team and shares a code, the others join with it, and **each member confirms the composition**. Only when everyone has confirmed is the team *sealed* — and only then does the assignment open. An unsealed team can reach nothing, and a sealed one can no longer be joined, so there is nothing to gain by joining somebody else's. The instructor never sees an account identifier, which is exactly why he cannot write the roster himself.
 
 ## Tech stack
 
@@ -57,7 +60,7 @@ web/                  Frontend
 content_catalog.py  Course content validation and lookup
 publish_content.py    Content publication and releases
 runner.py             Host-side execution worker
-import_teams.py       Instructor-side team roster loader
+import_teams.py       Instructor-side roster tool (corrections)
 build-unity.sh        Unit-test execution
 build-io.sh           stdin/stdout execution
 test_*.py             Application and integration tests

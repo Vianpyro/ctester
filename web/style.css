@@ -1291,3 +1291,25 @@ pre {
   border: 1px solid var(--line); border-radius: var(--coin);
   padding: .05rem .4rem;
 }
+
+/* LE CODE À PARTAGER : c'est la moitié utile de l'écran de formation, celle
+   qu'on copie dans Discord. En monospace et seul sur sa ligne — un code lu à
+   voix haute dans un laboratoire bruyant ne doit pas se chercher. */
+.mesequipes .equipecode {
+  display: flex; align-items: baseline; gap: .5rem; margin: .35rem 0;
+}
+.mesequipes .equipecode .quoi { font-size: 11px; color: var(--muted); }
+.mesequipes .equipecode .code {
+  font-family: var(--mono); font-size: 15px; letter-spacing: .12em;
+  color: var(--ink); user-select: all;
+}
+.mesequipes label {
+  display: block; font-size: 11.5px; color: var(--muted); margin-top: .5rem;
+}
+.mesequipes input, .mesequipes select { margin-top: .2rem; }
+.mesequipes .row { display: flex; gap: .4rem; align-items: center;
+                   flex-wrap: wrap; margin-top: .35rem; }
+/* LA CONFIRMATION SE LIT AUSSI SANS LA COULEUR : `.on` allume la puce, et le
+   signe la nomme. Une opacité seule ne survit ni au noir et blanc, ni à
+   quelqu'un qui distingue mal les gris. */
+.mesequipes .mate .marque { font-style: normal; font-size: 11px; }

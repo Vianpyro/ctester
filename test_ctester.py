@@ -3541,29 +3541,45 @@ def test_un_devoir_sans_bloc_team_reste_individuel():
 
 
 class _BaseEquipe:
-    """The two team reads `teams.workspace` needs, and nothing else."""
+    """The one team read `teams.workspace` needs, and nothing else.
 
-    def __init__(self, membres):
+    `scellees` DIT QUELLES ÉQUIPES SONT CONFIRMÉES, parce que c'est ce qui
+    ouvre le devoir depuis que les équipes se forment elles-mêmes : une équipe
+    en cours de formation existe, a des membres, et n'a accès à rien.
+    """
+
+    def __init__(self, membres, scellees=None):
         self.membres = membres          # {(assignment, account): team_id}
+        # Par défaut TOUTES scellées : les contrôles qui ne parlent pas de
+        # formation n'ont pas à s'en occuper.
+        self.scellees = scellees
 
     def team_of(self, user, assignment_id):
         team_id = self.membres.get((assignment_id, user))
         if team_id is None:
             return None
+        scellee = True if self.scellees is None else team_id in self.scellees
         return {"team_id": team_id, "assignment_id": assignment_id,
-                "group_number": 4, "label": "Équipe"}
+                "group_number": 4, "label": "Équipe", "sealed": scellee,
+                "locked": scellee, "invite_code": None if scellee else "K7M2"}
 
 
 def _publier_devoir(root, dest):
     publish_content.publish(content_catalogue.discover(root), dest)
 
 
-def test_la_porte_d_un_devoir_distingue_trois_refus():
-    """`workspace()` est LA porte, et ses trois refus ne disent pas la meme chose.
+def test_la_porte_d_un_devoir_distingue_quatre_refus():
+    """`workspace()` est LA porte, et ses quatre refus ne disent pas la meme chose.
 
-    "ce devoir n'existe pas", "ce devoir n'est pas un travail d'equipe" et "tu
-    n'es pas dans une equipe" envoient l'etudiant a trois endroits differents.
-    Les fondre en un seul 403 les enverrait tous les trois chez l'enseignant.
+    "ce devoir n'existe pas", "ce devoir n'est pas un travail d'equipe", "tu
+    n'as pas d'equipe" et "ton equipe n'est pas encore confirmee" envoient
+    l'etudiant a quatre endroits differents -- creer une equipe, en rejoindre
+    une, attendre un coequipier, ou voir son enseignant. Les fondre en un seul
+    403 les enverrait tous les quatre chez l'enseignant.
+
+    LE QUATRIEME EST LE PROTOCOLE LUI-MEME : une equipe non scellee n'a acces
+    a RIEN, et c'est ce qui fait qu'on ne gagne rien a rejoindre l'equipe de
+    quelqu'un d'autre.
     """
     root = tempfile.mkdtemp(prefix="ctester-devoir-")
     dest = tempfile.mkdtemp(prefix="ctester-publie-")
@@ -3577,9 +3593,19 @@ def test_la_porte_d_un_devoir_distingue_trois_refus():
         assert refus[0] == 404
         _, equipe, refus = teams.workspace(base, "sub-alice", "devoir")
         assert refus is None and equipe["team_id"] == "e1"
-        # BOB N'EST DANS AUCUNE EQUIPE : 403, et pas de document.
+        # BOB N'EST DANS AUCUNE EQUIPE : 403, et pas de document. Le message
+        # lui dit quoi faire -- creer, ou rejoindre avec un code.
         _, equipe, refus = teams.workspace(base, "sub-bob", "devoir")
         assert equipe is None and refus[0] == 403
+        assert "rejoins" in refus[1], refus
+
+        # ET UNE EQUIPE EN COURS DE FORMATION N'OUVRE RIEN : elle existe, elle
+        # a des membres, et le devoir reste ferme jusqu'a ce que tous aient
+        # confirme. C'est ce qui remplace « personne ne choisit son equipe ».
+        formation = _BaseEquipe({("devoir", "sub-alice"): "e1"}, scellees=set())
+        _, equipe, refus = teams.workspace(formation, "sub-alice", "devoir")
+        assert equipe is None and refus[0] == 403
+        assert "confirm" in refus[1], refus
         # L'EXERCICE EST LA SECONDE MOITIE DE LA PORTE. Prouver l'equipe ne
         # prouve pas l'exercice : `solo` n'est pas dans ce devoir.
         devoir, _, _ = teams.workspace(base, "sub-alice", "devoir")
