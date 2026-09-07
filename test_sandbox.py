@@ -122,6 +122,20 @@ def sources_c(dossier):
     return sorted(f.name for f in dossier.iterdir() if f.suffix == ".c")
 
 
+def module_c(fichiers, exercice, nom="calendrier.c"):
+    """The module's .c file among a fetched solution's files, or a clear error.
+
+    tp6-ex1 is the two-file module fixture declared in its public/files.json;
+    a solutions checkout missing calendrier.c is a content/solutions sync
+    problem to report, not a KeyError to chase through a traceback.
+    """
+    if nom not in fichiers:
+        raise SystemExit(
+            f"reference solution for {exercice!r} has no {nom} "
+            f"(files found: {sorted(fichiers)}) -- solutions repo out of sync?")
+    return nom
+
+
 rates = []
 
 
@@ -181,9 +195,10 @@ for ligne in texte.strip().splitlines():
 # --- 3. NO LEAK: nothing from the test file in the warnings -----------------
 sol = corrige("tp6-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
+nom = module_c(fichiers, "tp6-ex1")
 # The reference solution is made deliberately noisy to FORCE warnings:
 # without a warning, this check would pass for the wrong reasons.
-fichiers["calendrier.c"] += "\nstatic int jamais_utilisee_e2e = 42;\n"
+fichiers[nom] += "\nstatic int jamais_utilisee_e2e = 42;\n"
 rc, out, cases, racine = lancer("unity", fichiers, "tp6-ex1")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(runner.verdict(rc, reste), av)
@@ -227,7 +242,7 @@ for ligne in cas.get("stderr", "").splitlines():
 # --- 5. ASan in unity mode: the FACT, never the report ----------------------
 sol = corrige("tp6-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-nom_c = "calendrier.c"
+nom_c = module_c(fichiers, "tp6-ex1")
 fichiers[nom_c] = ("static int deborde_e2e[4];\n" + fichiers[nom_c]).replace(
     "return", "deborde_e2e[9] = 1;\n    return", 1)
 rc, out, cases, racine = lancer("unity", fichiers, "tp6-ex1")
@@ -265,7 +280,8 @@ check("boucle infinie" in cas.get("reason", ""),
 
 sol = corrige("tp6-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-fichiers["calendrier.c"] += (
+nom = module_c(fichiers, "tp6-ex1")
+fichiers[nom] += (
     "\n__attribute__((constructor)) static void boucle_e2e(void)"
     " { while (1) {} }\n")
 rc, out, cases, _ = lancer("unity", fichiers, "tp6-ex1", CTESTER_RUN_TIMEOUT="2")
