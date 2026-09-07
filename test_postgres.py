@@ -340,6 +340,22 @@ def mastery_evidence():
     assert state.read_events(ALICE, "ExerciceReussi")
     # And none of this touched the balance.
     assert state.read_progress(ALICE)["xp"] == 20
+
+    # `payload` IS PLAIN TEXT (see schema.sql) -- nothing in Postgres enforces
+    # it stays valid JSON. A row written outside the app's own INSERT (an old
+    # schema version, a manual fix) must not crash the read; it degrades to
+    # `{}`, like every other malformed value this module refuses to trust.
+    import psycopg
+    with psycopg.connect(DSN, autocommit=True) as cx:
+        cx.execute(
+            "INSERT INTO progress_event"
+            " (account, event_id, type, exercise_id, policy, payload)"
+            " VALUES (%s, %s, %s, %s, %s, %s)",
+            (ALICE, "verification:verif-tp2:corrupted", "VerificationEvaluated",
+             "verif-tp2", "policy-1", "{ this is not JSON"))
+    facts = state.read_events(ALICE, "VerificationEvaluated")
+    corrupted = [f for f in facts if f["payload"] == {}]
+    assert len(corrupted) == 1, facts
     print("ok   mastery evidence: same journal, no XP, no extra GRANT")
 
 
