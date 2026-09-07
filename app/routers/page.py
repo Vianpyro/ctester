@@ -35,7 +35,12 @@ SERVIS = dict(
                    # A module absent from this list falls to a 404 and the
                    # button goes inert with a message -- which is exactly what
                    # happened the first time `exporter.js` was added.
-                   "leaderboard.js", "collection.js")},
+                   "leaderboard.js", "collection.js",
+                   # The team workspace. Downloaded only when a signed-in
+                   # student opens an exercise that belongs to a team
+                   # assignment -- so never on the anonymous path, and never
+                   # for the ten labs that are not one.
+                   "team.js")},
     **{nom: "text/javascript; charset=utf-8" for nom in config.VENDOR},
 )
 

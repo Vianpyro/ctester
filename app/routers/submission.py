@@ -168,6 +168,16 @@ def _enregistrer(owner, exercise_id, job_id, resultat):
     # evidence -- solved or not -- and NO XP; a practice exercise does the
     # opposite. The state and attempt above hold for both: the student must
     # see they did the activity, and keep their draft.
+    if entree.get("assignment"):
+        # TEAM WORK PAYS NO PERSONAL XP, and this is the third domain rather
+        # than a special case of the other two. A team assignment's exercises
+        # are edited by three or four people in ONE shared document: granting
+        # each of them a first-solve for the same code would hand out four
+        # rewards for one piece of work, which is precisely the farming
+        # `docs/gamification/anti-farming.md` exists to refuse. What is
+        # recorded above -- the attempt and the state -- still is: every
+        # member must see that the exercise passes, and keep the draft.
+        return
     if entree.get("verification"):
         progression.enregistrer_verification(owner, entree, job_id, reussi)
     elif reussi:

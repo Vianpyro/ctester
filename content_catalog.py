@@ -18,11 +18,20 @@ import re
 SCHEMA_VERSION = 1
 EXERCISE_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,62}\Z")
 COLLECTION_RE = EXERCISE_RE
+ASSIGNMENT_RE = EXERCISE_RE
 SKILL_RE = re.compile(r"\A[a-z][a-z0-9-]{0,47}\Z")
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 MODES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
 DIFFICULTIES = frozenset(("intro", "foundation", "intermediate", "advanced"))
 RELEASE_STATES = frozenset(("available", "scheduled", "archived"))
+# THE OUTER BOUND ON A TEAM, not the course's rule. TCH009 asks for 3 or 4;
+# the assignment file says so. This only refuses a typo that would turn a
+# team into a section.
+TEAM_MAX = 8
+# The ZIP's top directory. A PLAIN NAME, checked here rather than when the
+# archive is built: an assignment file is content, and content is the one
+# place where a `../` would otherwise become a path.
+ARCHIVE_ROOT_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
 
 class ContentValidationError(ValueError):
@@ -296,6 +305,140 @@ def _exercise(root, dirname, known_skills, errors):
     }
 
 
+# --- Assignments --------------------------------------------------------------
+# AN ASSIGNMENT IS NOT A COLLECTION, and the two must not be folded together.
+# A collection is a PATH through the catalog: a menu heading, no deadline, no
+# hand-in, and an exercise may sit in two of them. An assignment is a piece of
+# ASSESSED WORK: it has a deadline, it says what the final hand-in looks like,
+# and -- when it declares a `team` -- it is done by a team rather than by a
+# person. Reusing `collections` for it would have made "which lab is this in"
+# and "what am I handing in" the same field, and the day they diverge is the
+# day someone hands in the wrong thing.
+#
+# IT REFERENCES EXERCISES, IT DOES NOT REDEFINE THEM. `items` is a list of
+# exercise ids, exactly like a collection's, so an exercise stays defined in
+# exactly one place.
+#
+# `team` IS THE OPT-IN, AND ITS ABSENCE IS THE DEFAULT. No `team` block means
+# an ordinary individual assignment: nothing collaborative is created, no
+# workspace is offered, and every existing exercise keeps behaving as it did.
+
+
+def _team(value, where, errors):
+    """`{"min": 3, "max": 4}` -- or None, which means "individual".
+
+    The bounds are the ASSIGNMENT's, not the platform's: TCH009 asks for three
+    or four, another course would ask for two. `TEAM_MAX` only refuses the
+    typo that would turn a team into a section.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        errors.append("%s: team must be an object" % where)
+        return None
+    low, high = value.get("min", 1), value.get("max")
+    for label, number in (("min", low), ("max", high)):
+        if not isinstance(number, int) or isinstance(number, bool):
+            errors.append("%s: team.%s must be an integer" % (where, label))
+            return None
+    if not 1 <= low <= high <= TEAM_MAX:
+        errors.append("%s: team sizes must satisfy 1 <= min <= max <= %d"
+                      % (where, TEAM_MAX))
+        return None
+    return {"min": low, "max": high}
+
+
+def _handin(value, where, items, exercises, errors):
+    """What the final ZIP holds -- driven by metadata, never by a file name
+    this application happens to know.
+
+    Each entry names the file IN THE ARCHIVE and where its contents come
+    from: an exercise of this assignment, and one of the files that exercise
+    declares. Nothing is concatenated and nothing is rewritten -- the archive
+    is a copy of what the team wrote, which is the only thing that can be
+    handed in honestly.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        errors.append("%s: handin must be an object" % where)
+        return None
+    root = value.get("root", "")
+    if not isinstance(root, str) or not ARCHIVE_ROOT_RE.match(root):
+        errors.append("%s: handin.root must be a plain directory name" % where)
+        return None
+    entries = value.get("files")
+    if not isinstance(entries, list) or not entries:
+        errors.append("%s: handin.files must be a non-empty list" % where)
+        return None
+    out, seen = [], set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            errors.append("%s: invalid handin entry" % where)
+            continue
+        name, exercise_id = entry.get("name"), entry.get("exercise_id")
+        source = entry.get("file", name)
+        if not isinstance(name, str) or not FILE_RE.match(name) or name in seen:
+            errors.append("%s: invalid or duplicate handin file name" % where)
+            continue
+        if exercise_id not in items:
+            errors.append("%s: handin %r names an exercise outside this assignment"
+                          % (where, name))
+            continue
+        declared = {item["name"] for item in exercises[exercise_id]["files"]}
+        if not isinstance(source, str) or source not in declared:
+            errors.append("%s: handin %r reads %r, which %s does not declare"
+                          % (where, name, source, exercise_id))
+            continue
+        seen.add(name)
+        out.append({"name": name, "exercise_id": exercise_id, "file": source})
+    return {"root": root, "files": out} if out else None
+
+
+def _assignment(root, filename, exercises, errors):
+    path = os.path.join(root, "assignments", filename)
+    data = _json(path, errors)
+    if data is None:
+        return None
+    where = "assignments/%s" % filename
+    assignment_id = data.get("id")
+    if data.get("schema_version") != SCHEMA_VERSION:
+        errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
+    if not isinstance(assignment_id, str) or not ASSIGNMENT_RE.match(assignment_id):
+        errors.append("%s: invalid id" % where)
+        return None
+    if filename != assignment_id + ".json":
+        errors.append("%s: the file must be named after the id" % where)
+    if not isinstance(data.get("title"), str) or not data["title"].strip():
+        errors.append("%s: missing title" % where)
+    if not isinstance(data.get("description", ""), str):
+        errors.append("%s: description must be text" % where)
+    items = data.get("items")
+    if (not isinstance(items, list) or not items
+            or any(not isinstance(item, str) for item in items)
+            or len(items) != len(set(items))):
+        errors.append("%s: items must be a non-empty list of text with no duplicates"
+                      % where)
+        items = []
+    kept = []
+    for item in items:
+        if item in exercises:
+            kept.append(item)
+        else:
+            errors.append("%s: unknown exercise %r" % (where, item))
+    deadline = data.get("deadline")
+    if deadline is not None and _iso_datetime(deadline) is None:
+        errors.append("%s: deadline must be an ISO date with a timezone" % where)
+        deadline = None
+    return {"id": assignment_id, "title": data.get("title", ""),
+            "description": data.get("description", ""), "items": kept,
+            "team": _team(data.get("team"), where, errors),
+            "deadline": deadline if isinstance(deadline, str) else None,
+            "handin": _handin(data.get("handin"), where, set(kept), exercises, errors),
+            "release": _release(data.get("release", {"state": "available"}),
+                                where, errors)}
+
+
 def discover(root):
     """Returns v2 content's validated private model, or raises with every error."""
     errors = []
@@ -352,14 +495,39 @@ def discover(root):
         collections[collection_id] = {"id": collection_id, "title": data.get("title", ""),
                                       "description": data.get("description", ""), "items": items,
                                       "release": _release(data.get("release", {"state": "available"}), where, errors)}
+    assignments = {}
+    directory = os.path.join(root, "assignments")
+    for filename in sorted((name for name in os.listdir(directory)
+                            if name.endswith(".json")), key=_natural_key) \
+            if os.path.isdir(directory) else ():
+        entry = _assignment(root, filename, exercises, errors)
+        if entry is None:
+            continue
+        if entry["id"] in assignments:
+            errors.append("duplicate assignment id: %s" % entry["id"])
+        else:
+            assignments[entry["id"]] = entry
+    # AN EXERCISE BELONGS TO AT MOST ONE ASSIGNMENT, unlike a collection.
+    # Two assignments claiming the same exercise would mean two teams, two
+    # deadlines and two hand-ins for one shared document -- there would be no
+    # honest answer to "whose workspace is this".
+    owner = {}
+    for entry in assignments.values():
+        for item in entry["items"]:
+            if item in owner:
+                errors.append("%s: %r already belongs to assignment %r"
+                              % (entry["id"], item, owner[item]))
+            else:
+                owner[item] = entry["id"]
     for entry in exercises.values():
+        entry["assignment"] = owner.get(entry["id"])
         for prerequisite in entry["prerequisites"]:
             if prerequisite not in exercises:
                 errors.append("%s: unknown prerequisite %r" % (entry["id"], prerequisite))
     if errors:
         raise ContentValidationError(errors)
     return {"schema_version": SCHEMA_VERSION, "skills": skills, "exercises": exercises,
-            "collections": collections}
+            "collections": collections, "assignments": assignments}
 
 
 def public_catalogue(model, now=None):
@@ -383,6 +551,13 @@ def public_catalogue(model, now=None):
         # key per exercise that says nothing is 73 keys saying nothing.
         if entry.get("verification"):
             public["verification"] = True
+        # WHICH ASSIGNMENT THIS EXERCISE BELONGS TO, or nothing at all. The
+        # page reads it to know it must open the assignment workspace instead
+        # of the individual editor, and `_record()` reads it to keep team work
+        # out of a personal XP balance. Absent for every existing exercise,
+        # which is exactly the point: the feature is additive.
+        if entry.get("assignment"):
+            public["assignment"] = entry["assignment"]
         if isinstance(entry["contexts"], list):
             public["contexts"] = [str(context) for context in entry["contexts"]]
         # NAMES STAY, TEMPLATES LEAVE. `files` is the allow-list the API
@@ -398,7 +573,30 @@ def public_catalogue(model, now=None):
                              "description": entry["description"], "items": list(entry["items"]),
                              "release": entry["release"],
                              "access": access(entry["release"], now)}
-                            for entry in model["collections"].values()]}
+                            for entry in model["collections"].values()],
+            # ASSIGNMENTS TRAVEL WHOLE, and that is deliberate: `team`,
+            # `deadline` and `handin` are what the workspace, the deadline
+            # notice and the ZIP are built from, and rebuilding any of them
+            # from a second source would make the archive disagree with the
+            # page. Nothing private is in here -- an assignment file has no
+            # assessment section to leak.
+            "assignments": [_public_assignment(entry, now)
+                            for entry in model.get("assignments", {}).values()]}
+
+
+def _public_assignment(entry, now=None):
+    """One assignment, field by field. Same rule as everywhere else here."""
+    public = {"id": entry["id"], "title": entry["title"],
+              "description": entry["description"], "items": list(entry["items"]),
+              "release": entry["release"], "access": access(entry["release"], now)}
+    if entry.get("team"):
+        public["team"] = dict(entry["team"])
+    if entry.get("deadline"):
+        public["deadline"] = entry["deadline"]
+    if entry.get("handin"):
+        public["handin"] = {"root": entry["handin"]["root"],
+                            "files": [dict(item) for item in entry["handin"]["files"]]}
+    return public
 
 
 def public_detail(model, exercise_id, now=None):

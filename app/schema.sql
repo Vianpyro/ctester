@@ -343,6 +343,136 @@ CREATE TABLE IF NOT EXISTS display_preference (
 );
 
 -- --------------------------------------------------------------------------
+-- TEAM ASSIGNMENTS: a group is not a team, and this is where the difference
+-- becomes a fact rather than a convention.
+--
+-- A GROUP is the course section an instructor put a student in. On this
+-- platform it has always been `forum_profile.group_number` -- a number the
+-- STUDENT types into their own profile, used to decide who can read a
+-- question opened "to my group". It is self-declared, and that is fine for
+-- what it does.
+--
+-- A TEAM is three or four students who hand in one piece of assessed work
+-- together. It cannot be self-declared: a student who could pick their team
+-- could pick the team whose work is furthest along. So it is not stored
+-- anywhere a student can write, and the application role has NO INSERT,
+-- UPDATE or DELETE on the two tables below -- only `SELECT` (see the GRANT
+-- in VHome). Rosters are loaded by the instructor with `import_teams.py`,
+-- through the admin DSN.
+--
+-- REUSING `group_number` FOR TEAMS WAS THE OBVIOUS SHORTCUT AND IT IS THE
+-- WRONG ONE: the two answer different questions ("which section are you in"
+-- versus "who do you hand in with"), they have different authorities, and a
+-- single column would have made the forum's visibility rule and an
+-- assignment's access control the same rule by accident.
+
+-- One team, for ONE assignment. A team is not a durable object that outlives
+-- the work: the same four students on the next assignment are a new row, and
+-- that is what keeps `team_member` free of a date range nobody would maintain.
+CREATE TABLE IF NOT EXISTS team (
+    team_id       TEXT        NOT NULL,
+    assignment_id TEXT        NOT NULL,   -- a PUBLISHED assignment id
+    -- THE COURSE GROUP THE TEAM BELONGS TO, and it is the instructor's, not
+    -- the student's self-declared one. It is here so that an instructor
+    -- reading the roster sees sections, and so a future per-section deadline
+    -- has somewhere to hang. It is NEVER read as an authorization: team
+    -- membership is.
+    group_number  SMALLINT    NOT NULL CHECK (group_number BETWEEN 1 AND 99),
+    label         TEXT,                   -- what students see: "Équipe 2"
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (team_id, assignment_id)
+);
+
+-- WHO IS ON IT. THE PRIMARY KEY IS THE RULE -- one team per assignment per
+-- account -- and Postgres holds it, not a read followed by a write. Without
+-- it, a roster loaded twice with a corrected line would leave a student on
+-- two teams, and every query below would then have to pick one.
+--
+-- The composite foreign key is the one place in this schema where a FK earns
+-- its keep: a membership row whose team does not exist would name an
+-- assignment nobody can find, and the roster is written by a script, not by
+-- the statement that created the team.
+CREATE TABLE IF NOT EXISTS team_member (
+    team_id       TEXT        NOT NULL,
+    assignment_id TEXT        NOT NULL,
+    account       TEXT        NOT NULL,   -- the opaque OIDC `sub`
+    joined_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (assignment_id, account),
+    FOREIGN KEY (team_id, assignment_id)
+        REFERENCES team (team_id, assignment_id) ON DELETE CASCADE
+);
+
+-- The read that matters on the other side: "who else is on my team".
+CREATE INDEX IF NOT EXISTS team_member_roster_idx
+    ON team_member (assignment_id, team_id);
+
+-- THE SHARED DOCUMENT: one per (team, exercise), and it is the authoritative
+-- one. `exercise_draft` stays exactly what it was -- one row per (account,
+-- exercise) -- and nothing here changes it: an exercise outside an assignment
+-- never reaches this table, and a student not on a team keeps the individual
+-- path. The two live side by side rather than behind an `if team_mode` spread
+-- through the state layer.
+--
+-- LOGGED, unlike `exercise_draft`. The individual draft can be TRUNCATEd
+-- after an unclean shutdown because the browser holds a copy; this one is
+-- four people's graded work and no browser holds all of it.
+--
+-- `updated_by` IS WHO SAVED, and it is only ever used to attribute a
+-- revision. It is not a lock and not an owner: every member writes here.
+CREATE TABLE IF NOT EXISTS team_document (
+    team_id     TEXT        NOT NULL,
+    exercise_id TEXT        NOT NULL,
+    sources     TEXT        NOT NULL,   -- JSON {filename: contents}
+    updated_by  TEXT,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (team_id, exercise_id)
+);
+
+-- THE HISTORY, APPEND-ONLY. It exists for recovery, for an instructor
+-- investigating an assignment, and for "how did this get here" -- never for
+-- a grade. There is deliberately no contribution percentage anywhere in this
+-- application: a number counting typed characters would immediately become
+-- the thing people optimise, and it would be wrong about the person who
+-- thinks before typing.
+--
+-- NOT ONE ROW PER KEYSTROKE. A revision is written only when the last one
+-- for this document is older than the coalescing window OR was written by
+-- somebody else -- and that rule is the `WHERE NOT EXISTS` of a single
+-- INSERT (see `write_team_document` in state.py), not a read followed by a
+-- write that two members would race through.
+CREATE TABLE IF NOT EXISTS team_revision (
+    revision_id TEXT        PRIMARY KEY,  -- uuid4().hex, generated in Python
+    team_id     TEXT        NOT NULL,
+    exercise_id TEXT        NOT NULL,
+    account     TEXT        NOT NULL,     -- who was typing
+    sources     TEXT        NOT NULL,     -- JSON {filename: contents}
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- The two reads: the newest revisions of one document, and the coalescing
+-- test that decides whether to write another one.
+CREATE INDEX IF NOT EXISTS team_revision_recent_idx
+    ON team_revision (team_id, exercise_id, created_at DESC);
+
+-- THE HAND-IN. THE PRIMARY KEY IS THE RULE: one submission per team per
+-- assignment, which is what the assignment sheet asks for. Handing in again
+-- before the deadline replaces it -- a team that finds a bug at 22:00 must be
+-- able to fix it -- and `submitted_by` says who pressed the button last.
+-- What was handed in before is not lost: `team_revision` holds it.
+CREATE TABLE IF NOT EXISTS team_submission (
+    assignment_id TEXT        NOT NULL,
+    team_id       TEXT        NOT NULL,
+    -- NOT `account`: this row belongs to the TEAM, and "Supprimer mes
+    -- données" must not take three other people's hand-in with it. The
+    -- column name is what `test_suppression_couvre_toutes_les_tables` reads
+    -- to decide, so it is load-bearing rather than cosmetic.
+    submitted_by  TEXT        NOT NULL,
+    files         TEXT        NOT NULL,   -- JSON {archive path: contents}
+    submitted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (assignment_id, team_id)
+);
+
+-- --------------------------------------------------------------------------
 -- MIGRATIONS: WHAT `CREATE TABLE IF NOT EXISTS` CANNOT DO.
 --
 -- THIS SECTION EXISTS BECAUSE THE FILE ABOVE IS A NO-OP ON A DATABASE THAT
@@ -410,3 +540,11 @@ ALTER TABLE forum_moderation DROP CONSTRAINT IF EXISTS forum_moderation_action_c
 ALTER TABLE forum_moderation ADD  CONSTRAINT forum_moderation_action_check
     CHECK (action IN ('hide', 'restore', 'retain', 'unretain'));
 COMMIT;
+
+-- Team assignments. Every statement above is a `CREATE TABLE IF NOT EXISTS`,
+-- so a database that predates this feature gets the tables on the next
+-- converge and needs nothing here. The index below is repeated for the same
+-- reason the others are: it costs one catalog lookup and it repairs a
+-- database restored from a backup taken before it.
+CREATE INDEX IF NOT EXISTS team_member_roster_idx
+    ON team_member (assignment_id, team_id);

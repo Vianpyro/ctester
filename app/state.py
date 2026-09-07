@@ -914,24 +914,237 @@ def _minute(value):
         return str(value)[:16]
 
 
+# --------------------------------------------------------------------------
+# Team assignments. See the block comment in `schema.sql`: a GROUP is the
+# section a student declares, a TEAM is who they hand in with, and only the
+# second one is authoritative here.
+#
+# THE APPLICATION ROLE CANNOT WRITE THE ROSTER. It has `SELECT` on `team` and
+# `SELECT, DELETE` on `team_member` -- no INSERT, no UPDATE (see the GRANT in
+# VHome). There is therefore no code path, distracted or otherwise, by which a
+# request can put an account on a team: `import_teams.py` does it through the
+# admin DSN, and the DELETE exists only so "Supprimer mes données" can keep
+# its promise.
+
+
+def team_of(user, assignment_id):
+    """This account's team for this assignment, or None. THE ONLY GATE.
+
+    Everything a team route does starts here: the document, the history, the
+    hand-in and the live socket all resolve their team from the AUTHENTICATED
+    account and the assignment, never from an id in a body, a URL or a
+    WebSocket frame. A student who edits the team id in a payload is asking
+    for a team this query will simply not return.
+
+    None means "no team", and it also means "the database did not answer" --
+    the two are the same answer here on purpose: without a proven membership,
+    nothing opens.
+    """
+    rows = _query(
+        "SELECT m.team_id, t.group_number, t.label"
+        "  FROM team_member m"
+        "  JOIN team t ON t.team_id = m.team_id"
+        "             AND t.assignment_id = m.assignment_id"
+        " WHERE m.assignment_id = %s AND m.account = %s",
+        (assignment_id, user), read=True)
+    if not rows:
+        return None
+    team_id, group_number, label = rows[0]
+    return {"team_id": team_id, "assignment_id": assignment_id,
+            "group_number": group_number, "label": label}
+
+
+def team_roster(assignment_id, team_id):
+    """The team's accounts, oldest membership first. None if the base is mute.
+
+    IT RETURNS `sub`s, and it is the caller (`services/teams.py`) that turns
+    them into the labels teammates see -- exactly the split `forum_vue()`
+    makes. No `sub` leaves this application through a team route either.
+    """
+    rows = _query(
+        "SELECT account FROM team_member"
+        " WHERE assignment_id = %s AND team_id = %s"
+        " ORDER BY joined_at, account",
+        (assignment_id, team_id), read=True)
+    if rows is None:
+        return None
+    return [account for (account,) in rows]
+
+
+def read_team_document(team_id, exercise_id):
+    """The shared sources, `{}` when nothing has been written yet, None on failure.
+
+    THE THREE ANSWERS ARE DISTINCT, unlike `read_resume`'s two: an empty
+    workspace and a database that did not answer look identical on screen and
+    call for opposite reactions -- start typing, or do not touch anything.
+    """
+    rows = _query(
+        "SELECT sources FROM team_document WHERE team_id = %s AND exercise_id = %s",
+        (team_id, exercise_id), read=True)
+    if rows is None:
+        return None
+    return _sources(rows) or {} if rows else {}
+
+
+def write_team_document(team_id, exercise_id, user, sources, revision_id,
+                        window):
+    """Save the shared document AND, when it is worth one, a revision. ONE statement.
+
+    TWO WRITES THAT MUST NOT COME APART. With two round trips, a connection
+    dropped in between would leave a document with no history, or history for
+    a document that was never saved -- and the second is the one an instructor
+    would later read as evidence.
+
+    THE COALESCING RULE IS THE `WHERE`, NOT AN `if` IN PYTHON. A revision is
+    written only when this account has not written one for this document in
+    the last `window` seconds AND the newest revision does not already hold
+    exactly these bytes. Four members typing at once therefore produce one
+    revision each per window -- which is what "who changed this" needs -- and
+    a member who only watches produces none. A read followed by a write would
+    have been the same rule with a race in the middle.
+
+    ponytail: two members saving in the same instant both see an empty window
+    (the statement's snapshot is taken at its start) and both write a
+    revision. The cost is one extra row in a history nobody grades; a lock
+    would cost more than the duplicate it prevents.
+    """
+    return _query(
+        "WITH saved AS ("
+        "  INSERT INTO team_document"
+        "    (team_id, exercise_id, sources, updated_by, updated_at)"
+        "  VALUES (%(t)s, %(e)s, %(s)s, %(a)s, now())"
+        "  ON CONFLICT (team_id, exercise_id) DO UPDATE SET"
+        "    sources = EXCLUDED.sources, updated_by = EXCLUDED.updated_by,"
+        "    updated_at = now()"
+        "  RETURNING team_id)"
+        " INSERT INTO team_revision"
+        "   (revision_id, team_id, exercise_id, account, sources)"
+        " SELECT %(r)s, %(t)s, %(e)s, %(a)s, %(s)s"
+        "  WHERE NOT EXISTS ("
+        "    SELECT 1 FROM team_revision"
+        "     WHERE team_id = %(t)s AND exercise_id = %(e)s AND account = %(a)s"
+        "       AND created_at > now() - make_interval(secs => %(w)s))"
+        "    AND %(s)s IS DISTINCT FROM ("
+        "    SELECT sources FROM team_revision"
+        "     WHERE team_id = %(t)s AND exercise_id = %(e)s"
+        "     ORDER BY created_at DESC, revision_id DESC LIMIT 1)",
+        {"t": team_id, "e": exercise_id, "a": user, "r": revision_id,
+         "s": json.dumps(sources), "w": window},
+    ) is not None
+
+
+def read_team_revisions(team_id, exercise_id, limit):
+    """The document's history, newest first: who, when, and how big.
+
+    THE SOURCES ARE NOT IN HERE. A history list is read to choose a moment,
+    and shipping every revision's full text would send the whole term's
+    keystrokes to a page that displays a date. `read_team_revision` fetches
+    the one that was chosen.
+    """
+    rows = _query(
+        "SELECT revision_id, account, created_at, length(sources)"
+        "  FROM team_revision WHERE team_id = %s AND exercise_id = %s"
+        " ORDER BY created_at DESC, revision_id DESC LIMIT %s",
+        (team_id, exercise_id, limit), read=True)
+    if rows is None:
+        return None
+    return [{"revision_id": revision_id, "account": account,
+             "created_at": _minute(created_at), "bytes": int(size)}
+            for revision_id, account, created_at, size in rows]
+
+
+def read_team_revision(team_id, revision_id):
+    """One revision's sources, `{}` if it is not this team's. None on failure.
+
+    THE TEAM IS IN THE `WHERE`, not checked afterwards in Python: a revision
+    id copied from somewhere else does not resolve, so there is nothing to
+    filter out and nothing to forget to filter.
+    """
+    rows = _query(
+        "SELECT sources FROM team_revision"
+        " WHERE revision_id = %s AND team_id = %s",
+        (revision_id, team_id), read=True)
+    if rows is None:
+        return None
+    return _sources(rows) or {} if rows else {}
+
+
+def write_team_submission(assignment_id, team_id, user, files):
+    """The hand-in. ONE PER TEAM -- the primary key holds that, not a check.
+
+    Handing in again replaces it: a team that finds a bug at 22:00 must be
+    able to fix it, and what was there before is still readable in
+    `team_revision`. `submitted_by` says who pressed the button last.
+    """
+    return _query(
+        "INSERT INTO team_submission"
+        "  (assignment_id, team_id, submitted_by, files, submitted_at)"
+        " VALUES (%s, %s, %s, %s, now())"
+        " ON CONFLICT (assignment_id, team_id) DO UPDATE SET"
+        "   submitted_by = EXCLUDED.submitted_by, files = EXCLUDED.files,"
+        "   submitted_at = now()",
+        (assignment_id, team_id, user, json.dumps(files)),
+    ) is not None
+
+
+def read_team_submission(assignment_id, team_id):
+    """`{}` when the team has not handed in, None when the base is mute."""
+    rows = _query(
+        "SELECT submitted_by, submitted_at FROM team_submission"
+        " WHERE assignment_id = %s AND team_id = %s",
+        (assignment_id, team_id), read=True)
+    if rows is None:
+        return None
+    if not rows:
+        return {}
+    submitted_by, submitted_at = rows[0]
+    return {"submitted_by": submitted_by, "submitted_at": _minute(submitted_at)}
+
+
+def read_teams(assignment_id):
+    """Every team of one assignment, for the instructor's view. None on failure."""
+    rows = _query(
+        "SELECT t.team_id, t.group_number, t.label, count(m.account)"
+        "  FROM team t LEFT JOIN team_member m"
+        "    ON m.team_id = t.team_id AND m.assignment_id = t.assignment_id"
+        " WHERE t.assignment_id = %s"
+        " GROUP BY t.team_id, t.group_number, t.label"
+        " ORDER BY t.group_number, t.team_id",
+        (assignment_id,), read=True)
+    if rows is None:
+        return None
+    return [{"team_id": team_id, "group_number": group_number, "label": label,
+             "members": int(members)}
+            for team_id, group_number, label, members in rows]
+
+
 def forget(user):
     """Erase everything stored for this user, in ONE statement.
 
     The consent sentence shown before redirecting to Rauthy promises this exists,
     so it exists -- not "later".
 
-    THIRTEEN DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
+    FIFTEEN DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
     statement per table, a connection dropped in the middle would leave half a
     student erased and half not -- and the half that stays is the half nobody
     can see any more to ask for again. Data-modifying CTEs run exactly once each
     and commit together.
 
-    EVERY TABLE CARRIES `account`, AND IT IS THE SAME CLAUSE EVERYWHERE: what
-    leaves is what THIS person wrote -- their messages, their reports, and the
-    moderation actions they themselves took if they are a moderator. Nothing
-    another wrote is touched. A report left on a deleted message shows up
-    nowhere any more -- every read starts from `forum_message` -- and stays
-    erasable by whoever filed it.
+    EVERY TABLE THAT CARRIES AN `account` COLUMN IS IN HERE, AND IT IS THE SAME
+    CLAUSE EVERYWHERE: what leaves is what THIS person wrote -- their messages,
+    their reports, and the moderation actions they themselves took if they are
+    a moderator. Nothing another wrote is touched. A report left on a deleted
+    message shows up nowhere any more -- every read starts from
+    `forum_message` -- and stays erasable by whoever filed it.
+
+    THE THREE TEAM-OWNED TABLES ARE DELIBERATELY ABSENT, and they are the ones
+    with no `account` column: `team` is the instructor's roster, and
+    `team_document` and `team_submission` are FOUR people's graded work.
+    Erasing one member must not take three others' assignment with it -- that
+    is not erasure, that is deletion of somebody else's data. What does leave
+    is this account's membership row and the revisions it authored: the
+    account stops being on the team, and stops being named in its history.
+    An instructor who needs the roster back re-runs `import_teams.py`.
     """
     return _query(
         "WITH b AS (DELETE FROM exercise_draft     WHERE account = %(u)s),"
@@ -946,6 +1159,8 @@ def forget(user):
         "     i AS (DELETE FROM forum_profile       WHERE account = %(u)s),"
         "     k AS (DELETE FROM forum_reported_name WHERE account = %(u)s),"
         "     l AS (DELETE FROM forum_helpful       WHERE account = %(u)s),"
+        "     m AS (DELETE FROM team_member         WHERE account = %(u)s),"
+        "     n AS (DELETE FROM team_revision       WHERE account = %(u)s),"
         "     p AS (DELETE FROM display_preference  WHERE account = %(u)s)"
         " SELECT 1",
         {"u": user},

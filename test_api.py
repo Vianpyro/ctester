@@ -44,6 +44,7 @@ import state        # noqa: E402
 import main        # noqa: E402
 import security    # noqa: E402
 import policy as politique  # noqa: E402
+from services import collab  # noqa: E402
 from services import quotas  # noqa: E402
 
 CONNUE = "https://tch009.thevhome.com"
@@ -94,6 +95,17 @@ class BaseSimulee:
         self.faits = []          # le journal, dans l'ordre d'écriture
         self.utiles = set()      # (message, account) -- "ça m'a aidé"
         self.retenus = {}        # message -> retained by a moderator?
+        # LE LISTAGE EST ECRIT PAR L'ENSEIGNANT, PAS PAR L'API : ces deux
+        # tables se remplissent ici comme `import_teams.py` les remplit en
+        # production, et AUCUNE methode ci-dessous ne les ecrit. C'est la
+        # moitie du contrat que le GRANT tient en vrai (`SELECT` seulement),
+        # et la moitie que ce harnais peut tenir.
+        self.equipes = {}        # (assignment, account) -> team_id
+        self.equipes_meta = {}   # (team_id, assignment) -> {group_number, label}
+        self.documents = {}      # (team_id, exercise) -> sources
+        self.revisions = []      # append-only, newest last
+        self.remises = {}        # (assignment, team_id) -> {...}
+        self.horloge = 1000.0    # a clock the coalescing tests can move
 
     # -- comptes
     def read_resume(self, user, ex):
@@ -123,7 +135,97 @@ class BaseSimulee:
             for cle in [k for k in table if (k[0] if isinstance(k, tuple) else k) == user]:
                 del table[cle]
         self.messages = [m for m in self.messages if m["account"] != user]
+        # CE QUI PART EST CE QUI PORTE UN COMPTE : l'appartenance et les
+        # revisions signees. Le document et la remise de l'equipe restent --
+        # ce sont trois autres personnes.
+        for cle in [k for k in self.equipes if k[1] == user]:
+            del self.equipes[cle]
+        self.revisions = [r for r in self.revisions if r["account"] != user]
         return True
+
+    # -- equipes
+    def inscrire(self, assignment_id, team_id, comptes, group_number=4,
+                 label=None):
+        """Ce que `import_teams.py` fait, cote harnais. AUCUNE ROUTE NE LE FAIT."""
+        self.equipes_meta[(team_id, assignment_id)] = {
+            "group_number": group_number, "label": label or team_id}
+        for compte in comptes:
+            self.equipes[(assignment_id, compte)] = team_id
+
+    def team_of(self, user, assignment_id):
+        team_id = self.equipes.get((assignment_id, user))
+        if team_id is None:
+            return None
+        meta = self.equipes_meta.get((team_id, assignment_id), {})
+        return {"team_id": team_id, "assignment_id": assignment_id,
+                "group_number": meta.get("group_number"),
+                "label": meta.get("label")}
+
+    def team_roster(self, assignment_id, team_id):
+        return sorted(compte for (devoir, compte), equipe in self.equipes.items()
+                      if devoir == assignment_id and equipe == team_id)
+
+    def read_team_document(self, team_id, exercise_id):
+        return dict(self.documents.get((team_id, exercise_id), {}))
+
+    def write_team_document(self, team_id, exercise_id, user, sources,
+                            revision_id, window):
+        self.documents[(team_id, exercise_id)] = dict(sources)
+        charge = json.dumps(sources)
+        anciennes = [r for r in self.revisions
+                     if r["team_id"] == team_id and r["exercise_id"] == exercise_id]
+        # LA MEME REGLE QUE LE `WHERE` DE L'INSERT : rien si ce compte en a
+        # ecrit une dans la fenetre, rien si la derniere porte deja ces
+        # octets-la.
+        recente = any(r["account"] == user and r["at"] > self.horloge - window
+                      for r in anciennes)
+        identique = bool(anciennes) and anciennes[-1]["sources"] == charge
+        if not recente and not identique:
+            self.revisions.append({
+                "revision_id": revision_id, "team_id": team_id,
+                "exercise_id": exercise_id, "account": user,
+                "sources": charge, "at": self.horloge})
+        return True
+
+    def read_team_revisions(self, team_id, exercise_id, limit):
+        lignes = [r for r in self.revisions
+                  if r["team_id"] == team_id and r["exercise_id"] == exercise_id]
+        return [{"revision_id": r["revision_id"], "account": r["account"],
+                 "created_at": "2026-09-07T14:0%d" % (i % 10),
+                 "bytes": len(r["sources"])}
+                for i, r in enumerate(reversed(lignes))][:limit]
+
+    def read_team_revision(self, team_id, revision_id):
+        for r in self.revisions:
+            # L'EQUIPE EST DANS LA CONDITION, comme dans le `WHERE` du SQL :
+            # une revision d'une autre equipe ne resout pas.
+            if r["revision_id"] == revision_id and r["team_id"] == team_id:
+                return json.loads(r["sources"])
+        return {}
+
+    def write_team_submission(self, assignment_id, team_id, user, files):
+        self.remises[(assignment_id, team_id)] = {
+            "submitted_by": user, "files": files,
+            "submitted_at": "2026-09-07T15:00Z"}
+        return True
+
+    def read_team_submission(self, assignment_id, team_id):
+        remise = self.remises.get((assignment_id, team_id))
+        if remise is None:
+            return {}
+        return {"submitted_by": remise["submitted_by"],
+                "submitted_at": remise["submitted_at"]}
+
+    def read_teams(self, assignment_id):
+        lignes = []
+        for (team_id, devoir), meta in sorted(self.equipes_meta.items()):
+            if devoir != assignment_id:
+                continue
+            lignes.append({"team_id": team_id,
+                           "group_number": meta["group_number"],
+                           "label": meta["label"],
+                           "members": len(self.team_roster(devoir, team_id))})
+        return lignes
 
     # -- pratique et progression
     def read_practice_summary(self, user):
@@ -340,7 +442,34 @@ CONTENU = [
 ]
 
 
-def _ecrire_contenu(racine, exercices=CONTENU, release=None):
+# LE CONTENU DU DEPLOIEMENT DE TEST, PLUS UN DEVOIR D'EQUIPE. Une liste a
+# part plutot qu'un ajout a CONTENU : les controles existants comptent des
+# exercices publies, et un devoir qui apparaitrait partout ferait echouer des
+# tests qui n'ont rien a voir -- ce qui est exactement ce que "la
+# fonctionnalite est additive" doit vouloir dire.
+DEVOIR = CONTENU + [
+    ("dev-a", "Devoir : partie A", "io", ["main.c"], ["variables"], "advanced"),
+    ("dev-b", "Devoir : partie B", "unity", ["lib.h", "lib.c"],
+     ["variables"], "advanced"),
+]
+
+
+def _devoir_json(deadline=None, team=True):
+    devoir = {"schema_version": 1, "id": "devoir", "title": "Le devoir",
+              "description": "Trois ou quatre, une seule remise.",
+              "items": ["dev-a", "dev-b"], "release": {"state": "available"},
+              "handin": {"root": "Devoir", "files": [
+                  {"name": "main.c", "exercise_id": "dev-a", "file": "main.c"},
+                  {"name": "matrac_lib.c", "exercise_id": "dev-b",
+                   "file": "lib.c"}]}}
+    if team:
+        devoir["team"] = {"min": 3, "max": 4}
+    if deadline:
+        devoir["deadline"] = deadline
+    return devoir
+
+
+def _ecrire_contenu(racine, exercices=CONTENU, release=None, devoir=None):
     """Une racine de contenu privé v2, prête pour `discover()`."""
     def ecrire(chemin, valeur):
         os.makedirs(os.path.dirname(chemin), exist_ok=True)
@@ -375,22 +504,24 @@ def _ecrire_contenu(racine, exercices=CONTENU, release=None):
         if fichiers:
             ecrire(os.path.join(dossier, "public", "files.json"),
                    {"files": [{"name": nom, "template": ""} for nom in fichiers]})
+    if devoir is not None:
+        ecrire(os.path.join(racine, "assignments", "devoir.json"), devoir)
 
 
-def _publier(tmp, exercices=CONTENU):
+def _publier(tmp, exercices=CONTENU, devoir=None):
     """Publie ce contenu et pose le pointeur. Rend le répertoire des releases."""
     import content_catalog as content_catalogue
     import publish_content
     racine = os.path.join(tmp, "content")
     publie = os.path.join(tmp, "published")
-    _ecrire_contenu(racine, exercices)
+    _ecrire_contenu(racine, exercices, devoir=devoir)
     publish_content.publish(content_catalogue.discover(racine), publie)
     return publie
 
 
 @contextlib.contextmanager
 def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
-             groupes=(4, 6)):
+             groupes=(4, 6), exercices=CONTENU, devoir=None):
     """Un déploiement complet en mémoire, remis en place à la sortie.
 
     TOUT EST RESTAURÉ DANS UN `finally`, y compris les quotas : un test qui
@@ -401,7 +532,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     spool, page = (os.path.join(tmp, n) for n in ("spool", "web"))
     for chemin in (spool, page):
         os.makedirs(chemin)
-    publie = _publier(tmp)
+    publie = _publier(tmp, exercices, devoir)
 
     faux = base if base is not None else BaseSimulee()
     modules = _modules_avec_etat()
@@ -2342,6 +2473,556 @@ def test_uvicorn_is_launched_with_a_single_worker():
     block = source.split("uvicorn.run(", 1)[1].split(")", 1)[0]
     assert re.search(r"workers\s*=\s*1\b", block), block
     assert not re.search(r"workers\s*=\s*(?!1\b)\d", block), block
+
+
+# ---------------------------------------------------------------------------
+# Le devoir d'équipe : la frontière HTTP, et surtout la frontière entre DEUX
+# ÉQUIPES.
+#
+# CE QUI EST ÉPROUVÉ ICI, ET NULLE PART AILLEURS : qu'aucune route n'accepte
+# une équipe dans son corps ni dans son URL. Toutes les fonctions pures sont
+# éprouvées par appel direct dans `test_ctester.py` ; ce qui ne peut se voir
+# que depuis un client HTTP, c'est qu'un compte inscrit dans l'équipe 2 ne
+# peut atteindre AUCUN octet de l'équipe 1, quoi qu'il écrive.
+
+JETONS_EQUIPE = {"t-alice": "sub-alice", "t-bob": "sub-bob",
+                 "t-cleo": "sub-cleo", "t-prof": "sub-prof"}
+
+
+def _entetes(jeton):
+    return {"Authorization": "Bearer " + jeton}
+
+
+@contextlib.contextmanager
+def deploiement_devoir(*, deadline=None, team=True, moderateurs=("sub-prof",)):
+    """Un déploiement avec un devoir publié et DEUX équipes inscrites.
+
+    Deux équipes, toujours : un contrôle d'isolement avec une seule équipe ne
+    prouve rien -- il n'y a personne à ne pas atteindre.
+    """
+    base = BaseSimulee()
+    with contexte(jetons=JETONS_EQUIPE, moderateurs=moderateurs, base=base,
+                  exercices=DEVOIR,
+                  devoir=_devoir_json(deadline=deadline, team=team)) as (c, faux, tmp):
+        faux.inscrire("devoir", "e1", ["sub-alice", "sub-cleo"], group_number=4,
+                      label="Équipe 1")
+        faux.inscrire("devoir", "e2", ["sub-bob"], group_number=6,
+                      label="Équipe 2")
+        yield c, faux, tmp
+
+
+def test_le_contexte_d_equipe_nomme_les_coequipiers_sans_aucun_sub():
+    """Ce que le bandeau lit, et ce qu'il n'a pas le droit de recevoir."""
+    with deploiement_devoir() as (client, faux, _):
+        r = client.get("/team/context?assignment=devoir",
+                       headers=_entetes("t-alice"))
+        assert r.status_code == 200, r.text
+        corps = r.json()
+        assert "sub-" not in r.text, r.text
+        assert corps["team"]["id"] == "e1"
+        assert corps["team"]["group_number"] == 4
+        assert [m["id"] for m in corps["team"]["members"]] == ["m1", "m2"]
+        assert [m["you"] for m in corps["team"]["members"]] == [True, False]
+        assert corps["assignment"]["items"] == ["dev-a", "dev-b"]
+        assert corps["assignment"]["team"] == {"min": 3, "max": 4}
+        assert corps["submission"] == {}
+        # LE GROUPE DE L'EQUIPE VIENT DU LISTAGE, pas du profil : cleo n'a
+        # jamais rempli "Mon identité", et l'équipe a quand même un groupe.
+        assert not faux.profils
+
+
+def test_aucune_route_d_equipe_n_ouvre_sans_appartenance_prouvee():
+    """Trois refus, trois phrases : le devoir, le mode, l'inscription."""
+    with deploiement_devoir() as (client, faux, _):
+        # Un compte sans équipe pour ce devoir.
+        faux.equipes.pop(("devoir", "sub-bob"))
+        for chemin in ("/team/context?assignment=devoir",
+                       "/team/document?assignment=devoir&ex=dev-a",
+                       "/team/revisions?assignment=devoir&ex=dev-a",
+                       "/team/handin.zip?assignment=devoir"):
+            r = client.get(chemin, headers=_entetes("t-bob"))
+            assert r.status_code == 403, (chemin, r.status_code)
+            assert "équipe" in r.json()["error"]
+        # Un devoir qui n'existe pas -- ou qui n'est pas ouvert.
+        r = client.get("/team/context?assignment=inconnu",
+                       headers=_entetes("t-alice"))
+        assert r.status_code == 404
+        # Et sans jeton du tout : 401, comme toute route de compte.
+        assert client.get("/team/context?assignment=devoir").status_code == 401
+
+
+def test_un_devoir_sans_bloc_team_repond_que_ce_n_est_pas_du_travail_d_equipe():
+    with deploiement_devoir(team=False) as (client, _, _):
+        r = client.get("/team/context?assignment=devoir",
+                       headers=_entetes("t-alice"))
+        assert r.status_code == 400
+        assert "travail d'équipe" in r.json()["error"]
+
+
+def test_le_document_est_partage_par_l_equipe_et_par_elle_seule():
+    """LE CŒUR DE LA FONCTIONNALITÉ, et le cœur de sa sécurité.
+
+    Alice écrit, Cleo (même équipe) lit la même chose, Bob (autre équipe) ne
+    lit rien -- et il n'a AUCUN moyen de demander autre chose : il n'y a pas
+    d'équipe dans l'URL ni dans le corps, alors il n'y a rien à modifier.
+    """
+    with deploiement_devoir() as (client, faux, _):
+        ecrire = client.put("/team/document", headers=_entetes("t-alice"),
+                            json={"assignment_id": "devoir",
+                                  "exercise_id": "dev-a",
+                                  "files": {"main.c": "int main(void){}\n"}})
+        assert ecrire.status_code == 200, ecrire.text
+        pour_cleo = client.get("/team/document?assignment=devoir&ex=dev-a",
+                               headers=_entetes("t-cleo")).json()
+        assert pour_cleo["sources"] == {"main.c": "int main(void){}\n"}
+        # BOB EST DANS UNE AUTRE EQUIPE : il obtient SON document, qui est
+        # vide -- jamais celui d'alice, et jamais un 403 qui confirmerait au
+        # passage que l'autre équipe a écrit quelque chose.
+        pour_bob = client.get("/team/document?assignment=devoir&ex=dev-a",
+                              headers=_entetes("t-bob")).json()
+        assert pour_bob["sources"] == {}
+        # ET IL NE PEUT PAS ECRIRE CHEZ ELLE : un corps qui nommerait une
+        # équipe n'est pas lu (`extra="ignore"`), l'écriture va dans la sienne.
+        client.put("/team/document", headers=_entetes("t-bob"),
+                   json={"assignment_id": "devoir", "exercise_id": "dev-a",
+                         "team_id": "e1", "team": "e1",
+                         "files": {"main.c": "/* bob */\n"}})
+        assert faux.documents[("e1", "dev-a")] == {"main.c": "int main(void){}\n"}
+        assert faux.documents[("e2", "dev-a")] == {"main.c": "/* bob */\n"}
+
+
+def test_un_exercice_hors_du_devoir_ne_resout_pas_meme_pour_un_membre():
+    """La SECONDE moitié de la porte. Prouver l'équipe ne prouve pas l'exercice.
+
+    Sans ce contrôle, un membre pourrait atteindre un document clé sur SON
+    équipe et n'importe quel identifiant d'exercice -- y compris ceux d'un
+    autre devoir où il n'a rien à faire.
+    """
+    with deploiement_devoir() as (client, _, _):
+        for ex in ("tp2-ex3", "../catalog", "", "quiz1"):
+            r = client.get("/team/document?assignment=devoir&ex="
+                           + ex, headers=_entetes("t-alice"))
+            assert r.status_code == 404, (ex, r.status_code)
+        r = client.put("/team/document", headers=_entetes("t-alice"),
+                       json={"assignment_id": "devoir",
+                             "exercise_id": "tp2-ex3", "files": {}})
+        assert r.status_code == 404
+
+
+def test_le_document_d_equipe_ne_touche_pas_au_brouillon_individuel():
+    """LES DEUX CHEMINS COEXISTENT, et c'est la non-régression de la refonte.
+
+    Le brouillon individuel reste clé sur (compte, exercice) ; le document
+    d'équipe sur (équipe, exercice). Écrire l'un ne doit rien faire à l'autre,
+    dans les deux sens.
+    """
+    with deploiement_devoir() as (client, faux, _):
+        client.put("/team/document", headers=_entetes("t-alice"),
+                   json={"assignment_id": "devoir", "exercise_id": "dev-a",
+                         "files": {"main.c": "équipe\n"}})
+        assert faux.brouillons == {}
+        client.put("/brouillon", headers=_entetes("t-alice"),
+                   json={"exercise_id": "tp2-ex3",
+                         "files": {"submission.c": "moi\n"}})
+        assert faux.brouillons[("sub-alice", "tp2-ex3")] == {"submission.c": "moi\n"}
+        assert faux.documents[("e1", "dev-a")] == {"main.c": "équipe\n"}
+        # ET LE BROUILLON INDIVIDUEL D'UN EXERCICE DE DEVOIR RESTE POSSIBLE :
+        # un étudiant sans équipe doit pouvoir travailler l'exercice seul.
+        r = client.put("/brouillon", headers=_entetes("t-bob"),
+                       json={"exercise_id": "dev-a",
+                             "files": {"main.c": "seul\n"}})
+        assert r.status_code == 200
+        assert faux.brouillons[("sub-bob", "dev-a")] == {"main.c": "seul\n"}
+
+
+def test_le_document_passe_par_la_meme_liste_blanche_que_tout_le_reste():
+    with deploiement_devoir() as (client, _, _):
+        r = client.put("/team/document", headers=_entetes("t-alice"),
+                       json={"assignment_id": "devoir", "exercise_id": "dev-a",
+                             "files": {"secret.c": "x"}})
+        assert r.status_code == 400 and "inattendu" in r.json()["error"]
+        # LA BORNE DES DEUX COTES, comme partout : ce qui passe, et le premier
+        # octet qui ne passe plus.
+        pile = "a" * (config.MAX_CODE - len(json.dumps({"main.c": ""})))
+        assert client.put("/team/document", headers=_entetes("t-alice"),
+                          json={"assignment_id": "devoir",
+                                "exercise_id": "dev-a",
+                                "files": {"main.c": pile}}).status_code == 200
+        assert client.put("/team/document", headers=_entetes("t-alice"),
+                          json={"assignment_id": "devoir",
+                                "exercise_id": "dev-a",
+                                "files": {"main.c": pile + "a"}}).status_code == 413
+
+
+def test_une_revision_est_coalescee_puis_restaurable():
+    """PAS UNE LIGNE POSTGRES PAR FRAPPE, et une histoire quand même lisible.
+
+    Une révision par auteur et par fenêtre : quatre personnes qui tapent en
+    même temps laissent quatre traces -- ce qu'il faut pour dire qui a fait
+    quoi -- et une personne qui tape pendant dix minutes en laisse cinq, pas
+    six mille.
+    """
+    with deploiement_devoir() as (client, faux, _):
+        def ecrire(jeton, texte):
+            return client.put("/team/document", headers=_entetes(jeton),
+                              json={"assignment_id": "devoir",
+                                    "exercise_id": "dev-a",
+                                    "files": {"main.c": texte}})
+        ecrire("t-alice", "un\n")
+        ecrire("t-alice", "deux\n")
+        ecrire("t-alice", "trois\n")
+        assert len(faux.revisions) == 1, faux.revisions
+        # UN AUTRE AUTEUR EN OUVRE UNE TOUT DE SUITE : sans ça, la trace du
+        # coéquipier qui a tapé dans la fenêtre de quelqu'un d'autre
+        # n'existerait pas.
+        ecrire("t-cleo", "quatre\n")
+        assert len(faux.revisions) == 2
+        # LA FENETRE PASSE : alice réécrit et laisse une trace de plus.
+        faux.horloge += config.TEAM_REVISION_WINDOW + 1
+        ecrire("t-alice", "cinq\n")
+        assert len(faux.revisions) == 3
+        # DEUX ECRITURES IDENTIQUES N'EN FONT PAS DEUX : une sauvegarde
+        # déclenchée par un collage annulé n'ajoute rien.
+        faux.horloge += config.TEAM_REVISION_WINDOW + 1
+        ecrire("t-alice", "cinq\n")
+        assert len(faux.revisions) == 3
+
+        liste = client.get("/team/revisions?assignment=devoir&ex=dev-a",
+                           headers=_entetes("t-alice")).json()["revisions"]
+        assert len(liste) == 3
+        assert "sub-" not in json.dumps(liste)
+        assert {r["author"] for r in liste} == {"m1", "m2"}
+        # ET IL N'Y A AUCUN POURCENTAGE : l'historique sert à récupérer et à
+        # comprendre, jamais à noter.
+        assert "%" not in json.dumps(liste)
+
+        premiere = liste[-1]["id"]
+        detail = client.get("/team/revision?assignment=devoir&ex=dev-a&id="
+                            + premiere, headers=_entetes("t-alice"))
+        assert detail.json()["sources"] == {"main.c": "un\n"}
+        remis = client.post("/team/restore", headers=_entetes("t-cleo"),
+                            json={"assignment_id": "devoir",
+                                  "exercise_id": "dev-a",
+                                  "revision_id": premiere})
+        assert remis.status_code == 200
+        assert faux.documents[("e1", "dev-a")] == {"main.c": "un\n"}
+        # RESTAURER AVANCE, ça ne rembobine pas : l'histoire garde tout.
+        assert len(faux.revisions) == 4
+
+
+def test_une_revision_d_une_autre_equipe_ne_resout_pas():
+    """L'équipe est dans la condition, pas dans un `if` posé après coup."""
+    with deploiement_devoir() as (client, faux, _):
+        client.put("/team/document", headers=_entetes("t-alice"),
+                   json={"assignment_id": "devoir", "exercise_id": "dev-a",
+                         "files": {"main.c": "secret d'alice\n"}})
+        [revision] = faux.revisions
+        for chemin, methode, corps in (
+                ("/team/revision?assignment=devoir&ex=dev-a&id="
+                 + revision["revision_id"], "GET", None),
+                ("/team/restore", "POST",
+                 {"assignment_id": "devoir", "exercise_id": "dev-a",
+                  "revision_id": revision["revision_id"]})):
+            r = (client.get(chemin, headers=_entetes("t-bob")) if methode == "GET"
+                 else client.post(chemin, headers=_entetes("t-bob"), json=corps))
+            assert r.status_code == 404, (chemin, r.status_code)
+        assert ("e2", "dev-a") not in faux.documents
+        assert "secret" not in client.get(
+            "/team/revisions?assignment=devoir&ex=dev-a",
+            headers=_entetes("t-bob")).text
+
+
+def test_l_archive_zip_est_construite_par_le_serveur_et_deterministe():
+    """CE QUI PART EST CE QUE L'EQUIPE A ECRIT, lu côté serveur.
+
+    Le navigateur n'envoie que l'identifiant du devoir : une archive
+    assemblée depuis l'éditeur serait l'archive d'un onglet, et l'équipe
+    l'apprendrait à la correction.
+    """
+    import io as _io
+    import zipfile as _zipfile
+
+    with deploiement_devoir() as (client, faux, _):
+        vide = client.get("/team/handin.zip?assignment=devoir",
+                          headers=_entetes("t-alice"))
+        assert vide.status_code == 400 and "rien à remettre" in vide.json()["error"]
+        faux.documents[("e1", "dev-a")] = {"main.c": "int main(void){return 0;}\n"}
+        faux.documents[("e1", "dev-b")] = {"lib.h": "#pragma once\n",
+                                           "lib.c": "double f(void){return 1;}\n"}
+        r = client.get("/team/handin.zip?assignment=devoir",
+                       headers=_entetes("t-alice"))
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "application/zip"
+        assert "Devoir-e1.zip" in r.headers["content-disposition"]
+        # UNE ARCHIVE EST UNE DONNEE DE COMPTE : jamais mise en cache.
+        assert r.headers["cache-control"] == "no-store"
+        with _zipfile.ZipFile(_io.BytesIO(r.content)) as archive:
+            assert archive.namelist() == ["Devoir/main.c", "Devoir/matrac_lib.c"]
+            assert archive.read("Devoir/matrac_lib.c").decode() \
+                == "double f(void){return 1;}\n"
+        # DETERMINISTE : même contenu, mêmes octets.
+        encore = client.get("/team/handin.zip?assignment=devoir",
+                            headers=_entetes("t-cleo"))
+        assert encore.content == r.content
+        # ET L'AUTRE EQUIPE N'OBTIENT PAS CELLE-LA.
+        autre = client.get("/team/handin.zip?assignment=devoir",
+                           headers=_entetes("t-bob"))
+        assert autre.status_code == 400, autre.text
+
+
+def test_la_remise_est_une_seule_par_equipe_et_refuse_un_trou():
+    with deploiement_devoir() as (client, faux, _):
+        faux.documents[("e1", "dev-a")] = {"main.c": "int main(void){}\n"}
+        incomplet = client.post("/team/handin", headers=_entetes("t-alice"),
+                                json={"assignment_id": "devoir"})
+        assert incomplet.status_code == 400
+        # ELLE DIT CE QUI MANQUE : "remise incomplète" tout court enverrait
+        # l'équipe chercher dans six exercices.
+        assert "matrac_lib.c" in incomplet.json()["error"]
+        assert faux.remises == {}
+
+        faux.documents[("e1", "dev-b")] = {"lib.c": "double f(void){return 1;}\n"}
+        remise = client.post("/team/handin", headers=_entetes("t-alice"),
+                             json={"assignment_id": "devoir"})
+        assert remise.status_code == 200, remise.text
+        assert sorted(remise.json()["files"]) == ["Devoir/main.c",
+                                                   "Devoir/matrac_lib.c"]
+        # UNE SEULE LIGNE, ET REMETTRE A NOUVEAU LA REMPLACE : une équipe qui
+        # trouve un bogue à 22 h doit pouvoir corriger.
+        encore = client.post("/team/handin", headers=_entetes("t-cleo"),
+                             json={"assignment_id": "devoir"})
+        assert encore.status_code == 200
+        assert list(faux.remises) == [("devoir", "e1")]
+        assert faux.remises[("devoir", "e1")]["submitted_by"] == "sub-cleo"
+        # LA REMISE EST CELLE DE L'EQUIPE : cleo la voit dans son contexte.
+        contexte_cleo = client.get("/team/context?assignment=devoir",
+                                   headers=_entetes("t-cleo")).json()
+        assert contexte_cleo["submission"]["submitted_at"]
+        # ET L'AUTRE EQUIPE N'EN A PAS.
+        assert client.get("/team/context?assignment=devoir",
+                          headers=_entetes("t-bob")).json()["submission"] == {}
+
+
+def test_la_remise_ferme_a_la_date_limite():
+    with deploiement_devoir(deadline="2020-01-01T00:00:00-05:00") as (client, faux, _):
+        faux.documents[("e1", "dev-a")] = {"main.c": "x\n"}
+        faux.documents[("e1", "dev-b")] = {"lib.c": "y\n"}
+        r = client.post("/team/handin", headers=_entetes("t-alice"),
+                        json={"assignment_id": "devoir"})
+        assert r.status_code == 403 and "date de remise" in r.json()["error"]
+        assert faux.remises == {}
+        # LE ZIP RESTE TELECHARGEABLE APRES LA DATE : relire son propre travail
+        # n'est pas une remise, et le refuser ne protégerait rien.
+        assert client.get("/team/handin.zip?assignment=devoir",
+                          headers=_entetes("t-alice")).status_code == 200
+        # ET LE BANDEAU LE SAIT AVANT DE CLIQUER.
+        vue = client.get("/team/context?assignment=devoir",
+                         headers=_entetes("t-alice")).json()
+        assert vue["assignment"]["deadline_passed"] is True
+
+
+def test_un_exercice_de_devoir_n_accorde_aucun_xp_mais_garde_l_etat():
+    """QUATRE PERSONNES, UN SEUL DOCUMENT : une première réussite chacune pour
+    le même code serait quatre récompenses pour un seul travail.
+
+    Ce qui reste écrit, c'est l'état et la tentative : chaque membre doit voir
+    que l'exercice passe, et garder son brouillon.
+    """
+    with deploiement_devoir() as (client, faux, tmp):
+        _verdict("dev-a", "d" * 32, {"status": "ok", "total": 2, "passed": 2})
+        assert client.get("/r/" + "d" * 32).status_code == 200
+        assert faux.etats[("sub-alice", "dev-a")] == "solved"
+        assert faux.pratique[("sub-alice", "dev-a")][0] == 1
+        assert faux.xp == {} and faux.succes == {}
+        # ET UN EXERCICE ORDINAIRE CONTINUE D'EN ACCORDER : la non-régression
+        # de la même branche.
+        _verdict("tp2-ex3", "e" * 32, {"status": "ok", "total": 1, "passed": 1})
+        client.get("/r/" + "e" * 32)
+        assert faux.xp, "un exercice ordinaire doit toujours accorder de l'XP"
+
+
+def test_le_listage_des_equipes_est_reserve_a_l_enseignant_et_ne_nomme_personne():
+    with deploiement_devoir() as (client, _, _):
+        refuse = client.get("/team/roster?assignment=devoir",
+                            headers=_entetes("t-alice"))
+        assert refuse.status_code == 403
+        r = client.get("/team/roster?assignment=devoir",
+                       headers=_entetes("t-prof"))
+        assert r.status_code == 200, r.text
+        assert "sub-" not in r.text, r.text
+        equipes = {e["team_id"]: e for e in r.json()["teams"]}
+        assert equipes["e1"]["members"] == 2 and equipes["e1"]["group_number"] == 4
+        assert equipes["e2"]["members"] == 1
+
+
+def test_une_base_muette_rend_503_et_aucun_document():
+    """Comme partout : « la base n'a pas répondu » n'est pas « il n'y a rien »."""
+    with deploiement_devoir() as (client, faux, _):
+        faux.read_team_document = lambda *_: None
+        r = client.get("/team/document?assignment=devoir&ex=dev-a",
+                       headers=_entetes("t-alice"))
+        assert r.status_code == 503 and r.json() == {"error": "la base ne répond pas"}
+        faux.team_roster = lambda *_: None
+        assert client.get("/team/context?assignment=devoir",
+                          headers=_entetes("t-alice")).status_code == 503
+
+
+# --- La socket de collaboration -------------------------------------------------
+# CE QU'ELLE DOIT REFUSER AVANT DE RELAYER QUOI QUE CE SOIT, et le fait que
+# l'émetteur d'une trame est décidé par le serveur. Une trame relayée telle
+# quelle laisserait un membre signer le curseur de quelqu'un d'autre.
+
+
+def _hello(socket, jeton, exercice="dev-a", devoir="devoir"):
+    socket.send_json({"t": "hello", "token": jeton, "assignment": devoir,
+                      "exercise": exercice})
+
+
+def _code_de_fermeture(client, envoyer):
+    from starlette.websockets import WebSocketDisconnect
+    try:
+        with client.websocket_connect("/team/live") as socket:
+            envoyer(socket)
+            socket.receive_json()
+        return None
+    except WebSocketDisconnect as exc:
+        return exc.code
+
+
+def test_la_socket_refuse_avant_de_relayer():
+    with deploiement_devoir() as (client, faux, _):
+        collab.reset()
+        # Une première trame qui n'est pas un `hello`.
+        assert _code_de_fermeture(
+            client, lambda s: s.send_json({"t": "update", "d": "x"})) == 4400
+        assert _code_de_fermeture(client, lambda s: s.send_text("pas du json")) == 4400
+        # Un jeton qui ne vaut rien.
+        assert _code_de_fermeture(client, lambda s: _hello(s, "t-inconnu")) == 4401
+        # Un compte réel, mais sans équipe pour ce devoir.
+        faux.equipes.pop(("devoir", "sub-bob"))
+        assert _code_de_fermeture(client, lambda s: _hello(s, "t-bob")) == 4403
+        # Un exercice qui n'est pas dans ce devoir.
+        assert _code_de_fermeture(
+            client, lambda s: _hello(s, "t-alice", exercice="tp2-ex3")) == 4403
+        collab.reset()
+
+
+def test_deux_coequipiers_se_voient_et_l_autre_equipe_ne_voit_rien():
+    """L'ISOLEMENT DE LA SALLE, ET LE TAMPON DU SERVEUR SUR CHAQUE TRAME.
+
+    Bob est dans une autre équipe, sur le MÊME exercice : sa socket est
+    acceptée -- il a le droit d'y travailler -- et il ne reçoit rien de
+    l'équipe 1. Et le `from` qu'alice écrit elle-même est écrasé : un membre
+    ne peut pas signer le curseur d'un autre.
+    """
+    with deploiement_devoir() as (client, faux, _):
+        collab.reset()
+        with client.websocket_connect("/team/live") as alice:
+            _hello(alice, "t-alice")
+            pret_alice = alice.receive_json()
+            assert pret_alice["t"] == "ready"
+            assert pret_alice["peers"] == 0 and pret_alice["me"] == "m1"
+            assert pret_alice["epoch"]
+            assert alice.receive_json()["t"] == "presence"
+            with client.websocket_connect("/team/live") as cleo:
+                _hello(cleo, "t-cleo")
+                pret_cleo = cleo.receive_json()
+                # LA SECONDE ARRIVEE NE SEME PAS LE DOCUMENT : c'est ce
+                # `peers` qui l'en empêche, et l'ordre est décidé ici.
+                assert pret_cleo["peers"] == 1 and pret_cleo["me"] == "m2"
+                assert pret_cleo["epoch"] == pret_alice["epoch"]
+                assert cleo.receive_json()["t"] == "presence"
+                assert alice.receive_json() == {"t": "presence",
+                                                "online": ["m1", "m2"]}
+                with client.websocket_connect("/team/live") as bob:
+                    _hello(bob, "t-bob")
+                    pret_bob = bob.receive_json()
+                    # UNE AUTRE EQUIPE, UNE AUTRE SALLE : époque différente,
+                    # et il y est seul.
+                    assert pret_bob["peers"] == 0
+                    assert pret_bob["epoch"] != pret_alice["epoch"]
+                    assert bob.receive_json()["t"] == "presence"
+
+                    alice.send_json({"t": "update", "d": "AAEC",
+                                     "from": "m2", "token": "t-alice"})
+                    recue = cleo.receive_json()
+                    assert recue["d"] == "AAEC"
+                    # LE SERVEUR TAMPONNE L'EMETTEUR : alice a écrit "m2",
+                    # elle ressort en "m1". Et le jeton ne repart pas.
+                    assert recue["from"] == "m1"
+                    assert "token" not in recue
+
+                    alice.send_json({"t": "cursor", "file": "main.c",
+                                     "a": "AA", "h": "AQ"})
+                    curseur = cleo.receive_json()
+                    assert curseur["t"] == "cursor" and curseur["from"] == "m1"
+
+                    # BOB N'A RIEN RECU. On le prouve en lui envoyant quelque
+                    # chose depuis SA salle : la trame suivante qu'il lit est
+                    # la sienne, pas celle d'alice.
+                    bob.send_json({"t": "update", "d": "ZZZ"})
+                    with client.websocket_connect("/team/live") as bob2:
+                        _hello(bob2, "t-bob")
+                        bob2.receive_json()          # ready
+                        bob2.receive_json()          # presence
+                        assert bob.receive_json()["t"] == "presence"
+                        bob.send_json({"t": "update", "d": "BBBB"})
+                        suite = bob2.receive_json()
+                        assert suite == {"t": "update", "d": "BBBB", "from": "m1"}
+        collab.reset()
+
+
+def test_une_trame_inconnue_ou_trop_grosse_ne_traverse_pas():
+    """Le relais ne LIT pas la charge, mais il la BORNE -- une trame de
+    WebSocket ne passe par aucun middleware, donc par aucune borne de corps."""
+    from starlette.websockets import WebSocketDisconnect
+
+    with deploiement_devoir() as (client, _, _):
+        collab.reset()
+        with client.websocket_connect("/team/live") as alice:
+            _hello(alice, "t-alice")
+            alice.receive_json(); alice.receive_json()
+            with client.websocket_connect("/team/live") as cleo:
+                _hello(cleo, "t-cleo")
+                cleo.receive_json(); cleo.receive_json()
+                alice.receive_json()                     # presence
+                # Un type que le relais ne connaît pas est ignoré, pas relayé.
+                alice.send_json({"t": "evil", "d": "x"})
+                alice.send_json({"t": "update", "d": "ok"})
+                assert cleo.receive_json()["d"] == "ok"
+            try:
+                alice.receive_json()                     # presence (cleo part)
+                alice.send_text("x" * (config.TEAM_LIVE_MAX_FRAME + 1))
+                alice.receive_json()
+                raise AssertionError("une trame hors bornes a été acceptée")
+            except WebSocketDisconnect as exc:
+                assert exc.code == 4400
+        collab.reset()
+
+
+def test_la_socket_refuse_une_origine_inconnue():
+    """Une WebSocket n'est pas soumise à CORS : le navigateur l'ouvre vers
+    n'importe quel hôte et n'envoie qu'`Origin`. Le jeton reste la vraie
+    barrière -- une page hostile ne lit pas le `sessionStorage` d'une autre
+    origine -- mais refuser ici ferme la porte plus tôt."""
+    from starlette.websockets import WebSocketDisconnect
+
+    with deploiement_devoir() as (client, _, _):
+        collab.reset()
+        try:
+            with client.websocket_connect(
+                    "/team/live", headers={"Origin": INCONNUE}) as socket:
+                socket.receive_json()
+            raise AssertionError("origine inconnue acceptée")
+        except WebSocketDisconnect as exc:
+            assert exc.code == 4403
+        # L'origine connue passe, et l'absence d'origine aussi (un client qui
+        # n'est pas un navigateur doit de toute façon connaître un jeton).
+        with client.websocket_connect("/team/live",
+                                      headers={"Origin": CONNUE}) as socket:
+            _hello(socket, "t-alice")
+            assert socket.receive_json()["t"] == "ready"
+        collab.reset()
 
 
 if __name__ == "__main__":

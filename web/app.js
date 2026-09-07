@@ -12,7 +12,7 @@ const loaded = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260906-refonte";
+const ASSET_REVISION = "20260907-equipes";
 
 // ponytail: <script> injection, not import(). See above. Move to ES modules
 // the day shared state is truly separated.
@@ -441,6 +441,7 @@ function compilerOutput(gcc) {
 //     eventually forget it.
 let catalog = [];
 let collections = [];
+let assignments = [];
 // THE ID CHOSEN IN THE MENU, and the only source of that truth since the two
 // <select> elements disappeared. `currentId` is something else: what the
 // EDITOR actually holds, set by setupFiles once the fill-in has come back.
@@ -624,8 +625,13 @@ const EXPORT_MINIMUM = 2;
 // VERIFICATIONS ARE NOT THERE: they are not part of the submission, and an
 // io verification would sneak in with its own `#if exercice == N` among the
 // exercise's own labs.
+// AND NEITHER ARE A TEAM ASSIGNMENT'S EXERCISES: the assignment has its own
+// hand-in (a ZIP whose contents its own metadata declares), and folding six
+// shared modules into somebody's personal `main.c` would hand in the wrong
+// artifact under the wrong name.
 const exportableExercises = (group) =>
-  catalog.filter(t => t.group === group && t.mode === "io" && !t.verification);
+  catalog.filter(t => t.group === group && t.mode === "io" && !t.verification
+                      && !t.assignment);
 const isGroupExportable = (group) =>
   exportableExercises(group).length >= EXPORT_MINIMUM;
 
@@ -679,6 +685,11 @@ function catalogEntry(ex, group) {
     id: ex.id, mode: ex.mode, short: ex.title, group: group,
     // Absent from the published catalog when false -- hence the `!!`.
     verification: !!ex.verification,
+    // WHICH ASSIGNMENT THIS EXERCISE BELONGS TO, or "". It is what decides
+    // whether opening it opens a TEAM workspace instead of the individual
+    // editor -- and it is absent from every exercise published before team
+    // assignments existed, which is exactly why nothing else had to change.
+    assignment: ex.assignment || "",
     label: group ? group.replace(/\s+/g, "") + " : " + ex.title : ex.title,
     files: (ex.files || []).map(f => ({ name: f.name })),
     learning: learning,
@@ -688,6 +699,13 @@ function catalogEntry(ex, group) {
 }
 
 function normalize(publishedCatalog) {
+  // ASSIGNMENTS ARE NOT COLLECTIONS, and they are kept in their own list for
+  // that reason. A collection is the menu's path through the catalog; an
+  // assignment is a piece of assessed work with a deadline, a team and a
+  // hand-in. Folding one into the other would have made "which lab is this
+  // in" and "what am I handing in" the same field.
+  assignments = (publishedCatalog.assignments || []).filter(
+    (a) => a && typeof a.id === "string");
   const byId = new Map();
   for (const ex of publishedCatalog.exercises || []) {
     if (ex && typeof ex.id === "string") byId.set(ex.id, ex);
@@ -1185,6 +1203,12 @@ function saveDraft() {
   sources[activeFile] = $("code").value;
   drafts[currentId] = sources;
   if (!persistDrafts()) return;
+  // A SHARED DOCUMENT IS NOT AN INDIVIDUAL DRAFT. When a team session owns
+  // this exercise it does its own saving, into the TEAM's document; copying
+  // the same text into `exercise_draft` on top would write four rows for one
+  // piece of work and blur the one distinction this whole feature rests on.
+  // The LOCAL copy above stays: it costs nothing and it is a real backup.
+  if (editorSession && editorSession.owns && editorSession.owns(currentId)) return;
   if (ctester.compte) ctester.compte.syncDraft(currentId, sources);
 }
 $("purger").hidden = !Object.keys(drafts).length;
@@ -1200,6 +1224,10 @@ $("purger").addEventListener("click", () => {
 function switchMode() {
   clearTimeout(saveTimer);
   saveDraft();
+  // THE OLD ROOM CLOSES BEFORE THE NEW ONE OPENS. Without this, the socket of
+  // the exercise being left would still be applying remote changes into a
+  // textarea that now holds a different exercise.
+  if (ctester.team) ctester.team.leave();
   const tp = currentExercise();
   // `currentId` IS WHAT THE EDITOR HOLDS, not what the menu shows. Filling it
   // in goes through the network since the detail loads on demand: setting it
@@ -1342,6 +1370,29 @@ async function prepareExercise(tp, quiz, thisLoad) {
     if (Object.keys(clean[tp.id] || {}).length) drafts[tp.id] = clean[tp.id];
   }
   setupFiles(tp, detail.files);
+  // AFTER `setupFiles`, ALWAYS. The workspace replaces what the editor holds
+  // with the TEAM's document; running it first would have the individual
+  // draft overwrite the shared one a moment later, which is the one bug in
+  // this feature that would destroy other people's work.
+  await enterWorkspace(tp, thisLoad);
+}
+
+// THE TEAM WORKSPACE IS A MODULE, LOADED ON DEMAND, like every other one.
+// The anonymous visitor never fetches it; neither does a signed-in student
+// working an ordinary lab. It only comes down when the exercise that is being
+// opened says it belongs to an assignment.
+async function enterWorkspace(tp, thisLoad) {
+  const assignment = tp && tp.assignment;
+  if (!assignment || !token) {
+    // LEAVING IS NOT CONDITIONAL ON HAVING ENTERED: switching from an
+    // assignment exercise to an ordinary one must close the socket, and the
+    // module is the only thing that knows whether one is open.
+    if (ctester.team) ctester.team.leave();
+    return;
+  }
+  if (!await activateModule("team", "l'espace d'équipe")) return;
+  if (thisLoad !== loadToken) return;
+  await ctester.team.enter(tp);
 }
 
 
@@ -1398,8 +1449,20 @@ $("code").addEventListener("input", () => {
   paint();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveDraft, 1500);
+  // IMMEDIATELY, NOT ON THE 1.5 s TIMER. The draft can wait a second and a
+  // half; a teammate watching the same document cannot.
+  editorNotify("onInput", activeFile);
 });
-$("code").addEventListener("scroll", paint);
+// THE CARET MOVES WITHOUT THE TEXT CHANGING, and teammates need to see that
+// too: arrow keys, a click, a selection dragged over a function. Same three
+// events a screen reader would listen to.
+for (const event of ["keyup", "click", "select"]) {
+  $("code").addEventListener(event, () => editorNotify("onCaret", activeFile));
+}
+$("code").addEventListener("scroll", () => {
+  paint();
+  editorNotify("onScroll", activeFile);
+});
 
 $("connexion").addEventListener("click", () => { $("consentement").hidden = false; });
 $("consentnon").addEventListener("click", () => { $("consentement").hidden = true; });
@@ -1566,6 +1629,31 @@ Object.assign(ctester, {
   // triggers nothing.
   poserPlaque: setPlate,
   tuileEtat: tileState,
+  // --- What the team workspace needs, and nothing more ---------------------
+  // THE ASSIGNMENTS, whole: title, deadline, ordered exercises and the
+  // hand-in's declared files all come from `/catalog.json`, so the workspace
+  // never has a second source to disagree with.
+  assignments: () => assignments,
+  assignmentOf: (id) => assignments.find(a => a.id === id) || null,
+  // THE EDITOR'S TWO DOORS (see `editorWrite`). A module that reached into
+  // `#code` on its own would be a second place where the caret can be lost.
+  editeur: {
+    fichierActif: () => activeFile,
+    fichiers: () => Object.keys(sources),
+    lire: editorRead,
+    ecrire: editorWrite,
+    zone: () => $("code"),
+    // READ-ONLY IS A REAL STATE, not a disabled button: a workspace whose
+    // library did not load, or whose socket died on a document nobody has
+    // seeded, must stop accepting typing rather than accept it and lose it.
+    verrouiller: (locked) => { $("code").readOnly = !!locked; },
+  },
+  // The session registers itself here; the core calls back on input, on caret
+  // moves, on scroll and on tab switches. One-way, like everything else.
+  brancherSession: (session) => { editorSession = session || null; },
+  // The draft timer, so a workspace can force a save when it is about to
+  // close rather than wait 1.5 s it may not have.
+  sauverBrouillon: saveDraft,
 });
 
 let keyboardEscape = false;
@@ -1626,6 +1714,48 @@ function setupFiles(tp, templateFiles) {
   activateTab(files[0].name);
 }
 
+// --- WHAT A COLLABORATIVE SESSION IS ALLOWED TO DO TO THE EDITOR ------------
+// `team.js` owns a shared document; the CORE owns the textarea, the tabs and
+// the draft. These two functions are the whole contract between them, and it
+// is deliberately narrow: read a file, write a file. The module never touches
+// `#code` itself, so there is exactly one place where the caret can be lost.
+//
+// THE CARET IS THE POINT. A remote change arriving while somebody is typing
+// used to be the thing that made shared editors unusable: the text jumps and
+// the cursor goes to the end. `selection` is where the module wants the caret
+// left -- it computed it from the CRDT delta, which is the only place that
+// knows how many characters landed before it.
+function editorRead(name) {
+  if (name === activeFile) return $("code").value;
+  return sources[name] || "";
+}
+
+function editorWrite(name, text, selection) {
+  sources[name] = text;
+  if (name !== activeFile) return;
+  const zone = $("code");
+  if (zone.value === text && !selection) return;
+  zone.value = text;
+  if (selection) {
+    zone.selectionStart = Math.min(selection.start, text.length);
+    zone.selectionEnd = Math.min(selection.end, text.length);
+  }
+  paint();
+}
+
+// WHAT THE CORE TELLS THE SESSION, AND WHEN. `onInput` fires on every
+// keystroke -- a CRDT update has to leave immediately or a teammate watches a
+// frozen document -- while the 1.5 s draft timer keeps doing what it did.
+// `onSwitch` fires when the tab changes, because a caret in `matrac_lib.c` is
+// not a caret in `main.c`.
+let editorSession = null;
+
+function editorNotify(what, detail) {
+  if (editorSession && typeof editorSession[what] === "function") {
+    try { editorSession[what](detail); } catch (e) { /* never break typing */ }
+  }
+}
+
 function activateTab(name) {
   if (activeFile !== null) sources[activeFile] = $("code").value;
   activeFile = name;
@@ -1635,6 +1765,7 @@ function activateTab(name) {
   // module's two files was being edited.
   $("code").setAttribute("aria-label", "Code de " + name);
   $("code").value = sources[name] || "";
+  editorNotify("onSwitch", name);
   for (const tab of $("tabs").children) {
     const isCurrent = tab.dataset.name === name;
     tab.className = isCurrent ? "tab on" : "tab";

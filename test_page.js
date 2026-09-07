@@ -48,7 +48,7 @@ if (!appRevision || !js.includes('const ASSET_REVISION = "' + appRevision + '"')
 // replacement. Five lines here, and it can no longer pass unnoticed.
 for (const file of ["app.js", "quiz.js", "compte.js", "progres.js",
                     "forum.js", "exporter.js", "leaderboard.js",
-                    "collection.js"]) {
+                    "collection.js", "team.js"]) {
   const names = [...lire(file).matchAll(/^function (\w+)\s*\(/gm)]
     .map((m) => m[1]);
   const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
@@ -295,6 +295,8 @@ const UN_FICHIER = [{ name: "submission.c" }];
 // LE DETAIL, SERVI A PART. `/catalog.json` ne porte que le menu et la liste
 // blanche des noms de fichiers ; consigne et gabarits vivent ici.
 const DETAILS = {
+  "dev-a": { statement: "Écris main().", files: [{ name: "main.c", template: "" }] },
+  "dev-b": { statement: "Écris la lib.", files: [{ name: "lib.c", template: "" }] },
   "tp2-ex0": { statement: "", files: UN_FICHIER },
   "tp2-ex3": { statement: "Calcule U = R * I.", files: UN_FICHIER },
   "tp6-ex1": { statement: "", files: [{ name: "calendrier.h", template: "#define VRAI 1\n" }, { name: "calendrier.c", template: "#include \"calendrier.h\"\n" }] },
@@ -341,6 +343,25 @@ const CATALOG_V2 = {
     { id: "tp10-ex1", title: "ex.1 tri", mode: "io", access: "scheduled",
       release: { state: "scheduled", available_from: DEMAIN },
       skills: [], files: UN_FICHIER },
+    // LE DEVOIR D'ÉQUIPE. Ses exercices portent `assignment`, et c'est ce
+    // seul champ qui fait ouvrir un espace partagé plutôt que l'éditeur
+    // individuel -- tous les autres exercices ci-dessus ne le portent pas, et
+    // doivent continuer de se comporter exactement comme avant.
+    { id: "dev-a", title: "partie A", mode: "io", access: "available",
+      release: { state: "available" }, skills: [], assignment: "devoir",
+      files: [{ name: "main.c" }] },
+    { id: "dev-b", title: "partie B", mode: "io", access: "available",
+      release: { state: "available" }, skills: [], assignment: "devoir",
+      files: [{ name: "lib.c" }] },
+  ],
+  assignments: [
+    { id: "devoir", title: "Devoir — Analyseur GPS", description: "",
+      items: ["dev-a", "dev-b"], team: { min: 3, max: 4 },
+      deadline: "2026-12-05T23:59:00-05:00",
+      release: { state: "available" }, access: "available",
+      handin: { root: "Devoir", files: [
+        { name: "main.c", exercise_id: "dev-a", file: "main.c" },
+        { name: "matrac_lib.c", exercise_id: "dev-b", file: "lib.c" }] } },
   ],
   collections: [
     { id: "tp1", title: "TP 1", description: "", items: ["tp1"],
@@ -354,6 +375,8 @@ const CATALOG_V2 = {
       release: { state: "available" }, access: "available" },
     { id: "revisions", title: "Révisions", description: "",
       items: ["tp2-ex3"], release: { state: "available" }, access: "available" },
+    { id: "devoir", title: "Devoir", description: "", items: ["dev-a", "dev-b"],
+      release: { state: "available" }, access: "available" },
   ],
 };
 
@@ -441,8 +464,91 @@ const PROGRES = {
   transactions: [{ exercise_id: "tp2-ex0", amount: 15,
                    reason: "première réussite", granted_at: "2026-09-01" }],
 };
+// --- L'espace d'équipe, côté serveur, en carton ----------------------------
+// LE DOCUMENT PARTAGÉ EST TENU ICI, comme Postgres le tiendrait : ce que la
+// page écrit se relit, et ce qu'elle n'a pas écrit n'apparaît pas. Le bandeau
+// et l'éditeur doivent lire le serveur, pas leur propre mémoire.
+const EQUIPE = {
+  assignment: { id: "devoir", title: "Devoir — Analyseur GPS", description: "",
+                items: ["dev-a", "dev-b"], team: { min: 3, max: 4 },
+                deadline: "2026-12-05T23:59:00-05:00", deadline_passed: false,
+                access: "available",
+                handin: [{ name: "main.c", exercise_id: "dev-a", file: "main.c" },
+                         { name: "matrac_lib.c", exercise_id: "dev-b",
+                           file: "lib.c" }] },
+  team: { id: "e1", label: "Équipe 1", group_number: 4, members: [
+    { id: "m1", name: "Coéquipier 1", color: "#e0533d", you: true },
+    { id: "m2", name: "Bob B", color: "#2f8fd8", you: false },
+    { id: "m3", name: "Coéquipier 3", color: "#7d57c1", you: false }] },
+  submission: {},
+};
+// CE QUE LE COMPTE N'A PAS : `refuse` fait répondre 403 au contexte, comme le
+// ferait un étudiant qui n'est inscrit dans aucune équipe.
+let EQUIPE_REFUSEE = false;
+const DOCUMENTS = { "dev-a": { "main.c": "int main(void){return 0;}\n" } };
+const REVISIONS = [{ id: "r1", author: "m2", created_at: "2026-09-07T14:32Z",
+                     bytes: 640 }];
+const equipeEnvois = [];
+
+function equipeRepond(url, opts) {
+  const porteur = opts && opts.headers && opts.headers.Authorization;
+  if (porteur !== "Bearer " + JETON) return rendErreur(401, "connexion requise");
+  const methode = (opts && opts.method) || "GET";
+  const corps = opts && opts.body ? JSON.parse(opts.body) : null;
+  const chemin = String(url).split("?")[0];
+  const ex = decodeURIComponent(String(url).split("ex=")[1] || "");
+  if (chemin === "team/context") {
+    if (EQUIPE_REFUSEE) return rendErreur(403, "tu n'es pas inscrit à une équipe");
+    return rendJson(EQUIPE);
+  }
+  if (chemin === "team/document" && methode === "GET") {
+    return rendJson({ exercise_id: ex, sources: DOCUMENTS[ex] || {} });
+  }
+  if (chemin === "team/document") {
+    equipeEnvois.push({ url: chemin, corps });
+    DOCUMENTS[corps.exercise_id] = corps.files;
+    return rendJson({ ok: true });
+  }
+  if (chemin === "team/revisions") return rendJson({ exercise_id: ex, revisions: REVISIONS });
+  if (chemin === "team/handin.zip") {
+    // L'ARCHIVE EST CONSTRUITE PAR LE SERVEUR : la page ne fait que la
+    // recevoir, et c'est ce qu'on vérifie -- elle n'envoie AUCUN fichier.
+    return { ok: true, status: 200,
+             blob: async () => new Blob(["PK-archive"], { type: "application/zip" }) };
+  }
+  if (chemin === "team/handin") {
+    equipeEnvois.push({ url: chemin, corps });
+    EQUIPE.submission = { submitted_by: "moi", submitted_at: "2026-09-07T15:00Z" };
+    return rendJson({ ok: true, submission: EQUIPE.submission,
+                      files: ["Devoir/main.c", "Devoir/matrac_lib.c"] });
+  }
+  return rendErreur(404, "inconnu");
+}
+
+// LA SOCKET, EN CARTON MAIS SYMÉTRIQUE : ce que la page envoie est retenu, et
+// le harnais peut lui pousser une trame comme le ferait un coéquipier. C'est
+// la seule façon d'éprouver que le CRDT est vraiment branché sur l'éditeur --
+// un bouchon muet prouverait seulement qu'on ouvre une socket.
+const sockets = [];
+global.WebSocket = function (url) {
+  this.url = url;
+  this.readyState = 1;
+  this.envoyes = [];
+  this.send = (texte) => { this.envoyes.push(JSON.parse(texte)); };
+  this.close = () => { this.readyState = 3; };
+  sockets.push(this);
+  // `onopen` part au tour suivant, comme un vrai navigateur.
+  setImmediate(() => { if (this.onopen) this.onopen(); });
+};
+const derniereSocket = () => sockets[sockets.length - 1];
+const recevoir = (trame) => {
+  const socket = derniereSocket();
+  if (socket && socket.onmessage) socket.onmessage({ data: JSON.stringify(trame) });
+};
+
 global.fetch = async (url, opts) => {
   calls.push({ url, opts });
+  if (String(url).split("?")[0].startsWith("team/")) return equipeRepond(url, opts);
   if (url === "catalog.json") {
     // RIEN DE PUBLIÉ = 404, et depuis la phase 8 il n'y a plus de repli : la
     // page doit le DIRE plutôt que dessiner un menu vide, qui ressemblerait à
@@ -757,6 +863,12 @@ const attendre = async () => { await sleep(); await sleep(); };
         "forum.js non plus, alors meme que le deploiement l'offre");
   check(!charges.some(n => /vendor\//.test(n)),
         "et aucune bibliotheque de rendu n'est telechargee sans compte");
+  // NI L'ESPACE D'EQUIPE, NI SES 92 Ko DE CRDT. Le devoir est publie, ouvert,
+  // et au menu -- et l'anonyme n'en telecharge pas un octet. C'est la meme
+  // promesse que pour le forum, et elle vaut d'autant plus ici : Yjs est le
+  // plus gros fichier de tout le site.
+  check(!global.ctester.team && !charges.some(n => n.startsWith("team.js?")),
+        "team.js non plus, alors meme que le devoir est ouvert");
   check(charges.some(n => n.startsWith("quiz.js?")),
         "quiz.js, lui, arrive avec le premier exercice de ce mode");
   // LE COMPTEUR DE PRESENCE est la seule chose que l'anonyme demande au
@@ -875,8 +987,13 @@ const attendre = async () => { await sleep(); await sleep(); };
 
   // --- LE MENU DU CATALOGUE : collections repliables, cadenas et dates ---
   check(collectionsMenu().map(titreCollection).join(",")
-        === "TP 1,TP 2,TP 6,TP 10,Révisions",
+        === "TP 1,TP 2,TP 6,TP 10,Révisions,Devoir",
         "le menu liste les collections, dans l'ordre du catalogue");
+  // LE DEVOIR EST UNE COLLECTION DE PLUS DANS LE MENU, et c'est voulu : le
+  // menu répond « où sont les exercices », pas « qu'est-ce que je remets ».
+  // Ce qu'un devoir ajoute vit dans son propre bandeau, pas ici.
+  check(lignesDe("Devoir").map(l => l.dataset.id).join(",") === "dev-a,dev-b",
+        "le devoir apparaît au menu comme n'importe quelle collection");
   const texteBandeau = () => nodes.now.children
     .map(c => c.textContent || "").join(" ");
   check(lignesDe("TP 2").map(l => l.dataset.id).join(",")
@@ -1102,7 +1219,15 @@ const attendre = async () => { await sleep(); await sleep(); };
   // LES FLÈCHES NE MARCHENT QUE SUR CE QUI EST OUVERT : `tp10-ex1` est publié,
   // verrouillé, et suit `tp6-ex1` dans le catalogue. Le rang de la fin, c'est
   // le dernier exercice OUVERT, sinon « suivant » mènerait à un 404.
+  nodes.next.listeners.click();
+  await attendre();
+  nodes.next.listeners.click();
+  await attendre();
+  check(global.ctester.exerciceChoisi() === "dev-b",
+        "« suivant » traverse aussi les exercices d'un devoir");
   check(nodes.next.disabled === true, "le bouton se désactive au dernier exercice ouvert");
+  nodes.prev.listeners.click();
+  nodes.prev.listeners.click();
   nodes.prev.listeners.click();
   nodes.prev.listeners.click();
   nodes.prev.listeners.click();
@@ -2482,6 +2607,208 @@ const attendre = async () => { await sleep(); await sleep(); };
         + JSON.stringify(lignesExport));
   await nodes.mesprogres.listeners.click();
   await attendre(); await attendre();
+
+  // --- L'ESPACE D'ÉQUIPE ----------------------------------------------------
+  // CE QUI EST ÉPROUVÉ ICI, et que rien d'autre ne peut éprouver : que le CRDT
+  // est vraiment branché sur l'éditeur. Un bouchon muet prouverait seulement
+  // qu'on ouvre une socket ; ici le harnais joue un coéquipier, avec un VRAI
+  // Y.Doc, et on regarde le texte arriver dans le <textarea>.
+  global.ctester.setToken(JETON);
+  await choisir("Devoir", "dev-a");
+  await attendre(); await attendre(); await attendre();
+
+  check(charges.some(n => n.startsWith("team.js?")),
+        "l'espace d'équipe descend quand on ouvre un exercice de devoir");
+  check(charges.some(n => /vendor\/yjs-/.test(n)),
+        "et Yjs avec lui, une seule fois, au moment où il sert");
+  check(!!global.ctester.team.session(), "la session d'équipe est ouverte");
+  const bandeau = () => profond(nodes.teamband);
+  check(nodes.teamband.hidden === false, "le bandeau du devoir s'affiche");
+  check(/Devoir — Analyseur GPS/.test(bandeau()), "il nomme le devoir");
+  check(/Équipe 1/.test(bandeau()) && /groupe 4/.test(bandeau()),
+        "il nomme l'ÉQUIPE et le GROUPE, qui ne sont pas la même chose : "
+        + bandeau());
+  check(/Bob B/.test(bandeau()) && /Coéquipier 3/.test(bandeau()),
+        "il nomme les coéquipiers : le nom choisi quand il y en a un, une "
+        + "position sinon");
+  check(!/sub-/.test(bandeau()), "et aucun identifiant de compte : " + bandeau());
+  check(/à remettre le/.test(bandeau()), "il porte la date de remise");
+
+  // LE DOCUMENT VIENT DU SERVEUR, PAS DU BROUILLON LOCAL. C'est la seule
+  // chose qui rend "les quatre voient le même document" vraie au chargement.
+  check(nodes.code.value === "int main(void){return 0;}\n",
+        "l'éditeur part du document de l'équipe : " + nodes.code.value);
+
+  const socketEquipe = derniereSocket();
+  check(!!socketEquipe && /\/team\/live$/.test(socketEquipe.url),
+        "une socket est ouverte sur l'exercice");
+  check(socketEquipe.envoyes[0].t === "hello"
+        && socketEquipe.envoyes[0].token === JETON
+        && socketEquipe.envoyes[0].assignment === "devoir"
+        && socketEquipe.envoyes[0].exercise === "dev-a",
+        "le jeton part dans la PREMIÈRE TRAME, jamais dans l'URL : "
+        + JSON.stringify(socketEquipe.envoyes[0]));
+  check(!/token/.test(socketEquipe.url),
+        "et l'URL de la socket ne porte aucun secret : " + socketEquipe.url);
+
+  // LA SALLE RÉPOND « tu es le premier » : la page sème le document depuis le
+  // texte du serveur et ouvre l'éditeur.
+  recevoir({ t: "ready", epoch: "ep-1", peers: 0, me: "m1", exercise: "dev-a" });
+  await attendre();
+  check(nodes.code.readOnly === false,
+        "le premier arrivé peut écrire dès que la salle a répondu");
+  recevoir({ t: "presence", online: ["m1", "m2"] });
+  await attendre();
+  check(/1 coéquipier en ligne/.test(bandeau()),
+        "la présence se lit dans le bandeau : " + bandeau());
+
+  // UN COÉQUIPIER TAPE. On fabrique une vraie mise à jour Yjs à partir du même
+  // document, et on la pousse dans la socket : c'est exactement ce que le
+  // serveur relaie.
+  const Yjs = global.Y;
+  const distant = new Yjs.Doc();
+  Yjs.applyUpdate(distant, Yjs.encodeStateAsUpdate(
+    global.ctester.team.session().doc));
+  distant.getText("f:main.c").insert(0, "/* bob */\n");
+  const miseAJour = Yjs.encodeStateAsUpdate(
+    distant, Yjs.encodeStateVector(global.ctester.team.session().doc));
+  const enB64 = (octets) => Buffer.from(octets).toString("base64");
+  // LE CURSEUR EST PLACÉ AVANT que la modification distante n'arrive, et il
+  // doit SUIVRE : c'est la panne qui rend un éditeur partagé inutilisable --
+  // le texte saute et le curseur part à la fin.
+  nodes.code.selectionStart = nodes.code.selectionEnd = 4;
+  recevoir({ t: "update", d: enB64(miseAJour), from: "m2" });
+  await attendre();
+  check(nodes.code.value === "/* bob */\nint main(void){return 0;}\n",
+        "le texte du coéquipier arrive dans l'éditeur : " + nodes.code.value);
+  check(nodes.code.selectionStart === 4 + "/* bob */\n".length,
+        "et le curseur suit le décalage au lieu de sauter : "
+        + nodes.code.selectionStart);
+
+  // CE QUE LA PAGE ENVOIE QUAND ON TAPE : une mise à jour tout de suite, et
+  // une sauvegarde après la temporisation -- pas l'inverse. Un coéquipier ne
+  // doit pas attendre une seconde et demie pour voir une lettre.
+  const avantEnvois = socketEquipe.envoyes.length;
+  const avantAppels = calls.length;
+  nodes.code.value = "X" + nodes.code.value;
+  nodes.code.listeners.input();
+  await attendre();
+  const sortiesEquipe = socketEquipe.envoyes.slice(avantEnvois);
+  check(sortiesEquipe.some(t => t.t === "update"),
+        "taper envoie une mise à jour immédiatement : "
+        + JSON.stringify(sortiesEquipe.map(t => t.t)));
+  check(sortiesEquipe.some(t => t.t === "cursor" && t.file === "main.c"),
+        "et la position du curseur, pour que les autres la voient");
+  // LA TRAME NE PORTE PAS D'IDENTITÉ : c'est le serveur qui tamponne
+  // l'émetteur. Une page qui signerait ses trames pourrait signer celles des
+  // autres.
+  check(sortiesEquipe.every(t => !("from" in t)),
+        "et aucune trame ne s'attribue un émetteur : "
+        + JSON.stringify(sortiesEquipe));
+
+  // DEUX TEMPORISATIONS SONT EN VOL : celle du noyau (le brouillon local) et
+  // celle de la session (le document partagé). On les déclenche toutes les
+  // deux -- n'en déclencher qu'une éprouverait la moitié du contrat.
+  timers[timers.length - 1]();
+  timers[timers.length - 2]();
+  await attendre(); await attendre();
+  const sauvegardeEquipe = equipeEnvois.filter(e => e.url === "team/document").pop();
+  check(!!sauvegardeEquipe && sauvegardeEquipe.corps.assignment_id === "devoir"
+        && sauvegardeEquipe.corps.exercise_id === "dev-a",
+        "la sauvegarde partagée part après la temporisation : "
+        + JSON.stringify(sauvegardeEquipe && sauvegardeEquipe.corps.exercise_id));
+  check(!!sauvegardeEquipe && /^X\/\* bob \*\//.test(sauvegardeEquipe.corps.files["main.c"]),
+        "et elle porte le document FUSIONNÉ, pas la valeur brute d'un onglet");
+  check(!("team_id" in (sauvegardeEquipe.corps || {})),
+        "le corps ne nomme AUCUNE équipe : le serveur la dérive du jeton");
+  // ET LE BROUILLON INDIVIDUEL N'EST PAS ÉCRIT. Quatre membres synchronisant
+  // le même texte dans `exercise_draft` seraient quatre lignes pour un seul
+  // travail, et brouilleraient la seule distinction sur laquelle tout ça
+  // repose. La copie LOCALE, elle, reste : elle ne coûte rien.
+  check(!calls.slice(avantAppels).some(
+          c => String(c.url).startsWith("brouillon")
+               && c.opts && c.opts.method === "PUT"),
+        "aucun brouillon individuel n'est écrit pendant une session d'équipe : "
+        + JSON.stringify(calls.slice(avantAppels).map(c => String(c.url))));
+  check("dev-a" in JSON.parse(storage["ctester.drafts"] || "{}"),
+        "mais l'appareil en garde une copie de secours : "
+        + Object.keys(JSON.parse(storage["ctester.drafts"] || "{}")).join(","));
+
+  // L'HISTORIQUE : qui et quand, jamais un pourcentage.
+  const boutonEquipe = (mot) => nodes.teamband.children
+    .flatMap(c => c.children || [])
+    .find(b => (b.textContent || "").indexOf(mot) === 0);
+  await boutonEquipe("Historique").listeners.click();
+  await attendre(); await attendre();
+  check(/Bob B/.test(bandeau()) && /2026-09-07/.test(bandeau()),
+        "l'historique nomme un coéquipier et une date : " + bandeau());
+  check(!/%/.test(bandeau()),
+        "et aucun pourcentage de contribution nulle part");
+
+  // LE ZIP EST CONSTRUIT PAR LE SERVEUR : la page n'envoie aucun fichier.
+  await boutonEquipe("Télécharger").listeners.click();
+  await attendre(); await attendre();
+  const demandeZip = calls.filter(c => /handin\.zip/.test(String(c.url))).pop();
+  check(!!demandeZip && !demandeZip.opts.body,
+        "le téléchargement n'envoie AUCUN fichier, seulement le devoir visé");
+  check(demandeZip.opts.headers.Authorization === "Bearer " + JETON,
+        "et il est authentifié comme le reste");
+
+  // LA REMISE EST UN GESTE D'ÉQUIPE, et le bandeau le dit ensuite.
+  global.confirm = () => true;
+  await boutonEquipe("Remettre").listeners.click();
+  await attendre(); await attendre();
+  const remiseEquipe = equipeEnvois.filter(e => e.url === "team/handin").pop();
+  check(!!remiseEquipe && remiseEquipe.corps.assignment_id === "devoir"
+        && Object.keys(remiseEquipe.corps).length === 1,
+        "la remise n'envoie que l'identifiant du devoir : "
+        + JSON.stringify(remiseEquipe && remiseEquipe.corps));
+  check(/remis le/.test(bandeau()), "et le bandeau porte la remise : " + bandeau());
+
+  // CHANGER D'EXERCICE SANS QUITTER L'ESPACE : le bandeau reste, la socket
+  // change de salle, et rien n'est perdu.
+  const sallesAvant = sockets.length;
+  await choisir("Devoir", "dev-b");
+  await attendre(); await attendre(); await attendre();
+  check(sockets.length === sallesAvant + 1,
+        "changer d'exercice ouvre la salle du nouveau");
+  check(socketEquipe.readyState === 3, "et ferme l'ancienne");
+  check(derniereSocket().envoyes[0].exercise === "dev-b",
+        "sur le bon exercice : " + derniereSocket().envoyes[0].exercise);
+  check(nodes.teamband.hidden === false, "le bandeau du devoir reste affiché");
+
+  // ET SORTIR DU DEVOIR FERME TOUT. Un exercice ordinaire ne doit garder ni
+  // socket ouverte, ni bandeau, ni éditeur verrouillé.
+  await choisir("TP 2", "tp2-ex3");
+  await attendre(); await attendre();
+  check(nodes.teamband.hidden === true,
+        "un exercice ordinaire n'affiche aucun bandeau d'équipe");
+  check(!global.ctester.team.session(), "et la session est refermée");
+  check(nodes.code.readOnly === false, "l'éditeur individuel reste éditable");
+  check(nodes.code.value !== "int main(void){return 0;}\n",
+        "et il retrouve le brouillon individuel, pas le document d'équipe");
+
+  // UN ÉTUDIANT SANS ÉQUIPE VOIT POURQUOI, et peut travailler quand même.
+  EQUIPE_REFUSEE = true;
+  global.ctester.team.oublier();
+  await choisir("Devoir", "dev-a");
+  await attendre(); await attendre(); await attendre();
+  check(nodes.teamband.hidden === false && /pas d'espace d'équipe/.test(bandeau()),
+        "sans équipe, le bandeau le dit : " + bandeau());
+  check(/inscrit à une équipe/.test(bandeau()),
+        "avec la phrase du serveur, qui dit à qui parler");
+  check(!global.ctester.team.session() && nodes.code.readOnly === false,
+        "et l'exercice reste travaillable seul, brouillon compris");
+  EQUIPE_REFUSEE = false;
+  global.ctester.team.oublier();
+
+  // LE main.c D'EXPORT NE RAMASSE PAS LE TRAVAIL D'ÉQUIPE : un devoir a sa
+  // propre remise, et six modules partagés n'ont rien à faire dans le fichier
+  // personnel de quelqu'un.
+  check(global.ctester.groupeExportable("Devoir") === false,
+        "le devoir n'offre pas l'export en main.c");
+  check(global.ctester.exercicesExportables("Devoir").length === 0,
+        "et aucun de ses exercices n'y entre");
 
   // L'ORIGINE DE L'API, LES TROIS BRANCHES. Un `config.js` qui rendrait "" en
   // production enverrait chaque appel sur GitHub Pages, qui repond 404 en HTML :

@@ -130,7 +130,8 @@ def publish(model, dest, now=None, keep=3):
             "schema_version": content_catalog.SCHEMA_VERSION, "revision": rev,
             "published_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "exercises": len(model["exercises"]),
-            "collections": len(model["collections"])})
+            "collections": len(model["collections"]),
+            "assignments": len(model.get("assignments", {}))})
         os.replace(temporaire, release)
     pointeur = os.path.join(dest, POINTER)
     _write(pointeur + ".tmp", {"revision": rev,

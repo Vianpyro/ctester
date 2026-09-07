@@ -55,8 +55,20 @@ def csp(body, issuer=""):
             "un <script> inline est apparu dans la page : `script-src 'self'` "
             "le bloque, ici comme dans le <meta> servi par GitHub Pages. "
             "Sortir le code dans un fichier, comme web/config.js.")
-    origines = [o for o in (config.API_ORIGIN,) if o]
+    origines = []
+    if config.API_ORIGIN:
+        # L'API, ET LA MEME EN `wss://`. La collaboration d'equipe ouvre une
+        # WebSocket vers cette origine-la, et une CSP qui l'oublie la bloque
+        # EN SILENCE -- exactement le genre de panne que ce fichier existe
+        # pour eviter. CSP niveau 3 fait deja correspondre `https:` a `wss:`,
+        # mais l'ecrire coute vingt-cinq octets et ne depend plus de la
+        # version du navigateur qu'un etudiant a sur son portable.
+        origines.append(config.API_ORIGIN)
+        origines.append("wss://" + config.API_ORIGIN.split("://", 1)[-1])
     if issuer.startswith("https://"):
+        # PAS DE `wss://` POUR L'EMETTEUR : on ne lui parle qu'en HTTP (la
+        # decouverte, puis le jeton). Une origine de plus dans une CSP est une
+        # origine de plus a laquelle la page a le droit de parler.
         origines.append("/".join(issuer.split("/")[:3]))
     return "; ".join([
         "default-src 'none'",

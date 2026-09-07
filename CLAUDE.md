@@ -45,6 +45,9 @@ app/security.py   jetons OIDC, current_user, client_id, is_moderator
 app/schemas.py    les corps de requête (Pydantic) -- FORME seulement
 app/routers/      une frontière HTTP par domaine, aucune règle métier
 app/services/     la logique, sans HTTP -- éprouvée par appel direct
+app/services/teams.py   la porte d'un devoir d'équipe, l'identité visible
+                        par les coéquipiers, et l'archive de remise
+app/services/collab.py  les salles de collaboration : un relais, PAS un CRDT
 ```
 
 Deux règles qui tiennent le reste :
@@ -77,9 +80,11 @@ minutes sur un `ImportError`, sans que rien ne soit déployé. C'est pour ça qu
 `csp()` vit dans `app/csp.py` et pas dans `headers.py`, qui importe starlette.
 `test_le_controle_de_l_hote_ne_depend_d_aucun_tiers` monte la garde.
 
-Et une non-négociable : **UN SEUL WORKER uvicorn**. Quotas, présence et cache de
-jetons sont en mémoire de processus ; deux workers doublent chaque quota en
-silence. Le lancement vit dans `app/main.py` et pas dans une ligne de commande
+Et une non-négociable : **UN SEUL WORKER uvicorn**. Quotas, présence, cache de
+jetons **et salles de collaboration** sont en mémoire de processus ; deux
+workers doublent chaque quota en silence — et mettent deux membres de la même
+équipe dans deux salles différentes, ce qui ressemble exactement à une panne
+réseau sans en être une. Le lancement vit dans `app/main.py` et pas dans une ligne de commande
 Compose, pour que personne ne le recopie avec `--workers 4`.
 
 **Les endpoints sont `def`, pas `async def`.** Starlette les exécute alors dans
@@ -97,13 +102,15 @@ les deux fait servir un catalogue introuvable, ou une page introuvable.
 `CTESTER_STATIC` a disparu avec la phase 8 : il n'y a plus rien à servir sous
 `app/`.
 
-La page est en onze fichiers, tous servis par la liste blanche de `app/routers/page.py` :
+La page est en douze fichiers, tous servis par la liste blanche de `app/routers/page.py` :
 `index.html` (le markup seul), `style.css`, `config.js` (l'adresse de l'API),
 `app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js`, `forum.js`,
-`exporter.js`, `classement.js` et `collection.js`, que le noyau va chercher
-**à la demande**. S'y ajoutent deux bibliothèques tierces **épinglées par version** dans
-`web/vendor/` (marked et DOMPurify), servies par la même liste blanche et
-chargées seulement à l'ouverture des discussions — voir `web/vendor/README.md`.
+`exporter.js`, `classement.js`, `collection.js` et `team.js`, que le noyau va
+chercher **à la demande**. S'y ajoutent trois bibliothèques tierces
+**épinglées par version** dans `web/vendor/`, servies par la même liste blanche
+et chargées seulement quand elles servent : marked et DOMPurify à l'ouverture
+des discussions, Yjs à l'ouverture d'un espace d'équipe — voir
+`web/vendor/README.md`.
 Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
 le navigateur reçoit.
 
@@ -310,7 +317,7 @@ Sur le contrôleur, jamais sur le Dell (les trois derniers ont besoin de gcc) :
 pip install -r requirements-dev.txt   # UNE FOIS : fastapi, uvicorn, httpx2
 npm ci                                # UNE FOIS : jsdom, contrôles XSS du forum
 
-python3 test_ctester.py          # les défenses, la progression, le forum
+python3 test_ctester.py          # les défenses, la progression, le forum, les équipes
 python3 test_api.py              # l'API : frontière HTTP, bornes, valeurs extrêmes
 node    test_page.js             # le JS de la page, sur un DOM en carton
 python3 verify_content.py   ../unittests/content
@@ -1173,6 +1180,20 @@ ansible-playbook playbooks/ctester.yml --ask-vault-pass
 
 Les anciens liens cessent immédiatement de fonctionner.
 
+**Charger le listage des équipes d'un devoir** (avant le premier cours où il
+ouvre, et à chaque correction de la liste) :
+
+```sh
+CTESTER_DB_ADMIN_DSN=postgresql://postgres:...@127.0.0.1/ctester   python3 import_teams.py devoir roster.csv --dry-run   # verifie, n'ecrit rien
+CTESTER_DB_ADMIN_DSN=... python3 import_teams.py devoir roster.csv
+```
+
+Le CSV fait autorité : une appartenance qui n'y est plus est retirée. Les
+équipes, elles, ne sont jamais supprimées toutes seules — effacer une équipe
+orphelinerait les documents qu'elle a écrits. Et c'est le SEUL chemin :
+l'application n'a pas d'INSERT sur ces tables, donc aucun étudiant ne peut
+choisir son équipe depuis la page.
+
 **Charge.** `ctester_workers` (2) = compilations simultanées = cœurs que le juge
 peut prendre au Dell (chaque conteneur est plafonné à 1 CPU). Ce sont les mêmes
 cœurs que Kea et AdGuard : ne pas monter cette valeur sans regarder ce qu'ils
@@ -1480,6 +1501,205 @@ GET  /forum/aide                       qui a besoin d'aide (modérateur)
 parser, et un `Content-Length` absent compte comme hors bornes. C'est ce qui a
 fait répondre 413 au premier « Un autre nom ».
 
+## Les devoirs d'équipe
+
+Le devoir « Analyseur de trace GPS » demande trois ou quatre étudiants et
+**une seule remise pour l'équipe**. Tout le reste de la plateforme est
+individuel ; le plan complet est dans `docs/teams/plan.md`, voici ce qu'il
+faut savoir avant de toucher au code.
+
+**UN GROUPE N'EST PAS UNE ÉQUIPE, et surcharger `group_number` aurait été le
+raccourci évident et le mauvais.** Le groupe est la section du cours —
+`forum_profile.group_number`, que l'ÉTUDIANT tape lui-même, et qui décide qui
+lit une question ouverte « à mon groupe ». L'équipe est qui remet avec qui :
+elle vit dans `team` / `team_member`, elle est chargée par l'enseignant avec
+`import_teams.py`, et **l'application n'a pas le droit d'y écrire**. Une seule
+colonne pour les deux aurait fait de la visibilité du forum et du contrôle
+d'accès d'un devoir la même règle, par accident.
+
+**UN DEVOIR N'EST PAS UNE COLLECTION.** Une collection est un chemin dans le
+catalogue (un titre de menu, aucune date, un exercice peut être dans deux) ; un
+devoir est un travail noté (une échéance, une archive de remise, des équipes).
+`assignments/<id>.json` est son fichier, à côté de `collections/`, validé par
+`content_catalog.discover()` et projeté dans `catalog.json`. Il RÉFÉRENCE des
+exercices, il n'en redéfinit aucun — et **un exercice n'appartient qu'à un seul
+devoir**, contrairement à une collection : deux devoirs sur un document
+partagé, ce serait deux dates et deux remises sans réponse honnête.
+
+**L'OPT-IN EST L'ABSENCE D'UN BLOC, PAS UNE VARIABLE.** Un devoir sans `team`
+est individuel ; un exercice sans `assignment` est ce qu'il a toujours été.
+Il n'y a aucun `CTESTER_TEAMS=1` : c'est le CONTENU qui active la
+fonctionnalité et le LISTAGE qui décide qui la voit. Un déploiement sans
+devoir se comporte exactement comme avant.
+
+### La chaîne d'autorisation, et il n'y a rien à falsifier
+
+```
+jeton validé -> sub -> team_member -> team -> assignment -> exercise
+```
+
+Parcourue **côté serveur, à chaque requête ET à chaque ouverture de socket**,
+par `teams.workspace()` puis `teams.exercise_in()` (`app/services/teams.py`).
+**Aucune route et aucune trame ne lit d'identifiant d'équipe** : il n'y a pas
+d'équipe à modifier dans une URL, un corps JSON ou un message WebSocket. C'est
+« aucun modèle ne porte de champ d'identité » étendu d'un cran, et
+`test_api.py` l'éprouve en faisant écrire `{"team_id": "e1"}` par un membre
+d'une autre équipe — l'écriture va dans la sienne.
+
+**PROUVER L'ÉQUIPE NE PROUVE PAS L'EXERCICE.** `exercise_in()` est la seconde
+moitié de la porte : sans elle, un membre atteindrait un document clé sur SON
+équipe et n'importe quel identifiant d'exercice.
+
+**ET C'EST POSTGRES QUI TIENT LE PLUS IMPORTANT** : `SELECT` sur `team`,
+`SELECT, DELETE` sur `team_member`, **pas d'INSERT**. Rejoindre une équipe
+n'est pas « refusé par un `if` », c'est inexprimable.
+`test_postgres.py::team_privileges()` l'éprouve en essayant.
+
+### Cinq tables, et trois d'entre elles ne s'effacent pas
+
+| Table | Ce qu'elle porte | Dans `forget()` ? |
+|---|---|---|
+| `team` | le listage de l'enseignant | non — pas de colonne `account` |
+| `team_member` | l'appartenance | **oui** |
+| `team_document` | le code partagé, clé sur (équipe, exercice) | non — c'est le travail de trois autres |
+| `team_revision` | l'historique signé | **oui** |
+| `team_submission` | la remise, une par équipe | non — `submitted_by`, pas `account` |
+
+Le schéma passe de treize à **dix-huit** tables.
+`test_suppression_couvre_toutes_les_tables` ne compte plus seulement : il lit
+les blocs `CREATE TABLE` et exige que **toute table déclarant une colonne
+`account` soit dans `forget()`, et aucune autre**. C'est ce qui rend le
+contrôle automaintenu, et c'est pour ça que la colonne de `team_submission`
+s'appelle `submitted_by` — le nom porte la décision.
+
+**`exercise_draft` NE BOUGE PAS.** Il reste clé sur (compte, exercice), aucune
+route d'équipe ne l'écrit, et un étudiant sans équipe travaille un exercice de
+devoir seul, avec son brouillon, exactement comme avant.
+
+### L'édition partagée : Yjs relayé, jamais interprété
+
+**La convergence est celle de Yjs, l'autorisation est la nôtre.**
+`app/services/collab.py` est un relais : il transmet des trames opaques entre
+les membres d'une salle et **tamponne l'émetteur** depuis le listage. Il ne
+sait pas ce qu'est un caractère, et c'est le dessin — quatre personnes qui
+tapent dans la même ligne est le cas qu'un protocole écrit à la maison rate en
+semaine trois.
+
+- **La salle est `(équipe, exercice)`** : deux équipes sur le même exercice
+  sont structurellement deux salles. Rien à filtrer, donc rien à oublier de
+  filtrer.
+- **Le `from` d'une trame est réécrit par le serveur** — un membre ne peut pas
+  signer le curseur d'un autre.
+- **Ce qui circule est une POSITION** (`m1`…`m4`) plus le nom que le membre a
+  CHOISI d'afficher. Aucun `sub` ne franchit la frontière, même règle et même
+  test que `forum_vue()`.
+- **Le jeton part dans la PREMIÈRE TRAME, jamais dans l'URL** : un navigateur
+  ne peut pas poser d'`Authorization` sur une WebSocket, et un jeton en
+  paramètre d'URL est un jeton dans tous les journaux de proxy du chemin.
+- **`peers` décide qui sème le document.** Le premier arrivé dans une salle
+  vide le remplit depuis le texte du serveur ; les suivants le demandent à la
+  salle. Deux clients semant le même texte dans un CRDT le fusionneraient DEUX
+  FOIS, et l'ordre d'arrivée est décidé dans un seul processus — c'est **une
+  raison de plus pour UN SEUL WORKER** : deux workers mettraient deux membres
+  de la même équipe dans deux salles différentes.
+- **`epoch` est la couture.** Une salle meurt avec son dernier membre et
+  renaît, avec une nouvelle époque, pour le suivant ; un client qui revient
+  dans une salle reconstruite JETTE son document local au lieu de le
+  fusionner. Cinq lignes, et toute une classe de bogues disparaît.
+- **Aucun repli si Yjs n'arrive pas**, et il ne doit pas y en avoir : un « au
+  mieux » qui pousserait la dernière valeur du `<textarea>` détruirait du
+  travail au lieu de dégrader. L'éditeur se verrouille et le dit.
+
+Yjs est **vendorisé** (`web/vendor/yjs-13.6.32.iife.js`, 92 Ko), chargé au clic
+comme les deux bibliothèques du forum, et **l'anonyme n'en télécharge pas un
+octet** — `test_page.js` le vérifie. Il est bundlé une fois à la main
+(esbuild) parce qu'il ne publie que de l'ESM ; le `--footer:js` qui pose
+`window.Y` est load-bearing, voir `web/vendor/README.md`.
+
+### L'historique : récupérer, jamais noter
+
+Une révision n'est écrite que si ce compte n'en a pas écrit une pour ce
+document depuis `TEAM_REVISION_WINDOW` (120 s) **et** si la dernière ne porte
+pas déjà ces octets. **Cette règle est le `WHERE NOT EXISTS` d'un seul
+INSERT**, dans la même instruction que l'UPSERT du document — pas une lecture
+suivie d'une écriture que deux membres traverseraient en même temps.
+
+**IL N'Y A AUCUN POURCENTAGE DE CONTRIBUTION, ET IL NE DOIT PAS Y EN AVOIR.**
+Un chiffre qui compte des caractères tapés devient une note le lendemain de sa
+livraison, et il a tort à propos de celui qui réfléchit avant de taper. Un test
+lit la charge entière et échoue s'il y trouve un `%` ou un `sub`.
+
+**Restaurer avance, ça ne rembobine pas** : la version restaurée est écrite
+comme document courant, sous le compte qui a restauré, et rien ne disparaît.
+Le serveur ne pousse RIEN dans le CRDT — la page réapplique le texte par le
+chemin d'édition normal, ce qui garde le relais bête.
+
+### L'archive de remise
+
+`handin.files` du devoir dit ce qui entre dans le ZIP : le nom **dans
+l'archive**, l'exercice d'où il vient, le fichier de cet exercice. **Aucun nom
+de fichier de TCH009 n'est écrit dans l'application** — « main.c et
+matrac_lib.c » est un fait sur le contenu de ce devoir-là.
+
+- **Rien n'est concaténé, reformaté ni annoté**, et il n'y a pas de README
+  dans l'archive : l'énoncé demande deux fichiers.
+- **Déterministe** : entrées triées, horodatage constant, mode et système
+  créateur écrits plutôt qu'hérités de la machine qui l'a construite.
+- **Un trou est refusé en le NOMMANT**, pas remis : une archive sans
+  `matrac_lib.c` est la panne qu'on ne découvre qu'à la correction.
+- **Construite côté serveur, depuis les documents de l'équipe.** Le navigateur
+  n'envoie que l'identifiant du devoir : une archive assemblée depuis
+  l'éditeur serait l'archive d'un onglet.
+- **`ponytail:` l'import de ZIP n'est pas fait.** Ce n'est pas le format qui
+  coince, c'est qu'un import devrait traverser la session CRDT : un fichier
+  écrit côté serveur n'existerait dans aucun des quatre `Y.Doc` ouverts. Le
+  bouton « Importer un fichier » existant passe, lui, par l'éditeur, donc par
+  le CRDT, donc arrive chez les quatre. `docs/teams/plan.md` dit où le mettre
+  le jour où il vaut la peine.
+
+### Un exercice de devoir n'accorde aucun XP
+
+Quatre personnes, un document : une première réussite chacune pour le même
+code serait quatre récompenses pour un seul travail — exactement le farming que
+`docs/gamification/anti-farming.md` refuse. **Le filtre est posé UNE fois**,
+dans `exercices_pratique()`, et la branche de `_record()`
+(`app/routers/submission.py`) nomme le même champ. Ce qui reste écrit, c'est
+l'état et la tentative : chaque membre doit voir que l'exercice passe, et
+garder son brouillon. `exercicesExportables()` porte le même filtre côté page —
+un devoir a sa propre remise, six modules partagés n'ont rien à faire dans le
+`main.c` personnel de quelqu'un.
+
+### L'espace de travail, côté page
+
+**La navigation locale est celle qui existait.** La bande `#bandelabo` fait
+déjà `[1 ✓] [2 ✓] [3 ●]` et le devoir la réutilise telle quelle ; ce qu'il
+ajoute est `#teamband` AU-DESSUS — titre, échéance, équipe, présence,
+historique, ZIP, remise —, c'est-à-dire ce qu'un écran d'exercice ne pouvait
+pas porter. Aucune cinquième vue : `afficherVue()` n'a pas bougé.
+
+`web/team.js` est un module à la demande de plus, chargé quand l'exercice
+ouvert porte `assignment` ET qu'il y a un jeton. Le noyau lui expose
+exactement deux portes sur l'éditeur (`ctester.editeur.lire` / `.ecrire`) et
+un point d'accroche (`ctester.brancherSession`) : le module ne touche jamais
+`#code` lui-même, ce qui laisse **un seul endroit où le curseur peut se
+perdre**. Un changement distant qui arrive pendant qu'on tape décale le
+curseur au lieu de le renvoyer à la fin — c'est ce qui rend un éditeur
+partagé utilisable, et `test_page.js` l'éprouve avec un vrai `Y.Doc`.
+
+### Les GRANT à ajouter dans `VHome`
+
+Sans eux, tout ça échoue **en production et nulle part ailleurs** — même piège
+que l'`UPDATE` du thème et que `visibility`.
+
+```sql
+GRANT SELECT ON team TO ctester_app;                       -- LECTURE SEULE
+GRANT SELECT, DELETE ON team_member TO ctester_app;        -- pas d'INSERT
+GRANT SELECT, INSERT, UPDATE ON team_document, team_submission TO ctester_app;
+GRANT SELECT, INSERT, DELETE ON team_revision TO ctester_app;
+```
+
+Et NPM doit laisser passer l'`Upgrade` sur `/team/live` (*Websockets Support*).
+
 ## Raccourcis assumés (ponytail)
 
 Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
@@ -1510,6 +1730,20 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   par étudiant ; matérialiser créerait un second endroit où la vérité peut
   diverger. Pas de clé étrangère entre le journal et les XP non plus : les deux
   s'écrivent dans UNE instruction et s'effacent ensemble.
+- **`services/collab.py`** — les salles de collaboration sont un `dict` en
+  mémoire de processus, comme les quotas et la présence : une salle meurt avec
+  le processus, et le document plein-texte de Postgres réamorce la suivante.
+  Une raison de plus pour UN SEUL WORKER. Redis le jour où il en faut deux, et
+  ce jour-là les quotas partent avec.
+- **`services/collab.py`** — le serveur relaie une trame de synchronisation à
+  TOUTE la salle, pas seulement à celui qui l'a demandée. Un CRDT est
+  idempotent, donc c'est gratuit en correction et un peu bavard en octets ; un
+  routage par destinataire le jour où une équipe dépasse quatre personnes.
+- **`web/team.js`** — les curseurs distants sont positionnés par arithmétique
+  sur une largeur de caractère mesurée une fois, pas par un second exemplaire
+  du document dans le DOM. Ça tient parce que `#hl` et `#code` partagent leurs
+  métriques au pixel ; le jour où l'éditeur accepte une police
+  proportionnelle, c'est cette fonction qu'il faut reprendre.
 - **`app.js`** — les modules à la demande sont des `<script>` injectés et un
   objet global `window.ctester`, pas des modules ES : voir la section « La page »
   ci-dessus pour la raison (TDZ sur import circulaire). À reprendre le jour où

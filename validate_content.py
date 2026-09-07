@@ -23,8 +23,9 @@ def main(argv=None):
         for error in exc.errors:
             print("- " + error, file=sys.stderr)
         return 1
-    print("valid content: %d exercise(s), %d collection(s)" %
-          (len(model["exercises"]), len(model["collections"])))
+    print("valid content: %d exercise(s), %d collection(s), %d assignment(s)" %
+          (len(model["exercises"]), len(model["collections"]),
+           len(model.get("assignments", {}))))
     return 0
 
 

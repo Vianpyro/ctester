@@ -151,3 +151,45 @@ class ForumProfilIn(BaseModel):
     plate_frame: str | None = None
     badges_public: bool = False
     leaderboard_opt_in: bool = False
+
+
+class TeamDocumentIn(_AvecExercice):
+    """PUT /team/document -- the team's shared code for one exercise.
+
+    THERE IS NO TEAM FIELD HERE, AND THERE MUST NEVER BE ONE. The team comes
+    from `state.team_of(sub, assignment_id)`: a body that could name a team
+    would be a body that could write into another team's assignment, which is
+    the one thing this whole feature has to make impossible.
+    """
+
+    model_config = _CONFIG
+
+    assignment_id: str = ""
+    files: dict | None = None
+
+
+class TeamRestoreIn(_AvecExercice):
+    """POST /team/restore -- put an earlier revision back in the document.
+
+    `revision_id` is a HANDLE, not an authorization: `read_team_revision`
+    scopes it to the caller's own team in its `WHERE`, so an id copied from
+    somewhere else simply does not resolve.
+    """
+
+    model_config = _CONFIG
+
+    assignment_id: str = ""
+    revision_id: str = ""
+
+
+class TeamHandinIn(BaseModel):
+    """POST /team/handin -- hand in, once per team.
+
+    The assignment and nothing else: WHAT is handed in is read from the
+    team's own documents, server-side. A body carrying the files would let one
+    member hand in something the other three never saw in the editor.
+    """
+
+    model_config = _CONFIG
+
+    assignment_id: str = ""

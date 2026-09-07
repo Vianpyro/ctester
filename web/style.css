@@ -1181,3 +1181,91 @@ pre {
 /* A private question is set apart by a rule down its side -- the same
    vocabulary the verdict channel already uses for state. */
 .message.privee { border-left: 3px solid var(--line-2); padding-left: .5rem; }
+
+/* --- The team workspace ------------------------------------------------------
+   THE ASSIGNMENT'S HEADER SITS ABOVE THE LAB CONTEXT, and it borrows that
+   block's grammar on purpose -- same padding, same rule underneath, same
+   `.tag` pills. It is one more band in the same stack, not a second design:
+   a student switching from a lab to the assignment should recognise the
+   screen, and only notice that it gained a team. */
+#teamband {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column; gap: .35rem;
+  padding: .45rem .9rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-wash);
+}
+#teamband[hidden] { display: none; }
+#teamband .teamhead,
+#teamband .teamwho,
+#teamband .teamactions {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+}
+#teamband .teamtitle { font-size: 13px; color: var(--fg); }
+#teamband .tag {
+  font-size: 11.5px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: var(--coin);
+  padding: .05rem .5rem;
+}
+#teamband .tag.ok { color: var(--ok); border-color: var(--ok); }
+#teamband .tag.rate { color: var(--bad); border-color: var(--bad); }
+#teamband .etat { font-size: 11.5px; color: var(--muted); }
+#teamband .etat.rate { color: var(--bad); font-weight: 600; }
+#teamband .aide { font-size: 11.5px; margin: 0; }
+
+/* A TEAMMATE'S CHIP CARRIES THEIR CARET'S COLOUR, and that is the whole
+   reason it exists: "the orange cursor is Coéquipier 2" has to be readable
+   somewhere, or the colours say nothing. Offline is a lower contrast, never a
+   disappearance -- a teammate who steps out is still on the team. */
+#teamband .mate {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: 11.5px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: var(--coin);
+  padding: .05rem .45rem;
+  opacity: .55;
+}
+#teamband .mate.on { opacity: 1; color: var(--fg); border-color: var(--line-2); }
+#teamband .mate .dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+#teamband .teamhistory {
+  border-top: 1px solid var(--line); padding-top: .4rem;
+}
+#teamband .teamhistory h3 {
+  margin: 0 0 .3rem; font-size: 11.5px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+#teamband .revline {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  font-size: 11.5px; padding: .15rem 0;
+}
+#teamband .revline .who { color: var(--fg); font-weight: 600; }
+#teamband .revline .quand { color: var(--muted); font-family: var(--mono); }
+
+/* TEAMMATES' CARETS. Its own layer inside `#pane`, on top of the textarea and
+   deaf to the mouse: a click always reaches the editor. It shares NOTHING
+   with `#hl`'s metrics contract -- positions are arithmetic done in
+   `team.js` from a measured character width -- but it does share the padding,
+   which is where that arithmetic starts. */
+#carets {
+  position: absolute; inset: 0;
+  overflow: hidden; pointer-events: none;
+}
+#carets .caret {
+  position: absolute; width: 2px; display: block;
+}
+/* The name rides on the caret so two carets a line apart are not two
+   identical slivers. Above the line rather than below: below, it would cover
+   the line the person is about to type on. */
+#carets .caretname {
+  position: absolute; top: -1.05em; left: -1px;
+  font: 400 10px/1.1 var(--sans);
+  color: #fff; padding: .1rem .25rem; border-radius: var(--coin);
+  white-space: nowrap;
+}
+/* A SELECTION IS A BAND PER LINE, drawn behind nothing: it is translucent, so
+   the syntax colours under it stay readable. `mix-blend-mode` would have been
+   prettier and would have inverted the text in the light theme. */
+#carets .sel {
+  position: absolute; display: block; opacity: .22;
+}

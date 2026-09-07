@@ -79,7 +79,13 @@ PORT = _entier("CTESTER_PORT", "8000")
 # CSP says `script-src 'self'`, so a CDN would be blocked, and that is
 # intentional. Bumping a version requires touching this list AND `forum.js`
 # -- an HTML sanitizer upgrade must not happen by accident.
-VENDOR = ("vendor/marked-18.0.11.umd.js", "vendor/purify-3.4.14.min.js")
+VENDOR = ("vendor/marked-18.0.11.umd.js", "vendor/purify-3.4.14.min.js",
+          # Yjs, and it is the collaboration itself rather than a rendering
+          # helper: `team.js` fetches it the moment a team workspace opens,
+          # never before. Same rules as the other two -- pinned in the file
+          # name, served from this origin, and bumped in three places on
+          # purpose (here, `web/vendor/README.md`, `team.js`).
+          "vendor/yjs-13.6.32.iife.js")
 
 # AUTOMATIC DOCUMENTATION IS OFF BY DEFAULT, and this is not modesty.
 # `/docs`, `/redoc` and `/openapi.json` are public in FastAPI: they describe
@@ -142,6 +148,31 @@ FORUM_GROUPES = tuple(
     int(x) for x in
     os.environ.get("CTESTER_FORUM_GROUPES", "4,6").replace(",", " ").split()
     if x.lstrip("-").isdigit())
+
+# --- Team assignments -----------------------------------------------------------
+# NOTHING TURNS THIS FEATURE ON OR OFF, and that is deliberate: it is the
+# CONTENT that opts in (an assignment file with a `team` block) and the ROSTER
+# that decides who sees it. A deployment with no assignment and no roster
+# behaves exactly as it did -- there is no flag to forget in a third place.
+
+# HOW OFTEN A REVISION IS WORTH KEEPING, per author and per document. Every
+# keystroke would be one Postgres row per keystroke; two minutes is short
+# enough to answer "who wrote this" and long enough that an afternoon of work
+# is a readable list rather than a log. See `state.write_team_document`.
+TEAM_REVISION_WINDOW = _entier("CTESTER_TEAM_REVISION_WINDOW", "120")
+# The READ bound on a history. A term of four people editing six exercises
+# does not come close; the bound exists so the page can never receive an
+# endless object the day something goes wrong.
+TEAM_REVISIONS_MAX = _entier("CTESTER_TEAM_REVISIONS_MAX", "200")
+# Sockets accepted in one room. A team is three or four; the margin covers
+# someone with two tabs open, and the cap is what stops one account from
+# opening a thousand.
+TEAM_LIVE_MAX = _entier("CTESTER_TEAM_LIVE_MAX", "12")
+# The biggest collaboration frame relayed, in bytes. A CRDT update for a
+# keystroke is a few dozen bytes; a whole-document sync is bounded by
+# MAX_CODE, and base64 costs a third more.
+TEAM_LIVE_MAX_FRAME = _entier("CTESTER_TEAM_LIVE_MAX_FRAME",
+                              str(MAX_CODE * 2))
 
 # --- Presence ------------------------------------------------------------------
 PRESENCE_TTL = _entier("CTESTER_PRESENCE_TTL", "150")

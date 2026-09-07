@@ -47,6 +47,8 @@ from services import forum        # noqa: E402
 from services import leaderboard  # noqa: E402
 from services import progress as progression  # noqa: E402
 from services import quotas       # noqa: E402
+from services import collab      # noqa: E402
+from services import teams       # noqa: E402
 from services import spool        # noqa: E402
 
 
@@ -1593,21 +1595,40 @@ def test_une_verification_ne_compte_pas_comme_une_pratique():
 
 
 def test_suppression_couvre_toutes_les_tables():
-    """`forget` efface CHAQUE table du schema, en une seule instruction.
+    """`forget` efface chaque table QUI PORTE UN COMPTE, en une seule instruction.
 
     C'EST LA PROMESSE DU BANDEAU DE CONSENTEMENT. Ajouter une table de
     progression sans l'ajouter la laisserait des donnees derriere quelqu'un qui
     a demande leur suppression -- et personne ne s'en apercevrait, puisque plus
     rien ne les affiche.
+
+    LA REGLE EST LA COLONNE `account`, ET C'EST CE QUI LA REND AUTOMAINTENUE.
+    Une table qui porte un compte appartient a ce compte et s'efface avec lui ;
+    une table qui n'en porte pas appartient a quelqu'un d'autre. Les trois
+    tables d'equipe qui restent sont exactement celles-la : `team` est le
+    listage de l'enseignant, `team_document` et `team_submission` sont le
+    travail note de TROIS AUTRES personnes -- effacer un membre ne doit pas
+    emporter le devoir de son equipe. C'est pour ca que la colonne de
+    `team_submission` s'appelle `submitted_by` : le nom porte la decision.
     """
     schema = lire(os.path.join(HERE, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
-    assert len(tables) == 13, tables
+    assert len(tables) == 18, tables
+    # Chaque bloc `CREATE TABLE ... ( ... );`, et le fait qu'il declare ou non
+    # une colonne nommee `account`.
+    blocs = dict(re.findall(
+        r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)\s*\((.*?)\n\);",
+        schema, re.S))
+    assert set(blocs) == tables, sorted(set(blocs) ^ tables)
+    avec_compte = {nom for nom, corps in blocs.items()
+                   if re.search(r"^\s*account\s+TEXT", corps, re.M)}
+    assert avec_compte == tables - {"team", "team_document", "team_submission"}, \
+        sorted(avec_compte)
     efface = lire(os.path.join(HERE, "app", "state.py"))
     efface = efface[efface.index("def forget(user):"):]
-    assert set(re.findall(r"DELETE FROM (\w+)", efface)) == tables
-    # UNE SEULE INSTRUCTION : treize `_query` en autocommit laisseraient un
+    assert set(re.findall(r"DELETE FROM (\w+)", efface)) == avec_compte
+    # UNE SEULE INSTRUCTION : quinze `_query` en autocommit laisseraient un
     # etudiant a moitie efface si la connexion tombe au milieu.
     assert efface.count("_query(") == 1
 
@@ -2260,25 +2281,35 @@ def test_forum_texte_borne_et_stocke_la_source():
 
 
 def test_forum_bibliotheques_epinglees():
-    """Les deux bibliotheques du rendu sont VERSIONNEES, presentes, et servies.
+    """Les trois bibliotheques sont VERSIONNEES, presentes, et servies.
 
     CE CONTROLE EXISTE PARCE QU'UN ASSAINISSEUR ABSENT NE SE VOIT PAS. La page
     retombe alors sur du texte brut -- c'est le bon comportement -- et personne
     ne remarque que le rendu a disparu. Ici, un nom qui ne correspond plus entre
-    `VENDOR`, `forum.js` et le disque fait echouer la suite tout de suite.
+    `VENDOR`, le module qui la charge et le disque fait echouer la suite tout de
+    suite.
+
+    LE MODULE QUI CHARGE CHAQUE FICHIER EST NOMME, et c'est la moitie utile du
+    controle : `marked` et DOMPurify n'existent que pour le forum, Yjs que pour
+    l'espace d'equipe. Un fichier servi que plus personne ne charge est du poids
+    mort dans une liste blanche, et c'est exactement ce qu'on ne veut pas y
+    laisser trainer.
     """
-    assert len(config.VENDOR) == 2, config.VENDOR
-    source = lire(os.path.join(HERE, "web", "forum.js"))
+    charge_par = {"vendor/marked-18.0.11.umd.js": "forum.js",
+                  "vendor/purify-3.4.14.min.js": "forum.js",
+                  "vendor/yjs-13.6.32.iife.js": "team.js"}
+    assert set(config.VENDOR) == set(charge_par), config.VENDOR
     for chemin in config.VENDOR:
         sur_disque = os.path.join(HERE, "web", *chemin.split("/"))
         assert os.path.exists(sur_disque), chemin
+        source = lire(os.path.join(HERE, "web", charge_par[chemin]))
         assert '"' + chemin + '"' in source, chemin
         # Le nom PORTE la version : c'est ce qui rend l'epinglage impossible a
         # perdre, et une montee de version impossible a faire par accident.
         assert re.search(r"-\d+\.\d+\.\d+[.-]", chemin), chemin
-    # `/vendor/` N'EST PAS UN REPERTOIRE OUVERT : la liste est close, comme
-    # celle des `.js` de la page.
-    assert "vendor/" in config.VENDOR[0] and "vendor/" in config.VENDOR[1]
+        # `/vendor/` N'EST PAS UN REPERTOIRE OUVERT : la liste est close, comme
+        # celle des `.js` de la page.
+        assert chemin.startswith("vendor/"), chemin
 
 
 def test_csp_without_an_issuer_omits_the_extra_connect_src_origin():
@@ -2563,6 +2594,48 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
         "test_ctester.py a tire " + ", ".join(charges) + " : ces paquets vivent "
         "dans /deps, que le python de l'hote ne voit pas. Sortir ce que le "
         "module fautif utilise dans un module sans dependance, comme app/csp.py.")
+
+
+def test_le_conteneur_web_n_importe_que_ce_qu_il_monte():
+    """`app/` NE PEUT IMPORTER QUE `app/`. Les modules de la RACINE sont au worker.
+
+    LE CONTENEUR WEB MONTE `app/`, `web/` ET `published/`, ET RIEN D'AUTRE --
+    c'est ce qui fait qu'il n'a jamais accès aux tests ni aux corrigés. Un
+    `import content_catalog` (ou `runner`, ou `publish_content`) dans `app/`
+    passe donc parfaitement ici, où la racine est dans `sys.path`, et fait
+    planter le conteneur AU DÉMARRAGE en production -- une panne totale, dans
+    le seul environnement où on ne peut pas la voir venir.
+
+    CE CONTRÔLE EXISTE PARCE QUE ÇA VIENT D'ARRIVER : `services/teams.py`
+    importait `access` depuis `content_catalog` pour recalculer une valeur que
+    `catalog.json` porte déjà.
+
+    C'est le pendant de `test_le_controle_de_l_hote_ne_depend_d_aucun_tiers` :
+    l'un dit ce que le python de l'HÔTE ne voit pas, l'autre ce que le
+    CONTENEUR ne monte pas.
+    """
+    racine = {nom[:-3] for nom in os.listdir(HERE) if nom.endswith(".py")}
+    # Ce qui vit dans `app/` peut évidemment s'importer entre soi.
+    dans_app = {nom[:-3] for nom in os.listdir(os.path.join(HERE, "app"))
+                if nom.endswith(".py")}
+    interdits = racine - dans_app
+    assert "content_catalog" in interdits and "runner" in interdits, interdits
+    motif = re.compile(r"^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)",
+                       re.M)
+    fautes = []
+    for dossier, _sous, fichiers in os.walk(os.path.join(HERE, "app")):
+        if "__pycache__" in dossier:
+            continue
+        for nom in sorted(fichiers):
+            if not nom.endswith(".py"):
+                continue
+            chemin = os.path.join(dossier, nom)
+            for module in motif.findall(lire(chemin)):
+                if module in interdits:
+                    fautes.append(os.path.relpath(chemin, HERE) + " -> " + module)
+    assert not fautes, (
+        "ces modules de la racine ne sont pas montés dans le conteneur web : "
+        + ", ".join(fautes))
 
 
 def test_duree_moyenne_glissante_par_exercice():
@@ -3204,6 +3277,583 @@ def test_a_card_drops_on_a_whole_family_and_its_rarity_is_measured():
     assert views["M-04"]["condition"]          # the condition is always stated
     muted = progression.collection_view([], {"card:E-01": 1}, 2)
     assert all(c["rarity"] is None for c in muted), muted
+
+
+# ---------------------------------------------------------------------------
+# Team assignments
+#
+# WHAT THESE CHECKS EXIST FOR: a group is not a team, and nothing in the page
+# may be able to turn one into the other. The HTTP boundary is exercised in
+# `test_api.py`; here we call the rules directly -- which is the only way to
+# reach `collab.py`'s join ordering, and the only way to prove the archive is
+# deterministic without standing a server up.
+
+
+def _contenu_devoir(root, team=True, handin=True, items=None, deadline=None):
+    """A v2 root with one assignment over two exercises. Returns the root."""
+    _write_json(os.path.join(root, "catalog.json"),
+                {"schema_version": 1, "skills": []})
+    for identifiant, fichiers in (("dev-a", ["main.c"]),
+                                  ("dev-b", ["lib.h", "lib.c"]),
+                                  ("solo", ["submission.c"])):
+        exercise = os.path.join(root, "exercises", identifiant)
+        _write_json(os.path.join(exercise, "exercise.json"), {
+            "schema_version": 1, "id": identifiant, "title": identifiant.upper(),
+            "release": {"state": "available"}})
+        with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("Consigne.")
+        _write_json(os.path.join(exercise, "assessment", "io.json"),
+                    {"cases": [{"stdin": "1\n", "expect": [1]}]})
+        _write_json(os.path.join(exercise, "public", "files.json"),
+                    {"files": [{"name": nom, "template": ""} for nom in fichiers]})
+    devoir = {"schema_version": 1, "id": "devoir", "title": "Le devoir",
+              "items": items if items is not None else ["dev-a", "dev-b"],
+              "release": {"state": "available"}}
+    if team:
+        devoir["team"] = {"min": 3, "max": 4}
+    if deadline:
+        devoir["deadline"] = deadline
+    if handin:
+        devoir["handin"] = {"root": "Devoir", "files": [
+            {"name": "main.c", "exercise_id": "dev-a", "file": "main.c"},
+            {"name": "lib.c", "exercise_id": "dev-b", "file": "lib.c"}]}
+    _write_json(os.path.join(root, "assignments", "devoir.json"), devoir)
+    return root
+
+
+def test_un_devoir_est_valide_projete_et_marque_ses_exercices():
+    """L'assignment traverse `discover` puis `public_catalogue`, entier.
+
+    ET IL MARQUE SES EXERCICES. `assignment` sur l'entree publique est ce qui
+    dit a la page d'ouvrir un espace d'equipe plutot que l'editeur individuel,
+    et a `_record()` de ne pas verser d'XP -- deux decisions prises a deux
+    endroits, a partir d'un seul champ.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-devoir-")
+    try:
+        _contenu_devoir(root, deadline="2026-12-05T23:59:00-05:00")
+        model = content_catalogue.discover(root)
+        assert set(model["assignments"]) == {"devoir"}
+        devoir = model["assignments"]["devoir"]
+        assert devoir["team"] == {"min": 3, "max": 4}
+        assert devoir["items"] == ["dev-a", "dev-b"]
+        assert devoir["handin"]["root"] == "Devoir"
+        public = content_catalogue.public_catalogue(model)
+        marques = {e["id"]: e.get("assignment") for e in public["exercises"]}
+        assert marques == {"dev-a": "devoir", "dev-b": "devoir", "solo": None}
+        # ABSENT QUAND IL N'Y EN A PAS, comme `verification` : une cle par
+        # exercice qui ne dit rien est 77 cles qui ne disent rien.
+        solo = [e for e in public["exercises"] if e["id"] == "solo"][0]
+        assert "assignment" not in solo
+        [projete] = public["assignments"]
+        assert projete["deadline"] == "2026-12-05T23:59:00-05:00"
+        assert projete["access"] == "available"
+        # LA PROJECTION EST PUBLIABLE : le controle de fuite de
+        # `publish_content` porte sur les cles, et un devoir en ajoute cinq.
+        fichiers = publish_content.projection(model)
+        assert "catalog.json" in fichiers
+    finally:
+        shutil.rmtree(root)
+
+
+def test_discover_refuse_chaque_defaut_d_un_devoir():
+    """Un devoir casse ne remplace jamais la publication active."""
+    def devoir(r):
+        return os.path.join(r, "assignments", "devoir.json")
+
+    base = {"schema_version": 1, "id": "devoir", "title": "D",
+            "items": ["dev-a"], "release": {"state": "available"}}
+
+    def avec(**extra):
+        d = dict(base)
+        d.update(extra)
+        return d
+
+    cas = [
+        (lambda r: _write_json(devoir(r), avec(schema_version=2)),
+         "expected schema_version"),
+        (lambda r: _write_json(devoir(r), avec(id="Pas Bon!")), "invalid id"),
+        (lambda r: _write_json(devoir(r), avec(id="autre")), "must be named after the id"),
+        (lambda r: _write_json(devoir(r), avec(title="  ")), "missing title"),
+        (lambda r: _write_json(devoir(r), avec(items=[])), "non-empty list"),
+        (lambda r: _write_json(devoir(r), avec(items=["inconnu"])), "unknown exercise"),
+        (lambda r: _write_json(devoir(r), avec(deadline="pas une date")),
+         "deadline must be an ISO date"),
+        # LA DATE SANS FUSEAU EST REFUSEE, comme une ouverture : "23:59" sans
+        # fuseau veut dire quatre heures de plus ou de moins selon le serveur.
+        (lambda r: _write_json(devoir(r), avec(deadline="2026-12-05T23:59:00")),
+         "deadline must be an ISO date"),
+        (lambda r: _write_json(devoir(r), avec(team={"min": 4, "max": 3})),
+         "team sizes must satisfy"),
+        (lambda r: _write_json(devoir(r), avec(team={"min": 1, "max": 99})),
+         "team sizes must satisfy"),
+        (lambda r: _write_json(devoir(r), avec(team={"min": "trois", "max": 4})),
+         "team.min must be an integer"),
+        (lambda r: _write_json(devoir(r), avec(handin={"root": "../etc", "files": []})),
+         "handin.root must be a plain directory name"),
+        (lambda r: _write_json(devoir(r), avec(
+            handin={"root": "D", "files": [
+                {"name": "main.c", "exercise_id": "solo", "file": "submission.c"}]})),
+         "names an exercise outside this assignment"),
+        (lambda r: _write_json(devoir(r), avec(
+            handin={"root": "D", "files": [
+                {"name": "main.c", "exercise_id": "dev-a", "file": "secret.c"}]})),
+         "does not declare"),
+    ]
+    for muter, attendu in cas:
+        root = tempfile.mkdtemp(prefix="ctester-devoir-")
+        try:
+            _contenu_devoir(root)
+            muter(root)
+            message = _discover_error(root)
+            assert attendu in message, (attendu, message)
+        finally:
+            shutil.rmtree(root)
+
+
+def test_un_exercice_n_appartient_qu_a_un_seul_devoir():
+    """Deux devoirs sur le meme exercice n'ont pas de reponse honnete.
+
+    Ce serait deux equipes, deux dates et deux remises pour UN document
+    partage. Une collection peut se croiser (invariant 3) ; un devoir non.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-devoir-")
+    try:
+        _contenu_devoir(root)
+        _write_json(os.path.join(root, "assignments", "autre.json"),
+                    {"schema_version": 1, "id": "autre", "title": "A",
+                     "items": ["dev-a"], "release": {"state": "available"}})
+        assert "already belongs to assignment" in _discover_error(root)
+    finally:
+        shutil.rmtree(root)
+
+
+def test_un_devoir_sans_bloc_team_reste_individuel():
+    """L'OPT-IN EST L'ABSENCE DE `team`, et c'est ce qui rend tout additif.
+
+    Un devoir sans equipe se publie, s'affiche, et n'ouvre aucun espace
+    partage : `workspace()` le refuse en le disant.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-devoir-")
+    try:
+        _contenu_devoir(root, team=False)
+        model = content_catalogue.discover(root)
+        assert model["assignments"]["devoir"]["team"] is None
+        public = content_catalogue.public_catalogue(model)
+        [projete] = public["assignments"]
+        assert "team" not in projete
+        assert teams.is_team_assignment(projete) is False
+    finally:
+        shutil.rmtree(root)
+
+
+class _BaseEquipe:
+    """The two team reads `teams.workspace` needs, and nothing else."""
+
+    def __init__(self, membres):
+        self.membres = membres          # {(assignment, account): team_id}
+
+    def team_of(self, user, assignment_id):
+        team_id = self.membres.get((assignment_id, user))
+        if team_id is None:
+            return None
+        return {"team_id": team_id, "assignment_id": assignment_id,
+                "group_number": 4, "label": "Équipe"}
+
+
+def _publier_devoir(root, dest):
+    publish_content.publish(content_catalogue.discover(root), dest)
+
+
+def test_la_porte_d_un_devoir_distingue_trois_refus():
+    """`workspace()` est LA porte, et ses trois refus ne disent pas la meme chose.
+
+    "ce devoir n'existe pas", "ce devoir n'est pas un travail d'equipe" et "tu
+    n'es pas dans une equipe" envoient l'etudiant a trois endroits differents.
+    Les fondre en un seul 403 les enverrait tous les trois chez l'enseignant.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-devoir-")
+    dest = tempfile.mkdtemp(prefix="ctester-publie-")
+    ancien = config.PUBLISHED
+    try:
+        _contenu_devoir(root)
+        _publier_devoir(root, dest)
+        config.PUBLISHED = dest
+        base = _BaseEquipe({("devoir", "sub-alice"): "e1"})
+        _, _, refus = teams.workspace(base, "sub-alice", "inconnu")
+        assert refus[0] == 404
+        _, equipe, refus = teams.workspace(base, "sub-alice", "devoir")
+        assert refus is None and equipe["team_id"] == "e1"
+        # BOB N'EST DANS AUCUNE EQUIPE : 403, et pas de document.
+        _, equipe, refus = teams.workspace(base, "sub-bob", "devoir")
+        assert equipe is None and refus[0] == 403
+        # L'EXERCICE EST LA SECONDE MOITIE DE LA PORTE. Prouver l'equipe ne
+        # prouve pas l'exercice : `solo` n'est pas dans ce devoir.
+        devoir, _, _ = teams.workspace(base, "sub-alice", "devoir")
+        assert teams.exercise_in(devoir, "dev-a") is True
+        assert teams.exercise_in(devoir, "solo") is False
+        assert teams.exercise_in(devoir, "../catalog") is False
+    finally:
+        config.PUBLISHED = ancien
+        shutil.rmtree(root)
+        shutil.rmtree(dest)
+
+
+def test_un_devoir_sans_equipe_est_refuse_en_le_disant():
+    root = tempfile.mkdtemp(prefix="ctester-devoir-")
+    dest = tempfile.mkdtemp(prefix="ctester-publie-")
+    ancien = config.PUBLISHED
+    try:
+        _contenu_devoir(root, team=False)
+        _publier_devoir(root, dest)
+        config.PUBLISHED = dest
+        _, equipe, refus = teams.workspace(_BaseEquipe({}), "sub-alice", "devoir")
+        assert equipe is None and refus[0] == 400
+        assert "équipe" in refus[1]
+    finally:
+        config.PUBLISHED = ancien
+        shutil.rmtree(root)
+        shutil.rmtree(dest)
+
+
+def test_la_vue_d_une_equipe_ne_laisse_sortir_aucun_sub():
+    """Le `sub` ne franchit pas la frontiere, ici comme dans le forum.
+
+    ET L'IDENTIFIANT DE MEMBRE EST UNE POSITION : "m2" ne veut rien dire hors
+    de cette equipe-la, donc il n'y a rien a recouper avec un autre exercice,
+    un autre devoir ou un fil du forum.
+    """
+    roster = ["sub-alice", "sub-bob", "sub-cleo"]
+    profils = {"sub-bob": {"display_name": "Bob B", "display_name_public": True},
+               "sub-cleo": {"display_name": "Cleo", "display_name_public": False}}
+    vue = teams.members_view(roster, "sub-alice", profils)
+    charge = json.dumps(vue, ensure_ascii=False)
+    assert "sub-" not in charge, charge
+    assert [m["id"] for m in vue] == ["m1", "m2", "m3"]
+    assert [m["you"] for m in vue] == [True, False, False]
+    # UN NOM CHOISI ET RENDU PUBLIC SORT, un nom garde pour soi ne sort pas.
+    assert vue[1]["name"] == "Bob B"
+    assert vue[2]["name"] == "Coéquipier 3"
+    # DES COULEURS DISTINCTES : c'est le seul lien entre un curseur et un nom.
+    assert len({m["color"] for m in vue}) == 3
+    # LA POIGNEE VIENT DU LISTAGE, jamais de ce que le client annonce.
+    assert teams.member_handle(roster, "sub-cleo") == "m3"
+    assert teams.member_handle(roster, "sub-etranger") == ""
+
+
+def test_l_historique_nomme_une_position_et_ne_chiffre_aucune_contribution():
+    """Recuperer, auditer, comprendre -- jamais noter.
+
+    UN POURCENTAGE DE CONTRIBUTION DEVIENDRAIT UNE NOTE le lendemain de sa
+    livraison, et il aurait tort a propos de celui qui reflechit avant de
+    taper. Ce controle lit la charge entiere : aucun `sub`, aucun `%`.
+    """
+    roster = ["sub-alice", "sub-bob"]
+    lignes = [{"revision_id": "r2", "account": "sub-bob",
+               "created_at": "2026-09-07T14:32Z", "bytes": 812},
+              {"revision_id": "r1", "account": "sub-alice",
+               "created_at": "2026-09-07T14:02Z", "bytes": 640},
+              # Un compte qui a demande l'effacement de ses donnees n'a plus
+              # de ligne ; s'il en restait une, elle ne nommerait personne.
+              {"revision_id": "r0", "account": "sub-parti",
+               "created_at": "2026-09-06T10:00Z", "bytes": 12}]
+    vue = teams.revisions_view(lignes, roster)
+    charge = json.dumps(vue)
+    assert "sub-" not in charge, charge
+    assert "%" not in charge and "percent" not in charge
+    assert [r["author"] for r in vue] == ["m2", "m1", ""]
+    assert vue[0]["id"] == "r2" and vue[0]["bytes"] == 812
+
+
+class _BaseDocuments:
+    def __init__(self, documents, panne=False):
+        self.documents = documents
+        self.panne = panne
+
+    def read_team_document(self, team_id, exercise_id):
+        if self.panne:
+            return None
+        return self.documents.get((team_id, exercise_id), {})
+
+
+def _entree(exercise_id):
+    fichiers = {"dev-a": ["main.c"], "dev-b": ["lib.h", "lib.c"]}
+    return {"id": exercise_id,
+            "files": [{"name": n} for n in fichiers[exercise_id]]}
+
+
+DEVOIR_PUBLIC = {
+    "id": "devoir", "title": "Le devoir", "items": ["dev-a", "dev-b"],
+    "team": {"min": 3, "max": 4}, "release": {"state": "available"},
+    "handin": {"root": "Devoir", "files": [
+        {"name": "main.c", "exercise_id": "dev-a", "file": "main.c"},
+        {"name": "matrac_lib.c", "exercise_id": "dev-b", "file": "lib.c"}]}}
+
+
+def test_l_archive_est_pilotee_par_le_devoir_et_signale_ce_qui_manque():
+    """CE QUI ENTRE DANS LE ZIP VIENT DE `handin.files`, ET DE NULLE PART AILLEURS.
+
+    Aucun nom de fichier de TCH009 n'est ecrit dans l'application : "main.c et
+    matrac_lib.c" est un fait sur le contenu de ce devoir-la.
+
+    ET UN TROU N'EST PAS REMIS EN SILENCE. Un exercice sans document ressort
+    dans `missing` plutot que de produire un fichier vide -- remettre une
+    archive sans `matrac_lib.c` est la panne qu'on ne decouvre qu'a la
+    correction.
+    """
+    base = _BaseDocuments({("e1", "dev-a"): {"main.c": "int main(void){}\n"},
+                           ("e1", "dev-b"): {"lib.h": "#pragma once\n",
+                                             "lib.c": "int f(void){return 1;}\n"}})
+    fichiers, manquants = teams.handin_files(base, DEVOIR_PUBLIC, "e1", _entree)
+    assert manquants == []
+    assert sorted(fichiers) == ["Devoir/main.c", "Devoir/matrac_lib.c"]
+    # LE NOM DANS L'ARCHIVE EST CELUI DU DEVOIR, la source celui de l'exercice.
+    assert fichiers["Devoir/matrac_lib.c"] == "int f(void){return 1;}\n"
+    # LE FICHIER NON DECLARE DANS `handin` NE SORT PAS : `lib.h` reste dans
+    # l'espace de travail, l'enonce ne le demande pas dans la remise.
+    assert not any(nom.endswith("lib.h") for nom in fichiers)
+
+    vide = _BaseDocuments({("e1", "dev-a"): {"main.c": "   \n"}})
+    fichiers, manquants = teams.handin_files(vide, DEVOIR_PUBLIC, "e1", _entree)
+    assert [m["name"] for m in manquants] == ["main.c", "matrac_lib.c"]
+    assert fichiers == {}
+
+    # UNE BASE MUETTE NE REND PAS UNE ARCHIVE VIDE : c'est la seule panne qui
+    # ressemblerait a une remise reussie.
+    assert teams.handin_files(_BaseDocuments({}, panne=True),
+                              DEVOIR_PUBLIC, "e1", _entree) == (None, [])
+
+
+def test_l_archive_est_deterministe_et_relisible():
+    """MEMES DOCUMENTS, MEMES OCTETS -- sinon "deterministe" est un mot sans controle.
+
+    L'horodatage est une constante et les entrees sont triees : une archive
+    construite sur le Dell et une construite sur un portable doivent etre
+    identiques, ou ce controle ne prouverait que la machine qui l'a joue.
+    """
+    import io as _io
+    import zipfile as _zipfile
+
+    fichiers = {"Devoir/main.c": "int main(void){return 0;}\n",
+                "Devoir/matrac_lib.c": "double f(void){return 1.0;}\n"}
+    premier = teams.build_zip(fichiers)
+    # L'ordre d'insertion ne change rien : c'est le tri qui decide.
+    second = teams.build_zip(dict(reversed(list(fichiers.items()))))
+    assert premier == second
+    with _zipfile.ZipFile(_io.BytesIO(premier)) as archive:
+        assert archive.namelist() == ["Devoir/main.c", "Devoir/matrac_lib.c"]
+        assert archive.read("Devoir/main.c").decode() == fichiers["Devoir/main.c"]
+        for info in archive.infolist():
+            assert info.date_time == teams.ARCHIVE_EPOCH, info.date_time
+            assert info.create_system == 0
+    # LE CODE DE L'ETUDIANT N'EST PAS TOUCHE : ni reindente, ni recode, ni
+    # complete d'un en-tete. Ce qui est remis est ce qui a ete ecrit.
+    exotique = {"Devoir/main.c": "/* accentué : é\r\n*/\nint main(){}\n"}
+    with _zipfile.ZipFile(_io.BytesIO(teams.build_zip(exotique))) as archive:
+        assert archive.read("Devoir/main.c").decode("utf-8") \
+            == exotique["Devoir/main.c"]
+
+
+def test_la_date_de_remise_est_une_donnee_pas_une_tache():
+    """Comme une date d'ouverture : lue a chaque appel, sans tache de minuit."""
+    passe = dict(DEVOIR_PUBLIC, deadline="2020-01-01T00:00:00-05:00")
+    futur = dict(DEVOIR_PUBLIC, deadline="2099-01-01T00:00:00-05:00")
+    assert teams.deadline_passed(passe) is True
+    assert teams.deadline_passed(futur) is False
+    # PAS DE DATE = PAS DE FERMETURE. Un devoir sans date ne se ferme jamais
+    # tout seul, ce qui est plus sur que de deviner une echeance.
+    assert teams.deadline_passed(DEVOIR_PUBLIC) is False
+    # Une date illisible ne ferme pas non plus : une faute de frappe dans le
+    # contenu ne doit pas bloquer une remise la veille.
+    assert teams.deadline_passed(dict(DEVOIR_PUBLIC, deadline="demain")) is False
+
+
+class _SocketFactice:
+    def __init__(self):
+        self.envois = []
+
+    async def send_text(self, texte):
+        self.envois.append(json.loads(texte))
+
+
+def _sync(coro):
+    """Runs one coroutine. `asyncio.run` per call: these are three lines each."""
+    import asyncio
+    return asyncio.run(coro)
+
+
+def test_deux_equipes_sur_le_meme_exercice_sont_deux_salles():
+    """L'ISOLEMENT EST STRUCTUREL, PAS FILTRE. L'equipe est DANS la cle de la
+    salle, et un membre n'est mis que dans la salle construite a partir de
+    l'equipe que la base a rendue pour lui. Il n'y a donc rien a filtrer, et
+    rien a oublier de filtrer.
+    """
+    collab.reset()
+    try:
+        a1 = collab.Connection(_SocketFactice(),
+                               collab.room_key("e1", "dev-a"), "m1", "sub-a")
+        a2 = collab.Connection(_SocketFactice(),
+                               collab.room_key("e1", "dev-a"), "m2", "sub-b")
+        b1 = collab.Connection(_SocketFactice(),
+                               collab.room_key("e2", "dev-a"), "m1", "sub-c")
+        assert a1.key != b1.key
+        # LA PREMIERE ARRIVEE VOIT UNE SALLE VIDE, la seconde ne la voit plus :
+        # c'est ce `peers` qui decide qui seme le document, et l'ordre est
+        # decide ici, dans un seul processus.
+        epoque, pairs = collab.join(a1)
+        assert pairs == 0 and epoque
+        assert collab.join(a2)[1] == 1
+        # L'autre equipe repart de zero : sa salle n'existait pas.
+        epoque_b, pairs_b = collab.join(b1)
+        assert pairs_b == 0 and epoque_b != epoque
+
+        _sync(collab.broadcast(a1, {"t": "update", "d": "xx"}))
+        assert a2.socket.envois == [{"t": "update", "d": "xx"}]
+        # NI L'EMETTEUR (il a deja son changement), NI L'AUTRE EQUIPE.
+        assert a1.socket.envois == []
+        assert b1.socket.envois == []
+
+        _sync(collab.announce(a1.key))
+        assert a2.socket.envois[-1] == {"t": "presence", "online": ["m1", "m2"]}
+        assert b1.socket.envois == []
+    finally:
+        collab.reset()
+
+
+def test_une_salle_videe_change_d_epoque_et_le_client_repart_du_serveur():
+    """L'EPOQUE EST LA COUTURE. La salle meurt avec son dernier membre et
+    renait pour le suivant : un client qui revient avec un document local
+    d'avant doit le JETER, sinon Yjs fusionnerait deux histoires et le
+    fichier serait ecrit deux fois.
+    """
+    collab.reset()
+    try:
+        cle = collab.room_key("e1", "dev-a")
+        un = collab.Connection(_SocketFactice(), cle, "m1", "sub-a")
+        epoque, _ = collab.join(un)
+        collab.leave(un)
+        assert collab.members(cle) == []
+        deux = collab.Connection(_SocketFactice(), cle, "m2", "sub-b")
+        nouvelle, pairs = collab.join(deux)
+        assert pairs == 0, "la salle videe doit etre reconstruite"
+        assert nouvelle != epoque, "et le client doit pouvoir le voir"
+    finally:
+        collab.reset()
+
+
+def test_une_salle_deduplique_les_onglets_et_se_borne():
+    """Un membre avec deux onglets est une personne, pas un cinquieme coequipier.
+
+    Et la borne existe pour qu'un compte ne puisse pas ouvrir mille sockets
+    sur un service qui n'a qu'un worker.
+    """
+    collab.reset()
+    ancien = config.TEAM_LIVE_MAX
+    try:
+        cle = collab.room_key("e1", "dev-a")
+        for _ in range(2):
+            collab.join(collab.Connection(_SocketFactice(), cle, "m1", "sub-a"))
+        collab.join(collab.Connection(_SocketFactice(), cle, "m2", "sub-b"))
+        assert collab.members(cle) == ["m1", "m2"]
+        config.TEAM_LIVE_MAX = 3
+        assert collab.full(cle) is True
+        config.TEAM_LIVE_MAX = 4
+        assert collab.full(cle) is False
+    finally:
+        config.TEAM_LIVE_MAX = ancien
+        collab.reset()
+
+
+def test_un_exercice_de_devoir_ne_compte_dans_aucune_pratique():
+    """LE FILTRE EST POSE UNE FOIS, dans `exercices_pratique()`.
+
+    Sans lui, un exercice ecrit a quatre gonflerait "exercices publies", les
+    competences pratiquees, la recommandation et le main.c d'export -- quatre
+    endroits, dont trois ou personne ne l'aurait vu.
+    """
+    entrees = [{"id": "solo", "skills": ["variables"]},
+               {"id": "dev-a", "skills": ["variables"], "assignment": "devoir"},
+               {"id": "verif", "skills": ["variables"], "verification": True}]
+    assert [e["id"] for e in progression.exercices_pratique(entrees)] == ["solo"]
+    # ET LA REGLE EST DANS LE SERVICE, pas recopiee dans le routeur : la
+    # branche qui refuse l'XP nomme le meme champ.
+    source = lire(os.path.join(HERE, "app", "routers", "submission.py"))
+    assert 'entree.get("assignment")' in source
+    # LA PAGE PORTE LE MEME FILTRE POUR L'EXPORT.
+    page = lire(os.path.join(HERE, "web", "app.js"))
+    assert "!t.assignment" in page
+
+
+def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
+    """`import_teams.read_roster` verifie TOUT avant d'ecrire UNE ligne.
+
+    Un listage a moitie charge parce que la ligne 30 avait une faute est pire
+    qu'un listage non charge : l'enseignant lit "termine", et trois etudiants
+    n'ont silencieusement pas d'equipe le matin du laboratoire.
+    """
+    import importlib.util
+
+    chemin = os.path.join(HERE, "import_teams.py")
+    spec = importlib.util.spec_from_file_location("import_teams", chemin)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    entete = "team_id,group_number,label,account\n"
+    dossier = tempfile.mkdtemp(prefix="ctester-listage-")
+    try:
+        def ecrire(texte):
+            chemin_csv = os.path.join(dossier, "r.csv")
+            with open(chemin_csv, "w", encoding="utf-8") as fh:
+                fh.write(texte)
+            return chemin_csv
+
+        bon = ecrire(entete
+                     + "g04-e01,4,Equipe 1,sub-alice\n"
+                     + "g04-e01,4,Equipe 1,sub-bob\n"
+                     + "g04-e02,6,Equipe 2,sub-cleo\n")
+        lignes = module.read_roster(bon)
+        assert len(lignes) == 3, lignes
+        assert module.sizes(lignes) == {"g04-e01": 2, "g04-e02": 1}
+        # LE GROUPE EST UNE COLONNE DU LISTAGE, pas le numero que l'etudiant
+        # tape dans son profil : c'est ce que "un groupe n'est pas une equipe"
+        # veut dire au niveau de la ligne de CSV.
+        assert lignes[2][1] == 6
+        # LE LIBELLE RESTE LIBRE, espaces compris : ce n'est pas lui qui
+        # voyage dans un en-tete.
+        libre = module.read_roster(ecrire(
+            entete + "g04-e01,4,Equipe des braves,sub-a\n"))
+        assert libre[0][2] == "Equipe des braves"
+        # ET L'ARCHIVE NE PORTE JAMAIS RIEN D'AUTRE QUE LA POIGNEE, nettoyee
+        # une SECONDE fois : ceinture et bretelles, parce que le listage est un
+        # tableur edite a la main.
+        assert teams.archive_name({"id": "d", "handin": {"root": "Devoir"}},
+                                  {"team_id": 'e1"; rm -rf /'}) \
+            == "Devoir-e1-rm--rf-.zip"
+
+        for texte, attendu in (
+                (entete + ",4,X,sub-a\n", "required"),
+                (entete + "g1,0,X,sub-a\n", "1..99"),
+                (entete + "g1,100,X,sub-a\n", "1..99"),
+                (entete + "g1,4,X,\n", "required"),
+                # UN `team_id` EST UNE POIGNEE, PAS UN LIBELLE : il finit dans
+                # un en-tete `Content-Disposition`, et un guillemet venu d'un
+                # tableur y serait une injection d'en-tete. Le libelle, lui,
+                # reste libre -- il ne traverse qu'en JSON.
+                (entete + 'g"1,4,X,sub-a\n', "team_id must be"),
+                (entete + "g 1,4,X,sub-a\n", "team_id must be"),
+                (entete, "empty"),
+                # UN COMPTE SUR DEUX EQUIPES est refuse ici en NOMMANT la
+                # ligne, avant que la cle primaire ne le refuse en parlant
+                # d'un index.
+                (entete + "g1,4,X,sub-a\ng2,4,Y,sub-a\n", "two teams")):
+            try:
+                module.read_roster(ecrire(texte))
+            except SystemExit as exc:
+                assert attendu in str(exc), (attendu, str(exc))
+            else:
+                raise AssertionError("listage invalide accepte : " + repr(texte))
+    finally:
+        shutil.rmtree(dossier)
 
 
 if __name__ == "__main__":

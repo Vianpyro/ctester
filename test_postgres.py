@@ -31,6 +31,7 @@ database the role knows is the students'.
 
 import os
 import sys
+import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "app")]
@@ -50,10 +51,16 @@ import state       # noqa: E402 -- it reads CTESTER_DB_DSN at import
 if not state.enabled():
     raise SystemExit("psycopg is missing: pip install 'psycopg[binary]'")
 
+# LES TABLES QUI PORTENT UN COMPTE, c'est-à-dire exactement celles que
+# `forget()` vide. Les trois tables d'équipe qui n'y sont pas
+# (`team`, `team_document`, `team_submission`) appartiennent au listage de
+# l'enseignant ou au travail noté de trois autres personnes -- voir
+# `deletion()` plus bas, qui vérifie qu'elles SURVIVENT.
 TABLES = ("exercise_draft", "exercise_state", "practice_attempt",
           "progress_event", "xp_transaction", "achievement_unlocked",
           "forum_message", "forum_report", "forum_moderation",
           "forum_profile", "forum_reported_name", "forum_helpful",
+          "team_member", "team_revision",
           "display_preference")
 
 ALICE, BOB = "sub-alice", "sub-bob"
@@ -709,14 +716,253 @@ def deletion():
     assert count("forum_message", BOB) == 2, "message erased from the neighbor!"
     assert count("forum_report", BOB) == 1
     assert state.forget(ALICE)                            # replayable
-    print("ok   \"Delete my data\" empties the thirteen tables, and only their own")
+    # ET LE TRAVAIL DE L'ÉQUIPE SURVIT. Effacer un membre ne doit pas emporter
+    # le devoir de trois autres personnes : ce n'est pas un effacement, c'est
+    # la suppression des données de quelqu'un d'autre. Ce qui part, c'est
+    # l'appartenance d'alice et les révisions qu'elle a signées.
+    assert _rows("SELECT count(*) FROM team_document WHERE team_id = 'e1'") == 1
+    assert _rows("SELECT count(*) FROM team_submission WHERE team_id = 'e1'") == 1
+    assert _rows("SELECT count(*) FROM team WHERE team_id = 'e1'") == 1
+    assert _rows("SELECT count(*) FROM team_member"
+                 " WHERE team_id = 'e1' AND account = %s", (CLEO,)) == 1
+    print("ok   \"Delete my data\" empties the fifteen account tables, leaves "
+          "the team's work, and touches nobody else's")
+
+
+def _inscrire(assignment_id, team_id, comptes, group_number=4, label=None):
+    """Ce que `import_teams.py` fait, avec les droits de l'ADMIN.
+
+    Volontairement écrit ici plutôt qu'appelé via `state` : l'application n'a
+    ni INSERT ni UPDATE sur ces deux tables, et `team_privileges()` plus bas
+    le prouve. Un harnais qui passerait par `state` pour peupler le listage
+    testerait un privilège que la production n'accorde pas.
+    """
+    import psycopg
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
+        cx.execute("INSERT INTO team (team_id, assignment_id, group_number, label)"
+                   " VALUES (%s, %s, %s, %s)"
+                   " ON CONFLICT (team_id, assignment_id) DO UPDATE SET"
+                   "   group_number = EXCLUDED.group_number, label = EXCLUDED.label",
+                   (team_id, assignment_id, group_number, label or team_id))
+        for compte in comptes:
+            cx.execute("INSERT INTO team_member (team_id, assignment_id, account)"
+                       " VALUES (%s, %s, %s)"
+                       " ON CONFLICT (assignment_id, account) DO UPDATE SET"
+                       "   team_id = EXCLUDED.team_id",
+                       (team_id, assignment_id, compte))
+
+
+CLEO = "sub-cleo"
+
+
+def _reset_teams():
+    """Les tables d'équipe, remises à zéro par l'ADMIN.
+
+    Ce fichier écrit dans une base qui SURVIT d'une exécution à l'autre, et
+    `forget()` ne touche pas les trois tables d'équipe -- c'est justement ce
+    qu'il doit faire. Sans ce nettoyage, la deuxième exécution partirait d'un
+    listage de la première et ne prouverait plus ce qu'elle croit prouver.
+    """
+    import psycopg
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
+        cx.execute("DELETE FROM team_submission")
+        cx.execute("DELETE FROM team_revision")
+        cx.execute("DELETE FROM team_document")
+        cx.execute("DELETE FROM team_member")
+        cx.execute("DELETE FROM team")
+
+
+def teams():
+    """LE LISTAGE EST LA SEULE AUTORITÉ, et il est lu, jamais écrit.
+
+    Trois formes qui n'existent qu'en vrai SQL sont éprouvées ici : la
+    jointure de `team_of` (qui est TOUTE l'autorisation), la clé primaire
+    (assignment_id, account) qui EST la règle « une seule équipe par devoir »,
+    et la clé étrangère composite qui refuse une appartenance sans équipe.
+    """
+    import psycopg
+
+    _reset_teams()
+    _inscrire("devoir", "e1", [ALICE, CLEO], group_number=4, label="Équipe 1")
+    _inscrire("devoir", "e2", [BOB], group_number=6, label="Équipe 2")
+
+    equipe = state.team_of(ALICE, "devoir")
+    assert equipe["team_id"] == "e1", equipe
+    # LE GROUPE VIENT DE L'ÉQUIPE, pas du profil que l'étudiant remplit.
+    assert equipe["group_number"] == 4 and equipe["label"] == "Équipe 1"
+    assert state.team_of(BOB, "devoir")["team_id"] == "e2"
+    # PAS D'ÉQUIPE = None, ET C'EST LA MÊME RÉPONSE QU'UNE BASE MUETTE : sans
+    # appartenance prouvée, rien ne s'ouvre.
+    assert state.team_of("sub-personne", "devoir") is None
+    assert state.team_of(ALICE, "autre-devoir") is None
+    assert sorted(state.team_roster("devoir", "e1")) == sorted([ALICE, CLEO])
+
+    # UNE SEULE ÉQUIPE PAR DEVOIR, tenu par la clé primaire. Un listage
+    # rechargé avec une ligne corrigée DÉPLACE l'étudiant au lieu de le mettre
+    # sur deux équipes.
+    _inscrire("devoir", "e2", [CLEO], group_number=6)
+    assert state.team_of(CLEO, "devoir")["team_id"] == "e2"
+    assert sorted(state.team_roster("devoir", "e1")) == [ALICE]
+    _inscrire("devoir", "e1", [CLEO])                       # remis en place
+
+    # UNE APPARTENANCE SANS ÉQUIPE EST REFUSÉE PAR POSTGRES, pas par du Python.
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
+        try:
+            cx.execute("INSERT INTO team_member (team_id, assignment_id, account)"
+                       " VALUES ('fantome', 'devoir', 'sub-x')")
+            raise AssertionError("une équipe inexistante a été acceptée")
+        except psycopg.errors.ForeignKeyViolation:
+            pass
+    print("ok   teams: le listage est lu, une seule équipe par devoir, "
+          "pas d'appartenance orpheline")
+
+
+def team_documents():
+    """LA CTE MODIFIANTE QUI ALIMENTE L'INSERT DE RÉVISION, et sa coalescence.
+
+    C'est exactement la forme que ce fichier existe pour attraper : un UPSERT
+    dans une CTE non référencée (qui doit s'exécuter quand même), suivi d'un
+    `INSERT ... SELECT` dont le `WHERE NOT EXISTS` EST la règle de coalescence,
+    plus un `IS DISTINCT FROM` sur une sous-requête ordonnée.
+    """
+    fenetre = 120
+
+    def ecrire(compte, texte, window=fenetre):
+        return state.write_team_document("e1", "dev-a", compte,
+                                         {"main.c": texte}, uuid.uuid4().hex,
+                                         window)
+
+    # LE DOCUMENT VIDE ET LA BASE MUETTE NE SE RESSEMBLENT PAS : `{}` est une
+    # équipe qui n'a pas commencé.
+    assert state.read_team_document("e1", "dev-a") == {}
+    assert ecrire(ALICE, "un\n")
+    assert state.read_team_document("e1", "dev-a") == {"main.c": "un\n"}
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 1
+
+    # DANS LA FENÊTRE, LE MÊME AUTEUR N'EN OUVRE PAS UNE SECONDE : c'est ce
+    # qui évite une ligne Postgres par frappe.
+    assert ecrire(ALICE, "deux\n") and ecrire(ALICE, "trois\n")
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 1
+    # ...et le DOCUMENT, lui, a bien suivi : l'UPSERT de la CTE s'exécute même
+    # si personne ne le référence.
+    assert state.read_team_document("e1", "dev-a") == {"main.c": "trois\n"}
+
+    # UN AUTRE AUTEUR EN OUVRE UNE TOUT DE SUITE : sans ça, la trace du
+    # coéquipier qui tape dans la fenêtre de quelqu'un d'autre n'existerait pas.
+    assert ecrire(CLEO, "quatre\n")
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 2
+
+    # DEUX ÉCRITURES IDENTIQUES N'EN FONT PAS DEUX (`IS DISTINCT FROM`).
+    assert ecrire(CLEO, "quatre\n", window=0)
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 2
+    # Une fenêtre nulle sur un texte DIFFÉRENT en ouvre une : c'est le chemin
+    # de la restauration.
+    assert ecrire(CLEO, "cinq\n", window=0)
+    assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'e1'") == 3
+
+    lignes = state.read_team_revisions("e1", "dev-a", 10)
+    assert [r["account"] for r in lignes] == [CLEO, CLEO, ALICE], lignes
+    assert all(r["bytes"] > 0 for r in lignes)
+
+    # L'ÉQUIPE EST DANS LE `WHERE` : une révision de l'équipe 1 ne résout pas
+    # pour l'équipe 2, et il n'y a donc aucun `if` à oublier côté Python.
+    identifiant = lignes[0]["revision_id"]
+    assert state.read_team_revision("e1", identifiant) == {"main.c": "cinq\n"}
+    assert state.read_team_revision("e2", identifiant) == {}
+
+    # DEUX ÉQUIPES, DEUX DOCUMENTS, sur le même exercice.
+    assert state.write_team_document("e2", "dev-a", BOB, {"main.c": "bob\n"},
+                                     uuid.uuid4().hex, fenetre)
+    assert state.read_team_document("e1", "dev-a") == {"main.c": "cinq\n"}
+    assert state.read_team_document("e2", "dev-a") == {"main.c": "bob\n"}
+    print("ok   team_document: un UPSERT et une révision coalescée en UNE "
+          "instruction, isolés par équipe")
+
+
+def team_submissions():
+    """UNE SEULE REMISE PAR ÉQUIPE, tenue par la clé primaire."""
+    assert state.read_team_submission("devoir", "e1") == {}
+    assert state.write_team_submission("devoir", "e1", ALICE,
+                                       {"Devoir/main.c": "x\n"})
+    assert state.read_team_submission("devoir", "e1")["submitted_by"] == ALICE
+    # REMETTRE À NOUVEAU REMPLACE, ça n'ajoute pas une seconde remise : une
+    # équipe qui trouve un bogue à 22 h doit pouvoir corriger.
+    assert state.write_team_submission("devoir", "e1", CLEO,
+                                       {"Devoir/main.c": "y\n"})
+    assert _rows("SELECT count(*) FROM team_submission WHERE team_id = 'e1'") == 1
+    assert state.read_team_submission("devoir", "e1")["submitted_by"] == CLEO
+    assert state.write_team_submission("devoir", "e2", BOB, {"Devoir/main.c": "b\n"})
+    assert state.read_team_submission("devoir", "e2")["submitted_by"] == BOB
+    # ET LE LISTAGE DE L'ENSEIGNANT COMPTE SANS NOMMER.
+    equipes = {e["team_id"]: e for e in state.read_teams("devoir")}
+    assert equipes["e1"]["members"] == 2 and equipes["e1"]["group_number"] == 4
+    assert equipes["e2"]["members"] == 1
+    print("ok   team_submission: une seule remise par équipe, remplaçable")
+
+
+def team_privileges():
+    """LE LISTAGE EST EN LECTURE SEULE POUR L'APPLICATION, et c'est Postgres
+    qui le tient -- pas la discipline de `state.py`.
+
+    C'est LA garantie qui fait qu'un étudiant ne peut pas choisir son équipe :
+    il n'y a aucun chemin de code, distrait ou non, par lequel une requête
+    peut écrire dans `team` ou insérer dans `team_member`. Le seul DELETE
+    autorisé est celui de « Supprimer mes données ».
+
+    Non joué quand les deux DSN sont identiques -- il n'y aurait rien à refuser.
+    """
+    if ADMIN_DSN == DSN:
+        print("--   team privileges: NOT PLAYED (no distinct CTESTER_DB_ADMIN_DSN)")
+        return
+    import psycopg
+    refuses = (
+        ("team INSERT",
+         "INSERT INTO team (team_id, assignment_id, group_number)"
+         " VALUES ('pirate', 'devoir', 4)"),
+        ("team UPDATE", "UPDATE team SET group_number = 9"),
+        ("team DELETE", "DELETE FROM team WHERE team_id = 'e1'"),
+        # LE CŒUR DU CONTRAT : rejoindre une équipe est un INSERT, et il est
+        # refusé par la base. Sans ce refus, "l'appartenance est autoritaire"
+        # ne serait qu'une phrase dans un docstring.
+        ("team_member INSERT",
+         "INSERT INTO team_member (team_id, assignment_id, account)"
+         " VALUES ('e1', 'devoir', 'sub-pirate')"),
+        ("team_member UPDATE", "UPDATE team_member SET team_id = 'e1'"),
+        # L'HISTOIRE NE SE RÉÉCRIT PAS : une révision est un fait, et son
+        # auteur n'est pas une colonne à corriger après coup.
+        ("team_revision UPDATE", "UPDATE team_revision SET account = 'sub-x'"),
+    )
+    manques = []
+    for nom, sql in refuses:
+        with psycopg.connect(DSN, autocommit=True) as cx:
+            try:
+                cx.execute(sql)
+                manques.append(nom)
+            except psycopg.errors.InsufficientPrivilege:
+                pass
+    assert not manques, "écriture acceptée sur : " + ", ".join(manques)
+    # ET CE QUI DOIT PASSER PASSE : sans cette moitié, un GRANT trop étroit
+    # resterait muet en production et nulle part ailleurs.
+    with psycopg.connect(DSN, autocommit=True) as cx:
+        cx.execute("SELECT count(*) FROM team")
+        cx.execute("UPDATE team_document SET sources = sources")
+        cx.execute("UPDATE team_submission SET files = files")
+        cx.execute("DELETE FROM team_member WHERE account = 'sub-absent'")
+    print("ok   team: le listage est en lecture seule, le document est "
+          "modifiable, l'historique est en ajout seul")
+
+
+def _rows(sql, params=()):
+    lignes = state._query(sql, params, read=True)
+    assert lignes is not None, sql
+    return lignes[0][0]
 
 
 def main():
     apply_schema()
     schema_repairs_an_older_database()
     append_only()
-    for user in (ALICE, BOB):
+    for user in (ALICE, BOB, CLEO):
         state.forget(user)
     drafts_and_states()
     practice_attempts()
@@ -728,6 +974,10 @@ def main():
     identity()
     stuck_and_helpful()
     leaderboard_rows()
+    teams()
+    team_documents()
+    team_submissions()
+    team_privileges()
     forum_privileges()
     preferences()
     deletion()

@@ -36,14 +36,24 @@ VERIFICATION = "VerificationEvaluated"
 
 
 def exercices_pratique(entries):
-    """The open catalog MINUS verifications. The only filter, defined here.
+    """The open catalog MINUS verifications AND team assignments.
 
     A verification is not practice (invariant 4): counting it toward
     "exercises practiced", practiced skills or the recommendation would mix
     the two domains across all three screens at once. One filter, one place,
     and every counter goes through it.
+
+    A TEAM ASSIGNMENT'S EXERCISES ARE NOT PRACTICE EITHER, and they are
+    filtered in the same single line for the same single reason: they are
+    written by three or four people in one shared document, so counting them
+    as one account's practice would tell each member they practised what one
+    of them wrote. `_record()` already refuses their XP; this is the other
+    half, and putting it anywhere else would mean adding it to
+    "exercises published", the practised skills, the recommendation and the
+    export -- four places, three of which nobody would notice.
     """
-    return [entry for entry in entries if not entry.get("verification")]
+    return [entry for entry in entries
+            if not entry.get("verification") and not entry.get("assignment")]
 
 
 def verifications(entries):

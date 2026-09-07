@@ -3,12 +3,12 @@
 <head>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' https://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' https://tch099.thevhome.com wss://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>TCH009 — Tester mon code</title>
-<script src="config.js?v=20260906-refonte"></script>
-<link rel="stylesheet" href="style.css?v=20260906-refonte">
+<script src="config.js?v=20260907-equipes"></script>
+<link rel="stylesheet" href="style.css?v=20260907-equipes">
 </head>
 <body>
 <div id="top">
@@ -112,6 +112,13 @@
     <!-- WHERE I AM, AND WHAT IS LEFT (design 1a). One line above the strip:
          the lab, its theme, how many exercises and how many solved. It used
          to take opening "Mes progrès" to learn the last two. -->
+    <!-- THE ASSIGNMENT'S OWN HEADER (team assignments only). It carries what
+         no exercise screen could: which assignment this is, when it is due,
+         which team is in it, who of them is connected right now, and the two
+         buttons that only exist at the assignment's level -- the ZIP and the
+         hand-in. The exercise strip below is UNCHANGED and does the local
+         navigation, because that is exactly the job it already had. -->
+    <div id="teamband" hidden></div>
     <div id="labcontext" hidden></div>
     <nav id="bandelabo" aria-label="Exercices de ce laboratoire" hidden></nav>
     <!-- THE LEGEND OF THE STRIP. Five borders carry five meanings, and a
@@ -141,6 +148,11 @@
           <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
           <textarea id="code" spellcheck="false"
                     placeholder="// Colle ici le contenu de ton fichier"></textarea>
+          <!-- TEAMMATES' CARETS, on their own layer and AFTER the textarea so
+               they draw on top of it. `pointer-events: none` in the
+               stylesheet: this layer must never intercept a click meant for
+               the editor. It stays empty outside a team workspace. -->
+          <div id="carets" aria-hidden="true"></div>
         </div>
       </div>
     </div>
@@ -192,6 +204,6 @@
 <div id="annonce" role="status" class="horsecran"></div>
 </main>
 
-<script src="app.js?v=20260906-refonte"></script>
+<script src="app.js?v=20260907-equipes"></script>
 </body>
 </html>
