@@ -660,6 +660,13 @@ pre {
   border-radius: var(--coin); box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
   font-family: var(--sans);
 }
+/* LE PANNEAU SCROLLE, PARCE QUE SON CONTENU N'A PAS DE HAUTEUR CONNUE.
+   Douze équipes poussaient le formulaire d'identité ET son bouton
+   « Enregistrer » sous le bas de la fenêtre : l'écran avait l'air amputé, et
+   rien n'indiquait qu'il restait quelque chose. */
+#identitepanneau {
+  max-height: calc(100vh - 5rem); overflow-y: auto; overscroll-behavior: contain;
+}
 #identitepanneau[hidden] { display: none; }
 #identitepanneau h2 { font-size: .95rem; margin: 0 0 .5rem; }
 #identitepanneau p { margin: .5rem 0 0; font-size: 13px; color: var(--muted); }
@@ -1316,6 +1323,10 @@ pre {
 
 /* LA LISTE DES ÉQUIPES : un numéro, un remplissage, un bouton. La même forme
    que sur Moodle, parce que c'est le même geste et les mêmes numéros. */
+/* ET LA LISTE SCROLLE DANS LE PANNEAU : sans ça, elle prend toute la hauteur
+   a elle seule et le reste de « Mon identité » est un scroll plus bas qu'on ne
+   soupçonne pas. Six lignes visibles suffisent a comprendre que ça défile. */
+.mesequipes .equipes { max-height: 16rem; overflow-y: auto; }
 .mesequipes .equipeligne {
   display: flex; align-items: center; gap: .5rem;
   padding: .3rem .5rem; border: 1px solid var(--line);
