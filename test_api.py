@@ -25,6 +25,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(HERE, "app")]
@@ -89,6 +90,7 @@ class BaseSimulee:
 
     def __init__(self):
         self.brouillons, self.etats, self.themes = {}, {}, {}
+        self.blocsnotes = {}      # La Console : un par compte
         self.messages, self.profils = [], {}
         self.pratique, self.jobs = {}, set()
         self.evenements, self.xp, self.succes = {}, {}, {}
@@ -122,6 +124,13 @@ class BaseSimulee:
 
     def write_state(self, user, ex, status, sources):
         self.etats[(user, ex)] = status
+        return True
+
+    def read_scratch(self, user):
+        return self.blocsnotes.get(user, "")
+
+    def write_scratch(self, user, code):
+        self.blocsnotes[user] = code
         return True
 
     def read_theme(self, user):
@@ -577,7 +586,7 @@ def _publier(tmp, exercices=CONTENU, devoir=None):
 
 @contextlib.contextmanager
 def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
-             groupes=(4, 6), exercices=CONTENU, devoir=None):
+             groupes=(4, 6), exercices=CONTENU, devoir=None, console=True):
     """Un déploiement complet en mémoire, remis en place à la sortie.
 
     TOUT EST RESTAURÉ DANS UN `finally`, y compris les quotas : un test qui
@@ -595,10 +604,11 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     garde_etat = [(m, m.state) for m in modules]
     garde_config = {n: getattr(config, n) for n in
                     ("PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
-                     "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPES")}
+                     "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPES",
+                     "SCRATCH")}
     garde_secu = (security.current_user, security.current_name)
     garde_quotas = (deps.quota, deps.quota_connecte, deps.state_quota,
-                    deps.forum_quota, deps.presence)
+                    deps.forum_quota, deps.presence, deps.scratch_quota)
 
     for m in modules:
         m.state = faux
@@ -612,6 +622,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     config.OIDC_CLIENT_ID = "ctester"
     config.FORUM_MODERATORS = frozenset(moderateurs) if forum_actif else frozenset()
     config.FORUM_GROUPES = tuple(groupes)
+    config.SCRATCH = console
     jetons = jetons or {}
     security.current_user = lambda entetes: jetons.get(
         entetes.get("Authorization", "").replace("Bearer ", ""))
@@ -623,6 +634,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     deps.state_quota = quotas.Quota(cooldown=0, hourly=100000)
     deps.forum_quota = quotas.Quota(cooldown=0, hourly=100000)
     deps.presence = quotas.Presence()
+    deps.scratch_quota = quotas.Quota(cooldown=0, hourly=100000)
 
     try:
         yield TestClient(main.create_app()), faux, tmp
@@ -633,7 +645,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
             setattr(config, nom, valeur)
         security.current_user, security.current_name = garde_secu
         (deps.quota, deps.quota_connecte, deps.state_quota, deps.forum_quota,
-         deps.presence) = garde_quotas
+         deps.presence, deps.scratch_quota) = garde_quotas
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -2565,6 +2577,219 @@ def deploiement_devoir(*, deadline=None, team=True, moderateurs=("sub-prof",)):
         faux.inscrire("devoir", "e2", ["sub-bob"], group_number=6,
                       label="Équipe 2")
         yield c, faux, tmp
+
+
+# --------------------------------------------------------------------------
+# La Console
+# --------------------------------------------------------------------------
+# CE QUI EST ÉPROUVÉ ICI : l'ordre des refus et LES BORNES DES DEUX CÔTÉS -- la
+# valeur qui passe et la première qui ne passe plus. Un contrôle qui ne vérifie
+# qu'un refus laisse passer une borne posée un cran trop serré, et c'est
+# l'étudiant qui la découvre à 23 h.
+
+
+def _console_hello(socket, jeton="t-alice", code="int main(void){return 0;}"):
+    socket.send_json({"t": "hello", "token": jeton, "code": code})
+
+
+def test_la_console_dit_qu_elle_n_est_pas_offerte_avant_de_refuser_le_jeton():
+    """L'ORDRE, et c'est la règle du forum : « pas offerte ici » AVANT « jeton
+    refusé ». Un étudiant sur un déploiement sans Console ne doit pas croire
+    que sa session a expiré et se déconnecter pour rien."""
+    from starlette.websockets import WebSocketDisconnect
+
+    with contexte(jetons=JETONS_EQUIPE, console=False) as (client, _, _):
+        try:
+            with client.websocket_connect("/scratch/live") as socket:
+                # Un jeton VOLONTAIREMENT invalide : c'est 4503 qu'on doit lire,
+                # pas 4401.
+                _console_hello(socket, jeton="t-inconnu")
+                socket.receive_json()
+            raise AssertionError("la Console éteinte a accepté une session")
+        except WebSocketDisconnect as exc:
+            assert exc.code == deps.CLOSE_UNAVAILABLE, exc.code
+
+    # Et allumée, c'est bien le jeton qui décide.
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        try:
+            with client.websocket_connect("/scratch/live") as socket:
+                _console_hello(socket, jeton="t-inconnu")
+                socket.receive_json()
+            raise AssertionError("un jeton inconnu a ouvert une session")
+        except WebSocketDisconnect as exc:
+            assert exc.code == deps.CLOSE_UNAUTHORIZED, exc.code
+
+
+def test_la_console_refuse_une_origine_inconnue_avant_d_accepter():
+    from starlette.websockets import WebSocketDisconnect
+
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        try:
+            with client.websocket_connect(
+                    "/scratch/live",
+                    headers={"origin": "https://ailleurs.example"}) as socket:
+                socket.receive_json()
+            raise AssertionError("une origine inconnue est passée")
+        except WebSocketDisconnect as exc:
+            assert exc.code == deps.CLOSE_FORBIDDEN, exc.code
+
+
+def test_la_console_borne_le_code_des_deux_cotes():
+    """`MAX_CODE` pile passe, `MAX_CODE + 1` ne passe plus."""
+    from starlette.websockets import WebSocketDisconnect
+
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        # Pile à la borne : accepté (la session s'ouvre, le worker n'existe
+        # pas, donc elle finit en file -- ce qui prouve qu'elle a été acceptée).
+        with client.websocket_connect("/scratch/live") as socket:
+            _console_hello(socket, code="/*" + "x" * (config.MAX_CODE - 4) + "*/")
+            trame = socket.receive_json()
+            assert trame["t"] == "queued", trame
+        # Un octet de plus : refusé.
+        try:
+            with client.websocket_connect("/scratch/live") as socket:
+                _console_hello(socket, code="x" * (config.MAX_CODE + 1))
+                socket.receive_json()
+            raise AssertionError("un code hors bornes est passé")
+        except WebSocketDisconnect as exc:
+            assert exc.code == deps.CLOSE_BAD, exc.code
+
+
+def test_la_console_borne_ce_qu_on_tape_des_deux_cotes():
+    """La trame d'entrée à `SCRATCH_FRAME` pile, puis un octet de plus.
+
+    UNE TRAME WEBSOCKET NE PASSE PAR AUCUN MIDDLEWARE, donc par aucune borne de
+    corps : celle-ci est reposée à la main dans le routeur, ou la Console
+    serait la seule porte non bornée de l'application.
+    """
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        with client.websocket_connect("/scratch/live") as socket:
+            _console_hello(socket)
+            assert socket.receive_json()["t"] == "queued"
+            chemin = _le_job_de_console()
+            socket.send_json({"t": "stdin", "d": "a" * config.SCRATCH_FRAME})
+            socket.send_json({"t": "stdin", "d": "b" * (config.SCRATCH_FRAME + 1)})
+            socket.send_json({"t": "stdin", "d": "FIN\n"})
+            for _ in range(40):
+                time.sleep(0.02)
+                if b"FIN" in _lire_octets(os.path.join(chemin, "in")):
+                    break
+            entree = _lire_octets(os.path.join(chemin, "in"))
+        # Celle qui passe est écrite, celle qui dépasse est IGNORÉE -- pas
+        # tronquée : une entrée coupée en silence serait pire, le programme
+        # lirait autre chose que ce que l'étudiant a tapé.
+        assert b"a" * config.SCRATCH_FRAME in entree
+        assert b"b" not in entree, entree[:200]
+        assert entree.endswith(b"FIN\n")
+
+
+def test_la_console_n_ecrit_ni_owner_ni_exercice_dans_le_spool():
+    """Aucune identité ne franchit la frontière du worker.
+
+    C'est ce qui rend `_enregistrer()` inatteignable : il exige un `owner` ET
+    un `exercise_id`, et le job de console n'a ni l'un ni l'autre. Un sondage
+    de `/r/<id>` sur ce job ne doit donc écrire aucune tentative de pratique.
+    """
+    base = BaseSimulee()
+    with contexte(jetons=JETONS_EQUIPE, base=base) as (client, faux, _):
+        with client.websocket_connect("/scratch/live") as socket:
+            _console_hello(socket)
+            assert socket.receive_json()["t"] == "queued"
+            chemin = _le_job_de_console()
+            job = json.loads(_lire_octets(os.path.join(chemin, "job.json")))
+            assert job == {"kind": "console"}, job
+            # Le sondage ordinaire ne doit rien enregistrer non plus.
+            identifiant = os.path.basename(chemin)
+            r = client.get("/r/" + identifiant, headers=_entetes("t-alice"))
+            assert r.status_code == 200, r.text
+            assert r.json()["state"] in ("queued", "running"), r.json()
+        assert not faux.pratique, faux.pratique
+        assert not faux.jobs, faux.jobs
+        assert not faux.etats, faux.etats
+
+
+def test_une_seule_session_de_console_par_compte():
+    from starlette.websockets import WebSocketDisconnect
+
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        with client.websocket_connect("/scratch/live") as premiere:
+            _console_hello(premiere)
+            assert premiere.receive_json()["t"] == "queued"
+            try:
+                with client.websocket_connect("/scratch/live") as seconde:
+                    _console_hello(seconde)
+                    seconde.receive_json()
+                raise AssertionError("un compte a ouvert deux sessions")
+            except WebSocketDisconnect as exc:
+                assert exc.code == deps.CLOSE_BUSY, exc.code
+        # Un AUTRE compte n'est pas gêné : le plafond est par compte.
+        with client.websocket_connect("/scratch/live") as autre:
+            _console_hello(autre, jeton="t-bob")
+            assert autre.receive_json()["t"] == "queued"
+
+
+def test_le_quota_horaire_de_console_passe_a_N_et_refuse_a_N_plus_1():
+    from starlette.websockets import WebSocketDisconnect
+
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        deps.scratch_quota = quotas.Quota(cooldown=0, hourly=2)
+        for essai in range(2):
+            with client.websocket_connect("/scratch/live") as socket:
+                _console_hello(socket)
+                assert socket.receive_json()["t"] == "queued", essai
+        try:
+            with client.websocket_connect("/scratch/live") as socket:
+                _console_hello(socket)
+                socket.receive_json()
+            raise AssertionError("la 3e session est passée malgré un quota de 2")
+        except WebSocketDisconnect as exc:
+            assert exc.code == deps.CLOSE_BUSY, exc.code
+
+
+def test_le_bloc_notes_suit_le_compte_et_se_borne():
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        # Absent n'est pas une panne : "" et 200.
+        r = client.get("/scratch/draft", headers=_entetes("t-alice"))
+        assert r.status_code == 200 and r.json() == {"code": ""}, r.text
+        assert client.get("/scratch/draft").status_code == 401
+        # Pile à la borne, puis un octet de plus.
+        assert client.put("/scratch/draft", json={"code": "x" * config.MAX_CODE},
+                          headers=_entetes("t-alice")).status_code == 200
+        trop = client.put("/scratch/draft",
+                          json={"code": "x" * (config.MAX_CODE + 1)},
+                          headers=_entetes("t-alice"))
+        assert trop.status_code == 413, trop.status_code
+        # Et il est bien à l'étudiant qui l'a écrit.
+        client.put("/scratch/draft", json={"code": "a-moi"},
+                   headers=_entetes("t-alice"))
+        assert client.get("/scratch/draft",
+                          headers=_entetes("t-alice")).json()["code"] == "a-moi"
+        assert client.get("/scratch/draft",
+                          headers=_entetes("t-bob")).json()["code"] == ""
+
+
+def test_oidc_json_annonce_la_console():
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        assert client.get("/oidc.json").json()["scratch"] is True
+    with contexte(jetons=JETONS_EQUIPE, console=False) as (client, _, _):
+        assert client.get("/oidc.json").json()["scratch"] is False
+
+
+def _le_job_de_console():
+    """Le répertoire de spool que la session vient d'écrire."""
+    for nom in os.listdir(config.SPOOL):
+        chemin = os.path.join(config.SPOOL, nom)
+        if os.path.exists(os.path.join(chemin, "job.json")):
+            return chemin
+    raise AssertionError("aucun job de console dans le spool")
+
+
+def _lire_octets(chemin):
+    try:
+        with open(chemin, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return b""
 
 
 def test_le_contexte_d_equipe_nomme_les_coequipiers_sans_aucun_sub():

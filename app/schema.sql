@@ -343,6 +343,34 @@ CREATE TABLE IF NOT EXISTS display_preference (
 );
 
 -- --------------------------------------------------------------------------
+-- LA CONSOLE : le bloc-notes exécutable d'un compte.
+--
+-- UNE LIGNE PAR COMPTE, PAS UNE PAR EXERCICE, et c'est ce qui la distingue
+-- d'`exercise_draft`. Réutiliser cette table-là avec un identifiant réservé
+-- aurait évité une migration, mais ses lignes sont clés sur un exercice DU
+-- CATALOGUE : un identifiant fantôme aurait fini par croiser l'export
+-- `main.c` ou « Mes progrès », c'est-à-dire par apparaître là où personne ne
+-- l'aurait cherché.
+--
+-- ÉCRASÉE EN PLACE, comme le thème et le brouillon. Un bloc-notes n'est pas un
+-- fait à relire, et un journal grossirait à chaque frappe. Le GRANT porte donc
+-- `UPDATE` (`ON CONFLICT ... DO UPDATE`), et il est juste en dessous -- une
+-- table et ses droits sont le MÊME FAIT.
+--
+-- ELLE PORTE UNE COLONNE `account`, DONC ELLE EST DANS `forget()`. Ce n'est
+-- pas une politesse : `test_suppression_couvre_toutes_les_tables` lit les
+-- blocs CREATE TABLE de ce fichier et échoue si elle n'y est pas.
+--
+-- La borne est celle des soumissions (`config.MAX_CODE`, 64 Ko), reposée ici
+-- pour que la contrainte tienne pour TOUT chemin d'écriture, y compris une
+-- session psql ouverte à minuit.
+CREATE TABLE IF NOT EXISTS scratch_draft (
+    account    TEXT        NOT NULL PRIMARY KEY,
+    code       TEXT        NOT NULL CHECK (length(code) <= 65536),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- --------------------------------------------------------------------------
 -- TEAM ASSIGNMENTS: a group is not a team, and this is where the difference
 -- becomes a fact rather than a convention.
 --
@@ -642,7 +670,7 @@ BEGIN
     -- l'`UPDATE` y est nécessaire (`ON CONFLICT ... DO UPDATE`).
     EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE'
             ' ON exercise_draft, exercise_state, practice_attempt,'
-            '    display_preference'
+            '    display_preference, scratch_draft'
             ' TO ctester_app';
 
     -- LA PROGRESSION EST EN AJOUT SEUL, ET C'EST POSTGRES QUI LE TIENT : pas

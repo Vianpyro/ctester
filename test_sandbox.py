@@ -19,11 +19,13 @@ not run on the Dell.
 """
 import importlib.util
 import os
+import select
 import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 ICI = pathlib.Path(__file__).resolve().parent
 # THE PRIVATE CONTENT ROOT (the one carrying catalog.json, exercises/ and
@@ -118,6 +120,47 @@ def lancer(mode, fichiers, exercice, **reglages):
     return done.returncode, done.stdout, cases, racine
 
 
+def lancer_console(source, entree=None, budget=20, **reglages):
+    """La Console : le script tel quel, un vrai gcc, et PERSONNE au clavier.
+
+    On rend le processus VIVANT, pas son code de sortie : ce qu'il faut
+    éprouver ici est qu'une invite arrive AVANT qu'on ait écrit sur l'entrée
+    standard -- c'est-à-dire précisément ce qu'un `subprocess.run()` ne peut
+    pas voir, puisqu'il attend la fin.
+    """
+    racine = pathlib.Path(tempfile.mkdtemp(prefix="console-"))
+    (racine / "work").mkdir()
+    (racine / "in/src").mkdir(parents=True)
+    (racine / "in/src/main.c").write_text(source, encoding="utf-8")
+    script = rendre("build-scratch.sh", racine)
+    proc = subprocess.Popen(
+        ["bash", str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, bufsize=0, cwd=racine,
+        env={**os.environ, **REGLAGES, **reglages, "CTESTER_NONCE": NONCE})
+    vu, debut = b"", time.time()
+    while time.time() - debut < budget:
+        pret, _, _ = select.select([proc.stdout], [], [], 0.2)
+        if pret:
+            paquet = os.read(proc.stdout.fileno(), 65536)
+            if not paquet:
+                break
+            vu += paquet
+        if entree and entree[0].encode() in vu:
+            proc.stdin.write(entree[1].encode())
+            proc.stdin.flush()
+            entree = None
+    return proc, vu, racine
+
+
+def phases(sortie):
+    """(ce que gcc a dit, ce que le programme a écrit), coupé sur le marqueur."""
+    marqueur = (NONCE + " RUN\n").encode()
+    if marqueur not in sortie:
+        return sortie, b""
+    avant, apres = sortie.split(marqueur, 1)
+    return avant, apres
+
+
 def sources_c(dossier):
     return sorted(f.name for f in dossier.iterdir() if f.suffix == ".c")
 
@@ -148,6 +191,96 @@ def check(cond, libelle):
     print(("ok    " if cond else "FAIL  ") + libelle)
     if not cond:
         rates.append(libelle)
+
+
+# --- 0. LA CONSOLE ---------------------------------------------------------
+# EN PREMIER, ET SANS AUCUN CONTENU. Ces contrôles ne lisent ni exercice, ni
+# corrigé, ni Unity : la Console n'a pas d'exercice, c'est tout son sujet. Ils
+# tournent donc même sur une machine où le dépôt de tests privé n'est pas
+# cloné, ce qui est exactement l'endroit où l'on veut pouvoir les lancer.
+
+print("\n--- 0a. l'invite arrive AVANT qu'on tape ---")
+DIALOGUE = """#include <stdio.h>
+
+int main(void)
+{
+    int n;
+    printf("Entrez un nombre : ");
+    scanf("%d", &n);
+    printf("le double est %d\\n", n * 2);
+    return 0;
+}
+"""
+proc, vu, _ = lancer_console(DIALOGUE, entree=("Entrez un nombre : ", "21\n"))
+avant, apres = phases(vu)
+# C'EST TOUTE LA FONCTIONNALITÉ, ET C'EST LE SEUL HARNAIS QUI PEUT LA PROUVER.
+# Sans le constructeur de build-scratch.sh, la glibc met stdout en tampon de
+# BLOC dès qu'il n'est pas un terminal : cette invite n'apparaîtrait qu'à la
+# fin du programme, et le terminal aurait l'air gelé au moment précis où il
+# demande quelque chose. Mesuré avant de l'écrire : aucune invite en 25 s.
+check(b"Entrez un nombre : " in apres,
+      "l'invite est lisible AVANT que le programme n'ait reçu quoi que ce soit")
+check(b"le double est 42" in apres,
+      "et la reponse tapee revient traitee : " + repr(apres[-40:]))
+check(avant == b"", "gcc n'a rien dit, donc la phase `build` est vide")
+check(NONCE.encode() not in apres,
+      "le marqueur de phase ne franchit jamais la frontiere")
+proc.kill()
+
+print("\n--- 0b. `while (1);` meurt sur le TEMPS CPU ---")
+proc, vu, _ = lancer_console("int main(void){ for(;;); }", budget=25,
+                             CTESTER_CPU_SECONDS="2")
+proc.wait(timeout=10)
+_, apres = phases(vu)
+check(proc.returncode not in (0, None),
+      "le programme est tue (code %r)" % proc.returncode)
+# LE BRUIT DE BASH NE DOIT PAS REMONTER. Avec un sous-shell, bash ecrivait
+# « build.sh: line NN: 16 Killed ( ulimit ... ) » dans la sortie de
+# l'etudiant : des entrailles de script au moment precis ou il faut lui
+# expliquer sa boucle infinie. D'ou `ulimit` puis `exec`, sans sous-shell.
+check(b"Killed" not in apres and b"ulimit" not in apres,
+      "et sa sortie ne contient AUCUN bruit de bash : " + repr(apres[:120]))
+
+print("\n--- 0c. ...mais un programme qui ATTEND survit au meme plafond ---")
+# LA DISCRIMINATION, ET C'EST LA RAISON D'ETRE DU TEMPS CPU. Le temps mural ne
+# distingue pas « l'etudiant reflechit » de « le programme tourne en rond » --
+# c'est pour ca qu'un job note peut se contenter d'un `timeout -s KILL 5` et
+# pas une session interactive. Un programme bloque dans scanf ne consomme
+# aucun CPU, donc il doit survivre la ou le precedent meurt.
+proc, vu, _ = lancer_console(DIALOGUE, budget=6, CTESTER_CPU_SECONDS="2")
+_, apres = phases(vu)
+check(proc.poll() is None,
+      "il est toujours vivant apres 6 s murales avec 2 s de CPU au plafond")
+check(b"Entrez un nombre : " in apres, "et il attend bien son entree")
+proc.kill()
+
+print("\n--- 0d. une erreur de compilation sort en 10, avec le texte de gcc ---")
+proc, vu, _ = lancer_console("int main(void){ return zzz; }", budget=25)
+proc.wait(timeout=15)
+avant, apres = phases(vu)
+check(proc.returncode == 10, "code de sortie 10 (%r)" % proc.returncode)
+check(b"zzz" in avant, "le texte de gcc est dans la phase `build`")
+check(apres == b"", "et rien n'a tourne")
+
+print("\n--- 0e. build-scratch.sh ne connait NI cas, NI test ---")
+# L'INVARIANT DE CONFIDENTIALITE DE CE SCRIPT, dit sur le script lui-meme.
+# build-io.sh peut montrer la stderr de gcc parce qu'il ne voit pas les valeurs
+# attendues ; celui-ci ne voit ni test, ni cas, ni contenu -- une affirmation
+# plus forte, et qui doit rester vraie.
+# LES COMMENTAIRES SONT RETIRES AVANT DE REGARDER : l'en-tete du script NOMME
+# /in/cases et /in/tests, justement pour dire qu'il ne les monte pas. Ce qu'on
+# verifie ici est qu'aucune INSTRUCTION ne les touche -- la prose a le droit
+# d'en parler, le code n'a pas le droit d'y aller.
+_texte_scratch = "\n".join(
+    ligne for ligne in (ICI / "build-scratch.sh").read_text(encoding="utf-8").splitlines()
+    if not ligne.lstrip().startswith("#"))
+for _interdit in ("/in/cases", "/in/tests", "/in/unity", "io.json",
+                  "unity.json", "expect"):
+    check(_interdit not in _texte_scratch,
+          "aucune instruction de build-scratch.sh ne touche %s" % _interdit)
+# Et il ne monte QUE /in/src : c'est le seul chemin de /in qu'il lit.
+check(_texte_scratch.count("/in/") == _texte_scratch.count("/in/src"),
+      "le seul chemin de /in qu'il lit est /in/src")
 
 
 # --- 1. Correct but sloppy code: it SUCCEEDS, with warnings -----------------

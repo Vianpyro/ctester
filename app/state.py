@@ -37,6 +37,13 @@ STATUSES = ("attempted", "solved")
 # The page's only two themes. Same list as the CHECK in `schema.sql` and the
 # `<head>` script: three places, one rule to keep in sync.
 THEMES = ("light", "dark")
+# La borne du bloc-notes de la Console, en octets. ÉCRITE ICI ET PAS PRISE DANS
+# `config` : ce module n'importe pas `config`, exprès -- il est éprouvé par
+# appel direct contre un vrai Postgres, sans le reste de l'application. Elle
+# vaut `config.MAX_CODE` et le CHECK de `scratch_draft` dans schema.sql ; les
+# trois valeurs sont les mêmes 64 Ko, et c'est le CHECK qui a le dernier mot
+# pour tout chemin d'écriture.
+SCRATCH_MAX = 65536
 
 
 def enabled():
@@ -516,6 +523,44 @@ def write_theme(user, theme):
         " ON CONFLICT (account)"
         " DO UPDATE SET theme = EXCLUDED.theme, updated_at = now()",
         (user, theme),
+    ) is not None
+
+
+# --- La Console --------------------------------------------------------------
+
+
+def read_scratch(user):
+    """Le bloc-notes de ce compte : son code, ou "" si rien n'a été enregistré.
+
+    `None` -- ET RIEN D'AUTRE -- veut dire « la base n'a pas répondu ». La
+    chaîne vide veut dire « aucun bloc-notes », et l'appelant garde alors ce
+    qu'il a en local. Confondre les deux effacerait le travail de quelqu'un à
+    la première panne, exactement comme pour le thème.
+    """
+    rows = _query("SELECT code FROM scratch_draft WHERE account = %s",
+                  (user,), read=True)
+    if rows is None:
+        return None
+    return rows[0][0] if rows else ""
+
+
+def write_scratch(user, code):
+    """Le bloc-notes, ÉCRASÉ EN PLACE. False si la base refuse.
+
+    Une ligne par compte, `ON CONFLICT DO UPDATE` : le bloc-notes précédent
+    n'est pas un fait à relire, et un journal grossirait à chaque frappe.
+
+    La borne est reposée ici ET dans le CHECK du schéma : celle-ci évite un
+    aller-retour, celle-là tient pour tout chemin d'écriture.
+    """
+    if not isinstance(code, str) or len(code.encode("utf-8")) > SCRATCH_MAX:
+        return False
+    return _query(
+        "INSERT INTO scratch_draft (account, code, updated_at)"
+        " VALUES (%s, %s, now())"
+        " ON CONFLICT (account)"
+        " DO UPDATE SET code = EXCLUDED.code, updated_at = now()",
+        (user, code),
     ) is not None
 
 
@@ -1266,6 +1311,7 @@ def forget(user):
     """
     return _query(
         "WITH b AS (DELETE FROM exercise_draft     WHERE account = %(u)s),"
+        "     bn AS (DELETE FROM scratch_draft     WHERE account = %(u)s),"
         "     e AS (DELETE FROM exercise_state      WHERE account = %(u)s),"
         "     t AS (DELETE FROM practice_attempt    WHERE account = %(u)s),"
         "     j AS (DELETE FROM progress_event      WHERE account = %(u)s),"

@@ -48,7 +48,7 @@ if (!appRevision || !js.includes('const ASSET_REVISION = "' + appRevision + '"')
 // replacement. Five lines here, and it can no longer pass unnoticed.
 for (const file of ["app.js", "quiz.js", "compte.js", "progres.js",
                     "forum.js", "exporter.js", "leaderboard.js",
-                    "collection.js", "team.js"]) {
+                    "collection.js", "team.js", "scratch.js"]) {
   const names = [...lire(file).matchAll(/^function (\w+)\s*\(/gm)]
     .map((m) => m[1]);
   const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
@@ -386,8 +386,11 @@ const calls = [];
 // malgré tout se comporter comme avant tant que personne ne s'est connecté :
 // c'est la combinaison la plus exigeante pour la promesse « l'anonyme ne
 // télécharge rien ».
+// Le bloc-notes de la Console, tel que le compte le garde d'une machine a
+// l'autre. Ecrit par le PUT du module, relu par le GET.
+let BLOC_NOTES = "";
 const OIDC_RESPONSE = { issuer: "https://auth.example", client_id: "ctester",
-                        forum: true };
+                        forum: true, scratch: true };
 let SUBMIT_RESPONSE;
 let DECOUVERTE_CASSEE = false;
 const JETON = "jeton-de-test";
@@ -682,6 +685,18 @@ global.fetch = async (url, opts) => {
     return { ok: true, status: 200, json: async () => (
       url === "etats" ? ETATS : url === "pratique" ? PRATIQUE : PROGRES) };
   }
+  if (url === "scratch/draft") {
+    // MEME PORTE QUE LES AUTRES ROUTES DE COMPTE : le jeton fait foi.
+    const porteur = opts && opts.headers && opts.headers.Authorization;
+    if (porteur !== "Bearer " + JETON) {
+      return { ok: false, status: 401, json: async () => ({}) };
+    }
+    if (opts && opts.method === "PUT") {
+      BLOC_NOTES = JSON.parse(opts.body).code;
+      return rendJson({ ok: true });
+    }
+    return rendJson({ code: BLOC_NOTES });
+  }
   if (url === "preferences") {
     // MEME PORTE QUE LES AUTRES ROUTES DE COMPTE : le jeton fait foi.
     const porteur = opts && opts.headers && opts.headers.Authorization;
@@ -954,6 +969,14 @@ const attendre = async () => { await sleep(); await sleep(); };
   // plus gros fichier de tout le site.
   check(!global.ctester.team && !charges.some(n => n.startsWith("team.js?")),
         "team.js non plus, alors meme que le devoir est ouvert");
+  // NI LA CONSOLE. Elle ouvre une WebSocket et depense un conteneur sur le
+  // Dell : c'est la fonctionnalite qu'un visiteur de passage doit le moins
+  // pouvoir declencher, et son bouton n'existe meme pas sans compte.
+  check(!global.ctester.scratch
+        && !charges.some(n => n.startsWith("scratch.js?")),
+        "scratch.js non plus : la Console n'existe pas sans compte");
+  check(nodes.scratch.hidden === true,
+        "et son bouton reste cache pour l'anonyme");
   check(charges.some(n => n.startsWith("quiz.js?")),
         "quiz.js, lui, arrive avec le premier exercice de ce mode");
   // LE COMPTEUR DE PRESENCE est la seule chose que l'anonyme demande au
@@ -3031,6 +3054,88 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(superposition === gouttiere,
         "et la gouttiere porte EXACTEMENT la meme : "
         + superposition + " / " + gouttiere);
+
+  // --- LA CONSOLE -----------------------------------------------------------
+  // CE QUI EST ÉPROUVÉ ICI : que la socket part vraiment, que le jeton voyage
+  // dans la PREMIÈRE TRAME et jamais dans l'URL, que la sortie du programme
+  // arrive à l'écran, et que quitter la vue ferme la session -- sans quoi un
+  // conteneur survivrait à un changement d'écran en tenant un cœur du Dell.
+  check(nodes.scratch.hidden === false,
+        "connecté : le bouton Console apparaît");
+  BLOC_NOTES = "int main(void){return 0;}";
+  await nodes.scratch.listeners.click();
+  await attendre(); await attendre();
+  check(!!global.ctester.scratch, "scratch.js est chargé au clic, pas avant");
+  check(nodes.viewscratch.hidden === false, "et la vue Console s'ouvre");
+  check(nodes.scratchcode.value === BLOC_NOTES,
+        "le bloc-notes du COMPTE remplit l'éditeur : "
+        + JSON.stringify(nodes.scratchcode.value));
+
+  // L'éditeur de la Console est le SIEN : il ne doit jamais toucher celui de
+  // l'exercice, qui appartient à `currentId` et à son brouillon.
+  const codeExercice = nodes.code.value;
+  nodes.scratchcode.value = "#include <stdio.h>\nint main(void){printf(\"salut\");}";
+  await nodes.scratchgo.listeners.click();
+  await attendre();
+  const sock = derniereSocket();
+  check(!!sock && /\/scratch\/live$/.test(sock.url),
+        "une socket est ouverte sur /scratch/live : " + (sock && sock.url));
+  check(!/token/.test((sock && sock.url) || ""),
+        "et son URL ne porte AUCUN secret");
+  const hello = sock && sock.envoyes[0];
+  check(hello && hello.t === "hello" && hello.token === JETON
+        && hello.code === nodes.scratchcode.value,
+        "la première trame est `hello`, avec le jeton et le code : "
+        + JSON.stringify(hello));
+  check(nodes.code.value === codeExercice,
+        "et l'éditeur de l'EXERCICE n'a pas bougé d'un caractère");
+
+  // La file, puis la sortie du programme.
+  recevoir({ t: "queued", position: 3, eta: 120 });
+  await attendre();
+  check(/file/i.test(profond(nodes.scratchetat)),
+        "la position dans la file s'affiche : " + profond(nodes.scratchetat));
+  recevoir({ t: "ready" });
+  recevoir({ t: "out", d: "Entrez un nombre : " });
+  await attendre();
+  check(profond(nodes.scratchout).includes("Entrez un nombre : "),
+        "ce que le programme écrit arrive dans le terminal");
+
+  // Répondre : la trame porte le saut de ligne, sans quoi `scanf` resterait
+  // bloqué sur une entrée que l'étudiant croit avoir envoyée.
+  nodes.scratchsaisie.value = "42";
+  await nodes.scratchenvoi.listeners.click();
+  await attendre();
+  const tape = sock.envoyes[sock.envoyes.length - 1];
+  check(tape && tape.t === "stdin" && tape.d === "42\n",
+        "ce qu'on tape part avec son saut de ligne : " + JSON.stringify(tape));
+  check(profond(nodes.scratchout).includes("42"),
+        "et l'écho local le montre : il n'y a pas de terminal pour le faire");
+
+  // « Fin d'entrée », qui est ce qui termine un `while (scanf(...) == 1)`.
+  await nodes.scratcheof.listeners.click();
+  await attendre();
+  check(sock.envoyes[sock.envoyes.length - 1].t === "eof",
+        "« Fin d'entrée » envoie une trame `eof`");
+
+  // Une sortie expliquée, et pas seulement un code.
+  recevoir({ t: "exit", code: 137, reason: "cpu" });
+  await attendre();
+  check(/boucle infinie/i.test(profond(nodes.scratchetat)),
+        "une mort par temps CPU est EXPLIQUÉE, pas juste chiffrée : "
+        + profond(nodes.scratchetat));
+
+  // QUITTER LA VUE FERME LA SESSION.
+  nodes.scratchcode.value = "int main(void){return 1;}";
+  await nodes.scratchgo.listeners.click();
+  await attendre();
+  check(!!global.ctester.scratch.session(), "une session est ouverte");
+  await nodes.scratch.listeners.click();
+  await attendre();
+  check(!global.ctester.scratch.session(),
+        "quitter la vue ferme la socket : aucun conteneur ne survit à un"
+        + " changement d'écran");
+  check(nodes.viewscratch.hidden === true, "et la vue se referme");
 
   for (const [hote, attendu] of [
     ["tch009.thevhome.com", "https://tch099.thevhome.com/catalog.json"],

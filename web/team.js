@@ -225,12 +225,6 @@ function renderCarets() {
 
 // --- The socket ----------------------------------------------------------------
 
-function socketUrl() {
-  const base = window.CTESTER_API || "";
-  if (base) return base.replace(/^http/, "ws") + "/team/live";
-  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  return scheme + "//" + location.host + "/team/live";
-}
 
 function send(payload) {
   if (session && session.socket && session.socket.readyState === 1) {
@@ -241,7 +235,7 @@ function send(payload) {
 function connect(live) {
   let socket;
   try {
-    socket = new WebSocket(socketUrl());
+    socket = new WebSocket(ctester.socketUrl("/team/live"));
   } catch (e) {
     return retry(live);
   }

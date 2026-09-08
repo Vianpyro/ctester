@@ -867,7 +867,8 @@ pre {
 /* --- What stays monospace, and why -----------------------------------------
    The page body moved to sans-serif; these keep monospace because column
    alignment carries meaning in them. */
-.case .champ .valeur, .gcc pre, .avert pre, #out > pre {
+.case .champ .valeur, .gcc pre, .avert pre, #out > pre,
+#scratchcode, .scratchterm, #scratchsaisie {
   font-family: var(--mono);
 }
 /* The same label as in the menu, in the OPEN exercise's banner. It says
@@ -1338,4 +1339,60 @@ pre {
 .mesequipes .equipeligne .nom { font-size: 12.5px; }
 .mesequipes .equipeligne .places {
   font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+}
+
+/* --- La Console ---------------------------------------------------------------
+   Le vocabulaire de la refonte, sans rien inventer : `.plan` et ses repères
+   d'angle, `--coin`, et la bordure gauche qui porte l'état partout ailleurs.
+   ELLE EST `--ink` ET PAS `--ok`/`--bad` : une exécution brute n'a pas de
+   verdict. Un terminal qui verdirait parce que le programme s'est terminé
+   dirait « réussi » là où il n'y a rien à réussir. */
+.scratchpan { margin: .75rem 0; }
+.scratchpan .phead { border-bottom: 1px solid var(--line); }
+
+#scratchcode {
+  display: block; width: 100%; box-sizing: border-box;
+  min-height: 14rem; resize: vertical;
+  padding: .6rem .7rem; border: 0; border-radius: 0;
+  background: var(--card); color: var(--fg);
+  font-size: 13px; line-height: 1.5; tab-size: 4;
+  white-space: pre; overflow-x: auto;
+}
+
+.scratchbarre {
+  display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
+  padding: .5rem 0;
+}
+.scratchetat { font-size: 12.5px; color: var(--muted); }
+.scratchetat.rate { color: var(--bad); }
+
+/* LE TERMINAL. `pre-wrap` et pas `pre` : la sortie d'un programme d'étudiant
+   n'a aucune raison de tenir dans la largeur, et une barre de défilement
+   horizontale sur un terminal cache justement la fin des lignes qu'on lit. */
+.scratchterm {
+  margin: 0; padding: .7rem .8rem;
+  min-height: 9rem; max-height: 40vh; overflow-y: auto;
+  border: 0; border-left: 3px solid var(--ink); border-radius: 0;
+  background: var(--card); color: var(--fg);
+  font-size: 12.5px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+/* Les diagnostics de gcc, distingués de la sortie du programme -- c'est
+   exactement ce que le marqueur de phase du worker sert à séparer. */
+.scratchterm .gccsortie { color: var(--wait); }
+/* L'écho de ce que l'étudiant tape. Il est LOCAL : sans terminal, le
+   programme ne réaffiche pas ce qu'on lui donne. */
+.scratchterm .scratchecho { color: var(--muted); }
+
+.scratchsaisiebarre {
+  display: flex; gap: .5rem; align-items: center;
+  padding: .5rem .6rem; border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+#scratchsaisie {
+  flex: 1 1 auto; min-width: 0;
+  padding: .35rem .5rem; font-size: 12.5px;
+}
+#scratchsaisie:disabled, .scratchsaisiebarre button:disabled {
+  opacity: .5; cursor: not-allowed;
 }

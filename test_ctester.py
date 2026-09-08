@@ -15,6 +15,7 @@ python3 qui s'y trouve.
 
 import contextlib
 import datetime as dt
+import fcntl
 import hashlib
 import io
 import json
@@ -50,6 +51,7 @@ from services import quotas       # noqa: E402
 from services import collab      # noqa: E402
 from services import teams       # noqa: E402
 from services import spool        # noqa: E402
+from services import scratch      # noqa: E402
 
 
 def lire(chemin):
@@ -1758,7 +1760,7 @@ def test_suppression_couvre_toutes_les_tables():
     schema = lire(os.path.join(HERE, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
-    assert len(tables) == 18, tables
+    assert len(tables) == 19, tables
     # Chaque bloc `CREATE TABLE ... ( ... );`, et le fait qu'il declare ou non
     # une colonne nommee `account`.
     blocs = dict(re.findall(
@@ -4034,6 +4036,339 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
             raise AssertionError("un listage refuse a quand meme produit du SQL")
     finally:
         shutil.rmtree(dossier)
+
+
+# --------------------------------------------------------------------------
+# La Console
+# --------------------------------------------------------------------------
+
+
+def test_console_ne_monte_rien_du_contenu_prive():
+    """La Console ne voit NI test, NI cas, NI corrige. C'est son invariant.
+
+    Plus fort que ce que le mode io promet deja : celui-la ne monte pas le
+    repertoire de l'exercice mais recoit ses ENTREES. Ici les deux seuls
+    montages sont le main.c de l'etudiant et le script de construction.
+    """
+    garde = runner.CONTENT
+    try:
+        runner.CONTENT = "/opt/ctester/content"
+        argv = runner.docker_argv_console("/spool/abc", "ctester-sbx-abc", "n0nce")
+    finally:
+        runner.CONTENT = garde
+    joint = " ".join(argv)
+    for interdit in ("/opt/ctester/content", "/in/cases", "/in/tests",
+                     "/in/unity", "shared/unity"):
+        assert interdit not in joint, (interdit, joint)
+    # TOUT MONTAGE EST EN LECTURE SEULE, sans exception. C'est ce controle qui
+    # empeche qu'un montage inscriptible reapparaisse un jour « pour deboguer ».
+    montages = [argv[i + 1] for i, item in enumerate(argv) if item == "-v"]
+    assert len(montages) == 2, montages
+    for montage in montages:
+        assert montage.endswith(":ro"), montage
+    assert "/spool/abc/src:/in/src:ro" in montages
+    # LA SURFACE INSCRIPTIBLE TIENT EN DEUX TMPFS, et il n'y en a pas un
+    # troisieme. Le reste du systeme de fichiers est immuable.
+    assert "--read-only" in argv
+    tmpfs = [argv[i + 1] for i, item in enumerate(argv) if item == "--tmpfs"]
+    assert len(tmpfs) == 2, tmpfs
+    assert all(t.startswith(("/work:", "/tmp:")) for t in tmpfs), tmpfs
+    # Et le spool n'est pas monte : le programme ne peut voir ni `in`, ni
+    # `out`, ni le repertoire d'un autre job.
+    assert "/spool/abc:" not in joint, joint
+
+
+def test_console_est_interactive_et_sans_tty():
+    argv = runner.docker_argv_console("/spool/abc", "ctester-sbx-abc", "n")
+    assert "-i" in argv
+    # `-t` ferait allouer un pty au worker, puis un second par dockerd dans le
+    # sentry gVisor. Le constructeur de build-scratch.sh fait mieux, en pur gcc.
+    assert "-t" not in argv and "-it" not in argv
+    # Sans ca, docker recopie chaque octet de stdout dans son journal JSON --
+    # le chemin le plus rapide vers un disque plein quand un programme peut
+    # imprimer pendant trois minutes.
+    assert argv[argv.index("--log-driver") + 1] == "none"
+    assert "--privileged" not in argv
+    assert argv[argv.index("--user") + 1] == "65534:65534"
+
+
+def test_console_est_plus_stricte_que_la_correction():
+    """Les plafonds de la Console DOIVENT rester sous ceux de la correction.
+
+    Ce controle compare, il ne verifie pas des litteraux : c'est ce qui fait
+    echouer une future « harmonisation » au lieu de la laisser relacher les
+    plafonds. La fenetre d'exposition passe de 5 s par cas a CONSOLE_SESSION_MAX,
+    soit trente-six fois -- d'ou des bornes plus serrees, pas egales.
+    """
+    def mo(valeur):
+        return int(valeur.rstrip("m"))
+
+    assert mo(runner.CONSOLE_MEMORY) < mo(runner.MEMORY)
+    assert int(runner.CONSOLE_PIDS) < int(runner.PIDS)
+    assert float(runner.CONSOLE_CPUS) <= float(runner.CPUS)
+    juge = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "io", "n")
+    console = runner.docker_argv_console("/spool/abc", "c", "n")
+
+    def taille(argv, point):
+        for i, item in enumerate(argv):
+            if item == "--tmpfs" and argv[i + 1].startswith(point + ":"):
+                return int(argv[i + 1].split("size=")[1].split(",")[0].rstrip("m"))
+        raise AssertionError(point)
+
+    assert taille(console, "/work") < taille(juge, "/work")
+    assert taille(console, "/tmp") < taille(juge, "/tmp")
+    # Et la correction gagne en cas de contention.
+    assert int(console[console.index("--cpu-shares") + 1]) < 1024
+
+
+def test_console_bascule_de_phase_sur_le_marqueur():
+    """`build` recoit gcc, `out` recoit le programme, et la coupe est unique.
+
+    Le marqueur peut tomber A CHEVAL sur deux lectures : sans la queue gardee
+    entre deux tours, il ne serait jamais reconnu et toute la session
+    s'ecrirait dans `build`.
+    """
+    nonce = "abcd1234"
+    for coupe in (None, 3, 12):
+        dossier = tempfile.mkdtemp()
+        try:
+            lecture, ecriture = os.pipe()
+            flux = (b"warning: ceci vient de gcc\n" + nonce.encode()
+                    + b" RUN\n" + b"Entrez : " + b"42\n")
+            if coupe is None:
+                os.write(ecriture, flux)
+            else:
+                # On coupe DANS le marqueur, la ou c'est le plus mechant.
+                pivot = flux.index(nonce.encode()) + coupe
+                os.write(ecriture, flux[:pivot])
+                os.write(ecriture, flux[pivot:])
+            os.close(ecriture)
+
+            class Faux:
+                def __init__(self, fd):
+                    self.stdout = type("F", (), {"fileno": lambda _s: fd})()
+
+            compteur = {"octets": 0, "trop": False, "vu": 0.0, "compile": False}
+            runner._pompe_sortie(Faux(lecture), dossier, nonce, compteur)
+            os.close(lecture)
+            build = open(os.path.join(dossier, "build"), "rb").read()
+            out = open(os.path.join(dossier, "out"), "rb").read()
+            assert build == b"warning: ceci vient de gcc\n", (coupe, build)
+            assert out == b"Entrez : 42\n", (coupe, out)
+            assert compteur["compile"] is True
+            # Le marqueur lui-meme ne franchit jamais la frontiere.
+            assert nonce.encode() not in build + out
+        finally:
+            shutil.rmtree(dossier)
+
+
+def test_console_plafond_de_sortie():
+    """`while (1) puts("x");` n'est JAMAIS inactif : seul ce plafond l'arrete."""
+    dossier = tempfile.mkdtemp()
+    garde = runner.CONSOLE_OUT_MAX
+    try:
+        runner.CONSOLE_OUT_MAX = 100
+        lecture, ecriture = os.pipe()
+        os.write(ecriture, b"n RUN\n" + b"x" * 5000)
+        os.close(ecriture)
+
+        class Faux:
+            def __init__(self, fd):
+                self.stdout = type("F", (), {"fileno": lambda _s: fd})()
+
+        compteur = {"octets": 0, "trop": False, "vu": 0.0, "compile": False}
+        runner._pompe_sortie(Faux(lecture), dossier, "n", compteur)
+        os.close(lecture)
+        assert compteur["trop"] is True
+        assert len(open(os.path.join(dossier, "out"), "rb").read()) <= 100
+    finally:
+        runner.CONSOLE_OUT_MAX = garde
+        shutil.rmtree(dossier)
+
+
+def test_console_une_seule_session_sur_tout_le_service():
+    """Deux workers, un seul terminal : sinon plus personne ne corrige."""
+    dossier = tempfile.mkdtemp()
+    garde = runner.SPOOL
+    try:
+        runner.SPOOL = dossier
+        assert runner.console_lock() is True
+        # Le second worker n'obtient rien, et doit donc SAUTER le job.
+        assert runner.console_lock() is False
+        runner.console_unlock()
+        assert runner.console_lock() is True
+        # Un verrou abandonne par un worker tue est repris, mais seulement
+        # apres une session entiere plus une marge.
+        vieux = time.time() - (runner.CONSOLE_SESSION_MAX + 120)
+        os.utime(os.path.join(dossier, runner.CONSOLE_LOCK), (vieux, vieux))
+        assert runner.console_lock() is True
+    finally:
+        runner.SPOOL = garde
+        shutil.rmtree(dossier)
+
+
+def test_console_le_job_ne_porte_aucune_identite():
+    """Ni `owner`, ni `sub`, ni `exercise_id` : le worker ne sait pas qui tape.
+
+    Deux consequences gratuites, et ce sont elles qu'on protege ici :
+    `_enregistrer()` exige un owner ET un exercice, donc il est inatteignable ;
+    et la passe de cache du worker ignore la session d'elle-meme.
+    """
+    dossier = tempfile.mkdtemp()
+    garde = config.SPOOL
+    try:
+        config.SPOOL = dossier
+        session = scratch.ouvrir("int main(void){return 0;}")
+        job = json.loads(lire(os.path.join(session.chemin, "job.json")))
+        assert job == {"kind": "console"}, job
+        for interdit in ("owner", "sub", "account", "exercise_id", "utilisateur"):
+            assert interdit not in job
+        # Le code de l'etudiant est bien la, sous le nom que le script attend.
+        assert lire(os.path.join(session.chemin, "src", "main.c")) \
+            == "int main(void){return 0;}"
+        # `job.json` EST ECRIT EN DERNIER : le verrou de vivacite le precede,
+        # donc un worker ne peut pas voir une session avant que l'API n'ait
+        # prouve qu'elle est vivante.
+        assert session.worker_vivant() is False
+        assert scratch._verrou_tenu(os.path.join(session.chemin, "alive")) is True
+        session.fermer()
+        assert scratch._verrou_tenu(os.path.join(session.chemin, "alive")) is False
+    finally:
+        config.SPOOL = garde
+        shutil.rmtree(dossier)
+
+
+def test_console_invisible_pour_le_cache_de_verdicts():
+    """Un job sans exercice ne peut pas etre servi par le cache, PAR CONSTRUCTION.
+
+    Ce n'est pas un `if` ajoute : `_contexte("")` passe par `tp_path("")`, qui
+    ne resout rien. Le controle est ici pour que ca reste vrai.
+    """
+    assert runner._contexte("") is False
+    # Et sa duree va sous sa PROPRE cle, sinon une console de trois minutes
+    # compterait pour la moyenne d'une compilation de quinze secondes.
+    assert runner.CONSOLE_DUREE.startswith(":")
+
+
+def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
+    """L'API sonde `claim` a chaque tour : si le worker ne le TIENT pas, elle
+    conclut « le service s'est interrompu » sur une session parfaitement vivante.
+
+    CE CONTROLE EXISTE PARCE QUE LE BOGUE A ETE ECRIT. `run_console()` decrivait
+    ce verrou dans sa docstring sans le prendre, et aucun test unitaire ne
+    pouvait le voir : chaque cote etait eprouve seul, et il n'y a que les deux
+    ensemble qui mentent. Le terminal s'ouvrait puis se refermait aussitot en
+    disant « worker ».
+    """
+    import threading as _fils
+
+    dossier = tempfile.mkdtemp()
+    job = os.path.join(dossier, "a" * 32)
+    os.makedirs(os.path.join(job, "src"))
+    with open(os.path.join(job, "src", "main.c"), "w") as fh:
+        fh.write("int main(void){return 0;}")
+    # L'API tient `alive` : sans ca, run_console repart immediatement.
+    tenu = os.open(os.path.join(job, "alive"), os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(tenu, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    lecture, ecriture = os.pipe()
+    relacher = _fils.Event()
+
+    class FauxProcessus:
+        returncode = None
+
+        def __init__(self):
+            self.stdout = type("F", (), {"fileno": lambda _s: lecture})()
+            self.stdin = type("E", (), {"write": lambda _s, d: None,
+                                        "flush": lambda _s: None,
+                                        "close": lambda _s: None})()
+
+        def poll(self):
+            return None if not relacher.is_set() else 0
+
+        def wait(self, timeout=None):
+            self.returncode = 0
+            return 0
+
+        def kill(self):
+            pass
+
+    class FauxSubprocess:
+        PIPE = STDOUT = -1
+        TimeoutExpired = subprocess.TimeoutExpired
+        Popen = staticmethod(lambda *a, **k: FauxProcessus())
+        run = staticmethod(lambda *a, **k: None)
+
+    garde = runner.subprocess
+    try:
+        runner.subprocess = FauxSubprocess
+        fil = _fils.Thread(target=runner.run_console, args=(job,), daemon=True)
+        fil.start()
+        # PENDANT que la session tourne, le verrou doit etre TENU.
+        vu = False
+        for _ in range(200):
+            if scratch._verrou_tenu(os.path.join(job, "claim")):
+                vu = True
+                break
+            time.sleep(0.01)
+        assert vu, "le worker ne tient pas `claim` pendant la session"
+        relacher.set()
+        os.close(ecriture)
+        fil.join(timeout=15)
+        assert not fil.is_alive()
+        # ET RELACHE APRES l'etat final, pas avant : l'API lit l'etat au meme
+        # tour ou elle sonde le verrou.
+        etat = json.loads(lire(os.path.join(job, "state.json")))
+        assert etat["state"] == "exited", etat
+        assert scratch._verrou_tenu(os.path.join(job, "claim")) is False
+    finally:
+        runner.subprocess = garde
+        os.close(tenu)
+        try:
+            os.close(lecture)
+        except OSError:
+            pass
+        shutil.rmtree(dossier)
+
+
+def test_console_une_session_ne_peut_pas_survivre_a_son_propre_balayage():
+    """`SESSION_MAX` DOIT rester tres en dessous de `SWEEP_AFTER`.
+
+    `sweep()` efface un repertoire de spool sur son MTIME, et le mtime d'un
+    repertoire ne bouge plus une fois ses fichiers crees -- ecrire dans `out`
+    ne le rajeunit pas. Une session plus longue que SWEEP_AFTER se ferait donc
+    effacer le sol sous les pieds, en pleine frappe, par l'autre worker.
+
+    Meme classe de contrainte que LOCK_STALE, qui doit rester sous SWEEP_AFTER
+    pour que reclaim() puisse encore reprendre un verrou avant que le job ne
+    disparaisse. Le facteur deux est la marge : le temps de detecter, de tuer
+    le conteneur et d'ecrire le resultat.
+    """
+    assert runner.CONSOLE_SESSION_MAX * 2 < runner.SWEEP_AFTER, (
+        runner.CONSOLE_SESSION_MAX, runner.SWEEP_AFTER)
+    # Et le verrou de session, lui, se reprend APRES la fin d'une session --
+    # sinon un worker en reprendrait un encore vivant.
+    assert runner.CONSOLE_SESSION_MAX < runner.CONSOLE_SESSION_MAX + 60
+
+
+def test_console_n_a_pas_de_liste_d_includes():
+    """`#include <unistd.h>` compile dans la Console, et c'est le dessin.
+
+    La liste est PEDAGOGIQUE, pas securitaire : son message est « utilise
+    seulement ce qui a ete vu en cours », et elle vit dans l'`assessment` d'un
+    EXERCICE. Une console n'a pas d'exercice, donc pas de liste. Elle n'a
+    jamais ete la frontiere de toute facon -- `system()` vient de <stdlib.h>,
+    que tous les exercices autorisent. La frontiere est --network none,
+    --cap-drop ALL, --read-only, l'uid 65534 et gVisor.
+
+    Sans ce controle, quelqu'un rajoute la liste « par symetrie » dans six mois
+    et herite de deux listes a tenir synchronisees.
+    """
+    source = lire(os.path.join(HERE, "runner.py"))
+    corps = source[source.index("def run_console("):]
+    corps = corps[:corps.index("\ndef ")]
+    assert "read_allowed" not in corps
+    assert "forbidden_includes" not in corps
 
 
 if __name__ == "__main__":

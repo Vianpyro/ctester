@@ -63,6 +63,23 @@ class BrouillonIn(_AvecExercice):
     files: dict | None = None
 
 
+class ScratchIn(BaseModel):
+    """PUT /scratch/draft -- le bloc-notes de la Console.
+
+    Il ne porte PAS d'`exercise_id` : le bloc-notes n'appartient à aucun
+    exercice, c'est ce qui le distingue d'un brouillon. Et pas de champ
+    d'identité non plus -- le compte vient du jeton validé, comme partout.
+
+    La longueur est bornée dans `state.write_scratch()` et par le CHECK du
+    schéma, pas ici : Pydantic répondrait 400 « requête malformée » là où
+    l'étudiant a besoin de lire qu'il a dépassé la taille.
+    """
+
+    model_config = _CONFIG
+
+    code: str = ""
+
+
 class PreferencesIn(BaseModel):
     """PUT /preferences -- the theme, which follows the ACCOUNT and not the device."""
 

@@ -52,8 +52,30 @@ state_quota = quotas.Quota(cooldown=1, hourly=1200)
 # is waiting for.
 forum_quota = quotas.Quota(config.FORUM_COOLDOWN, config.FORUM_HOURLY)
 
+# The Console, counted PER ACCOUNT like the forum's and for the same reason:
+# it is signed-in only, so an IP counter would put a whole school behind one
+# tally. A session holds a container for minutes, where a submission holds one
+# for seconds -- hence its own counter rather than a share of `quota_connecte`.
+scratch_quota = quotas.Quota(config.SCRATCH_COOLDOWN, config.SCRATCH_HOURLY)
+
 # The open-windows counter. No database, no account, no token.
 presence = quotas.Presence()
+
+# --- WebSocket close codes -----------------------------------------------------
+# THEY LIVE HERE BECAUSE TWO ROUTERS USE THEM. `/team/live` declared them
+# first; `/scratch/live` speaks the same dialect, so the page can tell "your
+# session expired" from "you are not on a team" from "come back in a minute"
+# with one table instead of two that drift. A test refuses a second
+# declaration in a router.
+CLOSE_UNAUTHORIZED = 4401
+CLOSE_FORBIDDEN = 4403
+CLOSE_BUSY = 4429
+CLOSE_BAD = 4400
+# NEUF, et propre à la Console : « le service ne répond pas », qui n'est ni un
+# refus ni une erreur du client. C'est ce qu'on renvoie quand aucun worker ne
+# réclame le job -- sans ça, une unité systemd arrêtée ressemble à un programme
+# qui n'imprime rien.
+CLOSE_UNAVAILABLE = 4503
 
 
 class Refus(Exception):

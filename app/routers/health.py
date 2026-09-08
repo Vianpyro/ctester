@@ -67,5 +67,9 @@ def oidc():
     """
     if not security.oidc_enabled():
         return {}
+    # `scratch` voyage ici pour la même raison que `forum` : c'est déjà
+    # l'endpoint « ce qui est offert », et faux ou absent, le bouton n'existe
+    # pas -- donc `scratch.js` n'est jamais demandé.
     return {"issuer": config.OIDC_ISSUER, "client_id": config.OIDC_CLIENT_ID,
-            "forum": forum_service.forum_enabled()}
+            "forum": forum_service.forum_enabled(),
+            "scratch": config.SCRATCH}

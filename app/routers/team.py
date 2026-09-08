@@ -23,6 +23,7 @@ import json
 import uuid
 
 import config
+import deps
 import headers
 import security
 import state
@@ -488,10 +489,14 @@ def handin(sub: Sub, corps: TeamHandinIn, request: Request):
 # another member's caret, because the `from` field is not read from what they
 # sent -- it is the handle the roster gave them when the socket opened.
 
-CLOSE_UNAUTHORIZED = 4401
-CLOSE_FORBIDDEN = 4403
-CLOSE_BUSY = 4429
-CLOSE_BAD = 4400
+# LES CODES VIVENT DANS `deps`, PAS ICI. `/scratch/live` parle le même
+# dialecte, et deux tables de codes sont deux tables qui divergent -- celle qui
+# dériverait est celle qu'on relit le moins. Un test refuse qu'un routeur les
+# redéclare.
+CLOSE_UNAUTHORIZED = deps.CLOSE_UNAUTHORIZED
+CLOSE_FORBIDDEN = deps.CLOSE_FORBIDDEN
+CLOSE_BUSY = deps.CLOSE_BUSY
+CLOSE_BAD = deps.CLOSE_BAD
 
 # The frame kinds relayed verbatim. THE PAYLOAD IS NEVER PARSED: `d` is
 # base64 of whatever Yjs produced, and this process has no opinion about it.

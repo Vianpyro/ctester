@@ -48,6 +48,7 @@ app/services/     la logique, sans HTTP -- éprouvée par appel direct
 app/services/teams.py   la porte d'un devoir d'équipe, l'identité visible
                         par les coéquipiers, et l'archive de remise
 app/services/collab.py  les salles de collaboration : un relais, PAS un CRDT
+app/services/scratch.py la Console : le protocole d'une session interactive
 ```
 
 Deux règles qui tiennent le reste :
@@ -102,10 +103,11 @@ les deux fait servir un catalogue introuvable, ou une page introuvable.
 `CTESTER_STATIC` a disparu avec la phase 8 : il n'y a plus rien à servir sous
 `app/`.
 
-La page est en douze fichiers, tous servis par la liste blanche de `app/routers/page.py` :
+La page est en treize fichiers, tous servis par la liste blanche de `app/routers/page.py` :
 `index.html` (le markup seul), `style.css`, `config.js` (l'adresse de l'API),
 `app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js`, `forum.js`,
-`exporter.js`, `classement.js`, `collection.js` et `team.js`, que le noyau va
+`exporter.js`, `classement.js`, `collection.js`, `team.js` et `scratch.js`
+(la Console), que le noyau va
 chercher **à la demande**. S'y ajoutent trois bibliothèques tierces
 **épinglées par version** dans `web/vendor/`, servies par la même liste blanche
 et chargées seulement quand elles servent : marked et DOMPurify à l'ouverture
@@ -335,7 +337,7 @@ python3 test_api.py              # l'API : frontière HTTP, bornes, valeurs extr
 node    test_page.js             # le JS de la page, sur un DOM en carton
 python3 verify_content.py   ../unittests/content
 python3 validate_content.py  ../unittests/content   # le schéma seul, sans gcc
-python3 test_sandbox.py  ../unittests/content   # les deux build.sh, vrai gcc
+python3 test_sandbox.py  ../unittests/content   # les trois build.sh, vrai gcc
 ```
 
 Et avant une cohorte, une fois, avec Docker — pas à chaque modif :
@@ -373,12 +375,19 @@ docker stop pg
   l'étudiant qui la découvre à 23 h la veille de la remise. Il éprouve aussi
   l'ordre des refus (forum éteint → 503 avant 401), qu'aucune route n'accepte un
   identifiant dans son corps, et qu'une base muette rend 503 et **aucun chiffre**.
-- **`test_sandbox.py`** — prend `build-unity.sh` / `build-io.sh` tels quels,
+- **`test_sandbox.py`** — prend `build-unity.sh`, `build-io.sh` et
+  `build-scratch.sh` tels quels,
   les exécute avec un vrai gcc, chemins déplacés, sans Docker. C'est le seul
   contrôle qui **éprouve l'invariant de confidentialité** au lieu d'en parler :
   il soumet un module qui déborde d'un tableau et vérifie qu'en mode unity le
   verdict ne contient aucun identifiant du fichier de test — ni le rapport
   d'ASan, dont la pile d'appels nommerait la fonction de test appelante.
+  **Sa section 0 est celle de la Console, et elle ne lit AUCUN contenu** : une
+  console n'a pas d'exercice, donc ces contrôles tournent même sur une machine
+  où le dépôt de tests privé n'est pas cloné. C'est aussi le seul harnais qui
+  puisse prouver la fonctionnalité elle-même — que l'invite arrive **avant**
+  qu'on écrive sur l'entrée standard — et que `while (1);` meurt sur le temps
+  CPU pendant qu'un programme bloqué dans `scanf` survit au même plafond.
 - **`verify_content.py`** — compile la solution de référence de chaque exercice
   et la passe dans le vrai juge (il **importe `runner.py`**, il ne refait pas ses
   vérifications). Un exercice sans corrigé apparaît « non prouvé » : rien ne
@@ -653,6 +662,195 @@ qu'un cas de test ajouté change la signature, la politique d'exclusion, la purg
 et surtout `test_run_job_sert_le_cache_sans_recompiler` — deux soumissions du
 même code ne dépensent qu'un conteneur.
 
+## La Console — un terminal C interactif
+
+Un étudiant ne pouvait exécuter du C que sous forme de **soumission jugée** :
+compiler, passer des cas cachés, recevoir un verdict. Nulle part où essayer
+trois lignes, ni voir ce que fait `scanf` sur une entrée qu'on choisit. Pire,
+sur une soumission **réussie** la page n'affiche aucune sortie (`verdict_io` ne
+remonte que les cas ratés). La Console est le bloc-notes exécutable qui
+manquait : un programme C quelconque, lancé, et avec lequel on **dialogue**.
+
+**Elle s'appelle « Console », JAMAIS « bac à sable ».** Le bac à sable est le
+conteneur gVisor du juge — `build-io.sh` s'ouvre là-dessus, `test_sandbox.py`
+l'éprouve, et la section suivante en parle. Réutiliser le mot ferait ce que ce
+dépôt refuse ailleurs (« un seul mot par état »). Côté code, tout s'appelle
+`scratch` : `web/scratch.js`, `WS /scratch/live`, `app/services/scratch.py`,
+`scratch_draft`. Pas `console` — c'est un global JS.
+
+**UNE SESSION EST UN JOB DE LA FILE EXISTANTE, et c'est ce qui rend la
+fonctionnalité petite.** Un répertoire de spool ordinaire portant
+`{"kind": "console"}`, `job.json` écrit en dernier par un rename atomique. Elle
+attend donc son tour derrière les soumissions, avec la position et l'ETA de
+`spool.queue_position()` / `spool.eta_secondes()`, et `QUEUE_MAX` la compte.
+**Aucun service nouveau, aucune unité systemd de plus** : le worker qui la
+dépile entre dans `run_console()` au lieu d'appeler `_juger()`.
+
+**UNE SEULE SESSION SUR TOUT LE SERVICE**, par un `os.mkdir("<spool>/.console")`.
+Il y a deux workers ; si les deux ouvraient un terminal, plus personne ne
+corrigerait. **Un worker qui n'obtient pas ce verrou SAUTE le job sans le
+réclamer** — sinon il poserait un `.lock` sur un job qu'il ne va pas servir, et
+l'étudiant lirait « en cours » sans que rien ne se passe.
+
+**LA SOCKET EST LA DURÉE DE VIE, ET C'EST UN `flock` QUI LE DIT.** Un `mkdir`
+n'a pas de propriétaire : c'est pour ça que `claim()` a besoin de `LOCK_STALE`,
+`reclaim()` et `reprises.json`. Trois minutes d'attente sont acceptables pour un
+job en file, pas pour un terminal qu'un humain regarde. Le noyau, lui, relâche
+un `flock` à la mort du processus — y compris sur un SIGKILL du conteneur web —
+et le fait à travers un bind mount, puisque c'est le même inode. Deux verrous,
+sondés en les *essayant* :
+
+- `alive`, tenu par l'API. Relâché → le worker tue le conteneur (mesuré :
+  **0,1 s**).
+- `claim`, tenu par le worker. Relâché → l'API dit « le service s'est
+  interrompu » au lieu de laisser un terminal s'arrêter sans rien dire.
+
+Ça supprime le fichier `close`, la période de battement et le seuil de
+péremption : quatre constantes et un mode de panne, contre une primitive
+utilisée deux fois.
+
+**LES TROIS HORLOGES NE MESURENT PAS LA MÊME CHOSE.** Le mur
+(`CONSOLE_SESSION_MAX`, 180 s) borne le coût ; l'inactivité (`CONSOLE_IDLE_MAX`,
+90 s) libère la place ; et **le temps CPU (`ulimit -t`, 10 s, dans
+`build-scratch.sh`) est la seule qui distingue « l'étudiant réfléchit » de « le
+programme tourne en rond »**. Plus `CONSOLE_OUT_MAX` (1 Mo), le seul plafond qui
+arrête `while (1) puts("x");` — il n'est jamais inactif.
+
+**`CONSOLE_SESSION_MAX` DOIT RESTER TRÈS EN DESSOUS DE `SWEEP_AFTER`.**
+`sweep()` efface un répertoire de spool sur son **mtime**, et le mtime d'un
+répertoire ne bouge plus une fois ses fichiers créés — écrire dans `out` ne le
+rajeunit pas. Une session plus longue se ferait effacer le sol sous les pieds,
+en pleine frappe, par l'autre worker. Même classe de contrainte que
+`LOCK_STALE`, et un test la tient.
+
+**AUCUNE IDENTITÉ NE FRANCHIT LA FRONTIÈRE DU WORKER.** `job.json` porte
+`{"kind": "console"}` et **rien d'autre** — ni `owner`, ni `exercise_id`, ni
+`sub`. C'est « aucun modèle ne porte de champ d'identité » étendu jusqu'au canal
+du worker, et ça achète deux propriétés gratuitement : `_enregistrer()` exige un
+owner **et** un exercice, donc il est inatteignable ; et la passe de cache du
+worker ignore la session d'elle-même, puisque `_contexte("")` passe par
+`tp_path("")` qui ne résout rien. **Pas un seul `if` ajouté pour ça.**
+
+### Ce qu'un programme peut écrire, et où ça finit
+
+« Interdire toute écriture » n'est pas littéralement possible : gcc doit déposer
+le binaire quelque part, et le programme doit s'exécuter depuis ce quelque part.
+Ce qui l'est, et qui est fait :
+
+| Cible | Résultat, **mesuré depuis l'intérieur** |
+|---|---|
+| `/etc/passwd`, `/etc/x`, `/x`, `/usr/x` | `EROFS` (`--read-only`) |
+| `/in/src/main.c` (son propre source) | `EROFS` (montage `:ro`) |
+| `/spool/…` | `ENOENT` — **le spool n'est pas monté** |
+| `/work`, `/tmp` | ouverts : tmpfs de 24 Mo et 8 Mo, **en RAM** |
+| remplir `/work` | s'arrête à 8 Mo, « File too large » (`--ulimit fsize`) |
+| le disque de l'hôte | **inchangé**, aucun conteneur résiduel |
+
+Trois propriétés en découlent : un tmpfs **compte dans `--memory`**, donc un
+programme qui tente de le remplir se fait OOM-killer au lieu de remplir quoi que
+ce soit ; un tmpfs meurt avec le conteneur, et `--rm` détruit la couche ; et
+côté hôte le répertoire de session est balayé par `sweep()`, le journal ne
+portant que `sid`, durée et raison — **jamais le code, jamais un `sub`**.
+
+**PAS DE FILTRE SECCOMP, et ce n'est pas un oubli** : `write` ne peut pas être
+bloqué — c'est par lui que sort `printf` — et distinguer « écrire sur stdout »
+d'« écrire un fichier » demande de raisonner sur la cible d'un descripteur, ce
+que seccomp ne sait pas faire. **La frontière est le système de fichiers, qui se
+lit dans l'argv**, plutôt qu'un profil qu'il faudrait auditer. Un test balaie
+`docker_argv_console()` et refuse tout `-v` sans `:ro` et tout `--tmpfs`
+inattendu.
+
+### `build-scratch.sh`, et le constructeur qui EST la fonctionnalité
+
+**Un troisième script, pas un `if` dans `build-io.sh`.** Celui-là implémente un
+*protocole de correction* (chronomètre par cas, cadrage `BEGIN`/`END`, valeurs
+comparées sur l'hôte) ; celui-ci n'implémente **aucune correction** et n'a
+délibérément **aucun chronomètre mural** — attendre un humain est son état
+normal. Les fusionner mettrait un `if [ -d /in/cases ]` entre « un verdict
+noté » et « un programme libre qui peut bloquer pour toujours ».
+
+**Le script écrit un `ctester_rt.c` de six lignes et le compile avec le code de
+l'étudiant** :
+
+```c
+__attribute__((constructor)) static void ctester_rt_unbuffer(void)
+{ setvbuf(stdout, NULL, _IONBF, 0); setvbuf(stderr, NULL, _IONBF, 0); }
+```
+
+**Sans lui, il n'y a pas de fonctionnalité.** La glibc met stdout en tampon de
+**bloc** dès qu'il n'est pas un terminal : `printf("Entrez : ")` suivi d'un
+`scanf` n'apparaîtrait jamais avant la fin du programme, et le terminal aurait
+l'air gelé au moment précis où il demande quelque chose. **Mesuré : aucune
+invite en 25 secondes sans, 0,2 s avec.**
+
+- **Pas `stdbuf`** : il agit par `LD_PRELOAD`, à côté du runtime d'ASan, dépend
+  de coreutils *dans l'image*, et `test_sandbox.py` (bare gcc, sans Docker)
+  éprouverait un autre mécanisme que la production.
+- **Et c'est plus fort qu'un vrai TTY** : un terminal donne un tampon de
+  **ligne**, qui ne vide toujours pas un `printf` sans `\n`. `_IONBF` met
+  l'invite sur le fil quand `printf` revient, que le programme lise ou non.
+- **`static`** : le symbole ne peut pas entrer en collision avec celui d'un
+  étudiant.
+
+**`ulimit` PUIS `exec`, jamais un sous-shell.** Le programme prend la place de
+bash (donc `docker rm -f` et les signaux l'atteignent, et le code de sortie du
+conteneur est le sien) ; la rlimit survit à l'exec ; et il ne reste aucun bash
+pour rapporter la mort de son enfant — avec un sous-shell, bash écrivait
+`build.sh: line NN: 16 Killed ( ulimit ... )` **dans la sortie de l'étudiant**,
+des entrailles de script au moment exact où il faut lui expliquer sa boucle
+infinie. Mesuré.
+
+**`<nonce> RUN` sépare les deux flux.** Le nonce n'est plus là pour l'intégrité
+d'un verdict (il n'y en a pas) mais pour la **séparation de flux** : avant →
+`build` (les diagnostics de gcc), après → `out` (le programme). Le worker coupe
+**une fois**, sur un préfixe court, en gardant la queue du tampon entre deux
+lectures — sans quoi un marqueur à cheval sur deux `os.read` ne serait jamais
+reconnu et toute la session s'écrirait dans `build`.
+
+### Pipes et pas PTY
+
+Chaque avantage d'un PTY est ici déjà obtenu ou coûte : un TTY ne donne qu'un
+tampon de ligne (le constructeur fait mieux) ; ONLCR injecte un `\r` par ligne
+qu'il faudrait retirer ; le mode canonique impose un tampon de 4096 octets qu'un
+bloc collé dépasserait **en silence** ; l'écho du TTY concurrencerait celui de
+la page. Et mécaniquement, `docker run -t` refuse quand le stdin du client n'est
+pas un terminal : il faudrait `pty.openpty()`, passer l'esclave au CLI, laisser
+docker mettre le maître en mode brut, et parler à travers son proxy à un
+**second** pty alloué par dockerd dans un sentry gVisor qui réimplémente la
+discipline de ligne en Go. `ponytail:` — le jour où `isatty()`, Ctrl-C comme
+signal ou ncurses comptent, c'est xterm.js **et** un vrai pty, décidés ensemble.
+
+### Il n'y a PAS de liste d'en-têtes autorisés, et c'est un choix
+
+La liste est **pédagogique, pas sécuritaire** : son message est « utilise
+seulement ce qui a été vu en cours », et elle vit dans l'`assessment` d'un
+**exercice**. Une console n'a pas d'exercice, donc pas de liste. Et elle n'a
+jamais été la frontière : `system()` vient de `<stdlib.h>`, que tous les
+exercices autorisent. `#include <unistd.h>` compile donc ici, et `fork()` est
+arrêté par les plafonds, pas par une expression rationnelle sur du texte brut.
+**Un test l'éprouve**, sinon quelqu'un la rajoute « par symétrie » dans six mois
+et hérite de deux listes à tenir synchronisées. Si l'enseignant tranche
+autrement : **un seul endroit, le worker** — jamais l'API, dont la dérive qui
+compte serait d'accepter ce que le worker refuse.
+
+### Ce qui reste à faire au déploiement (`VHome`)
+
+1. **Aucune unité systemd nouvelle**, aucun `ReadWritePaths` à changer.
+2. Une tâche `copy` de plus pour `build-scratch.sh`, et `CTESTER_BUILD_SCRATCH`
+   sur l'unité `ctester-runner@`.
+3. `CTESTER_SCRATCH=1` côté web (**absente = Console éteinte**, comme le forum).
+   Le rollback est de retirer la ligne.
+4. **`ctester_workers` doit rester ≥ 2** : avec un seul worker, une session gèle
+   toute la correction pendant `CONSOLE_SESSION_MAX`.
+5. **NPM : rien.** « Websockets Support » est par proxy host et `/team/live` l'a
+   déjà activé — mais le prochain le cherchera, d'où cette ligne.
+
+**⚠ CE DÉPLOIEMENT INVALIDE LE CACHE DE VERDICTS, UNE FOIS.**
+`empreinte_juge()` hache `runner.py` lui-même : y toucher rend les 20 000
+entrées du magasin **inatteignables** (pas fausses), et elles se recompilent à
+la demande suivante. C'est le faux négatif déjà documenté plus haut. Coût
+unique, **à ne pas payer un matin de séance**.
+
 ## Les quatre soumissions hostiles
 
 À repasser après toute modification du bac à sable — elles sont la seule preuve
@@ -664,6 +862,13 @@ que les défenses tiennent encore.
 | `system("curl http://exemple");` | échoue, `--network=none` |
 | `while (1);` | `timeout` à 5 s |
 | `#include <unistd.h>` hors liste blanche | rejeté avant même de lancer un conteneur |
+
+**EN SESSION DE CONSOLE, LA QUATRIÈME LIGNE NE S'APPLIQUE PAS** (il n'y a pas de
+liste — voir « La Console »), et la fenêtre d'exposition passe de 5 s par cas à
+`CONSOLE_SESSION_MAX`, soit trente-six fois. C'est pourquoi la mémoire et les
+pids y sont **plus serrés** que pour la correction, et pourquoi `while (1);` y
+est arrêté par le **temps CPU** et non par un chronomètre mural. À repasser sur
+les deux chemins.
 
 Sur la fork bomb, **vérifier le résultat et pas le mécanisme** : sous `runsc`,
 les processus créés dans le bac à sable sont internes à gVisor, donc
@@ -874,8 +1079,8 @@ refaire, là où l'XP ne compte que ce qu'il a soumis. Le contrat complet est da
 **AUCUNE TABLE NOUVELLE, donc rien à changer dans `VHome`.** Une évidence est
 une ligne d'`evenement_progression` — le journal en ajout seul existe déjà, son
 `type` est libre et sa `charge` est du JSON. Le GRANT `SELECT, INSERT, DELETE`
-posé en phase 1 suffit, `forget()` les efface déjà, et le schéma porte toujours
-treize tables. `test_postgres.py` le rejoue avec le rôle applicatif et ses seuls
+posé en phase 1 suffit, `forget()` les efface déjà, et le schéma portait
+toujours ses treize tables. `test_postgres.py` le rejoue avec le rôle applicatif et ses seuls
 droits : c'est là que se vérifie qu'aucun privilège n'a été ajouté en douce.
 
 **Une vérification est un exercice ORDINAIRE, marqué.** `"verification": true`
@@ -1050,7 +1255,7 @@ des soumissions), et il ne couvre que les écritures : un quota qui empêcherait
 relire un fil empêcherait de suivre la réponse qu'on attend.
 
 **Ajouter une table de forum sans l'ajouter à `forget()` fait échouer
-`test_ctester.py`** — le contrôle lit `schema.sql` et compte treize tables.
+`test_ctester.py`** — le contrôle lit `schema.sql` et compte les tables.
 
 ## Le thème enregistré sur le compte
 
@@ -1687,7 +1892,8 @@ décide de la liste est juste en dessous.
 | `team_revision` | l'historique signé | **oui** |
 | `team_submission` | la remise, une par équipe | non — `submitted_by`, pas `account` |
 
-Le schéma passe de treize à **dix-huit** tables.
+Le schéma passe de treize à dix-huit tables, puis à **dix-neuf** avec
+`scratch_draft` (la Console).
 `test_suppression_couvre_toutes_les_tables` ne compte plus seulement : il lit
 les blocs `CREATE TABLE` et exige que **toute table déclarant une colonne
 `account` soit dans `forget()`, et aucune autre**. C'est ce qui rend le

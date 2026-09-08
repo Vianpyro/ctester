@@ -12,7 +12,7 @@ const loaded = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260907-equipes";
+const ASSET_REVISION = "20260908-console";
 
 // ponytail: <script> injection, not import(). See above. Move to ES modules
 // the day shared state is truly separated.
@@ -33,6 +33,19 @@ function load(name) {
     });
   }
   return loaded[name];
+}
+
+// L'ADRESSE D'UNE WEBSOCKET, POUR TOUT LE MONDE. Elle vivait en privé dans
+// `team.js` et fait la seule chose délicate du client : http -> ws, https ->
+// wss, en tenant compte de `CTESTER_API` quand la page est servie depuis une
+// autre origine que l'API. La recopier dans un second module serait la
+// duplication que le harnais NE PEUT PAS VOIR -- son scan de fonctions
+// déclarées deux fois travaille fichier par fichier.
+function socketUrl(chemin) {
+  const base = window.CTESTER_API || "";
+  if (base) return base.replace(/^http/, "ws") + chemin;
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  return scheme + "//" + location.host + chemin;
 }
 
 // `activateModule`, NOT `activate`: this file already has an `activate`
@@ -515,6 +528,12 @@ function refreshAccount() {
   // opted in would hide the very screen that explains what opting in means.
   $("leaderboard").hidden = !on;
   $("collection").hidden = !on;
+  // DEUX CONDITIONS, COMME « Discussions », ET LES DEUX VIENNENT DU SERVEUR :
+  // être connecté, et un déploiement qui offre la Console (`oidc.scratch`).
+  // Sans l'une ou l'autre le bouton n'existe pas, donc `scratch.js` n'est
+  // jamais demandé -- l'anonyme n'en télécharge pas un octet, et un
+  // déploiement sans worker n'ouvre pas un terminal que personne ne servira.
+  $("scratch").hidden = !on || !(oidc && oidc.scratch);
   $("moi").hidden = !on;
   $("moi").textContent = on ? "connecté" : "";
   // The menu only opens on an account: "Se connecter" stays outside, because
@@ -559,7 +578,7 @@ let currentView = "";
 
 function showView(name) {
   // "" (the exercise) | "progres" | "forum" | "moderation" | "leaderboard"
-  //                   | "collection"
+  //                   | "collection" | "scratch"
   // "Mes exercices" merged into "Mes progrès": two destinations used to
   // answer "where do I stand", with two counts of the same exercises.
   currentView = name;
@@ -568,6 +587,7 @@ function showView(name) {
   $("vuemoderation").hidden = name !== "moderation";
   $("viewleaderboard").hidden = name !== "leaderboard";
   $("viewcollection").hidden = name !== "collection";
+  $("viewscratch").hidden = name !== "scratch";
   $("travail").hidden = name !== "";
   $("mesprogres").textContent =
     name === "progres" ? "Retour à l'exercice" : "Mes progrès";
@@ -577,6 +597,8 @@ function showView(name) {
     name === "leaderboard" ? "Retour à l'exercice" : "Classement";
   $("collection").textContent =
     name === "collection" ? "Retour à l'exercice" : "Collection";
+  $("scratch").textContent =
+    name === "scratch" ? "Retour à l'exercice" : "Console";
 }
 
 // AN EXERCISE'S STATUS, IN THE CORE. It used to live only in "Mes
@@ -1525,6 +1547,13 @@ $("collection").addEventListener("click", async () => {
   if (!await activateModule("collection", "la collection")) return;
   await ctester.collection.basculer();
 });
+// MÊME CONTRAT ENCORE : connecté seulement, et le fichier ne descend qu'au
+// clic. Un étudiant qui n'ouvre jamais la Console ne paie ni le module ni la
+// socket -- et la socket, ici, coûte un conteneur sur le Dell.
+$("scratch").addEventListener("click", async () => {
+  if (!await activateModule("scratch", "la console")) return;
+  await ctester.scratch.basculer();
+});
 $("deconnexion").addEventListener("click", () => {
   if (ctester.compte) ctester.compte.signOut();
 });
@@ -1563,6 +1592,7 @@ Object.assign(ctester, {
   // promise per file, a failure never kept, and the caller decides what to
   // do when it does not arrive -- for the forum, falling back to plain text.
   charger: load,
+  socketUrl,
   // The MODULE loader, the one that tells the student what did not arrive.
   // Exposed because "Mes progrès" (progres.js) also offers the export:
   // without it, progres.js would rewrite `load()` plus its two error

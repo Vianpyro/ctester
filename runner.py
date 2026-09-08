@@ -21,6 +21,7 @@ a configuration field that would need to be kept in sync with reality:
 """
 
 import datetime
+import fcntl
 import hashlib
 import json
 import os
@@ -28,6 +29,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import unicodedata
 import uuid
@@ -51,6 +53,58 @@ MEMORY = os.environ.get("CTESTER_MEMORY", "256m")
 PIDS = os.environ.get("CTESTER_PIDS", "64")
 CPUS = os.environ.get("CTESTER_CPUS", "1")
 SWEEP_AFTER = int(os.environ.get("CTESTER_SWEEP_AFTER", "600"))
+
+# --- LA CONSOLE : une session interactive, et UNE SEULE ---------------------
+# Un job de console est un job de spool ordinaire portant `"kind": "console"`,
+# donc il attend dans LA MÊME FILE que les exercices, avec la même position et
+# le même ETA. Ce qui change est ce que le worker en fait : au lieu d'appeler
+# `_juger()` et de rendre un verdict, il ouvre un conteneur interactif et
+# relaie des octets jusqu'à ce que l'étudiant referme sa page.
+#
+# PLUS SERRÉ QUE LA CORRECTION, ET CE N'EST PAS DE LA PRUDENCE DÉCORATIVE.
+# La fenêtre d'exposition passe de 5 s par cas à CONSOLE_SESSION_MAX, soit
+# trente-six fois. Ces plafonds DOIVENT rester sous ceux de la correction ; un
+# test le vérifie par comparaison plutôt que sur les littéraux, précisément
+# pour qu'une future « harmonisation » échoue au lieu de les relâcher.
+BUILD_SCRATCH = os.environ.get("CTESTER_BUILD_SCRATCH",
+                               "/opt/ctester/build-scratch.sh")
+CONSOLE_MEMORY = os.environ.get("CTESTER_CONSOLE_MEMORY", "192m")
+CONSOLE_PIDS = os.environ.get("CTESTER_CONSOLE_PIDS", "32")
+# Une demi-part de cœur, et `--cpu-shares` bas : SOUS CONTENTION, LA CORRECTION
+# GAGNE. La correction est le cours, la console est un agrément.
+CONSOLE_CPUS = os.environ.get("CTESTER_CONSOLE_CPUS", "0.5")
+CONSOLE_SHARES = os.environ.get("CTESTER_CONSOLE_SHARES", "512")
+
+# LES TROIS HORLOGES, ET ELLES NE MESURENT PAS LA MÊME CHOSE.
+#   - le mur borne le coût d'une session (et DOIT rester très en dessous de
+#     SWEEP_AFTER : sweep() efface un répertoire de spool sur son mtime, et le
+#     mtime d'un répertoire ne bouge plus une fois ses fichiers créés) ;
+#   - l'inactivité libère la place qu'un étudiant parti laisse occupée ;
+#   - le temps CPU, lui, vit dans build-scratch.sh (`ulimit -t`) parce que
+#     c'est la seule horloge capable de distinguer « il réfléchit » de « le
+#     programme tourne en rond ».
+CONSOLE_SESSION_MAX = int(os.environ.get("CTESTER_CONSOLE_SESSION_MAX", "180"))
+CONSOLE_IDLE_MAX = int(os.environ.get("CTESTER_CONSOLE_IDLE_MAX", "90"))
+# Le seul plafond qui arrête `while (1) puts("x");` : il n'est jamais inactif.
+CONSOLE_OUT_MAX = int(os.environ.get("CTESTER_CONSOLE_OUT_MAX", "1048576"))
+# Ce que l'API a le droit d'accumuler dans `in`, lu par le worker.
+CONSOLE_IN_MAX = int(os.environ.get("CTESTER_CONSOLE_IN_MAX", "65536"))
+
+# LE VERROU DE SESSION UNIQUE. Il y a deux workers ; si les deux ouvraient un
+# terminal, la correction s'arrêterait. Un worker qui ne l'obtient pas SAUTE le
+# job sans le réclamer -- la console attend, la correction continue.
+CONSOLE_LOCK = ".console"
+
+# LA CLÉ RÉSERVÉE DE `durees.json`. Une session de console n'a pas d'exercice,
+# et `enregistrer_duree()` refuse un identifiant vide -- donc sans cette clé une
+# console en cours compterait pour la moyenne des autres (une quinzaine de
+# secondes) alors qu'elle peut tenir trois minutes. Quelqu'un en file derrière
+# verrait « ~15 s » pour une attente réelle de 180, et annoncer plus court que
+# le réel est la seule erreur d'estimation qui se remarque.
+#
+# Un deux-points en tête : aucun répertoire d'exercice ne peut porter ce nom,
+# donc la clé ne peut pas entrer en collision avec un vrai identifiant.
+CONSOLE_DUREE = ":console"
 
 # AN ABANDONED LOCK IS NOT A LOCK. `claim()` sets a `.lock` that a killed
 # worker -- deploy, OOM, reboot -- does not take with it: the job stays
@@ -107,7 +161,12 @@ PREVIEW = os.environ.get("CTESTER_PREVIEW", "") not in ("", "0")
 SANDBOX_ENV = {
     k: os.environ[k]
     for k in ("CTESTER_C_STD", "CTESTER_SANITIZERS", "CTESTER_ASAN_OPTIONS",
-              "CTESTER_COMPILE_TIMEOUT", "CTESTER_RUN_TIMEOUT")
+              "CTESTER_COMPILE_TIMEOUT", "CTESTER_RUN_TIMEOUT",
+              # Lu par build-scratch.sh SEUL : le plafond de temps CPU, qui est
+              # la réponse à `while (1);` là où il n'y a pas de chronomètre par
+              # cas. Il voyage ici pour que les trois scripts prennent leurs
+              # réglages au même endroit.
+              "CTESTER_CPU_SECONDS")
     if k in os.environ
 }
 
@@ -636,6 +695,58 @@ def unity_dir():
     return os.path.join(CONTENT, "shared", "unity")
 
 
+def _argv_durci(name, memory, pids, cpus, work, tmp, extra=()):
+    """Le durcissement du bac à sable, ÉCRIT UNE SEULE FOIS.
+
+    Les trois modes de correction et la Console partagent exactement ces
+    portes ; ce qui les distingue est ce qu'ils MONTENT, jamais ce qu'ils
+    verrouillent. Les tenir dans deux listes garantirait qu'un jour l'une des
+    deux perde une option sans que personne ne le voie -- et celle qui la
+    perdrait est celle qu'on relit le moins.
+
+    Chaque option ferme une porte, et aucune n'est décorative :
+      --network=none      rien à exfiltrer, rien à scanner, pas de relais
+      --pids-limit        la bombe à fork est LE classique du labo de C
+      --read-only + tmpfs le conteneur ne survit à rien, à commencer par lui
+      --cap-drop=ALL      aucune capacité, pas même celles par défaut
+      --user 65534        jamais root, pas même à l'intérieur
+      --rm                un conteneur = un job = jetable, jamais réutilisé
+      --runtime=runsc     le code natif tape dans un noyau réimplémenté en
+                          espace utilisateur, pas dans celui du Dell
+
+    LA SURFACE INSCRIPTIBLE TIENT EN DEUX LIGNES, ET C'EST LA GARANTIE.
+    `--read-only` rend tout le reste du système de fichiers immuable, et les
+    deux seuls points inscriptibles sont des tmpfs -- de la MÉMOIRE, comptée
+    dans `--memory`, détruite avec le conteneur. Un programme qui remplit
+    /work ne remplit donc rien : il se fait OOM-killer. Vérifié depuis
+    l'intérieur : /etc, /usr et / répondent EROFS, un montage `:ro` répond
+    EROFS, et `--ulimit fsize` coupe un fichier de /work à 8 Mo.
+
+    IL N'Y A PAS DE FILTRE D'APPELS SYSTÈME, et ce n'est pas un oubli :
+    `write` ne peut pas être bloqué -- c'est par lui que sort printf -- et
+    distinguer « écrire sur stdout » d'« écrire un fichier » demande de
+    raisonner sur la cible d'un descripteur, ce que seccomp ne sait pas faire.
+    La frontière est le système de fichiers, qui se lit dans cet argv, plutôt
+    qu'un profil qu'il faudrait auditer.
+    """
+    return [
+        "docker", "run", "--rm", "--name", name,
+        "--runtime", RUNTIME,
+        "--network", "none",
+        "--read-only",
+        "--tmpfs", "/work:rw,exec,size=" + work + ",mode=0777",
+        "--tmpfs", "/tmp:rw,size=" + tmp,
+        "--memory", memory, "--memory-swap", memory,
+        "--pids-limit", pids,
+        "--cpus", cpus,
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--user", "65534:65534",
+        "--ulimit", "fsize=8388608",
+        "--ulimit", "nofile=64",
+    ] + list(extra)
+
+
 def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
     """The sandbox's command line.
 
@@ -653,21 +764,7 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
     been extracted into the job's own directory; io.json, which holds the
     expected values, never enters the container.
     """
-    argv = [
-        "docker", "run", "--rm", "--name", name,
-        "--runtime", RUNTIME,
-        "--network", "none",
-        "--read-only",
-        "--tmpfs", "/work:rw,exec,size=32m,mode=0777",
-        "--tmpfs", "/tmp:rw,size=16m",
-        "--memory", MEMORY, "--memory-swap", MEMORY,
-        "--pids-limit", PIDS,
-        "--cpus", CPUS,
-        "--cap-drop", "ALL",
-        "--security-opt", "no-new-privileges",
-        "--user", "65534:65534",
-        "--ulimit", "fsize=8388608",
-        "--ulimit", "nofile=64",
+    argv = _argv_durci(name, MEMORY, PIDS, CPUS, "32m", "16m") + [
         # THE DIRECTORY, NOT A FILE. Since lab 5 a submission is a module --
         # calendrier.h AND calendrier.c -- and `#include "calendrier.h"` only
         # resolves if both sit side by side. A per-file mount would not give
@@ -692,6 +789,53 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
             "-v", unity_dir() + ":/in/unity:ro",
             "-v", BUILD_UNITY + ":/in/build.sh:ro",
         ]
+    return argv + [IMAGE, "bash", "/in/build.sh"]
+
+
+def docker_argv_console(job_dir, name, nonce):
+    """La ligne de commande d'une SESSION INTERACTIVE.
+
+    LA CONSOLE NE MONTE RIEN DU CONTENU PRIVÉ, et c'est plus fort que ce que
+    le mode io promet déjà. Le mode io ne monte pas le répertoire de l'exercice
+    mais reçoit ses ENTRÉES ; ici il n'y a ni exercice, ni cas, ni test, ni
+    `shared/unity` : les DEUX seuls montages sont le `main.c` de l'étudiant et
+    le script de construction, tous les deux en lecture seule. Un test balaie
+    cet argv et refuse tout `-v` sans suffixe `:ro`.
+
+    LE SPOOL N'EST PAS MONTÉ NON PLUS. Le programme ne peut donc pas voir --
+    encore moins écrire -- `in`, `out`, `state.json`, ni le répertoire d'un
+    autre job. Le seul chemin de l'hôte qu'il peut lire est son propre source.
+
+    `-i` ET JAMAIS `-t`. `docker run -t` refuse quand le stdin du client n'est
+    pas un terminal : il faudrait donc que le worker ouvre son propre pty, le
+    passe au CLI, laisse docker mettre le maître en mode brut, et parle à
+    travers son proxy à un SECOND pty alloué par dockerd dans un sentry gVisor
+    qui réimplémente la discipline de ligne en Go. Trois implémentations de
+    terminal sur le chemin, sur le seul runtime dont l'intérêt est de ne pas
+    être le noyau de l'hôte -- pour un tampon de LIGNE, qui ne vide toujours
+    pas un `printf` sans saut de ligne. Le constructeur de build-scratch.sh
+    fait mieux, en pur gcc : voir son en-tête.
+
+    `--log-driver none` N'EST PAS UNE OPTION DE CONFORT. Avec `-i`, docker
+    recopie chaque octet de stdout dans
+    `/var/lib/docker/containers/*/*-json.log`. Un job noté imprime pendant 5 s
+    par cas ; une session interactive peut imprimer à la vitesse du tube
+    pendant CONSOLE_SESSION_MAX. C'est le chemin le plus rapide vers un disque
+    plein sur le Dell, et c'est un drapeau.
+    """
+    argv = _argv_durci(name, CONSOLE_MEMORY, CONSOLE_PIDS, CONSOLE_CPUS,
+                       "24m", "8m",
+                       # `--cpu-shares` bas : sous contention, la correction
+                       # gagne. Voir CONSOLE_CPUS.
+                       extra=("--cpu-shares", CONSOLE_SHARES,
+                              "--log-driver", "none", "-i"))
+    argv += ["-e", "CTESTER_NONCE=" + nonce]
+    for key, value in SANDBOX_ENV.items():
+        argv += ["-e", key + "=" + value]
+    argv += [
+        "-v", job_dir + "/src:/in/src:ro",
+        "-v", BUILD_SCRATCH + ":/in/build.sh:ro",
+    ]
     return argv + [IMAGE, "bash", "/in/build.sh"]
 
 
@@ -1173,6 +1317,334 @@ def _contexte(exercise_id):
 # Processing one job
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# La Console : une session interactive
+# --------------------------------------------------------------------------
+# LE CANAL EST LE SPOOL, COMME PARTOUT. L'API écrit `src/main.c` puis
+# `job.json` en dernier (rename atomique) ; ce processus-ci ouvre le conteneur
+# et relaie des octets. L'API ne compile ni n'exécute rien, exactement comme
+# pour une soumission notée -- c'est ce qui permet de l'exposer à Internet.
+#
+# CE QUI CIRCULE EST UN FLUX D'OCTETS, SANS CADRAGE, et ça n'est tenable que
+# parce que PERSONNE NE L'INTERPRÈTE. `in` et `out` sont des fichiers en ajout
+# seul relus par décalage : un lecteur peut voir un préfixe d'une écriture, ce
+# qui pour un flux d'octets n'est pas une erreur. Un FIFO demanderait des
+# sémantiques bloquantes des deux côtés d'un bind mount, pour ne rien gagner.
+#
+# LES DEUX VERROUS SONT DES `flock`, ET PAS DES `mkdir`. Un mkdir n'a pas de
+# propriétaire : c'est pour ça que `claim()` a besoin de LOCK_STALE, reclaim()
+# et reprises.json pour décider qu'un verrou est mort. Trois minutes d'attente
+# sont acceptables pour un job en file ; elles ne le sont pas pour un terminal
+# qu'un humain regarde. Le noyau, lui, relâche un flock à la mort du processus
+# qui le tient -- y compris sur un SIGKILL du conteneur web -- et le fait à
+# travers un bind mount, puisque c'est le même noyau et le même inode.
+#
+#   `alive` : tenu par l'API. Relâché = le navigateur est parti, on tue.
+#   `claim` : tenu par ce worker. Relâché = le worker est mort, l'API le dit.
+
+
+def verrou_tenu(chemin):
+    """Quelqu'un tient-il encore le `flock` de ce fichier ?
+
+    On le teste EN L'ESSAYANT : réussir à le prendre, c'est constater que le
+    tenant n'est plus là. Le descripteur est refermé aussitôt, ce qui relâche
+    le verrou qu'on vient éventuellement de prendre -- on sonde, on ne prend
+    pas la place.
+    """
+    try:
+        fd = os.open(chemin, os.O_RDWR | os.O_CREAT, 0o644)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return True
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
+def job_kind(job_dir):
+    """`"console"` pour une session, `""` pour une soumission notée."""
+    try:
+        with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
+            return str(json.load(fh).get("kind", ""))
+    except (OSError, ValueError):
+        return ""
+
+
+def console_lock():
+    """UNE SEULE SESSION SUR TOUT LE SERVICE. `mkdir`, atomique.
+
+    Il y a deux workers ; si les deux ouvraient un terminal, plus personne ne
+    corrigerait. Celui qui n'obtient pas ce verrou SAUTE le job sans le
+    réclamer : la console attend son tour, la correction continue.
+
+    Un `mkdir` suffit ici -- contrairement aux deux verrous de session -- parce
+    que ce verrou n'a pas à détecter une mort en une seconde : il est repris
+    après une session entière plus une marge, ce qui ne peut arriver que si un
+    worker a été tué en tenant un terminal.
+    """
+    chemin = os.path.join(SPOOL, CONSOLE_LOCK)
+    try:
+        os.mkdir(chemin)
+        return True
+    except FileExistsError:
+        try:
+            age = time.time() - os.stat(chemin).st_mtime
+        except OSError:
+            return False
+        if age <= CONSOLE_SESSION_MAX + 60:
+            return False
+        try:
+            os.rmdir(chemin)
+            os.mkdir(chemin)
+        except OSError:
+            return False
+        print("ctester: console: verrou perime repris", file=sys.stderr,
+              flush=True)
+        return True
+    except OSError:
+        return False
+
+
+def console_unlock():
+    try:
+        os.rmdir(os.path.join(SPOOL, CONSOLE_LOCK))
+    except OSError:
+        pass
+
+
+def console_etat(job_dir, etat, **extra):
+    """L'état lisible par l'API. Réécrit ATOMIQUEMENT, parce que lui a une forme.
+
+    C'est le seul fichier de la session qui ne soit pas un flux : `write_json`
+    fait tmp + rename, donc l'API ne peut jamais en lire une moitié.
+    """
+    payload = {"state": etat}
+    payload.update(extra)
+    try:
+        write_json(os.path.join(job_dir, "state.json"), payload)
+    except OSError:
+        pass
+
+
+def _pompe_sortie(proc, job_dir, nonce, compteur):
+    """Draine la sortie du conteneur et la RANGE EN DEUX FICHIERS.
+
+    `os.read` BLOQUANT, dans son propre fil : la latence de sortie est donc
+    celle du tube, et il n'y a rien à sonder. C'est ce qui fait qu'une invite
+    apparaît en quelques millisecondes plutôt qu'au prochain tour de boucle.
+
+    LA BASCULE DE PHASE EST LE MARQUEUR À NONCE, l'idiome que build-io.sh
+    utilise déjà : ce qui précède `<nonce> RUN` est un diagnostic de
+    compilation, ce qui suit appartient au programme. Le flux est coupé UNE
+    FOIS, sur un préfixe court -- pas analysé bloc par bloc. L'étudiant ne voit
+    jamais le nonce, donc ne peut pas forger le marqueur et faire passer sa
+    propre sortie pour du gcc.
+
+    LA QUEUE DU TAMPON EST GARDÉE entre deux lectures : sans ça, un marqueur
+    tombant à cheval sur deux `os.read` ne serait jamais reconnu, et toute la
+    session s'écrirait dans `build`.
+    """
+    separateur = (nonce + " RUN\n").encode()
+    garde = len(separateur) - 1
+    tampon, en_build = b"", True
+    build = open(os.path.join(job_dir, "build"), "ab", buffering=0)
+    sortie = open(os.path.join(job_dir, "out"), "ab", buffering=0)
+
+    def ecrire(fh, octets):
+        if not octets:
+            return
+        if fh is sortie:
+            # LE SEUL PLAFOND QUI ARRÊTE `while (1) puts("x");` : il n'est
+            # jamais inactif et il consomme du CPU, mais il inonde bien avant
+            # d'épuiser `ulimit -t`.
+            reste = CONSOLE_OUT_MAX - compteur["octets"]
+            if reste <= 0:
+                compteur["trop"] = True
+                return
+            octets, compteur["octets"] = octets[:reste], compteur["octets"] + len(octets[:reste])
+            if len(octets) >= reste:
+                compteur["trop"] = True
+        try:
+            fh.write(octets)
+        except OSError:
+            pass
+        compteur["vu"] = time.time()
+
+    try:
+        while True:
+            try:
+                chunk = os.read(proc.stdout.fileno(), 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            if not en_build:
+                ecrire(sortie, chunk)
+                continue
+            tampon += chunk
+            index = tampon.find(separateur)
+            if index >= 0:
+                ecrire(build, tampon[:index])
+                apres = tampon[index + len(separateur):]
+                tampon, en_build = b"", False
+                compteur["compile"] = True
+                ecrire(sortie, apres)
+            elif len(tampon) > garde:
+                ecrire(build, tampon[:-garde] if garde else tampon)
+                tampon = tampon[-garde:] if garde else b""
+    finally:
+        if tampon:
+            ecrire(build if en_build else sortie, tampon)
+        for fh in (build, sortie):
+            try:
+                fh.close()
+            except OSError:
+                pass
+
+
+def run_console(job_dir):
+    """Une session interactive, du conteneur à sa mort. Rend le `result.json`.
+
+    Le fil appelant est le superviseur : il verse `in` dans l'entrée du
+    conteneur et surveille les trois raisons de s'arrêter. Un second fil pompe
+    la sortie. Deux fils, de la bibliothèque standard, et rien d'autre.
+
+    RIEN DE CE QUI EST ÉCRIT ICI N'EST SPÉCIFIQUE À UN COMPTE. `job.json` ne
+    porte ni `owner`, ni `exercise_id`, ni `sub` : ce processus ne sait jamais
+    qui est au clavier, et c'est « aucun modèle ne porte de champ d'identité »
+    étendu jusqu'au canal du worker.
+    """
+    nom = "ctester-sbx-" + os.path.basename(job_dir)[:16]
+    nonce = uuid.uuid4().hex
+    alive = os.path.join(job_dir, "alive")
+    entree = os.path.join(job_dir, "in")
+    compteur = {"octets": 0, "trop": False, "vu": time.time(), "compile": False}
+
+    # LE NAVIGATEUR EST-IL ENCORE LA, AVANT DE DEPENSER UN CONTENEUR ? Une
+    # session peut avoir attendu son tour derriere douze soumissions ; si
+    # l'etudiant a ferme l'onglet pendant ce temps, lancer gcc puis tuer le
+    # conteneur une seconde plus tard coute un demarrage de conteneur pour
+    # rien -- sur la machine dont on compte les coeurs.
+    if not verrou_tenu(alive):
+        console_etat(job_dir, "exited", code=-1, reason="api")
+        return {"status": "console", "code": -1, "reason": "api"}
+
+    # LE VERROU DE VIVACITE DU WORKER, tenu pendant TOUTE la session. C'est le
+    # pendant exact d'`alive` : l'API le sonde, et le noyau le relache si ce
+    # processus meurt -- unite arretee, OOM, redemarrage. Sans lui, un worker
+    # tue laisserait un terminal s'arreter sans rien dire, et l'etudiant ne
+    # saurait pas si c'est son programme ou le service.
+    #
+    # PRIS AVANT LE PREMIER OCTET, pour qu'il n'existe aucune fenetre pendant
+    # laquelle `.lock` est pose mais le verrou pas encore tenu : l'API y
+    # conclurait « worker mort » sur une session parfaitement vivante.
+    revendication = os.open(os.path.join(job_dir, "claim"),
+                            os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(revendication, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(revendication)
+        return {"status": "console", "code": -1, "reason": "worker"}
+
+    console_etat(job_dir, "compiling", ttl=CONSOLE_SESSION_MAX)
+    proc = subprocess.Popen(docker_argv_console(job_dir, nom, nonce),
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, bufsize=0)
+    pompe = threading.Thread(target=_pompe_sortie,
+                             args=(proc, job_dir, nonce, compteur), daemon=True)
+    pompe.start()
+
+    debut, lu, raison, annonce = time.time(), 0, "exited", False
+    ferme = False
+    try:
+        while proc.poll() is None:
+            # 1. Ce que l'étudiant a tapé depuis le dernier tour.
+            try:
+                with open(entree, "rb") as fh:
+                    paquet = os.pread(fh.fileno(), 65536, lu)
+            except OSError:
+                paquet = b""
+            if paquet:
+                lu += len(paquet)
+                compteur["vu"] = time.time()
+                try:
+                    proc.stdin.write(paquet)
+                    proc.stdin.flush()
+                except (BrokenPipeError, OSError):
+                    # Le programme a pu sortir pendant que l'étudiant tapait :
+                    # ce n'est pas une panne, c'est la course normale.
+                    pass
+            # « Plus rien ne viendra » : un TÉMOIN à côté du flux, parce
+            # qu'aucune séquence d'octets ne pourrait le dire sans qu'un
+            # étudiant puisse la taper. C'est ce qui termine un
+            # `while (scanf(...) == 1)` autrement qu'en tuant la session.
+            if not ferme and os.path.exists(os.path.join(job_dir, "eof")):
+                ferme = True
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
+            # 2. Le navigateur est-il toujours là ? Le noyau répond.
+            if not verrou_tenu(alive):
+                raison = "api"
+                break
+            # 3. Les deux horloges du worker (la troisième, le CPU, vit dans
+            #    build-scratch.sh -- c'est la seule qui distingue « il
+            #    réfléchit » de « le programme tourne en rond »).
+            if time.time() - debut > CONSOLE_SESSION_MAX:
+                raison = "timeout"
+                break
+            if time.time() - compteur["vu"] > CONSOLE_IDLE_MAX:
+                raison = "idle"
+                break
+            # 4. Le plafond d'octets, posé par la pompe.
+            if compteur["trop"]:
+                raison = "output"
+                break
+            if not annonce and compteur["compile"]:
+                annonce = True
+                console_etat(job_dir, "running", ttl=CONSOLE_SESSION_MAX)
+            time.sleep(0.025)
+        else:
+            raison = "exited"
+    finally:
+        # JAMAIS `proc.kill()` SEUL : tuer le CLIENT docker laisse le conteneur
+        # vivant, leçon déjà payée par sandbox(). C'est `docker rm -f` qui
+        # arrête un conteneur.
+        subprocess.run(["docker", "rm", "-f", nom], capture_output=True,
+                       check=False)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        if not ferme:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
+        pompe.join(timeout=5)
+
+    code = proc.returncode if proc.returncode is not None else -1
+    if raison == "exited" and not compteur["compile"]:
+        # Le marqueur n'est jamais arrivé : gcc a refusé, et `build` porte son
+        # texte. 12 = la compilation a dépassé son chronomètre.
+        raison = "compile_timeout" if code == 12 else "compile_error"
+    console_etat(job_dir, "exited", code=code, reason=raison)
+    # RELACHE APRES l'etat final, et pas avant : l'API sonde ce verrou a chaque
+    # tour, et le relacher trop tot lui ferait annoncer « le service s'est
+    # interrompu » sur une session qui vient de se terminer normalement.
+    try:
+        os.close(revendication)
+    except OSError:
+        pass
+    return {"status": "console", "code": code, "reason": raison}
+
+
 def job_exercice(job_dir):
     try:
         with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
@@ -1490,17 +1962,37 @@ def main():
         # already written, occupying a queue slot the whole time.
         worked = bool(servir_les_connus())
         for job_dir in pending_jobs():
+            # UNE SESSION DE CONSOLE SE DÉCIDE AVANT `claim()`, et l'ordre
+            # compte : un worker qui réclamait d'abord et découvrait ensuite
+            # qu'une autre console tourne aurait posé un `.lock` sur un job
+            # qu'il ne va pas servir -- l'étudiant y lirait « en cours » sans
+            # que rien ne se passe. On regarde donc le genre du job, on prend le
+            # verrou de session, ET SEULEMENT ALORS on réclame. Sans le verrou,
+            # on saute ce job et on prend le suivant : la console attend son
+            # tour, la correction continue de tourner sur l'autre worker.
+            console = job_kind(job_dir) == "console"
+            if console and not console_lock():
+                continue
             if not claim(job_dir):
                 # Lock held. By a live worker -- move on -- or by a dead one,
                 # and reclaim() decides on the one criterion that does not
                 # lie here: the lock's age.
                 if not (reclaim(job_dir, time.time()) and claim(job_dir)):
+                    if console:
+                        console_unlock()
                     continue
             worked = True
             debut = time.time()
             try:
-                write_result(job_dir, run_job(job_dir))
-                enregistrer_duree(job_exercice(job_dir), time.time() - debut)
+                if console:
+                    write_result(job_dir, run_console(job_dir))
+                    # Sous SA PROPRE clé : une session tient la file bien plus
+                    # longtemps qu'une compilation, et quelqu'un derrière doit
+                    # lire une attente vraie. Voir CONSOLE_DUREE.
+                    enregistrer_duree(CONSOLE_DUREE, time.time() - debut)
+                else:
+                    write_result(job_dir, run_job(job_dir))
+                    enregistrer_duree(job_exercice(job_dir), time.time() - debut)
             except Exception as exc:  # noqa: BLE001 -- a job must not kill the worker
                 print("ctester: %s: %s" % (job_dir, exc), file=sys.stderr,
                       flush=True)
@@ -1508,6 +2000,14 @@ def main():
                     "status": "error",
                     "message": "Erreur interne du juge. Réessaie.",
                 })
+                if console:
+                    console_etat(job_dir, "exited", code=-1, reason="worker")
+            finally:
+                # DANS UN `finally` : une exception ne doit pas laisser le
+                # verrou de session derrière elle, sinon plus personne n'ouvre
+                # de console jusqu'à sa péremption.
+                if console:
+                    console_unlock()
             # ONE COMPILATION PER PASS, then back to known verdicts: this one
             # just populated the cache, and twenty duplicates may be waiting
             # for exactly what it just wrote. Without this `break`, they

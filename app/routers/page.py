@@ -40,7 +40,11 @@ SERVIS = dict(
                    # student opens an exercise that belongs to a team
                    # assignment -- so never on the anonymous path, and never
                    # for the ten labs that are not one.
-                   "team.js")},
+                   "team.js",
+                   # La Console. Même règle : téléchargée seulement quand un
+                   # compte connecté ouvre le terminal, jamais par l'anonyme,
+                   # et jamais sur un déploiement qui ne l'offre pas.
+                   "scratch.js")},
     **{nom: "text/javascript; charset=utf-8" for nom in config.VENDOR},
 )
 

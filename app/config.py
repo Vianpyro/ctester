@@ -176,3 +176,35 @@ TEAM_LIVE_MAX_FRAME = _entier("CTESTER_TEAM_LIVE_MAX_FRAME",
 
 # --- Presence ------------------------------------------------------------------
 PRESENCE_TTL = _entier("CTESTER_PRESENCE_TTL", "150")
+
+# --- La Console ----------------------------------------------------------------
+# UN TERMINAL C INTERACTIF, ÉTEINT PAR L'ABSENCE D'UNE VARIABLE -- comme le
+# forum, et pour la même raison : « personne ne clique dessus » et « ça n'existe
+# pas » se ressemblent trop vus de l'extérieur pour laisser quelqu'un deviner
+# lequel des deux c'est. Vide -> le bouton n'apparaît pas, `/oidc.json` annonce
+# `scratch: false`, et la socket refuse en le disant.
+#
+# LES PLAFONDS DU CONTENEUR NE SONT PAS ICI, ET C'EST DÉLIBÉRÉ. Le mur, le temps
+# CPU, la mémoire et les octets de sortie appartiennent au worker, qui est le
+# seul à posséder un conteneur et des cœurs ; ce processus-ci n'a que l'identité
+# et la frontière HTTP. Chaque plafond vit là où vit la seule information
+# capable de l'appliquer, et nulle part deux fois. Le TTL affiché à la page vient
+# du worker, dans `state.json` : elle décompte un nombre qu'on lui a dit, pas une
+# constante qu'elle configure.
+SCRATCH = os.environ.get("CTESTER_SCRATCH", "") == "1"
+# Sessions par heure et par compte, et secondes entre deux. COMPTÉ PAR COMPTE et
+# pas par IP, contrairement aux soumissions : la Console est réservée aux comptes
+# connectés, et un quota par IP mettrait toute une école derrière un compteur.
+SCRATCH_HOURLY = _entier("CTESTER_SCRATCH_HOURLY_QUOTA", "20")
+SCRATCH_COOLDOWN = _entier("CTESTER_SCRATCH_COOLDOWN", "10")
+# La plus grosse trame d'entrée acceptée, en octets. Une ligne tapée fait
+# quelques octets ; ce plafond existe pour qu'un client qui ignore l'interface ne
+# puisse pas pousser un fichier entier par la socket.
+SCRATCH_FRAME = _entier("CTESTER_SCRATCH_FRAME", "4096")
+# Ce qu'une session entière a le droit d'accumuler sur l'entrée standard.
+SCRATCH_IN_MAX = _entier("CTESTER_SCRATCH_IN_MAX", "65536")
+# Combien de temps on attend que le worker réclame le job avant de dire que
+# personne ne répond. SANS CE DÉLAI, une unité systemd arrêtée ressemble à un
+# programme qui n'imprime rien -- exactement la forme de panne que la case
+# « Websockets Support » de NPM a déjà produite pour /team/live.
+SCRATCH_START_TIMEOUT = _entier("CTESTER_SCRATCH_START_TIMEOUT", "20")

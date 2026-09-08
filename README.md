@@ -10,6 +10,8 @@ Students write their code in the browser, submit it, and get immediate feedback 
 * Support **unit tests**, **stdin/stdout tests**, and **quizzes**
 * Keep test cases and expected outputs private
 * Run untrusted native code inside isolated, disposable sandboxes
+* Offer a **Console**: an interactive C scratchpad where a signed-in student
+  runs an arbitrary program and answers it while it runs
 * Provide optional student accounts, progress tracking, and an assistance forum
 * Host **team assignments**: students pick a team from a numbered list, then
   share a live-collaborative workspace with revision history and a single ZIP
