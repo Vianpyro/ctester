@@ -220,6 +220,69 @@ def schema_repairs_an_older_database():
     print("ok   schema.sql repairs an older database, and stays idempotent")
 
 
+def schema_migrates_a_roster_shaped_team_table():
+    """LA FORME QU'AVAIT `team` AVANT QUE LES ÉQUIPES NE SE CHOISISSENT.
+
+    CE CONTRÔLE EXISTE PARCE QUE LA PANNE EST ARRIVÉE DEUX FOIS, à l'identique,
+    et les deux fois UNIQUEMENT EN PRODUCTION -- `invite_code`, puis `number` :
+
+        ERROR: column "number" does not exist
+
+    Le mécanisme : sur une base où `team` existe déjà, `CREATE TABLE IF NOT
+    EXISTS` ne fait rien, donc une colonne ajoutée dans la DÉCLARATION n'existe
+    pas -- c'est l'`ALTER` de la section migration qui la pose. Tout ce qui la
+    référence avant cet `ALTER` (un index, une contrainte) fait alors tomber
+    toute la convergence sous `ON_ERROR_STOP=1`. Sur une base neuve, rien ne se
+    voit.
+
+    `test_ctester.py::test_aucun_index_ne_precede_la_colonne_qu_il_indexe`
+    attrape la faute par lecture, sans Postgres, donc il part avec le tick.
+    Celui-ci pose la VRAIE table d'hier et la migre : c'est le seul qui prouve
+    que les données survivent au passage.
+    """
+    import psycopg
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
+        # La forme « listage » : pas de `number`, `group_number` obligatoire,
+        # et aucune des colonnes du protocole de confirmation.
+        cx.execute("DROP TABLE IF EXISTS team_revision, team_submission,"
+                   " team_document, team_member, team CASCADE")
+        cx.execute("CREATE TABLE team ("
+                   " team_id TEXT NOT NULL, assignment_id TEXT NOT NULL,"
+                   " group_number SMALLINT NOT NULL"
+                   "   CHECK (group_number BETWEEN 1 AND 99),"
+                   " label TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
+                   " PRIMARY KEY (team_id, assignment_id))")
+        cx.execute("CREATE TABLE team_member ("
+                   " team_id TEXT NOT NULL, assignment_id TEXT NOT NULL,"
+                   " account TEXT NOT NULL,"
+                   " joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
+                   " PRIMARY KEY (assignment_id, account),"
+                   " FOREIGN KEY (team_id, assignment_id)"
+                   "   REFERENCES team (team_id, assignment_id) ON DELETE CASCADE)")
+        cx.execute("INSERT INTO team VALUES"
+                   " ('g04-e01', 'devoir', 4, 'Équipe 1', now())")
+        cx.execute("INSERT INTO team_member VALUES"
+                   " ('g04-e01', 'devoir', 'sub-hier', now())")
+
+    apply_schema()          # DEUX FOIS : la réparation doit être rejouable.
+
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
+        ligne = cx.execute(
+            "SELECT group_number, number, label FROM team"
+            " WHERE team_id = 'g04-e01'").fetchone()
+        # LES DONNÉES SURVIVENT, et la colonne neuve arrive remplie : un
+        # `SET NOT NULL` sur une colonne vide ferait tomber la convergence
+        # aussi sûrement qu'un index prématuré.
+        assert ligne == (4, 1, "Équipe 1"), ligne
+        assert cx.execute("SELECT count(*) FROM team_member").fetchone()[0] == 1
+        # ET L'INDEX EST LÀ, celui qui échouait.
+        assert cx.execute(
+            "SELECT count(*) FROM pg_indexes"
+            " WHERE indexname = 'team_number_idx'").fetchone()[0] == 1
+    _reset_teams()
+    print("ok   schema.sql migre la table `team` d'hier sans perdre de ligne")
+
+
 def append_only():
     """THE PROGRESSION TABLES ARE APPEND-ONLY, AND POSTGRES HOLDS IT.
 
@@ -1030,6 +1093,7 @@ def _rows(sql, params=()):
 def main():
     apply_schema()
     schema_repairs_an_older_database()
+    schema_migrates_a_roster_shaped_team_table()
     append_only()
     for user in (ALICE, BOB, CLEO):
         state.forget(user)

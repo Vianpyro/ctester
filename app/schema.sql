@@ -392,11 +392,11 @@ CREATE TABLE IF NOT EXISTS team (
     PRIMARY KEY (team_id, assignment_id)
 );
 
--- UN SEUL NUMÉRO PAR GROUPE ET PAR DEVOIR. La poignée le porte déjà, mais
--- elle est construite en Python : cet index est ce qui empêche deux lignes de
--- se réclamer « Équipe 7 du groupe 04 » si cette construction change un jour.
-CREATE UNIQUE INDEX IF NOT EXISTS team_number_idx
-    ON team (assignment_id, group_number, number);
+-- (L'index unique sur `number` est plus bas, avec les migrations, et c'est
+-- une erreur DÉJÀ PAYÉE DEUX FOIS : il porte sur une colonne qu'un `ALTER`
+-- ajoute, donc déclaré ici il passe sur une base neuve et ÉCHOUE sur une base
+-- qui a déjà la table sans la colonne -- c'est-à-dire uniquement en
+-- production, où `CREATE TABLE IF NOT EXISTS` ne fait rien.)
 
 -- QUI EST DANS QUELLE ÉQUIPE. LA CLÉ PRIMAIRE EST LA RÈGLE -- une seule
 -- équipe par devoir et par compte -- et Postgres la tient, pas une lecture

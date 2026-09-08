@@ -1629,6 +1629,57 @@ def test_une_verification_ne_compte_pas_comme_une_pratique():
         progression.exercices_pratique(CATALOGUE_VERIF), tout, tout) is None
 
 
+def test_aucun_index_ne_precede_la_colonne_qu_il_indexe():
+    """UN INDEX SUR UNE COLONNE AJOUTEE PAR UN `ALTER` DOIT ETRE APRES L'ALTER.
+
+    CE CONTROLE EXISTE PARCE QUE LA PANNE EST ARRIVEE DEUX FOIS, a l'identique,
+    et les deux fois UNIQUEMENT EN PRODUCTION -- `invite_code`, puis `number`.
+
+    Le mecanisme : sur une base ou la table existe deja, `CREATE TABLE IF NOT
+    EXISTS` ne fait RIEN, donc la colonne ajoutee dans la declaration n'existe
+    pas encore ; c'est l'`ALTER` de la section migration qui la pose. Un
+    `CREATE INDEX` place JUSTE APRES la table echoue alors sur « column does
+    not exist », et sous `ON_ERROR_STOP=1` c'est toute la convergence qui
+    tombe. Sur une base neuve, tout passe -- donc rien ne se voit en
+    developpement.
+
+    CE CONTROLE EST TEXTUEL, ET C'EST VOULU : il tourne avec le python de
+    l'HOTE, sans Docker et sans base, donc il part avec le tick de deploiement.
+    `test_postgres.py` pose l'ancienne forme et migre pour de vrai ; celui-ci
+    attrape la faute avant qu'on ait un Postgres sous la main.
+    """
+    schema = lire(os.path.join(HERE, "app", "schema.sql"))
+    instructions = re.sub(r"--[^\n]*", "", schema)
+    # Les colonnes que la section migration ajoute, et OU elle commence.
+    ajouts = re.findall(
+        r"ALTER TABLE\s+(\w+)\s+ADD COLUMN IF NOT EXISTS\s+(\w+)", instructions)
+    assert ajouts, "aucun ALTER ... ADD COLUMN : ce controle ne prouve plus rien"
+    premier_alter = min(
+        instructions.index(m.group(0))
+        for m in re.finditer(r"ALTER TABLE\s+\w+\s+ADD COLUMN IF NOT EXISTS",
+                             instructions))
+    par_table = {}
+    for table, colonne in ajouts:
+        par_table.setdefault(table, set()).add(colonne)
+
+    fautes = []
+    for index in re.finditer(
+            r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS\s+(\w+)"
+            r"\s+ON\s+(\w+)\s*\(([^)]*)\)", instructions):
+        if index.start() > premier_alter:
+            continue                      # apres les ALTER : rien a dire
+        colonnes = {c.strip().split()[0] for c in index.group(3).split(",")
+                    if c.strip()}
+        tardives = colonnes & par_table.get(index.group(2), set())
+        if tardives:
+            fautes.append("%s indexe %s, que l'ALTER ajoute plus bas"
+                          % (index.group(1), ", ".join(sorted(tardives))))
+    assert not fautes, (
+        "index declares avant la colonne qu'ils indexent : " + " ; ".join(fautes)
+        + " -- ils passent sur une base neuve et font tomber la convergence "
+          "sur une base qui a deja la table. Les descendre avec les migrations.")
+
+
 def test_chaque_table_a_ses_droits():
     """Toute table du schema apparait dans un GRANT du MEME fichier.
 
