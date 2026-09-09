@@ -77,7 +77,18 @@ SWEEP_AFTER = int(os.environ.get("CTESTER_SWEEP_AFTER", "600"))
 BUILD_SCRATCH = os.environ.get("CTESTER_BUILD_SCRATCH",
                                "/opt/ctester/build-scratch.sh")
 CONSOLE_MEMORY = os.environ.get("CTESTER_CONSOLE_MEMORY", "192m")
-CONSOLE_PIDS = os.environ.get("CTESTER_CONSOLE_PIDS", "32")
+# ÉGAL À LA CORRECTION, ET PAS PLUS SERRÉ -- le seul plafond de la Console qui
+# ne soit pas en dessous, parce que le serrer ne protégeait de RIEN et cassait
+# tout. Sous `runsc`, les processus créés dans le bac à sable sont internes à
+# gVisor : ce cgroup ne les compte pas, il compte les tâches de l'HÔTE, donc
+# les threads du sentry. À 32, le sentry n'arrive pas à démarrer et docker rend
+# « cannot create sandbox: cannot read client sync file: waiting for sandbox to
+# start: EOF » -- avant le premier octet compilé. Ce qui arrête vraiment un
+# `while (1) fork();` ici, c'est le plafond mémoire et `ulimit -t`.
+#
+# Il reste posé pour le chemin `runc`, où il compte bien les processus du
+# conteneur : le retirer relâcherait ce chemin-là sans rien gagner ici.
+CONSOLE_PIDS = os.environ.get("CTESTER_CONSOLE_PIDS", "64")
 # Une demi-part de cœur, et `--cpu-shares` bas : SOUS CONTENTION, LA CORRECTION
 # GAGNE. La correction est le cours, la console est un agrément.
 CONSOLE_CPUS = os.environ.get("CTESTER_CONSOLE_CPUS", "0.5")

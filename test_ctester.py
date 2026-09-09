@@ -4229,7 +4229,12 @@ def test_console_est_plus_stricte_que_la_correction():
         return int(valeur.rstrip("m"))
 
     assert mo(runner.CONSOLE_MEMORY) < mo(runner.MEMORY)
-    assert int(runner.CONSOLE_PIDS) < int(runner.PIDS)
+    # `<=` POUR LES PIDS SEULS, et la raison est ecrite a cote de la constante :
+    # sous runsc ce cgroup compte les threads du SENTRY, pas les processus de
+    # l'etudiant. Le serrer ne protegeait rien et empechait le bac a sable de
+    # demarrer. Les quatre autres plafonds restent STRICTEMENT en dessous --
+    # ceux-la mordent vraiment.
+    assert int(runner.CONSOLE_PIDS) <= int(runner.PIDS)
     assert float(runner.CONSOLE_CPUS) <= float(runner.CPUS)
     juge = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "io", "n")
     console = runner.docker_argv_console("/spool/abc", "c", "n")

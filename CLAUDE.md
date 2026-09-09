@@ -901,10 +901,20 @@ que les défenses tiennent encore.
 
 **EN SESSION DE CONSOLE, LA QUATRIÈME LIGNE NE S'APPLIQUE PAS** (il n'y a pas de
 liste — voir « La Console »), et la fenêtre d'exposition passe de 5 s par cas à
-`CONSOLE_SESSION_MAX`, soit trente-six fois. C'est pourquoi la mémoire et les
-pids y sont **plus serrés** que pour la correction, et pourquoi `while (1);` y
+`CONSOLE_SESSION_MAX`, soit trente-six fois. C'est pourquoi la
+mémoire y est **plus serrée** que pour la correction, et pourquoi `while (1);` y
 est arrêté par le **temps CPU** et non par un chronomètre mural. À repasser sur
 les deux chemins.
+
+**`--pids-limit` N'EST PAS UN PLAFOND DE LA CONSOLE, et l'y serrer a coûté une
+soirée.** Sous `runsc` ce cgroup compte les tâches de l'HÔTE — c'est-à-dire les
+threads du sentry gVisor — et pas les processus de l'étudiant, qui sont
+internes au sandbox. À 32, le sentry ne démarre pas du tout : `docker` rend
+« cannot create sandbox: cannot read client sync file: waiting for sandbox to
+start: EOF », **avant le premier octet compilé**. `CONSOLE_PIDS` est donc ÉGAL
+à `PIDS` (64), le seul plafond de la Console qui ne soit pas en dessous — il
+reste posé pour le chemin `runc`, où il compte bien. Ce qui arrête vraiment un
+`while (1) fork();` ici, c'est la mémoire et `ulimit -t`.
 
 Sur la fork bomb, **vérifier le résultat et pas le mécanisme** : sous `runsc`,
 les processus créés dans le bac à sable sont internes à gVisor, donc
