@@ -1956,7 +1956,7 @@ def test_eta_somme_les_durees_mesurees_et_retombe_sur_une_moyenne():
             #    annoncer « tout de suite » sur une file pleine est pire que rien.
             with open(os.path.join(config.SPOOL, "durees.json"), "w",
                       encoding="utf-8") as fh:
-                json.dump({"tp1": [2.0, 20], "tp6-ex1": [10.0, 20]}, fh)
+                json.dump({"tp1": [2.0, 20], "tp7-ex1": [10.0, 20]}, fh)
             assert c.get("/r/" + premier).json()["eta"] == 6
 
             # 4. Deux workers dépilent deux fois plus vite.

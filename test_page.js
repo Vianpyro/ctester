@@ -299,7 +299,7 @@ const DETAILS = {
   "dev-b": { statement: "Écris la lib.", files: [{ name: "lib.c", template: "" }] },
   "tp2-ex0": { statement: "", files: UN_FICHIER },
   "tp2-ex3": { statement: "Calcule U = R * I.", files: UN_FICHIER },
-  "tp6-ex1": { statement: "", files: [{ name: "calendrier.h", template: "#define VRAI 1\n" }, { name: "calendrier.c", template: "#include \"calendrier.h\"\n" }] },
+  "tp7-ex1": { statement: "", files: [{ name: "calendrier.h", template: "#define VRAI 1\n" }, { name: "calendrier.c", template: "#include \"calendrier.h\"\n" }] },
 };
 // TROIS PREMIERS CHARGEMENTS DIFFÉRENTS, DONC TROIS PROCESSUS. La page ne lit
 // le catalogue qu'une fois, au chargement : un catalogue absent et un lien
@@ -307,7 +307,7 @@ const DETAILS = {
 // coup. Le mode par défaut ("") est celui de la production ; les deux autres
 // sont relancés dans un sous-processus à la fin de ce fichier.
 const MODE = process.env.CTESTER_MODE || "";
-if (MODE === "verrou") global.location.search = "?tp=tp10-ex1";
+if (MODE === "verrou") global.location.search = "?tp=tp12-ex1";
 // SANS CLE D'ACCES : le lien de Moodle porte `?k=`, mais un signet, une
 // adresse tapee de tete ou un lien partage entre etudiants ne l'ont pas.
 if (MODE === "sanscle") global.location.search = "";
@@ -335,12 +335,12 @@ const CATALOG_V2 = {
     { id: "verif-tp2", title: "vérification du TP 2", mode: "io",
       access: "available", release: { state: "available" }, verification: true,
       skills: ["variables"], files: UN_FICHIER },
-    { id: "tp6-ex1", title: "ex.1 est_bissextile", mode: "unity",
+    { id: "tp7-ex1", title: "ex.1 est_bissextile", mode: "unity",
       access: "available", release: { state: "available" }, skills: [],
       files: [{ name: "calendrier.h" }, { name: "calendrier.c" }] },
     // PAS ENCORE OUVERT, et il figure quand même au menu : la v1 le faisait
     // disparaître, ce qui ressemblait à une panne la veille du cours.
-    { id: "tp10-ex1", title: "ex.1 tri", mode: "io", access: "scheduled",
+    { id: "tp12-ex1", title: "ex.1 tri", mode: "io", access: "scheduled",
       release: { state: "scheduled", available_from: DEMAIN },
       skills: [], files: UN_FICHIER },
     // LE DEVOIR D'ÉQUIPE. Ses exercices portent `assignment`, et c'est ce
@@ -369,9 +369,9 @@ const CATALOG_V2 = {
     { id: "tp2", title: "TP 2", description: "",
       items: ["tp2-ex0", "tp2-ex3", "verif-tp2"],
       release: { state: "available" }, access: "available" },
-    { id: "tp6", title: "TP 6", description: "", items: ["tp6-ex1"],
+    { id: "tp6", title: "TP 6", description: "", items: ["tp7-ex1"],
       release: { state: "available" }, access: "available" },
-    { id: "tp10", title: "TP 10", description: "", items: ["tp10-ex1"],
+    { id: "tp10", title: "TP 10", description: "", items: ["tp12-ex1"],
       release: { state: "available" }, access: "available" },
     { id: "revisions", title: "Révisions", description: "",
       items: ["tp2-ex3"], release: { state: "available" }, access: "available" },
@@ -838,7 +838,7 @@ function forumRepond(url, opts) {
 storage["ctester.drafts"] = JSON.stringify({
   "tp2-ex3": { "submission.c": "// travail d'hier" },
   "tp2-ex0": { "submission.c": { pas: "une chaîne" } },
-  "tp6-ex1": "pas un objet de fichiers",
+  "tp7-ex1": "pas un objet de fichiers",
 });
 
 // `config.js` D'ABORD, comme en fin de <body> : il pose `window.API`, dont
@@ -942,7 +942,7 @@ const attendre = async () => { await sleep(); await sleep(); };
     process.exit(failures ? 1 : 0);
   }
   if (MODE === "verrou") {
-    // `?tp=tp10-ex1` VISE UN EXERCICE VERROUILLÉ. Le serveur refuse déjà de le
+    // `?tp=tp12-ex1` VISE UN EXERCICE VERROUILLÉ. Le serveur refuse déjà de le
     // servir ; ce que la page doit faire, c'est le dire -- pas rester muette,
     // et pas non plus ressembler à un lien mort.
     check(nodes.menuex.open === true,
@@ -954,7 +954,7 @@ const attendre = async () => { await sleep(); await sleep(); };
           "verrou : sur son cadenas et sa date");
     check(global.ctester.exerciceChoisi() === "tp1",
           "verrou : l'exercice affiché reste le premier exercice ouvert");
-    check(!calls.some(c => c.url === "tp/tp10-ex1.json"),
+    check(!calls.some(c => c.url === "tp/tp12-ex1.json"),
           "verrou : son détail n'est jamais demandé");
     console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nle lien verrouillé tient");
     process.exit(failures ? 1 : 0);
@@ -1167,7 +1167,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(/\ud83d\udd12/.test(libelle(verrouille))
         && /ouvre le /.test(libelle(verrouille)),
         "il porte un cadenas ET une date : « pas encore ouvert » ne suffit pas");
-  check(!global.ctester.catalogue().some(t => t.id === "tp10-ex1"),
+  check(!global.ctester.catalogue().some(t => t.id === "tp12-ex1"),
         "et il ne compte nulle part ailleurs : ni progression, ni export");
 
   // UN EXERCICE PEUT ÊTRE DANS DEUX COLLECTIONS -- c'est ce qu'un parcours
@@ -1211,7 +1211,7 @@ const attendre = async () => { await sleep(); await sleep(); };
         "le brouillon d'hier est retrouvé à l'ouverture de la page");
   check(nodes.purger.hidden === false,
         "et « effacer mes brouillons » apparaît puisqu'il y a quelque chose à effacer");
-  await choisir("TP 6", "tp6-ex1");
+  await choisir("TP 6", "tp7-ex1");
   check(nodes.code.value === "#define VRAI 1\n",
         "une entrée mal formée du stockage est ignorée : c'est le gabarit qui sert");
 
@@ -1222,7 +1222,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(/réponses à saisir/.test(contexte()), "la pastille suit le mode du TP");
   // LES TROIS MODES, et surtout unity : promettre « avec son main() » sur un
   // module envoie l'étudiant dans une erreur d'édition de liens.
-  await choisir("TP 6", "tp6-ex1");
+  await choisir("TP 6", "tp7-ex1");
   check(/sans main\(\)/.test(contexte()),
         "un module unity annonce qu'il n'attend PAS de main() : " + contexte());
 
@@ -1296,7 +1296,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(rendu === brut + "\n", "le texte coloré est identique à la source");
 
   // --- Multi-fichiers : un module .h + .c ---
-  await choisir("TP 6", "tp6-ex1");
+  await choisir("TP 6", "tp7-ex1");
   check(nodes.tabs.hidden === false, "un module affiche sa barre d'onglets");
   check(nodes.tabs.children.map(o => o.textContent).join(",")
         === "calendrier.h,calendrier.c", "un onglet par fichier imposé par l'énoncé");
@@ -1346,10 +1346,10 @@ const attendre = async () => { await sleep(); await sleep(); };
         "« suivant » passe par la vérification du TP, elle est au menu comme "
         + "le reste");
   nodes.next.listeners.click();
-  check(global.ctester.exerciceChoisi() === "tp6-ex1",
+  check(global.ctester.exerciceChoisi() === "tp7-ex1",
         "« suivant » franchit la fin d'un TP");
-  // LES FLÈCHES NE MARCHENT QUE SUR CE QUI EST OUVERT : `tp10-ex1` est publié,
-  // verrouillé, et suit `tp6-ex1` dans le catalogue. Le rang de la fin, c'est
+  // LES FLÈCHES NE MARCHENT QUE SUR CE QUI EST OUVERT : `tp12-ex1` est publié,
+  // verrouillé, et suit `tp7-ex1` dans le catalogue. Le rang de la fin, c'est
   // le dernier exercice OUVERT, sinon « suivant » mènerait à un 404.
   nodes.next.listeners.click();
   await attendre();
@@ -1468,7 +1468,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   // L'ONGLET VISÉ EST CELUI QUI PORTE LE NOM DU FICHIER. Importer `calendrier.c`
   // par-dessus `calendrier.h` parce que c'est l'onglet ouvert est un ecrasement
   // silencieux, au moment ou l'etudiant regarde ailleurs.
-  await choisir("TP 6", "tp6-ex1");
+  await choisir("TP 6", "tp7-ex1");
   await sleep();
   if (nodes.tabs.children.length > 1) {
     const noms = nodes.tabs.children.map(o => o.dataset.name);
@@ -1477,7 +1477,7 @@ const attendre = async () => { await sleep(); await sleep(); };
     nodes.file.files = [{ name: autre, text: async () => "/* contenu du second */" }];
     await nodes.file.listeners.change({ target: nodes.file });
     await sleep();
-    const ecrits = JSON.parse(storage["ctester.drafts"] || "{}")["tp6-ex1"] || {};
+    const ecrits = JSON.parse(storage["ctester.drafts"] || "{}")["tp7-ex1"] || {};
     check(ecrits[autre] === "/* contenu du second */",
           "l'import atterrit dans l'onglet qui porte son nom : " + autre);
     check(ecrits[noms[0]] !== "/* contenu du second */",

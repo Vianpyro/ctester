@@ -46,7 +46,7 @@ def assessment(exercice):
 
 
 def corrige(exercice):
-    """The reference solution's directory. `tp6-ex1` first, then `tp6/ex1`."""
+    """The reference solution's directory. `tp7-ex1` first, then `tp6/ex1`."""
     for candidat in (SOLUTIONS / exercice,
                      SOLUTIONS.joinpath(*exercice.split("-", 1))):
         if candidat.is_dir():
@@ -168,7 +168,7 @@ def sources_c(dossier):
 def module_c(fichiers, exercice, nom="calendrier.c"):
     """The module's .c file among a fetched solution's files, or a clear error.
 
-    tp6-ex1 is the two-file module fixture declared in its public/files.json;
+    tp7-ex1 is the two-file module fixture declared in its public/files.json;
     a solutions checkout missing calendrier.c is a content/solutions sync
     problem to report, not a KeyError to chase through a traceback.
     """
@@ -326,13 +326,13 @@ for ligne in texte.strip().splitlines():
         print("      " + ligne.strip()[:100])
 
 # --- 3. NO LEAK: nothing from the test file in the warnings -----------------
-sol = corrige("tp6-ex1")
+sol = corrige("tp7-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-nom = module_c(fichiers, "tp6-ex1")
+nom = module_c(fichiers, "tp7-ex1")
 # The reference solution is made deliberately noisy to FORCE warnings:
 # without a warning, this check would pass for the wrong reasons.
 fichiers[nom] += "\nstatic int jamais_utilisee_e2e = 42;\n"
-rc, out, cases, racine = lancer("unity", fichiers, "tp6-ex1")
+rc, out, cases, racine = lancer("unity", fichiers, "tp7-ex1")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(runner.verdict(rc, reste), av)
 test_src = (racine / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
@@ -373,12 +373,12 @@ for ligne in cas.get("stderr", "").splitlines():
         break
 
 # --- 5. ASan in unity mode: the FACT, never the report ----------------------
-sol = corrige("tp6-ex1")
+sol = corrige("tp7-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-nom_c = module_c(fichiers, "tp6-ex1")
+nom_c = module_c(fichiers, "tp7-ex1")
 fichiers[nom_c] = ("static int deborde_e2e[4];\n" + fichiers[nom_c]).replace(
     "return", "deborde_e2e[9] = 1;\n    return", 1)
-rc, out, cases, racine = lancer("unity", fichiers, "tp6-ex1")
+rc, out, cases, racine = lancer("unity", fichiers, "tp7-ex1")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(runner.verdict(rc, reste), av)
 print("\n--- 5. overflow in unity mode: the fact, without the report ---")
@@ -411,13 +411,13 @@ check(res.get("passed") == 0, "no case passes (status %r)" % res["status"])
 check("boucle infinie" in cas.get("reason", ""),
       "the message names the infinite loop: " + cas.get("reason", "(none)")[:80])
 
-sol = corrige("tp6-ex1")
+sol = corrige("tp7-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-nom = module_c(fichiers, "tp6-ex1")
+nom = module_c(fichiers, "tp7-ex1")
 fichiers[nom] += (
     "\n__attribute__((constructor)) static void boucle_e2e(void)"
     " { while (1) {} }\n")
-rc, out, cases, _ = lancer("unity", fichiers, "tp6-ex1", CTESTER_RUN_TIMEOUT="2")
+rc, out, cases, _ = lancer("unity", fichiers, "tp7-ex1", CTESTER_RUN_TIMEOUT="2")
 av, reste = runner.extraire_avertissements(out, NONCE)
 res = runner.avec_avertissements(runner.verdict(rc, reste), av)
 print("\n--- 6b. infinite loop in unity mode ---")

@@ -525,7 +525,7 @@ de malchance enfermerait l'étudiant dans un verdict qu'il ne pourrait plus jama
 faire changer.
 
 **`"cache": false` dans `io.json` / `unity.json` pour un exercice dont le
-PROGRAMME est aléatoire.** `tp4-ex1` tire des dés (`in_range`), `tp4-ex2` est un
+PROGRAMME est aléatoire.** `tp6-ex1` tire des dés (`in_range`), `tp6-ex2` est un
 test statistique sur un million de lancers (`tolerance: 0.02`) : les deux le
 portent. **Un futur exercice aléatoire doit le porter aussi** — l'oublier gèlerait
 un échec de malchance, et c'est le seul dégât que ce cache puisse faire.

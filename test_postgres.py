@@ -360,7 +360,7 @@ def grants():
         ALICE, "tp2-ex0", "reussite:tp2-ex0", 30, "first solve",
         "policy-1", {"job": "job-4"}, 20) == 5           # 20 - 15 already granted
     assert state.grant_first_solve(
-        ALICE, "tp6-ex1", "reussite:tp6-ex1", 30, "first solve",
+        ALICE, "tp7-ex1", "reussite:tp7-ex1", 30, "first solve",
         "policy-1", {"job": "job-5"}, 20) == 0           # cap reached
     assert count("xp_transaction", ALICE) == 3
     print("ok   grant: once per fact, cap applied within the same statement")

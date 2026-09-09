@@ -1470,7 +1470,7 @@ CATALOGUE_DEMO = [
     {"id": "tp2-ex0", "skills": ["variables"], "difficulty": "intro"},
     {"id": "tp2-ex3", "skills": ["variables", "arithmetic-operators"],
      "difficulty": "foundation"},
-    {"id": "tp6-ex1", "skills": ["arrays-1d"]},
+    {"id": "tp7-ex1", "skills": ["arrays-1d"]},
     {"id": "tp1"},                                    # sans metadonnees : legal
 ]
 
@@ -1493,9 +1493,9 @@ def evidence(exercice, reussi):
 def test_projection_des_competences():
     etats = [{"exercise_id": "tp2-ex0", "status": "solved"},
              {"exercise_id": "tp2-ex3", "status": "attempted"}]
-    pratique = [{"exercise_id": "tp6-ex1", "attempts": 2, "successes": 0}]
+    pratique = [{"exercise_id": "tp7-ex1", "attempts": 2, "successes": 0}]
     touches, reussis = progression.exercise_facts(etats, pratique)
-    assert touches == {"tp2-ex0", "tp2-ex3", "tp6-ex1"}
+    assert touches == {"tp2-ex0", "tp2-ex3", "tp7-ex1"}
     assert reussis == {"tp2-ex0"}
     # A row with no exercise id (degraded data) breaks nothing, it simply
     # does not count -- on both sides of the merge.
@@ -3075,7 +3075,7 @@ def test_cache_de_verdicts():
     assert runner.cachable({}, {"status": "compile_error", "gcc": "..."})
     assert runner.cachable({}, ok)
     assert runner.cachable({}, rate)
-    # `"cache": false` -- tp4-ex1 tire des dés, tp4-ex2 est un test statistique.
+    # `"cache": false` -- tp6-ex1 tire des dés, tp6-ex2 est un test statistique.
     assert not runner.cachable({"cache": False}, ok)
     assert not runner.cachable({"cache": False}, rate)
 

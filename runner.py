@@ -1233,7 +1233,7 @@ def cache_ecrire(sig, verdict):
 
 def cachable(conf, verdict):
     """`"cache": false` in io.json / unity.json for an exercise whose PROGRAM
-    is randomized (tp4-ex1 rolls dice, tp4-ex2 is a statistical test over a
+    is randomized (tp6-ex1 rolls dice, tp6-ex2 is a statistical test over a
     million rolls): without it, a failure born of bad luck would be frozen
     and the student could never pass again."""
     return (bool(conf.get("cache", True))
