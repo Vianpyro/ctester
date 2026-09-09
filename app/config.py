@@ -169,6 +169,32 @@ FORUM_GROUPES = tuple(
     os.environ.get("CTESTER_FORUM_GROUPES", "4,6").replace(",", " ").split()
     if x.lstrip("-").isdigit())
 
+# --- Le pont Discord -----------------------------------------------------------
+# LE COURS A DÉJÀ UN DISCORD, ET C'EST LÀ QUE LA COHORTE EST. Un chat vide
+# reste vide : ce n'est pas un problème d'interface mais de masse critique.
+# Le pont relaie donc les deux sens -- mais SEULEMENT le chat public.
+#
+# CE QUI NE SORT JAMAIS : une question privée, un `sub`, un code d'étudiant.
+# `discord.annoncer()` refuse tout fil qui n'est pas `est_chat()`, et c'est
+# le seul `if` que la propriété coûte. `D-013` le dit et révise `D-008`.
+#
+# LES TROIS SONT VIDES PAR DÉFAUT, comme `FORUM_MODERATORS` : sans elles le
+# pont n'existe pas, la route entrante n'est pas montée, et rien ne part.
+DISCORD_WEBHOOK = os.environ.get("CTESTER_DISCORD_WEBHOOK", "").strip()
+# La clé du pont entrant. Vide => la route N'EST PAS MONTÉE, même dessin que
+# `DOCS` : il n'y a rien à contourner quand il n'y a rien.
+DISCORD_BRIDGE_KEY = os.environ.get("CTESTER_DISCORD_BRIDGE_KEY", "").strip()
+# L'invitation, affichée dans le chat. Purement cosmétique, et c'est le repli
+# quand le pont est éteint : les deux endroits existent, autant le dire.
+DISCORD_URL = os.environ.get("CTESTER_DISCORD_URL", "").strip()
+# Combien de secondes on attend Discord. Court exprès : c'est un fil démon,
+# personne ne l'attend, et un webhook lent ne doit pas retenir un descripteur.
+DISCORD_TIMEOUT = _entier("CTESTER_DISCORD_TIMEOUT", "5")
+# LE PRÉFIXE D'UN COMPTE VENU DE DISCORD. Même propriété que `@chat:` : `@`
+# ne peut apparaître dans aucun identifiant de catalogue, donc un compte de
+# pont ne résout chez personne et ne devient jamais un chemin.
+DISCORD_ACCOUNT_PREFIX = "@discord:"
+
 # --- Team assignments -----------------------------------------------------------
 # NOTHING TURNS THIS FEATURE ON OR OFF, and that is deliberate: it is the
 # CONTENT that opts in (an assignment file with a `team` block) and the ROSTER

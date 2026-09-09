@@ -70,6 +70,11 @@ def oidc():
     # `scratch` voyage ici pour la même raison que `forum` : c'est déjà
     # l'endpoint « ce qui est offert », et faux ou absent, le bouton n'existe
     # pas -- donc `scratch.js` n'est jamais demandé.
+    # `discord` est l'INVITATION, rien de plus : une URL affichée dans le chat.
+    # Le cours a déjà un Discord ; taire son existence dans la page ne le fait
+    # pas disparaître, ça oblige juste les étudiants à retrouver le lien
+    # ailleurs. Vide => le bouton n'existe pas.
     return {"issuer": config.OIDC_ISSUER, "client_id": config.OIDC_CLIENT_ID,
             "forum": forum_service.forum_enabled(),
+            "discord": config.DISCORD_URL,
             "scratch": config.SCRATCH}

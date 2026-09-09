@@ -191,6 +191,29 @@ class ForumProfilIn(BaseModel):
     leaderboard_opt_in: bool = False
 
 
+class DiscordBridgeIn(_AvecExercice):
+    """POST /forum/bridge -- un message venu de Discord.
+
+    AUCUN CHAMP D'IDENTITÉ CTESTER, et c'est la règle du fichier appliquée à
+    la lettre. `discord_id` n'est PAS un `sub` : c'est un identifiant d'un
+    autre système, qui sert à fabriquer un compte de service préfixé
+    `@discord:` -- lequel n'appartient à aucun étudiant et n'ouvre rien. Il
+    n'existe volontairement AUCUNE table qui relierait les deux : ce serait le
+    pouvoir de désanonymisation que le reste du projet refuse (voir `D-013`).
+
+    `display_name` est le pseudo Discord. Il passe par `forum_pseudo()`, la
+    même validation que ce qu'un étudiant taperait, noms réservés compris --
+    sinon quelqu'un se nommerait « Enseignant » sur Discord et sa réponse
+    passerait pour celle du cours.
+    """
+
+    model_config = _CONFIG
+
+    discord_id: str = ""
+    display_name: str | None = None
+    text: str | None = None
+
+
 class TeamDocumentIn(_AvecExercice):
     """PUT /team/document -- the team's shared code for one exercise.
 

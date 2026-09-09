@@ -51,6 +51,7 @@ import policy as politique  # noqa: E402
 import runner     # noqa: E402
 import security   # noqa: E402
 from services import catalog as catalogue    # noqa: E402
+from services import discord      # noqa: E402
 from services import forum        # noqa: E402
 from services import leaderboard  # noqa: E402
 from services import progress as progression  # noqa: E402
@@ -4531,6 +4532,87 @@ def test_console_n_a_pas_de_liste_d_includes():
     corps = corps[:corps.index("\ndef ")]
     assert "read_allowed" not in corps
     assert "forbidden_includes" not in corps
+
+
+def test_le_bot_du_pont_tourne_sans_aucun_tiers_et_saute_ses_propres_messages():
+    """`bot/bridge.py` : son autotest, joué depuis la suite.
+
+    LE BOT EST UN CONTENEUR, PAS UNE UNITÉ SYSTEMD, et il n'a AUCUNE
+    dépendance -- c'est ce qui permet de le lancer sur l'image officielle
+    telle quelle. On le charge donc ici comme un module ordinaire : s'il
+    importait quoi que ce soit de tiers, cette ligne échouerait, et c'est
+    exactement l'alerte qu'on veut.
+
+    Son autotest tient l'ANTI-BOUCLE (un message portant un `webhook_id` est
+    un message que CTester vient d'écrire) et la lecture de la variable de
+    salons -- dont le refus d'une clé qui ne serait pas un chat, sans quoi le
+    pont entrerait dans les questions privées.
+    """
+    chemin = os.path.join(HERE, "bot", "bridge.py")
+    assert os.path.exists(chemin), chemin
+    sortie = subprocess.run([sys.executable, chemin, "--autotest"],
+                            capture_output=True, text=True)
+    assert sortie.returncode == 0, sortie.stdout + sortie.stderr
+    assert "autotest ok" in sortie.stdout, sortie.stdout
+
+
+def test_le_pont_discord_ne_laisse_sortir_que_le_chat_public():
+    """`annoncer()` : ce qui part vers Discord, et surtout ce qui n'en part pas.
+
+    C'EST LA SEULE PROMESSE QUE LE PONT PEUT CASSER, et elle tient à UN `if`.
+    Le chat est public par construction (`forum_visibility()` n'y laisse pas
+    le choix) ; tout le reste -- une question privée, une réponse dans un fil
+    de forum -- est adressé à quelqu'un en particulier, et ne quitte pas la
+    plateforme. `D-013` le dit, ce test le tient.
+    """
+    garde = (config.DISCORD_WEBHOOK, config.DISCORD_TIMEOUT)
+    partis = []
+    vrai_poster = discord._poster
+    try:
+        config.DISCORD_WEBHOOK = "https://discord.invalide/webhook"
+        discord._poster = partis.append
+
+        # ÉTEINT PAR L'ABSENCE D'UNE VARIABLE, comme le forum lui-même.
+        config.DISCORD_WEBHOOK = ""
+        assert discord.actif() is False
+        assert discord.annoncer("@chat:general", "sub-a", "X", "salut") is False
+        config.DISCORD_WEBHOOK = "https://discord.invalide/webhook"
+
+        # LE CHAT PUBLIC SORT.
+        assert discord.annoncer("@chat:general", "sub-a", "Arbre", "salut") is True
+        assert discord.annoncer("@chat:tp2-ex3", "sub-a", "Arbre", "salut") is True
+
+        # RIEN D'AUTRE NE SORT. Un fil de forum peut porter une question
+        # privée : le pont ne le lit même pas pour décider.
+        for fil in ("tp2-ex3", "tp1", "", None):
+            assert discord.annoncer(fil, "sub-a", "Arbre", "salut") is False, fil
+
+        # L'ANTI-BOUCLE, MOITIÉ SERVEUR : ce qui vient de Discord n'y retourne
+        # pas. L'autre moitié est dans le bot, qui saute les `webhook_id`.
+        assert discord.annoncer("@chat:general", "@discord:4711",
+                                "Vianney", "salut") is False
+        # Un message vide ne fait pas un message Discord vide.
+        assert discord.annoncer("@chat:general", "sub-a", "Arbre", "   ") is False
+
+        # `allowed_mentions` VIDE N'EST PAS OPTIONNEL : sans lui un étudiant
+        # tape `@everyone` dans CTester et réveille tout le serveur Discord,
+        # depuis une page où il n'a jamais consenti à faire ça.
+        corps = discord.charge("Arbre", "@everyone @here salut", "# ex.3")
+        assert corps["allowed_mentions"] == {"parse": []}, corps
+        assert corps["content"] == "@everyone @here salut"
+        assert corps["username"] == "Arbre — # ex.3"
+        # Et les deux champs sont bornés : un webhook refuse au-delà, et un
+        # refus silencieux serait un message perdu sans que personne le sache.
+        long = discord.charge("n" * 400, "t" * 5000, "")
+        assert len(long["username"]) <= 80 and len(long["content"]) <= 1900
+
+        # AUCUN `sub` NE PART. `annoncer()` reçoit le compte pour décider, et
+        # ne le met jamais dans la charge utile.
+        corps = discord.charge("Arbre hélicoïdal", "ma question", "# ex.3")
+        assert "sub-" not in json.dumps(corps), corps
+    finally:
+        discord._poster = vrai_poster
+        config.DISCORD_WEBHOOK, config.DISCORD_TIMEOUT = garde
 
 
 def test_le_chat_force_le_public_et_le_prefixe_est_toute_la_distinction():

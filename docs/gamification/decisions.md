@@ -122,7 +122,11 @@ qu'il l'ait explicitement coche.)*
 
 **Alternatives:** attendre la Phase 4 (rejetee : rien avant decembre) ; un canal
 externe type Discord (rejetee : hors du controle du cours, transporte du code
-evalue, et aucune suppression a la demande) ; recompenser la participation en XP
+evalue, et aucune suppression a la demande) *(revise par
+[D-013](#d-013--le-pont-discord-par-compte-de-service) : le Discord n'est plus
+une ALTERNATIVE au forum mais un PONT vers lui — CTester reste la source de
+verite, la suppression a la demande continue de marcher, et seul le chat
+PUBLIC traverse)* ; recompenser la participation en XP
 (rejetee : cela fabriquerait du bruit et transformerait l'entraide en farming) ;
 un detecteur de solution (rejetee, voir D-002).
 
@@ -276,3 +280,81 @@ tables de forum. `CTESTER_FORUM_GROUPES` fixe optionnellement la liste des
 groupes valides pour la session. Voir [social.md](social.md) et
 [privacy.md](privacy.md).
 
+
+
+## D-012 — Le chat en direct, un prefixe de cle de fil
+
+**Statut:** Accepted (2026-09-09), retroactif — la fonctionnalite etait livree
+avant d'etre decidee par ecrit.
+
+**Decision:** un espace public a auteurs masques, ou tout est lisible par tous
+les comptes du cours. Il n'a NI TABLE NI COLONNE a lui : `@chat:<exercice>` et
+`@chat:general` sont des valeurs de plus dans `forum_message.exercise_id`, et
+`est_chat()` est le seul predicat que la distinction coute — il sert a trois
+endroits (forcer la visibilite, choisir le rendu de l'auteur, etiqueter
+l'ecran). L'auteur y apparait sous un ALIAS tire d'un vocabulaire ferme, jamais
+sous un pseudonyme tape. La mise a jour passe par une SONNETTE WebSocket qui ne
+transporte aucun contenu : `{"t":"new"}`, et le client relance `GET /forum`.
+
+**Raison:** un etudiant qui a peur du ridicule ne pose pas sa question. Le forum
+repond a « je suis bloque » en prive ; il ne repond pas a « est-ce que je suis
+le seul a ne pas comprendre ». Il fallait un endroit ou la question est publique
+mais l'auteur ne l'est pas.
+
+**Alternatives:** une table `chat_message` (rejetee : elle aurait duplique la
+borne de texte, le quota, le signalement, la moderation, le masquage et
+`forget()` — six regles dont celle qui derive est celle qui cesse de border) ;
+une colonne `kind` (rejetee : un `WHERE` de plus a chaque requete du forum, et
+celui qu'on oublie est celui qui melange les deux espaces) ; relayer le texte
+par la socket (rejetee : il faudrait reimplementer `can_see()` par destinataire,
+sur le chemin le plus difficile a eprouver).
+
+**Consequences:** `@` ne peut apparaitre dans aucun identifiant du catalogue,
+donc une cle de chat ne resout chez personne et ne devient jamais un chemin.
+`forum_live` est un `dict` en memoire de processus — une raison de plus pour UN
+SEUL WORKER. Le `-1` reste interdit sur une question, par le `WHERE` d'un INSERT
+et non par l'interface.
+
+## D-013 — Le pont Discord, par compte de service
+
+**Statut:** Accepted (2026-09-09). Revise
+[D-008](#d-008--un-forum-dentraide-mvp-entre-la-phase-1-et-la-phase-2).
+
+**Decision:** relayer LES DEUX SENS entre le chat public de CTester et un salon
+Discord du cours. Un message venu de Discord est ecrit sous un COMPTE DE SERVICE
+`@discord:<id_discord>`, avec une ligne `forum_profile` portant le pseudo
+Discord comme nom affiche. **Il n'existe aucune table Discord<->`sub`, et il ne
+doit pas en exister.** Seul le chat PUBLIC traverse, dans les deux sens : une
+question privee ne sort jamais, et le pont ne peut pas en ecrire une.
+
+**Raison:** le cours a deja un Discord, et c'est la que la cohorte est. Un chat
+vide reste vide : le probleme n'est pas l'interface, c'est la masse critique.
+D-008 rejetait Discord comme ALTERNATIVE au forum — « hors du controle du cours,
+transporte du code evalue, aucune suppression a la demande ». Aucun des trois ne
+s'applique a un PONT : CTester reste la source de verite et la seule surface de
+moderation, rien de prive ne traverse (donc pas de code d'exercice qu'un
+etudiant aurait cru envoyer a son enseignant seul), et « Supprimer mes donnees »
+continue d'effacer tout ce que CTester detient.
+
+**Alternatives:** un simple lien vers le Discord (rejetee : ne resout pas la
+masse critique, les deux endroits restent a surveiller — il est garde EN PLUS,
+comme repli quand le pont est eteint) ; un webhook sortant seul (rejetee : les
+reponses resteraient sur Discord, donc invisibles a qui a pose la question dans
+CTester) ; une commande `/lier` associant un compte Discord a un `sub` (**rejetee
+fermement** : elle donnerait a l'enseignant le moyen de relier un pseudonyme
+CTester a un visage, c'est-a-dire exactement le pouvoir de desanonymisation que
+`forum_identite()` refuse jusque dans la vue d'un moderateur) ; une gateway
+Discord temps reel (rejetee pour l'instant : cent cinquante lignes et une
+machine a etats, pour passer de 5 s a 0,2 s dans un cours dont le compteur de
+presence sonde a 60 s — voir le `ponytail:` de `bot/bridge.py`).
+
+**Consequences:** AUCUNE table, AUCUNE colonne, AUCUN GRANT nouveau. Le compte
+de service traverse `forum_identite()`, `is_moderator()`, `freiner_forum()` et
+`forget()` sans un `if` de plus, parce qu'il n'est qu'une chaine prefixee — la
+meme propriete que `@chat:`. L'anti-boucle a deux moities et il faut les deux :
+le bot saute les messages portant un `webhook_id`, `annoncer()` refuse un compte
+`@discord:`. `allowed_mentions: {"parse": []}` est obligatoire sur le webhook,
+sinon un etudiant tape `@everyone` dans CTester et reveille tout le serveur
+Discord depuis une page ou il n'a jamais consenti a ca. Un conteneur de plus
+(`ctester-bridge`), pas une unite systemd, en stdlib pure. Le pont s'eteint par
+`ctester_discord_enabled: false`, et le rollback est cette ligne.

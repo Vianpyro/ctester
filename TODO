@@ -2,6 +2,15 @@
 - [~] Add LeetCode-type tags to exercices so students can search by tag for studying before exams
 - [~] Add a ranked mode -> see docs/gamification/ranked.md
 - [~] Translate code to English since the repo is public
-- [ ] Connect forum to Discord (Discord bot)
+- [~] Connect forum to Discord (Discord bot) -- two-way, via a SERVICE ACCOUNT
+      (`@discord:<id>`), no Discord<->sub table ever. See D-013. Container
+      `ctester-bridge`, stdlib only, off by default (`ctester_discord_enabled`).
+- [ ] Containerise `ctester-tests` -- the ONLY systemd unit that can be. It
+      pulls the private test repo and republishes the catalogue: no root, no
+      Docker socket, no host access. The other two must STAY on the host, and
+      the reason is worth keeping: `ctester-runner@` is root and drives
+      Docker+gVisor (containerising it means docker-in-docker, i.e. handing the
+      sandbox the socket it exists to be isolated from), and `ctester-pull`
+      restarts the containers -- it cannot live inside one it restarts.
 - [~] Questions en live anonymes pour les timides
 - [ ] Add error highlighting in text editor

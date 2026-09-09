@@ -179,6 +179,9 @@ let saisie = "";
 // défaut est le chat : c'est ce qu'on vient chercher quand on ouvre
 // « Discussions » pendant un labo.
 let modeFil = "chat-ex";
+// LE DOCK EST-IL OUVERT. Il vit dans `#travail`, donc il disparaît tout seul
+// quand une autre vue prend l'écran ; ce drapeau dit s'il doit revenir.
+let dockOuvert = false;
 let estChat = true;
 let repondA = null;          // la racine à laquelle on répond, ou null
 let socket = null;
@@ -230,7 +233,10 @@ const INDISPO = "Les discussions ne sont pas disponibles pour l'instant. "
               + "L'exercice et le bouton « Tester », eux, fonctionnent "
               + "normalement.";
 
-async function charger(id) {
+// LE FIL SEUL, SANS LE PROFIL NI LES FILES DU MODÉRATEUR. `charger()` y
+// ajoute jusqu'à cinq requêtes : acceptable à l'ouverture, pas à CHAQUE
+// changement d'exercice avec le dock ouvert. Rend `true` si le fil est là.
+async function chargerFil(id) {
   fil = null;
   signalements = null;
   nomsSignales = null;
@@ -241,18 +247,18 @@ async function charger(id) {
   if (id !== exercice) { repondA = null; permalien = null; }
   exercice = id;
   if (!ctester.compte) {
-    erreur = "Reconnecte-toi pour ouvrir les discussions.";
-    return;
+    erreur = "Reconnecte-toi pour ouvrir le chat.";
+    return false;
   }
   if (!id) {
     erreur = "Aucun exercice n'est publié pour l'instant.";
-    return;
+    return false;
   }
   const response = await ctester.compte.getJson(
     "forum?ex=" + encodeURIComponent(id));
   if (!response || !Array.isArray(response.messages)) {
     erreur = INDISPO;
-    return;
+    return false;
   }
   fil = response.messages;
   estChat = !!response.chat;
@@ -262,6 +268,10 @@ async function charger(id) {
   blockedKinds = Array.isArray(response.blocked_kinds) ? response.blocked_kinds : [];
   threadStateInfo = response.state || null;
   erreur = "";
+  return true;
+}
+
+async function chargerAnnexes() {
   // The report queue is only ever requested by a moderator, and the server
   // refuses everyone else: this check just avoids a needless 403, it
   // protects nothing on its own.
@@ -283,6 +293,12 @@ async function charger(id) {
     topRows = topResponse && Array.isArray(topResponse.rows) ? topResponse : null;
   }
   await chargerProfil();
+}
+
+// L'OUVERTURE COMPLÈTE : le fil, puis ce qui ne dépend pas du fil.
+async function charger(id) {
+  if (!await chargerFil(id)) return;
+  await chargerAnnexes();
 }
 
 // THE PROFILE READS ON ITS OWN. "Mon identité" opens from the Compte menu,
@@ -331,9 +347,14 @@ async function ecrire(path, method, payload, successMsg, failMsg) {
 // WE REDRAW THE SCREEN BEING LOOKED AT, not the other one: hiding a message
 // from moderation used to redraw the THREAD instead, a screen that was not
 // even displayed, and the action looked like it had done nothing.
+// TROIS SURFACES, UN SEUL ÉTAT. Le dock et la vue large lisent le MÊME fil et
+// le même `modeFil` : deux états auraient divergé au premier message publié
+// depuis l'un pendant que l'autre est ouvert.
 function redessiner() {
-  if (ctester.vue() === "moderation") dessinerModeration();
-  else dessiner();
+  const vue = ctester.vue();
+  if (vue === "moderation") dessinerModeration();
+  else if (vue === "forum") dessiner();
+  else if (dockOuvert) dessinerDock();
 }
 
 // RÉPONDRE : on retient la cible, le formulaire le dit, et `publier` ajoute
@@ -341,7 +362,7 @@ function redessiner() {
 // réponse n'a donc rien de particulier ici.
 function repondreA(id) {
   repondA = id;
-  dessiner();
+  redessiner();
   if (zone && zone.focus) zone.focus();
 }
 
@@ -358,6 +379,15 @@ async function publier(text, extra) {
     saisie = "";
     if (zone) zone.value = "";
     if (apercu) rendreMarkdown(apercu, "");
+    // ELLE SE DÉCOCHE, TOUJOURS. Une case qui reste cochée rend privé le
+    // message suivant sans le dire -- et celui-là, personne ne le lit.
+    // LE SECOND DESSIN N'EST PAS DE TROP : `ecrire()` a redessiné AVANT
+    // qu'on arrive ici, donc la case serait encore cochée À L'ÉCRAN alors
+    // que l'état dit le contraire. Il ne coûte que sur un envoi privé.
+    if (demandePrivee) {
+      demandePrivee = false;
+      redessiner();
+    }
   }
 }
 
@@ -909,27 +939,77 @@ function exercisePicker() {
   return block;
 }
 
-// LES TROIS ESPACES, ET LEUR DIFFÉRENCE EST ÉCRITE. Un étudiant doit savoir
-// avant d'écrire si ce qu'il tape est public : c'est le contrat que le chat
-// passe avec lui, et le cacher derrière un onglet muet le romprait.
-function filPicker() {
-  const block = node("div", "bloc");
-  block.append(node("h3", "soustitre", "Où écrire"));
-  const row = node("div", "row");
-  const onglets = [
-    ["chat-ex", "Chat de l'exercice"],
-    ["chat-general", "Chat général"],
-    ["forum", "Forum de l'exercice"],
-  ];
-  for (const [mode, titre] of onglets) {
-    row.append(button(titre, modeFil === mode ? "" : "nav",
-                      () => ouvrirFil(mode)));
+// DEUX CANAUX, ET C'EST TOUT CE QU'ON CHOISIT.
+//
+// Il y avait ici un encart « Où écrire » à trois boutons -- « Chat de
+// l'exercice », « Chat général », « Forum de l'exercice » -- donc trois portes
+// dont DEUX PORTAIENT LE MÊME MOT, à trancher AVANT d'avoir écrit une ligne.
+// Un étudiant de première session arrive de Discord, de Teams et d'Instagram :
+// il y connaît une LISTE DE CANAUX, et nulle part un lieu séparé pour « la
+// même question, mais privée ». Le privé est donc devenu une CASE sous le
+// champ (voir `postForm`), c'est-à-dire un choix fait au moment d'écrire,
+// quand on sait enfin ce qu'on écrit.
+//
+// Rien n'a bougé côté serveur : c'est la CLÉ DE FIL envoyée qui change, et
+// `cleFil()` la fabriquait déjà. `est_chat()` reste absolu -- dans un canal
+// de chat, tout est public, toujours.
+function canaux() {
+  const liste = node("ul", "canaux");
+  const entrees = [["chat-general", "# général",
+                    "Tout le cours, tous sujets."]];
+  const ex = currentExercise();
+  if (ex) {
+    const entree = ctester.catalogue().find((t) => t.id === ex);
+    entrees.push(["chat-ex", "# " + ((entree && entree.short) || ex),
+                  "Le chat de l'exercice ouvert."]);
   }
-  block.append(row);
-  block.append(node("p", "aide", estChat
-    ? "Ici tout est public : ton message est lisible par tous les comptes du cours, sous ton nom masqué."
-    : "Ici tu peux poser une question privée (« Je suis bloqué ici ») que seul le chargé de lab lira."));
-  return block;
+  for (const [mode, libelle, apropos] of entrees) {
+    const li = node("li");
+    const b = button(libelle, modeFil === mode ? "" : "nav",
+                     () => ouvrirFil(mode));
+    b.title = apropos;
+    // L'ÉTAT ACTIF EST DIT À LA MACHINE AUSSI. Les trois onglets d'avant ne
+    // portaient aucun attribut ARIA : un lecteur d'écran annonçait trois
+    // boutons identiques, dont un seul comptait.
+    b.setAttribute("aria-current", modeFil === mode ? "true" : "false");
+    li.append(b);
+    liste.append(li);
+  }
+  return liste;
+}
+
+// « MES QUESTIONS À L'ENSEIGNANT » N'EST PAS UN CANAL, et il ne doit pas en
+// avoir l'air : c'est là qu'on RELIT ce qu'on a envoyé en privé, et la réponse.
+// Le mot « forum » ne paraît plus à l'écran ; il reste une valeur de `modeFil`.
+function lienPrive() {
+  if (!currentExercise()) return null;
+  const prive = modeFil === "forum";
+  return button(prive ? "← Revenir au chat" : "Mes questions à l'enseignant",
+                "nav", () => ouvrirFil(prive ? "chat-ex" : "forum"));
+}
+
+// LE DISCORD DU COURS EXISTE, ET LE TAIRE NE LE FAIT PAS DISPARAÎTRE. Le
+// bouton est là où on cherche « où est-ce qu'on parle », c'est-à-dire dans la
+// liste des canaux. Absent si le déploiement n'en déclare pas.
+function lienDiscord() {
+  const url = (ctester.oidc() || {}).discord;
+  if (!url) return null;
+  const a = node("a", "nav discordlien", "Discord du cours ↗");
+  a.href = url;
+  a.target = "_blank";
+  // `noopener` sur un lien externe : sans lui, la page ouverte garde une
+  // poignée sur celle-ci par `window.opener`.
+  a.rel = "noopener noreferrer";
+  return a;
+}
+
+// CE QU'ON DOIT SAVOIR AVANT D'ÉCRIRE, et pas après. C'est le contrat que le
+// chat passe avec quelqu'un qui a peur du ridicule.
+function motDuCanal() {
+  return node("p", "aide", estChat
+    ? "Ici tout est public : ton message est lisible par tous les comptes du "
+      + "cours, sous ton nom masqué."
+    : "Ce que tu as envoyé en privé. Seul l'enseignant le lit.");
 }
 
 async function ouvrirFil(mode, base) {
@@ -939,7 +1019,7 @@ async function ouvrirFil(mode, base) {
   if (base !== undefined) exerciceForce = base;
   await charger(cleFil());
   brancherSocket();
-  dessiner();
+  redessiner();
 }
 
 // LE CONTENEUR EST STABLE, SON CONTENU CHANGE. C'est ce qui permet de poser
@@ -966,7 +1046,10 @@ function majDoublons() {
 // inutile pendant la frappe, c'est-à-dire au seul moment où elle sert) : ce
 // qui la borne est de ne pas partir à chaque touche.
 function guetterDoublon() {
-  if (repondA) return;
+  // PAS DEPUIS LE DOCK : il n'y dessine aucun encart de doublon (pas la place
+  // dans 22 rem), donc la requête partirait pour un résultat que personne
+  // n'affiche -- une requête par frappe, pour rien.
+  if (repondA || composeCompact) return;
   if (minuterieDoublon) clearTimeout(minuterieDoublon);
   const texte = saisie;
   if (texte.trim().length < 8) { doublons = null; return; }
@@ -1031,11 +1114,14 @@ function resultatsListe(rows, vide) {
 }
 
 function filLisible(cle) {
-  if (cle === CHAT_GENERAL) return "Chat général";
+  if (cle === CHAT_GENERAL) return "# général";
   const nu = cle.startsWith(CHAT_PREFIX) ? cle.slice(CHAT_PREFIX.length) : cle;
   const trouve = (ctester.catalogue() || []).find((t) => t.id === nu);
   const nom = trouve ? (trouve.short || trouve.label) : nu;
-  return cle.startsWith(CHAT_PREFIX) ? "Chat — " + nom : "Forum — " + nom;
+  // Le mot « forum » ne paraît plus à l'écran : ce fil-là, l'étudiant le
+  // connaît comme « ses questions à l'enseignant », et rien d'autre.
+  return cle.startsWith(CHAT_PREFIX)
+    ? "# " + nom : "Mes questions — " + nom;
 }
 
 async function chercher(terms) {
@@ -1065,12 +1151,29 @@ async function ouvrirPermalien(id) {
 // default and carries a step. One state, so the two can never be half-open at
 // once.
 let composeMode = "question";
+// QUELLE SURFACE A DESSINÉ LE COMPOSEUR EN DERNIER. Sert à deux choses, et à
+// rien d'autre : ne pas chercher de doublon depuis le dock, et savoir que
+// `zone` porte un id préfixé.
+let composeCompact = false;
+// LA CASE « EN PRIVÉ ». Elle remplace un LIEU par un CHOIX, et c'est toute la
+// refonte : on ne décide plus où aller avant d'écrire, on décide qui lit une
+// fois qu'on a écrit. Décochée à chaque envoi -- une case qui reste cochée
+// rend privé le message suivant sans le dire.
+let demandePrivee = false;
 let chosenStep = "";
 let chosenBlockedKind = "";
 let chosenVisibility = "private";
 
-function postForm() {
-  const block = node("div", "bloc");
+// `compact` : la version du dock. Une colonne de 22 rem n'a pas la place de
+// l'aperçu Markdown ni des onglets ; la vue large, si.
+function postForm(compact) {
+  // UN PRÉFIXE, PARCE QUE LES DEUX SURFACES COEXISTENT. Le dock garde son DOM
+  // pendant que la vue large est ouverte : sans ça, deux `id="forumtexte"`
+  // vivraient dans la même page, un `<label for>` désignerait le mauvais
+  // champ et `getElementById` rendrait le premier venu.
+  const pfx = compact ? "chat" : "forum";
+  composeCompact = !!compact;
+  const block = node("div", compact ? "chatsaisie" : "bloc");
   // RÉPONDRE À QUELQU'UN SE DIT AVANT D'ÉCRIRE. Sans cette bande, on tape une
   // réponse en croyant ouvrir une nouvelle question -- et l'inverse.
   if (repondA) {
@@ -1108,8 +1211,8 @@ function postForm() {
     // file, and the sentence says so where it will be read.
     block.append(node("p", "aide", "Ta question partira avec l'exercice et "
       + "l'étape. Ton code, lui, ne part pas — décris ce que tu observes."));
-    block.append(stepPicker());
-    block.append(blockedPicker());
+    block.append(stepPicker(pfx));
+    block.append(blockedPicker(pfx));
   }
 
   const label = node("label", "", (stuck
@@ -1118,19 +1221,21 @@ function postForm() {
       : estChat ? "Ta question — personne ne juge, et tu es masqué"
       : "Ta question ou ton explication")
     + (maxTexte ? " (" + maxTexte + " caractères au plus)" : ""));
-  label.setAttribute("for", "forumtexte");
+  label.setAttribute("for", pfx + "texte");
   zone = document.createElement("textarea");
-  zone.id = "forumtexte";
+  zone.id = pfx + "texte";
   zone.value = saisie;
   zone.setAttribute("rows", "4");
   if (stuck) zone.placeholder = "J'ai vérifié le type de ma variable, mais…";
   block.append(label, zone);
 
-  block.append(node("p", "aide", renderAvailable
-    ? "Mise en forme simple : **gras**, *italique*, listes, > citation, `code court`. Le HTML n'est jamais interprété."
-    : "Le rendu enrichi n'a pas pu être chargé : ton message part quand même, et il s'affiche en texte brut."));
+  block.append(node("p", "aide", !renderAvailable
+    ? "Le rendu enrichi n'a pas pu être chargé : ton message part quand même, et il s'affiche en texte brut."
+    : compact
+    ? "Entrée pour envoyer, Maj+Entrée pour un saut de ligne."
+    : "Mise en forme simple : **gras**, *italique*, listes, > citation, `code court`. Le HTML n'est jamais interprété."));
 
-  if (renderAvailable) {
+  if (renderAvailable && !compact) {
     // THE PREVIEW IS NOT `aria-live`. Announcing every keystroke to a screen
     // reader would make the field unusable; the preview is a labeled
     // region, to be read whenever one wants.
@@ -1154,47 +1259,113 @@ function postForm() {
     });
   }
 
+  // ENTRÉE ENVOIE, MAJ+ENTRÉE SAUTE UNE LIGNE. C'est le réflexe que Discord,
+  // Teams et Instagram ont déjà appris à toute la cohorte, et le seul geste
+  // qu'on n'a pas à leur enseigner. Pas dans la vue large : là on rédige une
+  // question de dix lignes, et un `Entrée` qui l'enverrait à moitié écrite
+  // serait pire que le clic.
+  if (compact) {
+    zone.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter" || ev.shiftKey) return;
+      if (ev.preventDefault) ev.preventDefault();
+      envoyer();
+    });
+  }
+
   // « QUELQU'UN A DÉJÀ DEMANDÉ ÇA », ET ON NE FAIT QUE LE PROPOSER. Jamais
   // bloquant : décider à la place de quelqu'un que sa question est un doublon
   // est exactement la façon de le faire taire, ce que tout ceci cherche à
   // éviter. Pas sur une réponse -- on répond à un message précis.
-  if (!repondA) {
+  if (!repondA && !compact) {
     const box = node("div", "");
     box.id = "forumdoublons";
     block.append(box);
     remplirDoublons(box);
   }
 
-  if (stuck) block.append(visibilityPicker());
+  if (stuck) block.append(visibilityPicker(pfx));
 
-  block.append(button(repondA ? "Répondre" : "Publier", "", () => {
-    saisie = zone.value;
-    const text = saisie;
-    // UNE RÉPONSE NE PORTE NI ÉTAPE NI VISIBILITÉ : elle hérite de la
-    // conversation qu'elle rejoint, et le serveur REFUSE qu'elle en porte
-    // une. Les envoyer quand même ferait un 400 que personne ne comprendrait.
-    const extra = repondA ? { reply_to: repondA }
-      : stuck ? { step: chosenStep || "statement",
-                  blocked_kind: chosenBlockedKind || undefined,
-                  visibility: chosenVisibility } : {};
-    if (ctester.sessionGet(CHARTE_VUE)) publier(text, extra);
-    else showGuidelines(() => publier(text, extra));
-  }));
+  // LA CASE QUI A REMPLACÉ UN LIEU, et seulement dans un canal d'exercice :
+  // sur « # général » il n'y a pas d'exercice auquel rattacher la question,
+  // et une case qui ne marcherait qu'une fois sur deux est pire qu'absente.
+  if (peutDemanderEnPrive()) {
+    const bloc = node("div", "chatprive");
+    const paire = checkbox(pfx + "prive",
+                           "Demander en privé à l'enseignant", demandePrivee);
+    paire[0].addEventListener("change", () => {
+      demandePrivee = !!paire[0].checked;
+      redessiner();
+    });
+    bloc.append(paire[1]);
+    if (demandePrivee) {
+      bloc.append(node("p", "aide", "Ton message n'ira pas dans le chat : "
+        + "seul l'enseignant le lira. Ton code, lui, ne part pas — décris ce "
+        + "que tu observes."));
+      // L'ÉTAPE N'EST PAS DÉCORATIVE : c'est elle qui groupe l'agrégat que
+      // l'enseignant lit dans « qui a besoin d'aide ». Tout étiqueter
+      // « énoncé » par défaut le rendrait muet le matin où il compte.
+      bloc.append(stepPicker(pfx));
+    }
+    block.append(bloc);
+  }
+
+  block.append(button(repondA ? "Répondre" : "Publier", "", envoyer));
   return block;
+}
+
+// LA CASE N'EST OFFERTE QUE LÀ OÙ ELLE MARCHE.
+function peutDemanderEnPrive() {
+  return estChat && !repondA && modeFil === "chat-ex" && !!currentExercise();
+}
+
+// L'ENVOI, À UN SEUL ENDROIT, parce qu'il part maintenant de DEUX gestes : le
+// bouton et la touche Entrée. Deux copies auraient divergé, et celle qui
+// dérive est toujours celle qui oublie la case.
+function envoyer() {
+  if (!zone) return;
+  saisie = zone.value;
+  const text = saisie;
+  const stuck = composeMode === "bloque" && !estChat && !repondA;
+  // UNE RÉPONSE NE PORTE NI ÉTAPE NI VISIBILITÉ : elle hérite de la
+  // conversation qu'elle rejoint, et le serveur REFUSE qu'elle en porte
+  // une. Les envoyer quand même ferait un 400 que personne ne comprendrait.
+  let extra;
+  if (repondA) {
+    extra = { reply_to: repondA };
+  } else if (demandePrivee && peutDemanderEnPrive()) {
+    // LA CASE NE CHANGE PAS LA VISIBILITÉ DANS LE CANAL, ELLE CHANGE LE FIL.
+    // `est_chat()` force le public côté serveur et on ne lui demande AUCUNE
+    // exception : on écrit simplement dans le fil de forum de l'exercice,
+    // clé que `cleFil()` sait déjà produire. « Dans le chat, tout est
+    // public » reste vrai à la lettre. `publier` fusionne `extra` par-dessus,
+    // donc `exercise_id` gagne.
+    extra = { exercise_id: currentExercise(),
+              step: chosenStep || "statement",
+              blocked_kind: chosenBlockedKind || undefined,
+              visibility: "private" };
+  } else if (stuck) {
+    extra = { step: chosenStep || "statement",
+              blocked_kind: chosenBlockedKind || undefined,
+              visibility: chosenVisibility };
+  } else {
+    extra = {};
+  }
+  if (ctester.sessionGet(CHARTE_VUE)) publier(text, extra);
+  else showGuidelines(() => publier(text, extra));
 }
 
 // THE STEP AND THE KIND COME FROM THE SERVER'S CLOSED LISTS. Radio buttons
 // rather than a free field, because these are exactly what the instructor's
 // aggregate groups by: six spellings of "compilation" would read as six
 // different problems on the morning that count matters.
-function stepPicker() {
+function stepPicker(pfx) {
   const box = node("div", "choix");
   box.append(node("label", "", "Où ça coince"));
   for (const step of steps) {
     const row = node("label", "coche");
     const input = node("input");
     input.type = "radio";
-    input.name = "forumetape";
+    input.name = (pfx || "forum") + "etape";
     input.checked = chosenStep ? chosenStep === step.id : step === steps[0];
     if (input.checked) chosenStep = step.id;
     input.addEventListener("change", () => { chosenStep = step.id; });
@@ -1204,14 +1375,14 @@ function stepPicker() {
   return box;
 }
 
-function blockedPicker() {
+function blockedPicker(pfx) {
   const box = node("div", "choix");
   box.append(node("label", "", "Ce qui bloque"));
   for (const kind of blockedKinds) {
     const row = node("label", "coche");
     const input = node("input");
     input.type = "radio";
-    input.name = "forumblocage";
+    input.name = (pfx || "forum") + "blocage";
     input.checked = chosenBlockedKind ? chosenBlockedKind === kind.id : kind === blockedKinds[0];
     if (input.checked) chosenBlockedKind = kind.id;
     input.addEventListener("change", () => { chosenBlockedKind = kind.id; });
@@ -1225,7 +1396,7 @@ function blockedPicker() {
 // not require deciding, in the same breath, to say so publicly -- and the
 // second option says what one gains by choosing it, since that is the whole
 // reason to.
-function visibilityPicker() {
+function visibilityPicker(pfx) {
   const box = node("div", "choix");
   box.append(node("label", "", "Qui la voit"));
   const options = [
@@ -1236,7 +1407,7 @@ function visibilityPicker() {
     const row = node("label", "coche");
     const input = node("input");
     input.type = "radio";
-    input.name = "forumvisibilite";
+    input.name = (pfx || "forum") + "visibilite";
     input.checked = chosenVisibility === option[0];
     input.addEventListener("change", () => { chosenVisibility = option[0]; });
     row.append(input, node("span", "", option[1]),
@@ -1516,7 +1687,7 @@ function dessiner() {
   zone = null;
   apercu = null;
   champPseudo = null;
-  titre = node("h2", "", "Discussions");
+  titre = node("h2", "", "Chat du cours");
   titre.id = "forumtitre";
   titre.tabIndex = -1;
   box.append(titre);
@@ -1552,13 +1723,26 @@ function dessiner() {
   const right = node("div", "colonne large");
   box.append(left, right);
 
-  left.append(filPicker());
+  const canal = node("div", "bloc");
+  canal.append(node("h3", "soustitre", "Canaux"));
+  canal.append(canaux());
+  canal.append(motDuCanal());
+  const prive = lienPrive();
+  if (prive) canal.append(prive);
+  const discord = lienDiscord();
+  if (discord) canal.append(discord);
+  left.append(canal);
   if (ctester.catalogue().length && modeFil !== "chat-general") {
     left.append(exercisePicker());
   }
 
-  const rules = node("div", "bloc second");
-  rules.append(node("h3", "soustitre", "Ce qui se publie ici"));
+  // LA CHARTE SE REPLIE. Elle occupait la colonne entière, à toutes les
+  // visites, et c'est elle qui poussait le champ de saisie à huit cents
+  // pixels du dernier message. Le moment où elle COMPTE est le premier envoi
+  // de la session, et `showGuidelines()` la met alors en plein écran : ce
+  // bloc-ci n'est qu'un rappel à relire.
+  const rules = node("details", "bloc second");
+  rules.append(node("summary", "soustitre", "Ce qui se publie ici"));
   rules.append(guidelinesList());
   rules.append(node("p", "aide", "Modération humaine : rien n'est vérifié automatiquement. Signale plutôt que de répondre à une fuite."));
   left.append(rules);
@@ -1569,12 +1753,134 @@ function dessiner() {
     right.append(node("p", "rate", erreur));
     return;
   }
-  left.append(postForm());
   right.append(searchBox());
   right.append(theThread());
+  // LE CHAMP EST SOUS LE FIL, PAS AU BAS DE L'AUTRE COLONNE. C'est le défaut
+  // que la refonte répare : partout ailleurs -- Discord, Teams, Instagram --
+  // on écrit à l'endroit exact où on vient de lire.
+  right.append(postForm(false));
   // MODERATION IS NO LONGER RENDERED HERE. What remains is a door to it,
   // visible only to a moderator.
   if (moderateur) right.append(moderationDoor());
+}
+
+// LE DOCK : LE CHAT À CÔTÉ DU CODE.
+//
+// Il vit dans `#travail`, donc il disparaît tout seul quand « Mes progrès »
+// ou le classement prennent l'écran, et il revient tel quel au retour. Pas de
+// cinquième vue, pas d'entrée dans `afficherVue()` : ce n'est pas une
+// destination, c'est une colonne.
+function dessinerDock() {
+  const box = $("chatdock");
+  if (!box) return;
+  box.hidden = !dockOuvert;
+  // `#travail` ne porte aucune autre classe, et le DOM du harnais ne simule
+  // pas `classList` : l'affectation directe est la version qui marche des
+  // deux côtés.
+  const travail = $("travail");
+  if (travail) travail.className = dockOuvert ? "avecchat" : "";
+  box.innerHTML = "";
+  zone = null;
+  apercu = null;
+  if (!dockOuvert) return;
+
+  const head = node("div", "chathead");
+  head.append(node("span", "chattitre", filLisible(exercice)));
+  head.append(node("span", "grow"));
+  // « EN GRAND » EST LA SEULE PORTE VERS LA VUE LARGE, et c'est pour ça que la
+  // barre du haut n'a plus qu'un bouton : deux entrées pour deux tailles de la
+  // même chose, c'étaient deux mots à apprendre pour une seule idée.
+  const grand = button("⤢", "nav", () => basculer());
+  grand.title = "Ouvrir en grand (recherche, historique)";
+  grand.setAttribute("aria-label", "Ouvrir le chat en grand");
+  const fermer = button("✕", "nav", () => basculerDock());
+  fermer.title = "Fermer le chat";
+  fermer.setAttribute("aria-label", "Fermer le chat");
+  head.append(grand, fermer);
+  box.append(head);
+
+  box.append(canaux());
+  const discord = lienDiscord();
+  if (discord) {
+    const ligne = node("div", "chatliens");
+    ligne.append(discord);
+    box.append(ligne);
+  }
+
+  const flux = node("div", "chatflux");
+  if (fil === null) {
+    flux.append(node("p", "rate", erreur));
+  } else {
+    if (annonce) {
+      const dit = node("p", "annonce", annonce);
+      dit.setAttribute("aria-live", "polite");
+      flux.append(dit);
+    }
+    flux.append(theThread());
+  }
+  box.append(flux);
+  if (fil !== null) box.append(postForm(true));
+}
+
+// LE CANAL SUIT L'ÉDITEUR. Appelé par le noyau à chaque exercice ouvert, et
+// seulement si le module est déjà là -- ouvrir un exercice ne doit jamais
+// faire descendre `forum.js` tout seul.
+async function suivreExercice() {
+  if (!dockOuvert || modeFil === "chat-general") return;
+  const ouvert = ctester.exerciceOuvert();
+  if (!ouvert) return;
+  // `currentExercise()` est COLLANT exprès : il garde le fil qu'on lit. Ici
+  // c'est l'inverse qu'on veut, donc on le force.
+  exerciceForce = ouvert;
+  const vise = cleFil();
+  if (!vise || vise === exercice) return;
+  annonce = "";
+  // `chargerFil` et pas `charger` : le profil et les files du modérateur ne
+  // dépendent pas du fil, et les relire à chaque exercice ouvert serait
+  // quatre requêtes pour rien.
+  await chargerFil(vise);
+  brancherSocket();
+  dessinerDock();
+}
+
+// OUVRIR LE DOCK SANS BASCULER : au démarrage, quand le noyau se souvient
+// qu'il était ouvert. Un chat qui se referme à chaque rechargement est un chat
+// dont on se désintéresse en deux jours.
+async function restaurerDock() {
+  if (dockOuvert) return;
+  dockOuvert = true;
+  await ouvrirLeDock();
+}
+
+async function ouvrirLeDock() {
+  await preparerRendu();
+  const ouvert = ctester.exerciceOuvert();
+  if (ouvert && modeFil !== "chat-general") exerciceForce = ouvert;
+  await charger(cleFil());
+  brancherSocket();
+  dessinerDock();
+}
+
+async function basculerDock() {
+  // LE BOUTON DIT « Retour à l'exercice » QUAND UNE VUE EST OUVERTE, et il
+  // doit alors faire ça : refermer, et rendre le dock tel qu'on l'avait
+  // laissé. Sans cette branche, le seul bouton de la barre aurait deux sens
+  // selon l'écran, ce qui est exactement le défaut qu'on répare.
+  const vue = ctester.vue();
+  if (vue === "forum" || vue === "moderation") {
+    ctester.afficherVue("");
+    if (!dockOuvert) debrancherSocket();
+    dessinerDock();
+    return;
+  }
+  dockOuvert = !dockOuvert;
+  ctester.retenirChat(dockOuvert);
+  if (!dockOuvert) {
+    debrancherSocket();
+    dessinerDock();
+    return;
+  }
+  await ouvrirLeDock();
 }
 
 function moderationDoor() {
@@ -1785,7 +2091,10 @@ function brancherSocket() {
   ouverte.onclose = () => {
     if (socket !== ouverte) return;     // remplacée : rien à reconnecter
     socket = null;
-    if (ctester.vue() !== "forum") return;
+    // LE DOCK COMPTE AUTANT QUE LA VUE. Sans cette moitié, une coupure d'une
+    // seconde laissait le panneau latéral muet pour le reste de la séance,
+    // sans que rien ne le dise -- la pire des pannes de chat.
+    if (ctester.vue() !== "forum" && !dockOuvert) return;
     setTimeout(brancherSocket, socketRetard);
     socketRetard = Math.min(socketRetard * 2, 30000);
   };
@@ -1813,30 +2122,37 @@ async function rafraichirFil() {
   if (signatureDuFil(response.messages) === avant) return;
   fil = response.messages;
   threadStateInfo = response.state || null;
-  dessiner();
+  redessiner();
 }
 
 // --- Entry points -------------------------------------------------------------
 
-async function basculer() {
-  if (ctester.vue() === "forum") {
-    // LA SOCKET MEURT AVEC LA VUE. Une salle par onglet ouvert et par fil,
-    // gardée pendant qu'on code, serait la charge que le compteur de présence
-    // a refusée pour de bonnes raisons.
-    debrancherSocket();
-    ctester.afficherVue("");
-    return;
-  }
-  annonce = "";
-  // THE LIBRARIES ARRIVE WITH THE VIEW, not with the page. A failure is not
-  // blocking: `renderAvailable` stays false and everything displays as
-  // plain text.
+// THE LIBRARIES ARRIVE WITH THE VIEW, not with the page. A failure is not
+// blocking: `renderAvailable` stays false and everything displays as plain
+// text. Appelé par les DEUX ouvertures -- le dock et la vue large -- parce
+// que `charger()` ne charge que des données.
+async function preparerRendu() {
   try {
     await loadLibraries();
     renderAvailable = !!(window.marked && sanitizer());
   } catch (e) {
     renderAvailable = false;
   }
+}
+
+async function basculer() {
+  if (ctester.vue() === "forum") {
+    // LA SOCKET MEURT AVEC LA VUE -- SAUF SI LE DOCK LA GARDE. Une salle par
+    // onglet ouvert et par fil, tenue pendant qu'on code, serait la charge que
+    // le compteur de présence a refusée ; mais le dock EST ouvert pendant
+    // qu'on code, et c'est son intérêt.
+    if (!dockOuvert) debrancherSocket();
+    ctester.afficherVue("");
+    dessinerDock();
+    return;
+  }
+  annonce = "";
+  await preparerRendu();
   await charger(cleFil());
   brancherSocket();
   dessiner();
@@ -1874,6 +2190,12 @@ function oublier() {
   steps = [];
   blockedKinds = [];
   composeMode = "question";
+  demandePrivee = false;
+  // LE DOCK PART AVEC LA SESSION. Il porte des messages de comptes connectés :
+  // le laisser à l'écran après une déconnexion les montrerait à qui suit.
+  dockOuvert = false;
+  ctester.retenirChat(false);
+  dessinerDock();
   $("charte").hidden = true;
   // THE IDENTITY PANEL LEAVES WITH THE SESSION: it carries someone's name,
   // and signing out must not leave it open on screen.
@@ -1911,6 +2233,12 @@ ctester.forum = {
   rafraichirFil: rafraichirFil,
   ouvrirFil: ouvrirFil,
   socketOuverte: () => !!socket,
+  // Le dock : basculé par la barre, restauré au démarrage, et suivi par le
+  // noyau à chaque exercice ouvert.
+  basculerDock: basculerDock,
+  restaurerDock: restaurerDock,
+  suivreExercice: suivreExercice,
+  dockOuvert: () => dockOuvert,
   // Exposed for the test harness: this is THE function the whole safety of
   // rendering depends on, and it must be testable against real hostile
   // payloads rather than by code inspection.

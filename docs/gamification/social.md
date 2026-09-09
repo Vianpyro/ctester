@@ -11,11 +11,39 @@ le rendu.
 celui d'un autre. Pour des responsables explicitement configures : une vue des
 signalements, et masquer/retablir un message avec action journalisee.
 
-**Ce qu'il ne fait pas, et ne fera pas dans ce lot.** Aucun XP, succes, score,
-classement, serie, vote, reaction, notification, message prive, temps reel,
-profil public ni groupe-cours. Rien ici ne touche a la progression : les routes
-du forum ne lisent ni n'ecrivent les trois tables de la Phase 1, et le `GRANT`
-applicatif ne leur donne aucun privilege dessus.
+**Ce qu'il ne fait pas.** Aucun XP, succes, score, serie, ni recompense d'aucune
+sorte. Rien ici ne touche a la progression : les routes du forum ne lisent ni
+n'ecrivent les trois tables de la Phase 1, et le `GRANT` applicatif ne leur donne
+aucun privilege dessus. **« Ca m'a aide » n'accorde rien non plus** — un message
+ecrit pour etre vote est un message ecrit pour le compteur.
+
+**CE PARAGRAPHE A ETE CORRIGE LE 2026-09-09, et ce qu'il disait avant vaut d'etre
+su.** Il annoncait « aucun vote, aucune notification, aucun temps reel, aucun
+message prive » alors que les quatre etaient livres : `forum_helpful`, la
+sonnette `WS /forum/live`, `visibility IN ('private','group','thread')` et le
+chat. Un document qui contredit le code est pire qu'un document absent — on le
+croit. Ce qui a ete ajoute depuis le lot MVP, et ou c'est decide :
+
+| Ajout | Decision |
+|---|---|
+| questions privees, « je suis bloque ici », `step` | D-011 et la refonte |
+| « Ca m'a aide » (`forum_helpful`, +1/-1) | la refonte |
+| le chat public a auteurs masques (`@chat:`) | [D-012](decisions.md) |
+| la sonnette temps reel (`WS /forum/live`) | [D-012](decisions.md) |
+| le pont Discord, par compte de service | [D-013](decisions.md) |
+
+**Ce qui n'existe toujours pas, et c'est deliberе.** Aucune pastille de non-lu
+(elle demanderait une socket permanente pour tout le monde, la charge que
+`/live` a refusee), aucun elagueur d'historique, aucun regroupement automatique
+de doublons (on propose, un humain decide), aucun « en train d'ecrire », et
+aucun classement de participation visible des etudiants.
+
+**Deux canaux, une case (2026-09-09).** L'etudiant ne choisit plus un LIEU avant
+d'ecrire. Il y a `# general` et `# <exercice>` — une liste de canaux, la forme
+que Discord, Teams et Instagram ont deja apprise a toute la cohorte — et le
+forum prive est devenu une CASE sous le champ de saisie. La case ne demande
+aucune exception au serveur : elle change la cle de fil envoyee, donc « dans le
+chat, tout est public » reste vrai a la lettre.
 
 **Identite.** « Vous » pour son auteur, « Participant » pour les autres (ou le
 nom qu'il a choisi d'afficher), « Enseignant » pour un moderateur. Ces mots

@@ -7,8 +7,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>TCH009 — Tester mon code</title>
-<script src="config.js?v=20260908-console"></script>
-<link rel="stylesheet" href="style.css?v=20260908-console">
+<script src="config.js?v=20260909-chat"></script>
+<link rel="stylesheet" href="style.css?v=20260909-chat">
 </head>
 <body>
 <div id="top">
@@ -38,7 +38,7 @@
   <span class="grow"></span>
   <span class="groupe">
     <button type="button" id="mesprogres" class="nav" hidden>Mes progrès</button>
-    <button type="button" id="discussions" class="nav" hidden>Discussions</button>
+    <button type="button" id="discussions" class="nav" hidden>Chat</button>
     <button type="button" id="leaderboard" class="nav" hidden>Classement</button>
     <button type="button" id="collection" class="nav" hidden>Collection</button>
     <button type="button" id="scratch" class="nav" hidden>Console</button>
@@ -182,6 +182,14 @@
 
     <div id="out"></div>
   </div>
+
+  <!-- LE CHAT, À CÔTÉ DU CODE ET PAS À LA PLACE. Il vivait dans un cinquième
+       écran qui REMPLAÇAIT l'exercice : demander de l'aide obligeait à quitter
+       son code au moment précis où il faut le regarder. Troisième colonne de
+       la grille, ouverte et fermée par le bouton « Chat » de la barre, et
+       repliée en feuille par le bas sous 900 px. Vide tant que le module n'est
+       pas descendu -- l'anonyme n'en voit même pas le bouton. -->
+  <aside id="chatdock" aria-label="Chat du cours" hidden></aside>
 </div>
 
 <section id="vueprogres" aria-labelledby="progrestitre" hidden></section>
@@ -206,6 +214,6 @@
 <div id="annonce" role="status" class="horsecran"></div>
 </main>
 
-<script src="app.js?v=20260908-console"></script>
+<script src="app.js?v=20260909-chat"></script>
 </body>
 </html>

@@ -12,7 +12,7 @@ const loaded = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260908-console";
+const ASSET_REVISION = "20260909-chat";
 
 // ponytail: <script> injection, not import(). See above. Move to ES modules
 // the day shared state is truly separated.
@@ -467,6 +467,25 @@ let token = null;
 
 const TOKEN_KEY = "ctester.token";
 
+// L'ÉTAT DU DOCK DE CHAT, EN `localStorage` ET PAS EN `sessionStorage` : le
+// panneau doit être là au deuxième onglet comme au lendemain. La clé vit ICI
+// et pas dans `forum.js` parce que c'est elle qui décide s'il faut aller
+// CHERCHER `forum.js` -- une constante recopiée dans les deux fichiers
+// finirait par diverger, et le symptôme serait un panneau qui ne revient
+// jamais.
+// ponytail: par appareil, pas sur le compte. Le thème a mérité une route
+// (`/preferences`) parce qu'il se voit avant la première peinture ; un panneau
+// ouvert ne vaut pas un aller-retour SQL.
+const CHAT_DOCK_KEY = "ctester.chat.ouvert";
+
+function chatRetenu() {
+  try { return localStorage.getItem(CHAT_DOCK_KEY) === "1"; } catch (e) { return false; }
+}
+
+function retenirChat(ouvert) {
+  try { localStorage.setItem(CHAT_DOCK_KEY, ouvert ? "1" : ""); } catch (e) {}
+}
+
 function sessionGet(name) {
   try { return sessionStorage.getItem(name) || ""; } catch (e) { return ""; }
 }
@@ -592,7 +611,7 @@ function showView(name) {
   $("mesprogres").textContent =
     name === "progres" ? "Retour à l'exercice" : "Mes progrès";
   $("discussions").textContent =
-    name === "forum" ? "Retour à l'exercice" : "Discussions";
+    name === "forum" ? "Retour à l'exercice" : "Chat";
   $("leaderboard").textContent =
     name === "leaderboard" ? "Retour à l'exercice" : "Classement";
   $("collection").textContent =
@@ -1397,6 +1416,11 @@ async function prepareExercise(tp, quiz, thisLoad) {
   // draft overwrite the shared one a moment later, which is the one bug in
   // this feature that would destroy other people's work.
   await enterWorkspace(tp, thisLoad);
+  // LE CANAL SUIT L'EXERCICE, et c'est ce qui remplace le second menu. Le
+  // module n'est prévenu que s'il est déjà là : ouvrir un exercice ne doit
+  // jamais faire descendre `forum.js` tout seul -- c'est la promesse que le
+  // parcours anonyme ne télécharge rien.
+  if (ctester.forum) ctester.forum.suivreExercice();
 }
 
 // THE TEAM WORKSPACE IS A MODULE, LOADED ON DEMAND, like every other one.
@@ -1531,9 +1555,13 @@ $("identite").addEventListener("click", async () => {
   if (!await activateModule("forum", "les discussions")) return;
   await ctester.forum.ouvrirIdentite();
 });
+// LE BOUTON OUVRE LE PANNEAU LATÉRAL, PAS UN CINQUIÈME ÉCRAN. La vue large
+// existe toujours (recherche, permaliens, modération) et s'ouvre depuis le
+// dock : deux boutons dans la barre pour deux tailles de la même chose
+// auraient été deux mots à apprendre pour une seule idée.
 $("discussions").addEventListener("click", async () => {
-  if (!await activateModule("forum", "les discussions")) return;
-  await ctester.forum.basculer();
+  if (!await activateModule("forum", "le chat")) return;
+  await ctester.forum.basculerDock();
 });
 // SAME CONTRACT AGAIN: signed in only, and the file comes down on click. A
 // student who never opens the leaderboard pays nothing for it -- which
@@ -1573,6 +1601,13 @@ fetch(API("oidc.json")).then(r => r.json()).then(async (config) => {
   refreshAccount();
   if (!savedToken && !authCode) return;
   if (await activateModule("compte", "la partie « compte »")) await ctester.compte.demarrer();
+  // LE CHAT REVIENT S'IL ÉTAIT OUVERT, et seulement dans ce cas. Trois
+  // conditions, toutes nécessaires : une session, un déploiement qui offre le
+  // chat, et quelqu'un qui l'a DÉJÀ ouvert de sa main. L'anonyme n'a rien à
+  // restaurer, donc ne télécharge toujours pas un octet de `forum.js`.
+  if (!token || !config.forum || !chatRetenu()) return;
+  if (!await activateModule("forum", "le chat")) return;
+  await ctester.forum.restaurerDock();
 }).catch(() => {});
 
 Object.assign(ctester, {
@@ -1585,6 +1620,10 @@ Object.assign(ctester, {
   sessionGet: sessionGet,
   sessionSet: sessionSet,
   sessionDrop: sessionDrop,
+  // Le dock de chat se souvient d'être ouvert, et c'est le noyau qui tient la
+  // clé : voir `CHAT_DOCK_KEY`.
+  chatRetenu: chatRetenu,
+  retenirChat: retenirChat,
   authCode: authCode,
   authState: authState,
   // The script loader, exposed for the forum's TWO rendering libraries

@@ -13,6 +13,7 @@ database: 503 saying so, and "Tester" keeps working.
 """
 
 import asyncio
+import hmac
 import json
 import re
 import secrets
@@ -26,9 +27,10 @@ import headers
 import security
 from deps import SubForum, SubModerateur, freiner_forum
 from fastapi import APIRouter, Query, Request, WebSocket
-from schemas import (ForumTargetIn, ForumMessageIn, ForumModerationIn,
+from schemas import (DiscordBridgeIn, ForumTargetIn, ForumMessageIn, ForumModerationIn,
                      ForumProfilIn, ForumSignalementIn, ForumVoteIn)
 from services.catalog import find_exercise
+from services import discord
 from services import forum as forum_service
 from services import forum_live
 from services import leaderboard
@@ -100,6 +102,27 @@ def _assurer_alias(sub):
         plate_frame=profil.get("plate_frame"),
         badges_public=profil.get("badges_public"),
         leaderboard_opt_in=profil.get("leaderboard_opt_in"))
+
+
+def _vers_discord(entree, sub, texte):
+    """Recopie un message du chat public dans le salon Discord du cours.
+
+    APRÈS L'ÉCRITURE ET APRÈS LA SONNETTE, jamais avant : ce qui part vers
+    Discord doit être ce que la base a accepté, et un webhook lent ne doit pas
+    retarder le message pour ceux qui sont déjà sur la page.
+
+    L'AUTEUR EST CELUI QUE LES AUTRES VOIENT, pas le `sub`. On repasse par
+    `forum_identite()`, la seule fonction qui traduit un compte en nom
+    affichable : lui écrire un second traducteur ici serait le second endroit
+    où la visibilité d'un nom peut diverger de ce que la base dit.
+    """
+    if not discord.actif() or not forum_service.est_chat(entree["id"]):
+        return
+    profils = state.forum_profils([sub]) or {}
+    auteur, _groupe, _signalable = forum_service.forum_identite(
+        profils.get(sub), None, sub, False)
+    discord.annoncer(entree["id"], sub, auteur, texte,
+                     entree.get("label", ""))
 
 
 def _message_id(brut):
@@ -202,6 +225,7 @@ def publier(sub: SubForum, corps: ForumMessageIn):
         if not ecrit:
             return headers.erreur(404, "message introuvable")
         forum_live.notify(entree["id"])
+        _vers_discord(entree, sub, texte)
         return {"ok": True}
 
     step, message = forum_service.forum_step(corps.step)
@@ -216,6 +240,91 @@ def publier(sub: SubForum, corps: ForumMessageIn):
         return headers.erreur(400, message)
     if not state.forum_publier(uuid.uuid4().hex, entree["id"], sub, texte,
                                step, blocked_kind, visibility):
+        return headers.erreur(503, "la base ne répond pas")
+    forum_live.notify(entree["id"])
+    _vers_discord(entree, sub, texte)
+    return {"ok": True}
+
+
+# UN IDENTIFIANT DISCORD EST UN ENTIER (un « snowflake »). On le borne parce
+# qu'il devient une valeur de colonne `account` : rien d'exotique n'a de raison
+# d'y entrer, et `@` y est déjà interdit par construction.
+_DISCORD_ID_RE = re.compile(r"\A[0-9]{1,24}\Z")
+
+
+@router.post("/forum/bridge")
+def pont_discord(corps: DiscordBridgeIn, request: Request):
+    """Un message venu de Discord entre dans le chat public.
+
+    IL N'Y A AUCUNE TABLE DISCORD↔`sub`, ET IL NE DOIT PAS Y EN AVOIR. Chaque
+    Discordien devient un COMPTE DE SERVICE `@discord:<id>`, avec une ligne
+    `forum_profile` portant son pseudo Discord. Ça donne gratuitement, sans un
+    seul `if` de plus :
+
+      - `forum_identite()` rend son pseudo -- c'est déjà sa troisième branche ;
+      - `is_moderator()` est faux, sauf si l'enseignant y met son propre
+        identifiant Discord, auquel cas il est « Enseignant » des deux côtés ;
+      - `freiner_forum()` donne un quota PAR DISCORDIEN, la fonction ne lisant
+        qu'une chaîne ;
+      - `forget()` n'est pas concerné : aucun étudiant ne possède ces lignes.
+
+    Et surtout : l'enseignant ne gagne aucun moyen de relier un pseudonyme
+    CTester à un visage. C'est `D-013`, qui révise `D-008`.
+
+    LA GARDE EST UN SECRET PARTAGÉ, comparé en temps constant. Ce n'est pas un
+    compte OIDC : le bot n'est pas une personne, et lui faire porter un jeton
+    d'étudiant serait un jeton d'étudiant dans un conteneur de plus.
+    """
+    # PAS DE CLÉ, PAS DE PONT. Un 404 et non un 403 : de l'extérieur, la route
+    # n'existe pas, et il n'y a donc rien à deviner.
+    if not config.DISCORD_BRIDGE_KEY:
+        return headers.erreur(404, "inconnu")
+    presente = request.headers.get("authorization", "")
+    attendu = "Bearer " + config.DISCORD_BRIDGE_KEY
+    if not hmac.compare_digest(presente, attendu):
+        return headers.erreur(401, "clé du pont invalide")
+
+    entree = _entree(corps.exercise_id)
+    if entree is None:
+        return headers.erreur(400, "TP inconnu")
+    # DISCORD N'ÉCRIT QUE DANS LE PUBLIC. Une question privée est adressée à
+    # l'enseignant seul ; un pont qui pourrait y répondre serait un pont qui
+    # pourrait la lire. Le refus est ici, en plus de celui de `annoncer()` :
+    # les deux sens sont bornés séparément.
+    if not forum_service.est_chat(entree["id"]):
+        return headers.erreur(400, "le pont n'écrit que dans le chat public")
+
+    if not _DISCORD_ID_RE.match(str(corps.discord_id or "")):
+        return headers.erreur(400, "identifiant Discord invalide")
+    texte, message = forum_service.forum_texte(corps.text)
+    if message:
+        return headers.erreur(400, message)
+    # LE PSEUDO DISCORD PASSE PAR LA VALIDATION DES ÉTUDIANTS, noms réservés
+    # compris : sans ça, quelqu'un se nomme « Enseignant » sur Discord et sa
+    # réponse passe pour celle du cours, ce qu'aucune couleur ne rattrape.
+    pseudo, message = forum_service.forum_pseudo(corps.display_name)
+    if message:
+        return headers.erreur(400, message)
+
+    compte = config.DISCORD_ACCOUNT_PREFIX + str(corps.discord_id)
+    freiner_forum(compte)
+
+    profil = state.forum_profil(compte)
+    if profil is None:
+        return headers.erreur(503, "la base ne répond pas")
+    # LE PROFIL EST RÉÉCRIT EN ENTIER, comme partout : la dernière ligne EST le
+    # profil. Seulement quand le pseudo a changé -- une ligne par message
+    # ferait grossir la table au rythme du salon.
+    if (pseudo or None) != profil.get("display_name"):
+        state.forum_profil_ecrire(
+            uuid.uuid4().hex, compte, pseudo, profil.get("group_number"),
+            True, bool(profil.get("group_number_public")),
+            alias=profil.get("alias"), plate_frame=profil.get("plate_frame"),
+            badges_public=profil.get("badges_public"),
+            leaderboard_opt_in=profil.get("leaderboard_opt_in"))
+
+    if not state.forum_publier(uuid.uuid4().hex, entree["id"], compte, texte,
+                               None, None, "thread"):
         return headers.erreur(503, "la base ne répond pas")
     forum_live.notify(entree["id"])
     return {"ok": True}

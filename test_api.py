@@ -669,7 +669,8 @@ def _publier(tmp, exercices=CONTENU, devoir=None):
 
 @contextlib.contextmanager
 def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
-             groupes=(4, 6), exercices=CONTENU, devoir=None, console=True):
+             groupes=(4, 6), exercices=CONTENU, devoir=None, console=True,
+             pont="", webhook=""):
     """Un déploiement complet en mémoire, remis en place à la sortie.
 
     TOUT EST RESTAURÉ DANS UN `finally`, y compris les quotas : un test qui
@@ -688,7 +689,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     garde_config = {n: getattr(config, n) for n in
                     ("PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
                      "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPES",
-                     "SCRATCH")}
+                     "SCRATCH", "DISCORD_BRIDGE_KEY", "DISCORD_WEBHOOK")}
     garde_secu = (security.current_user, security.current_name)
     garde_quotas = (deps.quota, deps.quota_connecte, deps.state_quota,
                     deps.forum_quota, deps.presence, deps.scratch_quota)
@@ -706,6 +707,10 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     config.FORUM_MODERATORS = frozenset(moderateurs) if forum_actif else frozenset()
     config.FORUM_GROUPES = tuple(groupes)
     config.SCRATCH = console
+    # LE PONT DISCORD EST ÉTEINT PAR DÉFAUT dans les tests comme en
+    # production : sans clé, la route n'existe pas ; sans webhook, rien ne sort.
+    config.DISCORD_BRIDGE_KEY = pont
+    config.DISCORD_WEBHOOK = webhook
     jetons = jetons or {}
     security.current_user = lambda entetes: jetons.get(
         entetes.get("Authorization", "").replace("Bearer ", ""))
@@ -2113,6 +2118,81 @@ def test_le_chat_est_un_fil_a_part_et_tout_y_est_public():
                                       "text": "bloqué", "step": "compilation"},
                       headers=auth("alice")).status_code == 200
         assert fake.messages[1]["visibility"] == "private"
+
+
+def test_le_pont_discord_n_existe_pas_sans_cle_et_refuse_tout_le_reste():
+    """`POST /forum/bridge` : la frontière du pont, dans l'ordre des refus.
+
+    LE PONT EST UNE PORTE D'ÉCRITURE DE PLUS, donc il est borné comme les
+    autres -- et un cran plus serré : il n'écrit QUE dans le chat public. Une
+    question privée est adressée à l'enseignant seul, et un pont qui pourrait
+    y répondre serait un pont qui pourrait la lire.
+    """
+    tokens = {"alice": "sub-alice"}
+    # SANS CLÉ, LA ROUTE N'EXISTE PAS. 404 et non 403 : de l'extérieur il n'y
+    # a rien à deviner, donc rien à contourner.
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        r = c.post("/forum/bridge", json={"exercise_id": "@chat:general",
+                                          "discord_id": "4711",
+                                          "display_name": "Vianney",
+                                          "text": "salut"})
+        assert r.status_code == 404, r.text
+
+    with contexte(jetons=tokens, moderateurs=["sub-prof"],
+                  pont="secret-du-pont") as (c, fake, _tmp):
+        bon = {"Authorization": "Bearer secret-du-pont"}
+        corps = {"exercise_id": "@chat:general", "discord_id": "4711",
+                 "display_name": "Vianney", "text": "salut la classe"}
+        # La clé est comparée en temps constant, et rien d'autre ne passe.
+        for entetes in ({}, {"Authorization": "Bearer autre"},
+                        {"Authorization": "secret-du-pont"}):
+            assert c.post("/forum/bridge", json=corps,
+                          headers=entetes).status_code == 401, entetes
+
+        # LE PONT N'ÉCRIT QUE DANS LE CHAT. C'est la promesse de `D-013`, et
+        # c'est le refus qui la tient.
+        prive = dict(corps, exercise_id="tp2-ex3")
+        r = c.post("/forum/bridge", json=prive, headers=bon)
+        assert r.status_code == 400 and "chat public" in r.json()["error"], r.text
+        # Une clé fabriquée n'ouvre rien, ici comme ailleurs.
+        assert c.post("/forum/bridge", json=dict(corps, exercise_id="@chat:inconnu"),
+                      headers=bon).status_code == 400
+
+        # UN IDENTIFIANT DISCORD EST UN ENTIER : il devient une valeur de
+        # colonne `account`, rien d'exotique n'a de raison d'y entrer.
+        for mauvais in ("", "abc", "47-11", "@chat:general", "1" * 25):
+            assert c.post("/forum/bridge", json=dict(corps, discord_id=mauvais),
+                          headers=bon).status_code == 400, mauvais
+
+        # LE TEXTE ET LE PSEUDO PASSENT PAR LES BORNES DES ÉTUDIANTS. Sans ça
+        # quelqu'un se nomme « Enseignant » sur Discord et sa réponse passe
+        # pour celle du cours -- ce qu'aucune couleur ne rattrape.
+        assert c.post("/forum/bridge", json=dict(corps, text=""),
+                      headers=bon).status_code == 400
+        assert c.post("/forum/bridge",
+                      json=dict(corps, text="x" * (config.FORUM_MAX_CHARS + 1)),
+                      headers=bon).status_code == 400
+        for reserve in ("Enseignant", "Vous", "PARTICIPANT"):
+            assert c.post("/forum/bridge", json=dict(corps, display_name=reserve),
+                          headers=bon).status_code == 400, reserve
+
+        # ET CE QUI PASSE ENTRE COMME UN MESSAGE ORDINAIRE.
+        assert c.post("/forum/bridge", json=corps, headers=bon).status_code == 200
+        ecrit = fake.messages[-1]
+        assert ecrit["text"] == "salut la classe"
+        assert ecrit["exercise_id"] == "@chat:general"
+        # LE COMPTE EST UN COMPTE DE SERVICE, ET IL N'Y A AUCUNE TABLE QUI LE
+        # RELIERAIT À UN `sub`. C'est ce qui distingue ce dessin de celui qui
+        # donnerait à l'enseignant le moyen de relier un pseudonyme à un visage.
+        assert ecrit["account"] == "@discord:4711", ecrit["account"]
+        # Public, toujours : le pont ne peut pas fabriquer un message privé.
+        assert ecrit["visibility"] == "thread"
+
+        # ET AUCUN `sub` NE SORT DANS LA VUE QUE LES ÉTUDIANTS LISENT.
+        vue = c.get("/forum?ex=@chat:general", headers=auth("alice"))
+        assert vue.status_code == 200, vue.text
+        assert "Vianney" in vue.text, vue.text
+        assert "@discord:" not in vue.text and "sub-alice" not in vue.text, vue.text
 
 
 def test_une_reponse_vise_sa_racine_et_n_a_pas_de_visibilite_a_elle():

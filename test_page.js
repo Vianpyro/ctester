@@ -639,6 +639,12 @@ global.WebSocket = function (url) {
   setImmediate(() => { if (this.onopen) this.onopen(); });
 };
 const derniereSocket = () => sockets[sockets.length - 1];
+// COMBIEN DE SALLES DE CHAT SONT TENUES EN MÊME TEMPS. Le dock et la vue
+// large lisent le MÊME fil : deux sockets pour un lecteur doubleraient la
+// charge que `FORUM_LIVE_MAX` borne côté serveur, et mettraient deux
+// compteurs sur la même personne.
+const socketsOuvertes = () => sockets.filter(
+  (s) => s.readyState === 1 && /forum\/live/.test(String(s.url))).length;
 const recevoir = (trame) => {
   const socket = derniereSocket();
   if (socket && socket.onmessage) socket.onmessage({ data: JSON.stringify(trame) });
@@ -2120,7 +2126,9 @@ const attendre = async () => { await sleep(); await sleep(); };
   await choisir("TP 2", "tp2-ex3");
   nodes.code.value = "// mon code en cours";
   check(nodes.discussions.hidden === false,
-        "« Discussions » apparaît une fois connecté");
+        "« Chat » apparaît une fois connecté");
+  check(nodes.discussions.textContent === "Chat",
+        "et il porte le mot que les étudiants connaissent, pas « Discussions »");
   check(!charges.some(n => n.startsWith("forum.js?")),
         "mais son fichier n'est toujours pas descendu");
 
@@ -2136,6 +2144,64 @@ const attendre = async () => { await sleep(); await sleep(); };
   const appelFil = calls.find(c => String(c.url).startsWith("forum?ex="));
   check(appelFil && appelFil.opts.headers.Authorization === "Bearer " + JETON,
         "le fil part avec le jeton, jamais sans");
+
+  // --- LE DOCK : LE CHAT À CÔTÉ DU CODE, PAS À LA PLACE --------------------
+  // C'EST LE CŒUR DE LA REFONTE, et le contrôle qui le tient. Le bouton de la
+  // barre ouvrait un CINQUIÈME ÉCRAN qui remplaçait l'exercice : demander de
+  // l'aide obligeait à quitter son code au moment précis où il faut le
+  // regarder. Sans ce test, quelqu'un le remettra en vue plein écran « pour
+  // que ce soit plus lisible ».
+  check(nodes.travail.hidden === false && nodes.chatdock.hidden === false,
+        "le chat s'ouvre À CÔTÉ de l'éditeur : l'exercice reste à l'écran");
+  check(nodes.vueforum.hidden === true,
+        "et ce n'est PAS la vue plein écran qui s'est ouverte");
+  check(nodes.travail.className === "avecchat",
+        "la grille passe à trois colonnes : l'éditeur se réduit, il n'est pas recouvert");
+
+  const dansDock = (t) => tousLesNoeuds(nodes.chatdock)
+    .find((x) => (x.textContent || "") === t);
+  // LES DEUX CANAUX, ET SEULEMENT DEUX. L'encart « Où écrire » en offrait
+  // trois, dont deux portaient le mot « chat » pour deux choses différentes.
+  const listeCanaux = tousLesNoeuds(nodes.chatdock)
+    .find((x) => x.className === "canaux");
+  check(!!listeCanaux, "le dock porte une LISTE de canaux, pas trois boutons en vrac");
+  const canaux = tousLesNoeuds(listeCanaux)
+    .filter((x) => /^# /.test(x.textContent || ""));
+  check(canaux.length === 2, "deux canaux, pas trois espaces à départager : "
+        + canaux.map((c) => c.textContent).join(" "));
+  check(canaux.some((c) => c.textContent === "# général"),
+        "« # général », nommé comme dans Discord et Teams");
+  check(canaux.some((c) => /ex\.3/.test(c.textContent)),
+        "et le canal de l'exercice OUVERT, qu'on n'a pas eu à choisir : "
+        + canaux.map((c) => c.textContent).join(" "));
+  const actif = canaux.find((c) => c.getAttribute("aria-current") === "true");
+  check(!!actif && /ex\.3/.test(actif.textContent),
+        "le canal actif est dit à la machine aussi, pas seulement à l'œil");
+  check(!tousLesNoeuds(nodes.chatdock)
+          .some((x) => /Où écrire|Forum de l'exercice/.test(x.textContent || "")),
+        "et le mot « forum » a disparu de l'écran de l'étudiant");
+
+  // Fermer, rouvrir : l'état se retient, sinon on le rouvre vingt fois par
+  // séance et on cesse de s'en servir.
+  await nodes.discussions.listeners.click();
+  await attendre();
+  check(nodes.chatdock.hidden === true && nodes.travail.className === "",
+        "le second clic referme le dock et rend sa colonne à l'éditeur");
+  check(global.localStorage.getItem("ctester.chat.ouvert") !== "1",
+        "et la fermeture est retenue");
+  await nodes.discussions.listeners.click();
+  await attendre(); await attendre();
+  check(nodes.chatdock.hidden === false
+        && global.localStorage.getItem("ctester.chat.ouvert") === "1",
+        "rouvrir le retient aussi : au rechargement, le chat est encore là");
+
+  // « EN GRAND » EST LA SEULE PORTE VERS LA VUE LARGE. Deux boutons dans la
+  // barre pour deux tailles de la même chose, c'étaient deux mots à apprendre
+  // pour une seule idée.
+  const enGrand = dansDock("⤢");
+  check(!!enGrand, "le dock porte le bouton « en grand »");
+  await enGrand.listeners.click();
+  await attendre(); await attendre();
   check(nodes.travail.hidden === true && nodes.vueforum.hidden === false &&
         nodes.vueprogres.hidden === true,
         "la vue remplace l'exercice, et elle est seule à l'écran");
@@ -2550,6 +2616,128 @@ const attendre = async () => { await sleep(); await sleep(); };
   nodes.forumtexte.value = "";
   nodes.forumtexte.listeners.input();
 
+  // --- LA CASE « EN PRIVÉ » : UN CHOIX, PLUS UN LIEU -----------------------
+  // C'EST L'INVARIANT DE TOUTE LA REFONTE, et le seul contrôle qui le tient.
+  // Il y avait un troisième espace, « Forum de l'exercice », qu'il fallait
+  // choisir AVANT d'écrire. C'est devenu une case sous le champ -- et la case
+  // NE DEMANDE AUCUNE EXCEPTION AU SERVEUR : `est_chat()` force le public,
+  // donc on n'écrit pas « en privé dans le chat », on écrit DANS UN AUTRE
+  // FIL. Si quelqu'un remplace un jour ça par `visibility: "private"` sur la
+  // clé `@chat:`, le serveur refusera en 400 -- et ce test le dira avant lui.
+  const casePrivee = () => tousLesNoeuds(nodes.vueforum)
+    .find((x) => x.id === "forumprive");
+  check(!!casePrivee(), "la case « en privé » est sous le champ, dans le chat");
+  check(casePrivee().checked === false,
+        "décochée par défaut : le chat est public, et on ne le devient pas par accident");
+
+  casePrivee().checked = true;
+  await casePrivee().listeners.change();
+  await attendre();
+  check(tousLesNoeuds(nodes.vueforum).some((x) => /Où ça coince/.test(x.textContent || "")),
+        "la cocher déplie l'étape -- sans elle, l'agrégat de l'enseignant "
+        + "étiquetterait tout « énoncé »");
+  check(/seul l'enseignant le lira/.test(vuDuForum()),
+        "et l'écran dit qui lira, avant d'écrire");
+
+  forumEnvois.length = 0;
+  nodes.forumtexte.value = "je bloque sur le scanf";
+  nodes.forumtexte.listeners.input();
+  await tousLesNoeuds(nodes.vueforum)
+    .find((x) => x.textContent === "Publier").listeners.click();
+  await attendre(); await attendre();
+  const prive = forumEnvois.find((e) => e.url === "forum" && e.corps
+                                  && e.corps.text === "je bloque sur le scanf");
+  check(!!prive && prive.corps.exercise_id === "tp2-ex3",
+        "une question privée part sur l'identifiant NU, jamais sur « @chat: » : "
+        + JSON.stringify(prive && prive.corps.exercise_id));
+  check(!!prive && !/^@chat:/.test(String(prive.corps.exercise_id)),
+        "-- c'est ce qui fait qu'aucune exception n'est demandée à `est_chat()`");
+  check(!!prive && prive.corps.visibility === "private" && !!prive.corps.step,
+        "avec sa visibilité et son étape : " + JSON.stringify(prive && prive.corps));
+  check(!!casePrivee() && casePrivee().checked === false,
+        "et la case se décoche : sinon le message SUIVANT serait privé sans le dire");
+  // ON REMET LE HARNAIS OÙ ON L'A TROUVÉ : le serveur en carton range le chat
+  // et le forum d'un exercice dans la même liste (comme la vraie table), donc
+  // la question privée apparaît dans le fil qui suit.
+  FORUM["tp2-ex3"] = FORUM["tp2-ex3"].filter(
+    (m) => m.text !== "je bloque sur le scanf");
+
+  // --- ENTRÉE ENVOIE, DANS LE DOCK ET NULLE PART AILLEURS ------------------
+  // Le réflexe que Discord, Teams et Instagram ont déjà appris à la cohorte.
+  // Pas dans la vue large : on y rédige une question de dix lignes, et une
+  // touche qui l'enverrait à moitié écrite serait pire que le clic.
+  check(!nodes.forumtexte.listeners.keydown,
+        "la vue large n'envoie PAS sur Entrée : on y rédige");
+
+  // On repasse dans le dock, où le réflexe compte.
+  await nodes.discussions.listeners.click();   // quitter la vue large
+  await attendre();
+  if (nodes.chatdock.hidden !== false) {
+    await nodes.discussions.listeners.click();
+    await attendre(); await attendre();
+  }
+  check(nodes.chatdock.hidden === false, "le dock est bien rouvert");
+  // ET SES CHAMPS NE PORTENT PAS LES MÊMES IDENTIFIANTS QUE LA VUE LARGE.
+  // Les deux surfaces coexistent dans le document : deux `id="forumtexte"`,
+  // ce serait un `<label for>` qui désigne le mauvais champ et un
+  // `getElementById` qui rend le premier venu -- une panne qu'aucun
+  // `node --check` ne voit.
+  const champChat = tousLesNoeuds(nodes.chatdock).find((x) => x.id === "chattexte");
+  check(!!champChat, "le champ du dock a son propre identifiant");
+  check(!tousLesNoeuds(nodes.chatdock).some((x) => x.id === "forumtexte"),
+        "et surtout pas celui de la vue large");
+
+  forumEnvois.length = 0;
+  champChat.value = "une ligne, envoyée à la touche";
+  champChat.listeners.input();
+  await champChat.listeners.keydown({ key: "Enter", shiftKey: false,
+                                      preventDefault() { this.stoppe = true; } });
+  await attendre(); await attendre();
+  check(forumEnvois.some((e) => e.url === "forum" && e.corps
+                          && e.corps.text === "une ligne, envoyée à la touche"),
+        "ENTRÉE ENVOIE -- le seul geste qu'on n'a pas à leur enseigner");
+
+  forumEnvois.length = 0;
+  champChat.value = "première ligne";
+  champChat.listeners.input();
+  await champChat.listeners.keydown({ key: "Enter", shiftKey: true,
+                                      preventDefault() { this.stoppe = true; } });
+  await attendre();
+  check(!forumEnvois.some((e) => e.url === "forum"),
+        "MAJ+ENTRÉE n'envoie pas : c'est un saut de ligne, comme partout ailleurs");
+  const champApres = tousLesNoeuds(nodes.chatdock).find((x) => x.id === "chattexte");
+  if (champApres) { champApres.value = ""; champApres.listeners.input(); }
+  FORUM["tp2-ex3"] = FORUM["tp2-ex3"].filter(
+    (m) => m.text !== "une ligne, envoyée à la touche");
+
+  // --- LE CANAL SUIT L'ÉDITEUR, ON NE LE CHOISIT PAS DEUX FOIS -------------
+  // C'est ce qui a permis de retirer le second menu d'exercice de l'écran :
+  // ouvrir ex.0 ouvre son canal, sans rien cliquer.
+  calls.length = 0;
+  await choisir("TP 2", "tp2-ex0");
+  await attendre(); await attendre(); await attendre();
+  check(calls.some((c) => String(c.url).indexOf("forum?ex=%40chat%3Atp2-ex0") === 0
+                       || String(c.url).indexOf("forum?ex=@chat:tp2-ex0") === 0),
+        "changer d'exercice change le canal du dock, sans un clic de plus : "
+        + calls.map((c) => c.url).filter((u) => /forum\?ex/.test(String(u))).join(" "));
+  check(tousLesNoeuds(nodes.chatdock)
+          .some((x) => /^# /.test(x.textContent || "") && /ex\.0/.test(x.textContent)),
+        "et la liste de canaux le dit");
+
+  // UNE SEULE SOCKET, TOUJOURS. Le dock et la vue large lisent le même fil :
+  // deux salles pour un lecteur doubleraient la charge que `FORUM_LIVE_MAX`
+  // borne, et mettraient deux compteurs sur la même personne.
+  check(socketsOuvertes() <= 1,
+        "une seule socket de chat, dock et vue large confondus : " + socketsOuvertes());
+
+  // ON REMET LE HARNAIS OÙ ON L'A TROUVÉ : ce fichier est un scénario
+  // linéaire, et ce qui suit lit le fil de tp2-ex3 dans la vue large.
+  await choisir("TP 2", "tp2-ex3");
+  await attendre(); await attendre();
+  await global.ctester.forum.basculer();
+  await attendre(); await attendre();
+  check(nodes.vueforum.hidden === false, "la vue large est rouverte pour la suite");
+
   // --- SIGNALER CELUI D'UN AUTRE, SUPPRIMER LE SIEN ------------------------
   forumEnvois.length = 0;
   const signaler = tousLesNoeuds(nodes.vueforum)
@@ -2661,7 +2849,12 @@ const attendre = async () => { await sleep(); await sleep(); };
 
   // --- MODÉRATEUR : LA FILE DE SIGNALEMENTS ET LE MASQUAGE -----------------
   FORUM_MODERATEUR = true;
-  await nodes.discussions.listeners.click();
+  // PAR LA VUE LARGE, ET PAS PAR LE DOCK : la porte de modération n'est pas
+  // dans le panneau latéral, délibérément -- deux publics dans une colonne de
+  // 22 rem, ce serait exactement le défaut qu'on vient de réparer. Le bouton
+  // de la barre bascule le dock ; « en grand » est la porte, et elle est déjà
+  // éprouvée plus haut.
+  await global.ctester.forum.basculer();
   await attendre(); await attendre();
   // LES OUTILS DE MODÉRATION NE SONT PLUS DANS LE FIL DE L'ÉTUDIANT. Ils y
   // étaient rendus au milieu de ce que la classe vient lire : deux publics dans
@@ -2720,19 +2913,26 @@ const attendre = async () => { await sleep(); await sleep(); };
         "et la file de signalements ne lui est pas offerte");
 
   // --- UNE PANNE SE DIT, ET N'EMPORTE PAS L'EXERCICE -----------------------
-  await nodes.discussions.listeners.click();   // fermer
+  // ON L'ÉPROUVE DANS LE DOCK, parce que c'est là que quelqu'un vient
+  // chercher de l'aide : une panne annoncée seulement dans la vue large
+  // serait une panne muette pour presque tout le monde.
+  await nodes.discussions.listeners.click();   // quitter la vue large
   await attendre();
+  if (nodes.chatdock.hidden === false) {
+    await nodes.discussions.listeners.click(); // refermer le dock
+    await attendre();
+  }
   FORUM_CASSE = true;
-  await nodes.discussions.listeners.click();
+  await nodes.discussions.listeners.click();   // rouvrir, sur une panne
   await attendre(); await attendre();
-  const forumCasse = vuDuForum();
+  const forumCasse = contenuDe(nodes.chatdock);
   check(/ne sont pas disponibles/.test(forumCasse),
         "une panne se dit clairement : " + forumCasse.slice(-70));
   check(!/Publier/.test(forumCasse),
         "et le formulaire n'est même pas offert");
   check(/fonctionnent normalement/.test(forumCasse),
         "en disant que le juge, lui, marche toujours");
-  await nodes.discussions.listeners.click();   // retour à l'exercice
+  await nodes.discussions.listeners.click();   // refermer le dock
   await attendre();
   calls.length = 0;
   nodes.code.value = codeUnique();

@@ -333,6 +333,7 @@ pip install -r requirements-dev.txt   # UNE FOIS : fastapi, uvicorn, httpx2
 npm ci                                # UNE FOIS : jsdom, contrôles XSS du forum
 
 python3 test_ctester.py          # les défenses, la progression, le forum, les équipes
+python3 bot/bridge.py --autotest # le pont Discord, sans réseau (aussi joué par le précédent)
 python3 test_api.py              # l'API : frontière HTTP, bornes, valeurs extrêmes
 node    test_page.js             # le JS de la page, sur un DOM en carton
 python3 verify_content.py   ../unittests/content
@@ -1304,6 +1305,152 @@ relire un fil empêcherait de suivre la réponse qu'on attend.
 `test_ctester.py`** — le contrôle lit `schema.sql` et compte les tables.
 
 ## Le chat en direct (public, à auteurs masqués)
+
+**DEUX CANAUX ET UNE CASE, plus trois espaces à départager.** Il y avait un
+encart « Où écrire » à trois boutons — « Chat de l'exercice », « Chat général »,
+« Forum de l'exercice » — donc trois portes dont DEUX PORTAIENT LE MÊME MOT, à
+trancher AVANT d'avoir écrit une ligne. Un étudiant de première session arrive
+de Discord, de Teams et d'Instagram : il y connaît une **liste de canaux**, et
+nulle part un lieu séparé pour « la même question, mais privée ». Il y a donc
+`# général` et `# <exercice>`, et le privé est une **case sous le champ**.
+
+**LA CASE NE DEMANDE AUCUNE EXCEPTION AU SERVEUR, ET C'EST TOUT SON INTÉRÊT.**
+Elle ne rend pas un message privé *dans* le canal de chat — `est_chat()` force
+le public et on ne lui demande rien : elle change **la clé de fil envoyée**
+(`tp2-ex3` au lieu de `@chat:tp2-ex3`), que `cleFil()` sait déjà produire. Zéro
+route, zéro schéma, zéro migration, et « dans le chat tout est public » reste
+vrai à la lettre. `test_page.js` refuse qu'on remplace ça un jour par un
+`visibility: "private"` sur une clé `@chat:` — le serveur répondrait 400.
+
+**LE CHAT EST UNE COLONNE, PAS UN CINQUIÈME ÉCRAN.** `#chatdock` est le
+troisième enfant de `#travail`, ouvert par la classe `avecchat` (une seule
+déclaration de colonnes à relire). Il vivait dans une vue qui REMPLAÇAIT
+l'exercice : demander de l'aide obligeait à quitter son code au moment précis
+où il faut le regarder. L'éditeur se **réduit**, il n'est jamais recouvert —
+un panneau flottant cacherait la ligne dont on parle. Sous 900 px, `#travail`
+repasse en `display: block`, donc le dock devient une feuille par le bas ;
+sans ça il suivrait le flux et se retrouverait sous l'éditeur, hors de vue.
+
+- **Le bouton de la barre s'appelle « Chat » et bascule le DOCK.** La vue large
+  (recherche, permaliens, porte de modération) s'ouvre depuis le dock, par
+  « ⤢ ». Deux boutons dans la barre pour deux tailles de la même chose,
+  c'étaient deux mots à apprendre pour une seule idée.
+- **`#chatdock[hidden] { display: none }` est obligatoire**, même piège que
+  `#teamband` : `display: flex` bat `[hidden]`.
+- **Les deux surfaces coexistent dans le document**, donc le composeur compact
+  **préfixe ses identifiants** (`chattexte` et pas `forumtexte`). Sans ça, deux
+  `id` identiques : un `<label for>` qui désigne le mauvais champ, et un
+  `getElementById` qui rend le premier venu.
+- **Une seule socket, dock et vue large confondus.** La garde de reconnexion
+  est `ctester.vue() === "forum" || dockOuvert` — n'en garder qu'une moitié
+  laisse le panneau muet après la première coupure, sans rien dire.
+- **Entrée envoie, Maj+Entrée saute une ligne, et seulement dans le dock.** Le
+  seul geste qu'on n'a pas à leur enseigner. Pas dans la vue large : on y
+  rédige une question de dix lignes, et une touche qui l'enverrait à moitié
+  écrite serait pire que le clic.
+- **La clé `ctester.chat.ouvert` vit dans `app.js`, pas dans `forum.js`** :
+  c'est elle qui décide s'il faut aller CHERCHER `forum.js` au démarrage, donc
+  elle doit être lisible avant que le module n'existe. Une constante recopiée
+  dans les deux fichiers finirait par diverger, et le symptôme serait un
+  panneau qui ne revient jamais.
+- **`suivreExercice()` fait suivre le canal à l'éditeur**, et c'est ce qui a
+  permis de retirer le second menu d'exercice de l'écran. Il passe par
+  `chargerFil()` et non `charger()` : le profil et les files du modérateur ne
+  dépendent pas du fil, et les relire à chaque exercice ouvert serait quatre
+  requêtes pour rien.
+- **La détection de doublon reste à la vue large** : pas la place dans 22 rem,
+  et `guetterDoublon()` sort tôt en mode compact — sinon une requête par frappe
+  pour un encart que personne n'affiche.
+- **L'anonyme ne voit pas même le bouton**, donc ne télécharge toujours rien.
+
+## Le pont Discord
+
+**Le cours a déjà un Discord, et c'est là que la cohorte est.** Un chat vide
+reste vide : le problème n'est pas l'interface, c'est la masse critique. Le pont
+relaie **les deux sens**, et `D-013` le décide — il **révise `D-008`**, qui
+rejetait Discord comme *alternative* au forum. Aucun des trois motifs de ce
+rejet ne s'applique à un pont : CTester reste la source de vérité et la seule
+surface de modération, rien de privé ne traverse, et « Supprimer mes données »
+continue d'effacer tout ce que CTester détient.
+
+**IL N'Y A AUCUNE TABLE DISCORD↔`sub`, ET IL NE DOIT PAS Y EN AVOIR.** Chaque
+Discordien devient un **compte de service** `@discord:<id>`, avec une ligne
+`forum_profile` portant son pseudo Discord comme nom affiché. Même propriété que
+`@chat:` : `@` ne peut apparaître dans aucun identifiant du catalogue, donc ce
+compte ne résout chez personne et ne devient jamais un chemin. Ce que ça donne
+**gratuitement, sans un seul `if` de plus** :
+
+| Ce qui marche tel quel | Pourquoi |
+|---|---|
+| `forum_identite()` | rend le pseudo Discord — c'est déjà sa troisième branche |
+| `is_moderator()` | faux, sauf si l'enseignant y met son propre id Discord : il est alors « Enseignant » des deux côtés |
+| `freiner_forum()` | quota **par Discordien**, la fonction ne lit qu'une chaîne |
+| `forget()` | inchangé : aucun étudiant ne possède ces lignes |
+
+**Aucune table, aucune colonne, aucun GRANT nouveau.** Et surtout : l'enseignant
+ne gagne aucun moyen de relier un pseudonyme CTester à un visage — c'est
+exactement le pouvoir de désanonymisation que `forum_identite()` refuse jusque
+dans la vue d'un modérateur, et une commande `/lier` le lui aurait donné.
+
+**SEUL LE CHAT PUBLIC TRAVERSE, DANS LES DEUX SENS.** Une question privée est
+adressée à l'enseignant seul ; un pont qui pourrait y répondre serait un pont
+qui pourrait la lire. La garde est doublée exprès, une par sens :
+`discord.annoncer()` refuse tout fil qui n'est pas `est_chat()`, et
+`POST /forum/bridge` refuse d'écrire ailleurs.
+
+**L'ANTI-BOUCLE A DEUX MOITIÉS, et il faut les deux** : le bot saute les
+messages portant un `webhook_id` (ce que CTester vient d'écrire), et
+`annoncer()` refuse un compte `@discord:`. La première rattrape ce qui est
+publié dans le salon par un autre chemin, la seconde arrête la boucle à la
+source.
+
+**`allowed_mentions: {"parse": []}` N'EST PAS OPTIONNEL.** Sans lui, un étudiant
+tape `@everyone` dans CTester et réveille tout le serveur Discord — depuis une
+page où il n'a jamais consenti à faire ça.
+
+**Le sortant part d'un fil démon, après l'écriture et après la sonnette.** Ce
+qui part vers Discord doit être ce que la base a accepté, et un webhook lent ne
+doit pas ajouter sa latence à un message que quelqu'un attend. Une panne de
+Discord n'est pas une panne de CTester : tout est avalé, comme `notify()`.
+`ponytail:` un fil par message, borné par le quota du forum (20/h/compte).
+
+**Le bot est un CONTENEUR, pas une unité systemd** (`bot/bridge.py`, conteneur
+`ctester-bridge`). Il ne pilote ni Docker ni gVisor, il n'est pas root, il n'a
+aucun accès à l'hôte — aucune raison de vivre à côté du système plutôt que
+dedans. **Stdlib pure**, donc il n'a même pas besoin du volume `/deps`, et il
+n'est **pas** sur le réseau d'ingress : il n'écoute sur aucun port.
+
+- `ponytail:` **pas de gateway Discord, un sondage REST toutes les 5 s.** La
+  gateway (identify, heartbeat, resume, intents) c'est ~150 lignes et une
+  machine à états à déboguer, pour faire passer la latence de 5 s à 0,2 s dans
+  un cours dont le compteur de présence sonde déjà à 60 s. Le chemin de reprise
+  est écrit dans le fichier : `discord.py` le jour où 5 s se voient.
+- **Premier tour à vide** quand l'état est perdu : on note le dernier message
+  sans le relayer, sinon un redémarrage rejouerait tout l'historique du salon
+  dans le chat du cours.
+- **L'état avance même sur un message sauté ou refusé**, sinon un message que
+  l'API refuse toujours serait rejoué à chaque tour, pour toujours.
+- `CTESTER_DISCORD_CHANNELS="<salon>=@chat:general"` — **seules les clés
+  `@chat:` sont acceptées** : le pont n'a rien à faire dans les questions
+  privées. En ajouter un par exercice est une entrée de plus, jamais du code.
+- `python3 bot/bridge.py --autotest` tient l'anti-boucle et la lecture de la
+  variable, sans réseau. `test_ctester.py` le lance dans un sous-processus —
+  s'il importait un tiers, cette ligne échouerait, et c'est l'alerte qu'on veut.
+- **Éteint par `ctester_discord_enabled: false`**, qui est le défaut *et* le
+  rollback : le service n'est alors même pas déclaré dans le compose, aucune
+  variable n'est écrite, la route `POST /forum/bridge` répond 404 (elle
+  n'existe pas), et `annoncer()` sort immédiatement.
+- **`CTESTER_DISCORD_URL` est indépendante du pont** : l'invitation s'affiche
+  dans la liste des canaux même quand le pont est éteint. Le Discord existe de
+  toute façon ; le taire dans la page ne le fait pas disparaître, ça oblige
+  juste les étudiants à retrouver le lien ailleurs.
+- **Trois secrets, tous dans le vault** : le webhook (droit d'écriture dans le
+  salon), le jeton du bot (droit de lecture), la clé du pont (droit d'écriture
+  dans le chat du cours). Ils vivent dans `ctester.env` (0600), jamais dans
+  `environment:` du compose que `docker inspect` recrache.
+
+### Le fil lui-même (inchangé)
+
 
 Un étudiant qui a peur du ridicule ne pose pas sa question. Le chat est la
 réponse à ça, et **ce n'est pas un canal secret : tout y est public, c'est le

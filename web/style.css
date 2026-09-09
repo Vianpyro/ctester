@@ -189,6 +189,13 @@ main {
   flex: 1 1 auto; min-height: 0;
   display: grid; grid-template-columns: minmax(19rem, 25rem) minmax(0, 1fr);
 }
+/* LE CHAT EST UNE TROISIÈME COLONNE, ET C'EST TOUT CE QU'IL COÛTE AU LAYOUT.
+   Une classe plutôt qu'une seconde règle de grille : les colonnes se lisent
+   à un seul endroit, et l'éditeur se réduit au lieu d'être recouvert -- un
+   panneau flottant sur le code cacherait la ligne dont on parle. */
+#travail.avecchat {
+  grid-template-columns: minmax(19rem, 25rem) minmax(0, 1fr) minmax(17rem, 22rem);
+}
 #travail[hidden] { display: none; }
 
 #consigne {
@@ -1429,3 +1436,89 @@ pre {
 #scratchsaisie:disabled, .scratchsaisiebarre button:disabled {
   opacity: .5; cursor: not-allowed;
 }
+
+
+/* --- Le dock de chat (à côté du code, pas à la place) ----------------------
+   MÊME PIÈGE QUE `#teamband` : `display: flex` bat `[hidden]`, donc la règle
+   `[hidden]` est obligatoire et pas décorative. Sans elle le dock est visible
+   avant que le module ne l'ait rempli, et l'éditeur perd sa colonne pour
+   rien. */
+#chatdock {
+  min-height: 0; display: flex; flex-direction: column;
+  border-left: 1px solid var(--line); background: var(--panel);
+}
+#chatdock[hidden] { display: none; }
+
+/* L'en-tête : le nom du canal, « en grand », et la fermeture. Il ne défile
+   pas -- on doit pouvoir fermer sans remonter un fil de deux cents messages. */
+.chathead {
+  flex: 0 0 auto; display: flex; align-items: center; gap: .4rem;
+  padding: .4rem .6rem; border-bottom: 1px solid var(--line);
+  background: var(--ink-wash);
+}
+.chathead .chattitre {
+  font-size: 12.5px; font-weight: 600; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* LA LISTE DE CANAUX, la forme que Discord et Teams ont déjà apprise à tout
+   le monde. Deux entrées, jamais un menu : le canal d'exercice SUIT
+   l'exercice ouvert, on ne le choisit pas une seconde fois. */
+.canaux { list-style: none; margin: 0; padding: 0; display: flex; }
+.canaux li { min-width: 0; }
+.canaux button {
+  display: block; width: 100%; text-align: left;
+  font-family: var(--mono); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* L'ÉTAT ACTIF EST DIT À LA MACHINE AUSSI. Les trois onglets d'avant ne
+   portaient aucun attribut ARIA : un lecteur d'écran lisait trois boutons
+   identiques, dont un seul comptait. */
+.canaux button[aria-current="true"] {
+  border-color: var(--ink); background: var(--ink-wash); color: var(--fg);
+}
+/* Dans le dock, les deux canaux se partagent la ligne. */
+#chatdock .canaux { flex: 0 0 auto; gap: .3rem; padding: .4rem .6rem 0; }
+#chatdock .canaux li { flex: 1 1 0; }
+/* Dans la vue large, ils s'empilent : il y a la place, et une liste verticale
+   est ce qu'on lit dans les trois applications dont ils viennent. */
+#vueforum .canaux { flex-direction: column; gap: .25rem; }
+
+/* LE FLUX PREND TOUTE LA HAUTEUR QUI RESTE, et lui seul défile. C'est ce qui
+   colle le champ de saisie au bas du panneau, comme partout ailleurs. */
+.chatflux { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 .6rem; }
+.chatflux .fil { margin: .4rem 0; }
+/* Serré : une colonne de 22 rem n'a pas la place d'un message aéré. */
+.chatflux .message { padding: .35rem 0; font-size: 12.5px; }
+.chatflux .message .row { gap: .3rem; font-size: 11px; }
+.chatflux .texte { font-size: 12.5px; }
+
+/* LE CHAMP EST SOUS LE FLUX, ET C'EST LE DÉFAUT QU'ON RÉPARE. Il vivait au
+   bas de la colonne de gauche, sous toute la charte : à huit cents pixels du
+   dernier message, dans une page qui demande d'écrire. */
+.chatsaisie {
+  flex: 0 0 auto; padding: .5rem .6rem;
+  border-top: 1px solid var(--line); background: var(--panel);
+}
+.chatsaisie textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.chatsaisie .row { margin-top: .4rem; align-items: center; }
+.chatsaisie .aide { margin: .3rem 0 0; font-size: 11px; }
+/* La case « en privé » et l'étape qu'elle déplie. */
+.chatprive { margin-top: .4rem; }
+.chatprive .choix { margin: .35rem 0 0; }
+
+/* SOUS 900 PX, UNE FEUILLE PAR LE BAS. Trois colonnes sur un téléphone n'en
+   sont pas trois : `#travail` repasse en `display: block` plus haut, donc le
+   dock suivrait le flux et se retrouverait sous l'éditeur, hors de vue. */
+@media (max-width: 900px) {
+  #chatdock {
+    position: fixed; inset: auto 0 0 0; z-index: 6;
+    height: 60dvh; border-left: 0; border-top: 1px solid var(--line);
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, .35);
+  }
+}
+
+/* Le lien vers le Discord du cours : un lien, dessiné comme un bouton de
+   navigation. Il n'ouvre rien de CTester, donc il ne se déguise pas en canal. */
+.chatliens { flex: 0 0 auto; padding: .35rem .6rem 0; }
+.discordlien { display: inline-block; text-decoration: none; }
