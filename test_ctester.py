@@ -2749,6 +2749,36 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
         "module fautif utilise dans un module sans dependance, comme app/csp.py.")
 
 
+def test_chaque_raison_de_console_a_un_message():
+    """Une raison que la page ne connait pas s'affiche... comme rien du tout.
+
+    `run_console()` pose `reason` sur l'etat de la session ; `scratch.js` la
+    traduit en une phrase. Une raison ajoutee cote worker sans son entree dans
+    RAISONS laisse `annoncer()` retomber sur « Termine (code -1) » -- un chiffre
+    la ou il fallait dire quoi faire. C'est arrive avec `build_missing`, qui
+    accusait le service alors qu'il manquait une variable a l'unite systemd.
+
+    LE CONTROLE LIT LES DEUX FICHIERS plutot que d'entretenir une liste : c'est
+    le meme dessin que `forget()` et les GRANT, et c'est ce qui le rend vrai
+    dans six mois.
+
+    `exited` est la seule exception, ecrite dans le commentaire de RAISONS : un
+    programme qui se termine normalement n'a rien a expliquer, on affiche son
+    code de sortie.
+    """
+    worker = lire(os.path.join(HERE, "runner.py"))
+    page = lire(os.path.join(HERE, "web", "scratch.js"))
+    bloc = page.split("const RAISONS = {")[1].split("};")[0]
+    connues = set(re.findall("^\\s*(\\w+):", bloc, re.M)) | {"exited"}
+    motif = 'reason["\']?[=:]\\s*["\'](\\w+)["\']'
+    emises = set(re.findall(motif, worker))
+    orphelines = sorted(emises - connues)
+    assert not orphelines, (
+        "le worker peut emettre " + ", ".join(orphelines) + " mais scratch.js "
+        "n'a pas de phrase pour ces raisons-la : l'etudiant lirait un code de "
+        "sortie au lieu de savoir quoi faire.")
+
+
 def test_les_websockets_ont_une_implementation_epinglee():
     """UVICORN SEUL NE SAIT PAS PARLER WEBSOCKET, et il ne le dit pas.
 

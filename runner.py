@@ -1551,12 +1551,33 @@ def run_console(job_dir):
     # PRIS AVANT LE PREMIER OCTET, pour qu'il n'existe aucune fenetre pendant
     # laquelle `.lock` est pose mais le verrou pas encore tenu : l'API y
     # conclurait « worker mort » sur une session parfaitement vivante.
+    # LE CONSTRUCTEUR AVANT LE CONTENEUR, et ce controle existe parce que son
+    # absence se deguisait en panne de service. `CTESTER_BUILD_SCRATCH` est
+    # pose par l'unite systemd ; un worker converge AVANT que le role ne porte
+    # cette variable retombe sur un defaut qui ne designe aucun fichier, docker
+    # bind-monte alors un repertoire vide sur /in/build.sh, et l'etudiant lit
+    # « le service s'est interrompu » -- un message qui accuse le service la ou
+    # c'est la CONFIGURATION qui manque, et qui n'aide donc personne.
+    if not os.path.isfile(BUILD_SCRATCH):
+        print("ctester: console: CTESTER_BUILD_SCRATCH introuvable (%s) --"
+              " l'unite ctester-runner@ ne la pose pas ; rejouer le playbook"
+              % BUILD_SCRATCH, file=sys.stderr, flush=True)
+        console_etat(job_dir, "exited", code=-1, reason="build_missing")
+        return {"status": "console", "code": -1, "reason": "build_missing"}
+
     revendication = os.open(os.path.join(job_dir, "claim"),
                             os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(revendication, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        # ON ECRIT L'ETAT AVANT DE PARTIR. Sans ca, ce retour etait MUET : le
+        # job restait sans etat, l'API finissait par sonder `claim`, le trouvait
+        # libre et concluait « worker » elle-meme -- le meme mot pour deux
+        # causes differentes, dont celle-ci est la seule vraie course.
+        print("ctester: console: claim deja tenu sur %s" % job_dir,
+              file=sys.stderr, flush=True)
         os.close(revendication)
+        console_etat(job_dir, "exited", code=-1, reason="worker")
         return {"status": "console", "code": -1, "reason": "worker"}
 
     console_etat(job_dir, "compiling", ttl=CONSOLE_SESSION_MAX)

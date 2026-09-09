@@ -211,6 +211,7 @@ async def _ecouter(socket, session):
 async def _suivre(socket, session, lecteur):
     """Ce que le programme écrit, plus la file d'attente avant qu'il ne tourne."""
     attente, prise, fini, tours = 0.0, False, False, 0
+    perdus = 0
     try:
         while True:
             if not prise:
@@ -256,9 +257,25 @@ async def _suivre(socket, session, lecteur):
                 # l'invariant d'ordre demande.
                 fini = True
             elif not await run_in_threadpool(session.worker_vivant):
-                await _envoyer(socket, {"t": "exit", "code": -1,
-                                        "reason": "worker"})
-                return
+                # DEUX TOURS AVANT DE CONCLURE, et ce n'est pas de la
+                # superstition. `.lock` est pose par `claim()`, le `flock` de
+                # `claim` est pris quelques instructions plus tard dans
+                # `run_console()` : entre les deux il existe une fenetre ou le
+                # job est REELLEMENT pris et le verrou pas encore tenu. La
+                # sonder une fois, c'est annoncer « le service s'est
+                # interrompu » sur une session qui demarre normalement.
+                #
+                # Un worker vraiment mort ne reprend pas son verrou : le
+                # second tour, 50 ms plus tard, le dit aussi bien que le
+                # premier. On paie un tour de boucle pour supprimer un faux
+                # positif -- l'echange est evident dans ce sens-la.
+                perdus += 1
+                if perdus >= 2:
+                    await _envoyer(socket, {"t": "exit", "code": -1,
+                                            "reason": "worker"})
+                    return
+            else:
+                perdus = 0
             await asyncio.sleep(TIC)
     finally:
         lecteur.cancel()

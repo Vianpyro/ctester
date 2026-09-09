@@ -40,6 +40,11 @@ const RAISONS = {
   compile_error: "La compilation a échoué (voir ci-dessus).",
   compile_timeout: "La compilation a été trop longue.",
   worker: "Le service de compilation s'est interrompu. Réessaie.",
+  // PAS « le service s'est interrompu » : rien n'est interrompu, il MANQUE une
+  // variable sur l'unité du worker. Accuser le service enverrait l'étudiant
+  // réessayer en boucle sur une panne qu'aucun réessai ne répare.
+  build_missing: "La Console n'est pas complètement installée sur le serveur."
+                 + " Préviens ton enseignant — réessayer n'y changera rien.",
   api: "Session interrompue.",
 };
 
