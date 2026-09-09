@@ -2749,6 +2749,35 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
         "module fautif utilise dans un module sans dependance, comme app/csp.py.")
 
 
+def test_un_constructeur_absent_se_nomme_au_lieu_d_accuser_le_service():
+    """`CTESTER_BUILD_SCRATCH` non pose = une CONFIGURATION qui manque.
+
+    CE CONTROLE EXISTE PARCE QUE LA PANNE A EU LIEU, et qu'elle mentait : sans
+    la variable, le worker retombait sur un defaut qui ne designe aucun
+    fichier, docker bind-montait un repertoire vide sur /in/build.sh, et
+    l'etudiant lisait « le service de compilation s'est interrompu ». Un
+    message qui accuse le SERVICE envoie reessayer en boucle sur une panne
+    qu'aucun reessai ne repare.
+
+    IL NE DEPEND NI DE DOCKER NI DE POSIX : le refus tombe avant le premier
+    verrou et avant le premier conteneur, donc ce controle tourne partout, y
+    compris la ou les autres contröles de Console se sautent.
+    """
+    dossier = tempfile.mkdtemp()
+    garde = runner.BUILD_SCRATCH
+    try:
+        runner.BUILD_SCRATCH = os.path.join(dossier, "absent.sh")
+        verdict = runner.run_console(dossier)
+        assert verdict["reason"] == "build_missing", verdict
+        # L'ETAT AUSSI, sinon l'API ne verrait rien et conclurait « worker » --
+        # le mot qui accuse le service, celui-la meme qu'on vient d'ecarter.
+        etat = json.loads(lire(os.path.join(dossier, "state.json")))
+        assert etat["state"] == "exited" and etat["reason"] == "build_missing", etat
+    finally:
+        runner.BUILD_SCRATCH = garde
+        shutil.rmtree(dossier)
+
+
 def test_chaque_raison_de_console_a_un_message():
     """Une raison que la page ne connait pas s'affiche... comme rien du tout.
 
@@ -4383,7 +4412,14 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
         run = staticmethod(lambda *a, **k: None)
 
     garde = runner.subprocess
+    # LE CONSTRUCTEUR EST STUBE COMME LE PROCESSUS. `run_console()` refuse de
+    # depenser un conteneur quand `CTESTER_BUILD_SCRATCH` ne designe aucun
+    # fichier -- et ce harnais tourne avec le python de l'HOTE, sans les
+    # variables de l'unite systemd, donc il retomberait toujours sur le defaut.
+    # C'est le verrou qu'on eprouve ici, pas la configuration du Dell.
+    garde_build = runner.BUILD_SCRATCH
     try:
+        runner.BUILD_SCRATCH = os.path.join(HERE, "build-scratch.sh")
         runner.subprocess = FauxSubprocess
         fil = _fils.Thread(target=runner.run_console, args=(job,), daemon=True)
         fil.start()
@@ -4406,6 +4442,7 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
         assert scratch._verrou_tenu(os.path.join(job, "claim")) is False
     finally:
         runner.subprocess = garde
+        runner.BUILD_SCRATCH = garde_build
         os.close(tenu)
         try:
             os.close(lecture)
