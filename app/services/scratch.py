@@ -207,9 +207,25 @@ def _verrou_tenu(chemin):
     sans prendre la place. Jumeau de `runner.verrou_tenu()` -- les deux côtés
     de la même frontière, et il n'y a rien à garder synchronisé entre eux
     puisque c'est le noyau qui répond.
+    
+    L'OUVERTURE EST EN LECTURE SEULE, ET C'EST LOAD-BEARING. Les deux verrous
+    ne sont pas crees par le meme utilisateur : `alive` l'est par l'API (uid
+    65534 dans le conteneur), `claim` par le worker (root sur l'hote), et tous
+    les deux en 0644. Ouvrir en O_RDWR pour SONDER demandait donc le droit
+    d'ecriture sur le fichier de l'autre -- l'API prenait un EACCES sur
+    `claim`, le `except OSError` le traduisait en « personne ne le tient », et
+    la session mourait en annoncant « le service s'est interrompu » sur un
+    worker parfaitement vivant. Une panne parfaitement asymetrique : root
+    pouvait ouvrir `alive`, nobody ne pouvait pas ouvrir `claim`.
+
+    `flock` NE DEMANDE AUCUN DROIT D'ECRITURE -- contrairement aux verrous
+    POSIX de `fcntl.lockf` -- parce qu'il porte sur la description de fichier
+    ouverte et pas sur son contenu. Sonder en lecture seule est donc la
+    correction complete : rien a changer aux modes, rien a aligner entre deux
+    utilisateurs.
     """
     try:
-        fd = os.open(chemin, os.O_RDWR | os.O_CREAT, 0o644)
+        fd = os.open(chemin, os.O_RDONLY | os.O_CREAT, 0o644)
     except OSError:
         return False
     try:

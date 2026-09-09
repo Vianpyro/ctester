@@ -709,6 +709,26 @@ sondés en les *essayant* :
 péremption : quatre constantes et un mode de panne, contre une primitive
 utilisée deux fois.
 
+**ET LES DEUX SONDES OUVRENT EN LECTURE SEULE, ce n'est pas un détail de
+style.** Les deux verrous ne sont pas créés par le même utilisateur : `alive`
+par l'API (**uid 65534** dans le conteneur, voir `user:` du `compose.yml`),
+`claim` par le worker (**root** sur l'hôte), et tous les deux en 0644. Une
+sonde qui ouvre en `O_RDWR` demande donc le droit d'écriture sur le fichier de
+l'autre : root ouvrait `alive` sans problème, `nobody` prenait un **EACCES**
+sur `claim`, et le `except OSError` traduisait ce refus en « personne ne tient
+ce verrou ». La session mourait en annonçant « le service de compilation s'est
+interrompu » **sur un worker parfaitement vivant** — une panne asymétrique,
+donc invisible tant qu'on ne regarde qu'un côté.
+
+`flock` **ne demande aucun droit d'écriture** — contrairement aux verrous
+POSIX de `fcntl.lockf`, il porte sur la description de fichier ouverte et pas
+sur le contenu. `O_RDONLY` est donc la correction complète : aucun mode de
+fichier à changer, aucun uid à aligner.
+`test_les_deux_sondes_de_verrou_ouvrent_en_LECTURE_SEULE` lit **les deux**
+sources, parce qu'elles sont jumelles de part et d'autre de la frontière et
+qu'en corriger une seule laisse exactement la moitié de la panne — celle qu'on
+ne reproduit pas.
+
 **LES TROIS HORLOGES NE MESURENT PAS LA MÊME CHOSE.** Le mur
 (`CONSOLE_SESSION_MAX`, 180 s) borne le coût ; l'inactivité (`CONSOLE_IDLE_MAX`,
 90 s) libère la place ; et **le temps CPU (`ulimit -t`, 10 s, dans

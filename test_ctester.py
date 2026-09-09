@@ -2749,6 +2749,39 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
         "module fautif utilise dans un module sans dependance, comme app/csp.py.")
 
 
+def test_les_deux_sondes_de_verrou_ouvrent_en_LECTURE_SEULE():
+    """SONDER UN VERROU NE DOIT DEMANDER AUCUN DROIT D'ECRITURE.
+
+    CE CONTROLE EXISTE PARCE QUE LA PANNE A EU LIEU, et qu'elle etait
+    asymetrique -- donc invisible d'un seul cote. `alive` est cree par l'API
+    (uid 65534 dans le conteneur), `claim` par le worker (root sur l'hote), les
+    deux en 0644. Une sonde en O_RDWR marchait donc dans un sens (root ouvre
+    tout) et prenait un EACCES dans l'autre. Le `except OSError` traduisait ce
+    refus en « personne ne tient ce verrou », et la Console mourait en disant
+    « le service de compilation s'est interrompu » sur un worker vivant.
+
+    `flock` ne demande aucun droit d'ecriture -- il porte sur la description de
+    fichier ouverte, pas sur le contenu -- donc O_RDONLY est la correction
+    complete, sans toucher a un seul mode de fichier.
+
+    IL LIT LES DEUX SOURCES, parce que ce sont des JUMELLES de part et d'autre
+    de la frontiere : corriger une seule laisse exactement la moitie de la
+    panne, c'est-a-dire celle qu'on ne reproduit pas.
+    """
+    for chemin, nom in ((os.path.join(HERE, "runner.py"), "verrou_tenu"),
+                        (os.path.join(HERE, "app", "services", "scratch.py"),
+                         "_verrou_tenu")):
+        source = lire(chemin)
+        corps = source[source.index("def " + nom + "(chemin):"):]
+        corps = corps[:corps.index("os.close(fd)")]
+        assert "os.O_RDONLY" in corps, (
+            nom + " sonde le verrou sans O_RDONLY : il demandera le droit "
+            "d'ecriture sur un fichier cree par l'AUTRE utilisateur, prendra "
+            "un EACCES, et le rendra comme « verrou libre ».")
+        assert "os.O_RDWR" not in corps, (
+            nom + " ouvre encore en O_RDWR pour sonder.")
+
+
 def test_un_constructeur_absent_se_nomme_au_lieu_d_accuser_le_service():
     """`CTESTER_BUILD_SCRATCH` non pose = une CONFIGURATION qui manque.
 
