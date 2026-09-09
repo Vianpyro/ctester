@@ -14,3 +14,4 @@
       restarts the containers -- it cannot live inside one it restarts.
 - [~] Questions en live anonymes pour les timides
 - [ ] Add error highlighting in text editor
+- [ ] Add tabulations and "autocomplete" for `(` -> `)`, `"` -> `"`, `[` -> `]`, etc...
