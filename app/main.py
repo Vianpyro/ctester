@@ -123,6 +123,17 @@ def _avertir():
     if config.DOCS:
         print("ATTENTION : CTESTER_DOCS=1, /docs et /openapi.json sont publics",
               file=sys.stderr)
+    # LA PANNE LA PLUS CHÈRE DE CE FICHIER SE TAISAIT. Sans implémentation
+    # WebSocket, uvicorn répond 501 à chaque poignée de main et n'écrit rien :
+    # la Console et l'espace d'équipe se ferment sans raison affichable,
+    # pendant que TOUT LE RESTE DU SITE marche. On ne refuse pas de démarrer --
+    # une dépendance manquante ne doit pas éteindre le juge pour tout le monde
+    # -- mais ça ne reste pas silencieux non plus.
+    from uvicorn.protocols.websockets.auto import AutoWebSocketsProtocol
+    if AutoWebSocketsProtocol is None:
+        print("ATTENTION : aucune implementation WebSocket -- /team/live et"
+              " /scratch/live repondront 501. Poser `wsproto` (requirements.txt)",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

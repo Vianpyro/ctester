@@ -2592,6 +2592,24 @@ def _console_hello(socket, jeton="t-alice", code="int main(void){return 0;}"):
     socket.send_json({"t": "hello", "token": jeton, "code": code})
 
 
+def _exige_flock():
+    """Les contrôles qui ouvrent une VRAIE session ont besoin de `flock`.
+
+    Hors POSIX il n'y en a pas, et l'erreur remonterait déguisée : le routeur
+    avale toute exception de l'endpoint et ferme la socket, donc le harnais ne
+    verrait qu'un `WebSocketDisconnect` -- indistinguable d'un refus légitime,
+    c'est-à-dire le pire des contrôles : celui qui rassure. On la lève ici, à
+    découvert, et la boucle de fin de fichier la reconnaît et le DIT.
+
+    Les contrôles qui s'arrêtent AVANT la session -- ordre des refus, origine,
+    bornes du `hello` -- ne l'appellent pas : ce sont eux qui gardent la
+    frontière, et ils tournent partout.
+    """
+    from services import scratch as _scratch
+    if _scratch.fcntl is None:
+        raise RuntimeError("flock indisponible : la Console demande POSIX")
+
+
 def test_la_console_dit_qu_elle_n_est_pas_offerte_avant_de_refuser_le_jeton():
     """L'ORDRE, et c'est la règle du forum : « pas offerte ici » AVANT « jeton
     refusé ». Un étudiant sur un déploiement sans Console ne doit pas croire
@@ -2636,6 +2654,7 @@ def test_la_console_refuse_une_origine_inconnue_avant_d_accepter():
 
 def test_la_console_borne_le_code_des_deux_cotes():
     """`MAX_CODE` pile passe, `MAX_CODE + 1` ne passe plus."""
+    _exige_flock()
     from starlette.websockets import WebSocketDisconnect
 
     with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
@@ -2662,6 +2681,7 @@ def test_la_console_borne_ce_qu_on_tape_des_deux_cotes():
     corps : celle-ci est reposée à la main dans le routeur, ou la Console
     serait la seule porte non bornée de l'application.
     """
+    _exige_flock()
     with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
         with client.websocket_connect("/scratch/live") as socket:
             _console_hello(socket)
@@ -2690,6 +2710,7 @@ def test_la_console_n_ecrit_ni_owner_ni_exercice_dans_le_spool():
     un `exercise_id`, et le job de console n'a ni l'un ni l'autre. Un sondage
     de `/r/<id>` sur ce job ne doit donc écrire aucune tentative de pratique.
     """
+    _exige_flock()
     base = BaseSimulee()
     with contexte(jetons=JETONS_EQUIPE, base=base) as (client, faux, _):
         with client.websocket_connect("/scratch/live") as socket:
@@ -2709,6 +2730,7 @@ def test_la_console_n_ecrit_ni_owner_ni_exercice_dans_le_spool():
 
 
 def test_une_seule_session_de_console_par_compte():
+    _exige_flock()
     from starlette.websockets import WebSocketDisconnect
 
     with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
@@ -2729,6 +2751,7 @@ def test_une_seule_session_de_console_par_compte():
 
 
 def test_le_quota_horaire_de_console_passe_a_N_et_refuse_a_N_plus_1():
+    _exige_flock()
     from starlette.websockets import WebSocketDisconnect
 
     with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
@@ -3573,7 +3596,22 @@ def test_choisir_une_equipe_n_ouvre_aucun_document():
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    sautes = 0
     for fn in tests:
-        fn()
+        try:
+            fn()
+        except RuntimeError as e:
+            # LE SEUL SAUT TOLÉRÉ, et il se nomme : la Console a besoin de
+            # `flock`, qui n'existe pas hors POSIX. Sur le Dell -- le seul
+            # endroit où elle tourne -- rien n'est sauté. Attraper le message
+            # plutôt que de tenir une liste de noms de tests : une liste
+            # rouillerait, et c'est celle-là qu'on oublierait de vider.
+            if "flock indisponible" not in str(e):
+                raise
+            sautes += 1
+            print("saute " + fn.__name__ + " (pas de flock hors POSIX)")
+            continue
         print("ok   " + fn.__name__)
-    print("\n%d vérifications passées." % len(tests))
+    print("\n%d vérifications passées%s."
+          % (len(tests) - sautes,
+             ", %d sautées hors POSIX" % sautes if sautes else ""))

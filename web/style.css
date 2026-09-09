@@ -255,8 +255,8 @@ main {
 #edtitle { font-size: 12.5px; color: var(--fg); text-transform: none;
            letter-spacing: 0; }
 
-#edwrap { flex: 1 1 auto; min-height: 0; display: flex; background: var(--card); }
-#gutter {
+.edwrap { flex: 1 1 auto; min-height: 0; display: flex; background: var(--card); }
+.gutter {
   flex: 0 0 auto; margin: 0; height: 100%; overflow: hidden;
   padding: .5rem .55rem .5rem .7rem;
   border: 1px solid transparent; border-right-color: var(--line);
@@ -265,10 +265,16 @@ main {
   text-align: right; color: var(--muted); background: var(--panel);
   user-select: none;
 }
-#pane { position: relative; flex: 1 1 auto; min-width: 0; }
-/* THE OVERLAY: `#hl` (colored) under `#code` (transparent). Their metrics
+.pane { position: relative; flex: 1 1 auto; min-width: 0; }
+/* THE OVERLAY: `.hl` (colored) under `.codein` (transparent). Their metrics
    must be IDENTICAL down to the pixel -- anything that shifts the text
    shifts the colors.
+
+   CLASSES AND NOT IDS, because there are TWO editors now: the exercise one
+   (`#code`) and the Console's (`#scratchcode`). One definition for both is
+   the whole point -- a second copy of these six properties is a second place
+   to keep in sync, and the day they drift the colors sit a pixel off the
+   text with nothing to say why.
 
    THE SHORTHAND `font` PROPERTY AND NOT FOUR SEPARATE DECLARATIONS: the
    generic rule above sets `font: inherit` on every `textarea`, and a
@@ -276,7 +282,7 @@ main {
    would only take one of the four being set elsewhere to misalign the
    colored layer from the typed text. Here everything is set at once, and
    nothing is inherited. */
-#hl, #code {
+.hl, .codein {
   margin: 0; box-sizing: border-box;
   padding: .5rem .7rem;
   border: 1px solid transparent;
@@ -284,21 +290,21 @@ main {
   tab-size: 4;
   white-space: pre;
 }
-#hl {
+.hl {
   position: absolute; inset: 0;
   background: var(--card); color: var(--fg);
   overflow: hidden;
   pointer-events: none;
 }
-#code {
+.codein {
   position: absolute; inset: 0;
   resize: none; overflow: auto; border-radius: 0;
   background: transparent;
   color: transparent;
   caret-color: var(--ink);
 }
-#code::placeholder { color: var(--muted); opacity: 1; }
-#code::selection { background: color-mix(in srgb, var(--ink) 30%, transparent); }
+.codein::placeholder { color: var(--muted); opacity: 1; }
+.codein::selection { background: color-mix(in srgb, var(--ink) 30%, transparent); }
 
 .tc { color: var(--syn-comment); font-style: italic; }
 .ts { color: var(--syn-string); }
@@ -692,7 +698,7 @@ pre {
   #consigne summary::before { content: "\25B8"; }
   #consigne[open] summary::before { content: "\25BE"; }
   #droite { display: block; }
-  #edwrap { height: clamp(12rem, 45vh, 26rem); }
+  .edwrap { height: clamp(12rem, 45vh, 26rem); }
   #out { max-height: none; overflow: visible; }
   #consentement { position: static; width: auto; margin: .9rem; box-shadow: none; }
   #charte { position: static; width: auto; margin: .9rem; box-shadow: none; }
@@ -868,9 +874,14 @@ pre {
    The page body moved to sans-serif; these keep monospace because column
    alignment carries meaning in them. */
 .case .champ .valeur, .gcc pre, .avert pre, #out > pre,
-#scratchcode, .scratchterm, #scratchsaisie {
+.scratchterm, #scratchsaisie {
   font-family: var(--mono);
 }
+/* NI `#code` NI `#scratchcode` ICI, et c'est load-bearing : les deux éditeurs
+   portent la police de `.hl, .codein`, qui est une AUTRE pile que `--mono`. Un
+   `font-family` posé par un sélecteur d'ID gagnerait sur la classe, la couche
+   colorée et le texte tapé n'auraient plus les mêmes métriques, et les couleurs
+   se décaleraient d'un caractère de plus à chaque ligne. */
 /* The same label as in the menu, in the OPEN exercise's banner. It says
    "sans XP": that is the question one asks on arriving at it, and the
    answer must not depend on having unfolded the statement. */
@@ -1350,13 +1361,15 @@ pre {
 .scratchpan { margin: .75rem 0; }
 .scratchpan .phead { border-bottom: 1px solid var(--line); }
 
-#scratchcode {
-  display: block; width: 100%; box-sizing: border-box;
-  min-height: 14rem; resize: vertical;
-  padding: .6rem .7rem; border: 0; border-radius: 0;
-  background: var(--card); color: var(--fg);
-  font-size: 13px; line-height: 1.5; tab-size: 4;
-  white-space: pre; overflow-x: auto;
+/* LA HAUTEUR SEULEMENT. Les métriques du texte viennent de `.hl, .codein`
+   plus haut, partagées avec l'éditeur d'exercice : les redéclarer ici, c'est
+   la dérive d'un pixel qui décale les couleurs. Ce qui reste est ce que cet
+   éditeur-ci a de différent -- il n'est pas dans une grille plein écran, donc
+   il lui faut une hauteur, et l'étudiant peut la tirer. */
+.scratchedit {
+  height: clamp(12rem, 40vh, 26rem);
+  resize: vertical; overflow: hidden;
+  border-top: 1px solid var(--line);
 }
 
 .scratchbarre {

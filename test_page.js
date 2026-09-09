@@ -3047,13 +3047,31 @@ const attendre = async () => { await sleep(); await sleep(); };
     const regle = bloc.split("}")[0].match(/font:\s*([^;]+);/);
     return regle ? regle[1].trim().replace(/\s+/g, " ") : null;
   };
-  const superposition = police("#hl, #code");
-  const gouttiere = police("#gutter");
+  const superposition = police(".hl, .codein");
+  const gouttiere = police(".gutter");
   check(!!superposition,
         "la superposition declare sa police d'un seul tenant (propriete `font`)");
   check(superposition === gouttiere,
         "et la gouttiere porte EXACTEMENT la meme : "
         + superposition + " / " + gouttiere);
+
+  // ET IL Y A DEUX ÉDITEURS MAINTENANT. La Console a le sien -- elle ne touche
+  // jamais `#code` -- mais il porte les MÊMES classes, donc la même et unique
+  // déclaration de police. Un `font-family` reposé sur `#code` ou `#scratchcode`
+  // gagnerait par spécificité d'ID sur la classe, et la couche colorée
+  // décrocherait du texte tapé d'un caractère de plus à chaque ligne. C'est la
+  // régression que ce contrôle-ci attrape, et elle est invisible au JS.
+  const motif = "^[^{}" + String.fromCharCode(10) + "]*#(?:scratch)?code"
+              + "[^{}" + String.fromCharCode(10) + "]*\\{[^}]*font-family";
+  const surcharge = feuille.match(new RegExp(motif, "m"));
+  check(!surcharge,
+        "aucun selecteur d'ID ne repose une police sur un des deux editeurs"
+        + (surcharge ? " : " + surcharge[0].split("{")[0].trim() : ""));
+  const markup = lire("index.html");
+  for (const classe of ["hl", "codein", "gutter"]) {
+    check(new RegExp("class=\"[^\"]*\\b" + classe + "\\b").test(markup),
+          "l'editeur d'exercice porte la classe partagee `" + classe + "`");
+  }
 
   // --- LA CONSOLE -----------------------------------------------------------
   // CE QUI EST ÉPROUVÉ ICI : que la socket part vraiment, que le jeton voyage
@@ -3070,6 +3088,16 @@ const attendre = async () => { await sleep(); await sleep(); };
   check(nodes.scratchcode.value === BLOC_NOTES,
         "le bloc-notes du COMPTE remplit l'éditeur : "
         + JSON.stringify(nodes.scratchcode.value));
+
+  // LA COLORATION EST CELLE DU NOYAU, pas une seconde grammaire. Ce qui est
+  // éprouvé ici, c'est le câblage : que la couche colorée soit peinte au
+  // chargement du bloc-notes, et que la gouttière compte les mêmes lignes.
+  check(/<span class="tk">int<\/span>/.test(nodes.scratchhlcode.innerHTML),
+        "l'éditeur de la Console est coloré par `ctester.colorierC` : "
+        + nodes.scratchhlcode.innerHTML);
+  check(profond(nodes.scratchgutter).trim() === "1",
+        "et sa gouttière numérote les lignes : "
+        + JSON.stringify(profond(nodes.scratchgutter)));
 
   // L'éditeur de la Console est le SIEN : il ne doit jamais toucher celui de
   // l'exercice, qui appartient à `currentId` et à son brouillon.

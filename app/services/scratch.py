@@ -35,12 +35,20 @@ avec.
 """
 
 import codecs
-import fcntl
 import json
 import os
 import uuid
 
 import config
+
+# ponytail: `flock` est POSIX, et la Console ne tourne QUE sur le Dell -- mais
+# `app/main.py` importe ce module au chargement, donc sans ce garde-fou c'est
+# TOUTE l'API qui devient inimportable sur la machine de développement, et avec
+# elle `test_api.py`. Ouvrir une session sans fcntl lève ; l'importer, non.
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 # Le genre porté par `job.json`. Le worker dispatche dessus AVANT de réclamer.
 KIND = "console"
@@ -161,6 +169,14 @@ def ouvrir(code):
     C'est la même discipline que `spool.ecrire_job()`, qui écrit `job.json` en
     dernier pour que le worker ne lise jamais un `submission.c` à moitié écrit.
     """
+    # LE MESSAGE DIT QUOI, PAS « une erreur ». Hors POSIX il n'y a pas de
+    # `flock`, donc pas de duree de vie de session -- la Console ne tourne que
+    # sur le Dell. Ce qui compte est que la panne se NOMME : le harnais de
+    # test s'en sert pour sauter ces controles-la sur un poste Windows au lieu
+    # de tomber sur un `AttributeError: NoneType`.
+    if fcntl is None:
+        raise RuntimeError("flock indisponible : la Console demande POSIX")
+
     job_id = uuid.uuid4().hex
     chemin = os.path.join(config.SPOOL, job_id)
     os.mkdir(chemin, 0o755)

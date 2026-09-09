@@ -26,6 +26,17 @@ starlette==1.6.0
 uvicorn==0.52.4
 h11==0.16.0
 
+# LA MOITIÉ WEBSOCKET DU SERVEUR, ET SANS ELLE `/team/live` ET `/scratch/live`
+# NE S'OUVRENT PAS. Ce n'est pas une dégradation : uvicorn résout son protocole
+# WebSocket à `None` et répond 501 à CHAQUE poignée de main, donc le navigateur
+# ne voit qu'une connexion refusée -- « La connexion à la Console a été perdue »
+# pendant que tout le reste du site marche parfaitement. Coûté une soirée.
+#
+# `wsproto` ET PAS `websockets` : c'est le même raisonnement qu'`h11` juste
+# au-dessus -- pur Python, aucune extension C dans le seul processus exposé à
+# Internet, et sa SEULE dépendance est `h11`, déjà épinglé à la ligne d'avant.
+wsproto==1.3.2
+
 # La base, pour la connexion facultative. Sans `CTESTER_DB_DSN`, `etat.py`
 # rapporte la fonctionnalité comme éteinte et le parcours anonyme est intact.
 psycopg[binary]==3.3.5

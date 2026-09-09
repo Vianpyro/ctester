@@ -143,11 +143,11 @@
            neither `aria-controls` nor `tabpanel`: a screen reader announced
            a tab whose panel it could not find -- partial ARIA is worse
            than no ARIA at all. -->
-      <div id="edwrap" role="tabpanel">
-        <pre id="gutter" aria-hidden="true"></pre>
-        <div id="pane">
-          <pre id="hl" aria-hidden="true"><code id="hlcode"></code></pre>
-          <textarea id="code" spellcheck="false"
+      <div id="edwrap" class="edwrap" role="tabpanel">
+        <pre id="gutter" class="gutter" aria-hidden="true"></pre>
+        <div id="pane" class="pane">
+          <pre id="hl" class="hl" aria-hidden="true"><code id="hlcode"></code></pre>
+          <textarea id="code" class="codein" spellcheck="false"
                     placeholder="// Colle ici le contenu de ton fichier"></textarea>
           <!-- TEAMMATES' CARETS, on their own layer and AFTER the textarea so
                they draw on top of it. `pointer-events: none` in the

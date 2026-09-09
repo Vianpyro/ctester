@@ -86,6 +86,33 @@ function occupe(actif) {
   $("scratcheof").disabled = !actif;
 }
 
+// --- La coloration -------------------------------------------------------------
+// LA GRAMMAIRE VIENT DU NOYAU (`ctester.colorierC`), pas d'une seconde copie :
+// c'est le même C, et deux expressions rationnelles à tenir synchronisées, c'est
+// une qui dérive. Ce qui reste ici est le câblage, parce que ce sont d'autres
+// nœuds -- l'éditeur de la Console ne touche JAMAIS `#code`.
+//
+// SEUL `innerHTML` DE CE FICHIER, et il reçoit la sortie de `colorierC()`, qui
+// échappe chaque tranche. Ce que l'étudiant tape n'y arrive jamais brut.
+let lignesAffichees = -1;
+
+function peindre() {
+  const texte = $("scratchcode").value;
+  $("scratchhlcode").innerHTML = ctester.colorierC(texte);
+  const n = texte.split("\n").length;
+  if (n !== lignesAffichees) {
+    lignesAffichees = n;
+    let s = "";
+    for (let i = 1; i <= n; i++) s += i + "\n";
+    $("scratchgutter").textContent = s;
+  }
+  // LES TROIS TEXTES SUIVENT LE MÊME DÉFILEMENT, sinon les couleurs restent en
+  // haut pendant qu'on tape en bas.
+  $("scratchhl").scrollTop = $("scratchcode").scrollTop;
+  $("scratchgutter").scrollTop = $("scratchcode").scrollTop;
+  $("scratchhl").scrollLeft = $("scratchcode").scrollLeft;
+}
+
 // --- Le bloc-notes, enregistré SUR LE COMPTE -----------------------------------
 
 async function charger() {
@@ -100,6 +127,7 @@ async function charger() {
   }
   dernierCode = reponse.code || "";
   $("scratchcode").value = dernierCode || GABARIT;
+  peindre();
 }
 
 function enregistrer() {
@@ -231,12 +259,32 @@ function batir() {
   vue.append(intro);
 
   const cadre = node("div", "plan scratchpan");
-  const entete = node("div", "phead", "Ton programme");
-  cadre.append(entete);
+  cadre.append(node("div", "phead", "Ton programme"));
+
+  // LA MÊME STRUCTURE QUE L'ÉDITEUR D'EXERCICE, aux mêmes classes : gouttière,
+  // puis `.hl` coloré sous un `.codein` au texte transparent. Les métriques
+  // sont définies UNE fois dans la feuille (`.hl, .codein`) -- les recopier ici
+  // ferait dériver les deux éditeurs d'un pixel, et les couleurs se décaleraient
+  // du texte sans que rien ne le dise.
+  const enveloppe = node("div", "edwrap scratchedit");
+  const gouttiere = node("pre", "gutter", "");
+  gouttiere.id = "scratchgutter";
+  gouttiere.setAttribute("aria-hidden", "true");
+  const panneau = node("div", "pane");
+  const couche = node("pre", "hl", "");
+  couche.id = "scratchhl";
+  couche.setAttribute("aria-hidden", "true");
+  const colore = document.createElement("code");
+  colore.id = "scratchhlcode";
+  couche.append(colore);
   const zone = document.createElement("textarea");
   zone.id = "scratchcode";
+  zone.className = "codein";
   zone.spellcheck = false;
-  cadre.append(zone);
+  zone.placeholder = "// Écris ton programme C ici";
+  panneau.append(couche, zone);
+  enveloppe.append(gouttiere, panneau);
+  cadre.append(enveloppe);
   vue.append(cadre);
 
   const barre = node("div", "scratchbarre");
@@ -284,7 +332,13 @@ function batir() {
   champ.addEventListener("keydown", (e) => {
     if (e && e.key === "Enter") envoyer();
   });
-  zone.addEventListener("input", enregistrer);
+  zone.addEventListener("input", () => {
+    peindre();
+    enregistrer();
+  });
+  // TAPER N'EST PAS LA SEULE FAÇON DE DÉFILER : la molette, une sélection
+  // tirée au clavier, un collage. Sans ça les couleurs décrochent du texte.
+  zone.addEventListener("scroll", peindre);
   bati = true;
 }
 

@@ -836,14 +836,30 @@ compte serait d'accepter ce que le worker refuse.
 ### Ce qui reste à faire au déploiement (`VHome`)
 
 1. **Aucune unité systemd nouvelle**, aucun `ReadWritePaths` à changer.
-2. Une tâche `copy` de plus pour `build-scratch.sh`, et `CTESTER_BUILD_SCRATCH`
-   sur l'unité `ctester-runner@`.
-3. `CTESTER_SCRATCH=1` côté web (**absente = Console éteinte**, comme le forum).
-   Le rollback est de retirer la ligne.
+2. `CTESTER_BUILD_SCRATCH` sur l'unité `ctester-runner@`. **Pas de tâche
+   `copy`** : les trois constructeurs sont référencés depuis `ctester_app_dir`,
+   c'est-à-dire le clone git que `ctester-pull.timer` met à jour tout seul. Une
+   copie serait un second exemplaire à faire dériver.
+3. `ctester_scratch: true` dans `group_vars`, qui rend `CTESTER_SCRATCH=1` côté
+   web (**absente = Console éteinte**, comme le forum). Le rollback est de
+   retirer la ligne. Le rôle **refuse de converger** si `ctester_workers < 2`.
 4. **`ctester_workers` doit rester ≥ 2** : avec un seul worker, une session gèle
    toute la correction pendant `CONSOLE_SESSION_MAX`.
 5. **NPM : rien.** « Websockets Support » est par proxy host et `/team/live` l'a
    déjà activé — mais le prochain le cherchera, d'où cette ligne.
+6. **`wsproto` DOIT ÊTRE DANS `/deps`**, et c'est la panne qui a fait que la
+   Console n'a jamais ouvert une seule session. `requirements.txt` refuse
+   `uvicorn[standard]` — pour de bonnes raisons, écrites là-bas — mais cet
+   extra était aussi ce qui apportait une implémentation WebSocket. Sans elle,
+   uvicorn résout son protocole à `None` et répond **501 à chaque poignée de
+   main**, sans rien journaliser : `/team/live` et `/scratch/live` ne s'ouvrent
+   jamais, le navigateur ne voit qu'une connexion refusée, et **tout le reste
+   du site marche parfaitement**. `wsproto` et pas `websockets` : pur Python,
+   même raisonnement qu'`h11`, et sa seule dépendance est `h11` déjà épinglé.
+   La tâche Ansible rejoue sur la somme de contrôle du fichier, donc il n'y a
+   rien de plus à faire — mais le démarrage l'avertit désormais dans
+   `docker logs`, et `test_ctester.py` refuse un `requirements.txt` sans
+   implémentation WebSocket.
 
 **⚠ CE DÉPLOIEMENT INVALIDE LE CACHE DE VERDICTS, UNE FOIS.**
 `empreinte_juge()` hache `runner.py` lui-même : y toucher rend les 20 000

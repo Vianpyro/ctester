@@ -1593,6 +1593,17 @@ Object.assign(ctester, {
   // do when it does not arrive -- for the forum, falling back to plain text.
   charger: load,
   socketUrl,
+  // THE C HIGHLIGHTER, SHARED. The Console has its own editor -- it must never
+  // touch `#code`, which belongs to `currentId`, its draft and, on an
+  // assignment, the team CRDT -- but it must colour the same language the same
+  // way. A second copy of `C_RE` would be a second grammar to fix twice, and
+  // the harness cannot see that kind of duplication: its scan for
+  // twice-declared functions works one file at a time.
+  //
+  // A PURE FUNCTION, text in, escaped HTML out. Its output is the only thing
+  // in this page allowed near `innerHTML`, and that is safe for exactly one
+  // reason: every branch of `highlight` runs its slice through `esc()` first.
+  colorierC: highlight,
   // The MODULE loader, the one that tells the student what did not arrive.
   // Exposed because "Mes progrès" (progres.js) also offers the export:
   // without it, progres.js would rewrite `load()` plus its two error

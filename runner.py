@@ -21,7 +21,15 @@ a configuration field that would need to be kept in sync with reality:
 """
 
 import datetime
-import fcntl
+# ponytail: `flock` est POSIX, et le worker ne tourne QUE sur le Dell -- mais
+# `publish_content` importe ce module, et l'API importe `publish_content`. Sans
+# ce garde-fou, `test_api.py` et `test_ctester.py` ne s'importent plus sur une
+# machine de développement Windows. Juger une session sans fcntl lève ;
+# importer, non.
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import hashlib
 import json
 import os

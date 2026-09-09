@@ -15,7 +15,14 @@ python3 qui s'y trouve.
 
 import contextlib
 import datetime as dt
-import fcntl
+# ponytail: `flock` est POSIX. Les deux contrôles de la Console qui l'utilisent
+# ne peuvent pas tourner sur une machine de développement Windows -- mais tout
+# le RESTE de ce fichier le peut, et un `import` en tête l'en empêchait. Le
+# Dell, lui, l'a toujours.
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 import hashlib
 import io
 import json
@@ -2742,6 +2749,32 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
         "module fautif utilise dans un module sans dependance, comme app/csp.py.")
 
 
+def test_les_websockets_ont_une_implementation_epinglee():
+    """UVICORN SEUL NE SAIT PAS PARLER WEBSOCKET, et il ne le dit pas.
+
+    `requirements.txt` refuse `uvicorn[standard]` -- pour de bonnes raisons,
+    ecrites la-bas -- mais cet extra est aussi ce qui apportait `websockets`.
+    Sans implementation, uvicorn resout son protocole a `None` et repond 501 a
+    CHAQUE poignee de main : `/team/live` et `/scratch/live` ne s'ouvrent
+    jamais, le navigateur ne voit qu'une connexion refusee, et TOUT LE RESTE DU
+    SITE marche parfaitement -- ce qui rend la panne tres longue a trouver.
+
+    CE CONTROLE EXISTE PARCE QUE LA PANNE A EU LIEU : la Console a ete livree,
+    deployee, et n'a jamais pu ouvrir une seule session.
+
+    Il lit le FICHIER et pas les modules charges : c'est ce fichier qui decide
+    de ce qui est pose dans `/deps`, et ce test-ci tourne avec le python de
+    l'hote, qui ne voit rien de ce volume.
+    """
+    besoin = lire(os.path.join(HERE, "requirements.txt"))
+    lignes = [l.split("#")[0].strip() for l in besoin.splitlines()]
+    paquets = {l.split("==")[0].strip().lower() for l in lignes if "==" in l}
+    assert paquets & {"wsproto", "websockets"}, (
+        "requirements.txt n'epingle aucune implementation WebSocket : uvicorn "
+        "repondra 501 a /team/live et /scratch/live sans rien journaliser. "
+        "Poser `wsproto` (pur Python, sa seule dependance est h11, deja epingle).")
+
+
 def test_le_conteneur_web_n_importe_que_ce_qu_il_monte():
     """`app/` NE PEUT IMPORTER QUE `app/`. Les modules de la RACINE sont au worker.
 
@@ -4169,8 +4202,19 @@ def test_console_plafond_de_sortie():
     try:
         runner.CONSOLE_OUT_MAX = 100
         lecture, ecriture = os.pipe()
-        os.write(ecriture, b"n RUN\n" + b"x" * 5000)
-        os.close(ecriture)
+        # ALIMENTE DEPUIS UN FIL, et pas d'un `os.write` direct : 5 Ko
+        # depassent le tampon d'un tube sur certaines plateformes, et une
+        # ecriture sans lecteur y bloque POUR TOUJOURS -- le harnais se fige
+        # avant meme d'appeler ce qu'il teste. C'est la charge utile qui
+        # compte ici (bien au-dela du plafond), pas qui la pousse.
+        import threading as _fils
+
+        def _verser():
+            os.write(ecriture, b"n RUN\n" + b"x" * 5000)
+            os.close(ecriture)
+
+        pousseur = _fils.Thread(target=_verser, daemon=True)
+        pousseur.start()
 
         class Faux:
             def __init__(self, fd):
@@ -4178,6 +4222,7 @@ def test_console_plafond_de_sortie():
 
         compteur = {"octets": 0, "trop": False, "vu": 0.0, "compile": False}
         runner._pompe_sortie(Faux(lecture), dossier, "n", compteur)
+        pousseur.join(5)
         os.close(lecture)
         assert compteur["trop"] is True
         assert len(open(os.path.join(dossier, "out"), "rb").read()) <= 100
@@ -4214,6 +4259,10 @@ def test_console_le_job_ne_porte_aucune_identite():
     `_enregistrer()` exige un owner ET un exercice, donc il est inatteignable ;
     et la passe de cache du worker ignore la session d'elle-meme.
     """
+    if fcntl is None:
+        print("  (saute : pas de flock hors POSIX)")
+        return
+
     dossier = tempfile.mkdtemp()
     garde = config.SPOOL
     try:
@@ -4261,6 +4310,10 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
     disant « worker ».
     """
     import threading as _fils
+
+    if fcntl is None:
+        print("  (saute : pas de flock hors POSIX)")
+        return
 
     dossier = tempfile.mkdtemp()
     job = os.path.join(dossier, "a" * 32)
