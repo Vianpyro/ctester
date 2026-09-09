@@ -201,7 +201,7 @@ POLICY = {
             "compact",
             "optimisé"
         ]
-    }
+    },
 
     # PLATE FRAMES: decoration, and nothing else. `threshold` is the level
     # from which one is offered; the first is always available so an account
