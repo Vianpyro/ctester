@@ -140,6 +140,26 @@ FORUM_PSEUDO_MAX = _entier("CTESTER_FORUM_PSEUDO_MAX", "24")
 # receive an endless object the day something goes wrong.
 FORUM_MAX_FIL = 200
 
+# --- Le chat en direct ---------------------------------------------------------
+# LA SOCKET EST UNE SONNETTE, PAS UN TRANSPORT. Une trame dit « du neuf » et
+# le client relance `GET /forum` : le quota, la borne de texte, les listes
+# fermées et le tirage d'alias restent donc sur la route HTTP, à un seul
+# endroit. Relayer le texte voudrait dire réimplémenter tout ça par
+# destinataire, sur le chemin le plus difficile à éprouver.
+#
+# LE PLAFOND EST PAR SALLE, et une salle est un fil. Il existe pour qu'un fil
+# ne puisse pas immobiliser le processus, pas pour rationner : 60 laisse
+# passer une cohorte entière sur le même exercice.
+FORUM_LIVE_MAX = _entier("CTESTER_FORUM_LIVE_MAX", "60")
+# Une trame entrante est JETÉE (le client n'a rien à dire, il écrit en HTTP) ;
+# la borne est là parce qu'une trame WebSocket ne passe pas par le middleware,
+# et qu'aucune porte de cette application ne doit rester non bornée.
+FORUM_LIVE_FRAME = _entier("CTESTER_FORUM_LIVE_FRAME", "4096")
+# Combien de résultats une recherche rend. Elle sert AUSSI de détection de
+# doublon pendant la frappe, d'où la petitesse : trois propositions se lisent,
+# vingt se sautent.
+FORUM_SEARCH_MAX = _entier("CTESTER_FORUM_SEARCH_MAX", "5")
+
 # ponytail: a session's list of groups lives here, edited like the policy.
 # Empty => free-text field 1..99 (the old behavior). The column stays
 # `SMALLINT CHECK (1..99)`: a session's list does not live in the schema. A

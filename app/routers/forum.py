@@ -12,22 +12,27 @@ THE FORUM MUST NEVER PREVENT DOING AN EXERCISE. Disabled, down, or a mute
 database: 503 saying so, and "Tester" keeps working.
 """
 
+import asyncio
+import json
 import re
 import secrets
 import uuid
 
 import config
+import deps
 import policy
 import state
 import headers
 import security
 from deps import SubForum, SubModerateur, freiner_forum
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, WebSocket
 from schemas import (ForumTargetIn, ForumMessageIn, ForumModerationIn,
-                     ForumProfilIn, ForumSignalementIn)
+                     ForumProfilIn, ForumSignalementIn, ForumVoteIn)
 from services.catalog import find_exercise
 from services import forum as forum_service
+from services import forum_live
 from services import leaderboard
+from starlette.concurrency import run_in_threadpool
 
 # Message and action ids have the same shape as a job (hex uuid4), but they
 # are not the same thing: folding them into a single constant would mean that
@@ -39,13 +44,62 @@ router = APIRouter(tags=["forum"])
 
 
 def _entree(brut):
-    """The named catalog entry, or None.
+    """The named thread, or None -- a catalog entry, or a chat.
 
-    `find_exercise` is the ONLY gate: there is no thread for an exercise
-    absent from the catalog, so no thread to create with a made-up id, and no
-    path to traverse.
+    `find_exercise` IS STILL THE ONLY CATALOG GATE: there is no thread for an
+    exercise absent from the catalog, so no thread to create with a made-up
+    id, and no path to traverse. What is added here is a second NAMED entry
+    that does not come from the catalog at all -- the chat.
+
+    A CHAT KEY IS NEVER A PATH. `@` cannot appear in a catalog id, so
+    `find_exercise` resolves none of these for anybody; the value is only ever
+    a thread key in a column. The exercise chat still has to name a REAL
+    exercise: `@chat:tp2-ex3` resolves only if `tp2-ex3` does, which is what
+    keeps a made-up chat from being conjured by writing to it.
     """
-    return find_exercise(str(brut or ""))
+    cle = str(brut or "")
+    if not forum_service.est_chat(cle):
+        return find_exercise(cle)
+    if cle == forum_service.CHAT_GENERAL:
+        return {"id": cle, "label": "Questions générales", "chat": True}
+    entree = find_exercise(cle[len(forum_service.CHAT_PREFIX):])
+    if entree is None:
+        return None
+    return {"id": cle, "label": entree.get("label") or cle, "chat": True}
+
+
+def _assurer_alias(sub):
+    """Draw this account a masked handle if it has none. Best effort, always.
+
+    AN ANONYMOUS AUTHOR MUST STILL BE FOLLOWABLE: "Participant" for everyone
+    makes a conversation unreadable -- one cannot tell who is answering whom.
+    The alias comes from a CLOSED vocabulary (`policy.possible_aliases()`), so
+    nothing a student typed can reach it, and there is no alias to moderate.
+
+    IT NEVER REFUSES A POST. A mute database, an exhausted vocabulary: we
+    return and the message goes out signed "Participant". A chat that stopped
+    accepting messages because a NAME could not be drawn would be the worst
+    possible trade.
+    """
+    profil = state.forum_profil(sub)
+    if not profil or profil.get("alias"):
+        return
+    taken = state.forum_taken_aliases()
+    if taken is None:
+        return
+    alias = leaderboard.draw_alias(taken, secrets.randbelow(1 << 32))
+    if not alias:
+        return
+    # THE WHOLE PROFILE IS REWRITTEN, as everywhere: the latest row IS the
+    # profile, so omitting a field would reset it -- and the one that would be
+    # reset most often is a visibility checkbox.
+    state.forum_profil_ecrire(
+        uuid.uuid4().hex, sub, profil.get("display_name"),
+        profil.get("group_number"), bool(profil.get("display_name_public")),
+        bool(profil.get("group_number_public")), alias=alias,
+        plate_frame=profil.get("plate_frame"),
+        badges_public=profil.get("badges_public"),
+        leaderboard_opt_in=profil.get("leaderboard_opt_in"))
 
 
 def _message_id(brut):
@@ -73,6 +127,11 @@ def fil(sub: SubForum, ex: str = Query("")):
     views = forum_service.forum_vue(messages, sub, moderateur, profils)
     return {
         "exercise_id": entree["id"],
+        # THE PAGE HAS TO KNOW WHICH SPACE IT IS DRAWING: a chat has no
+        # privacy control to offer (everything in it is public), the forum
+        # does. The server says which, rather than the page re-deriving it
+        # from the key -- one prefix, parsed in one place.
+        "chat": bool(entree.get("chat")),
         "moderator": moderateur,
         "max": config.FORUM_MAX_CHARS,
         "messages": views,
@@ -90,13 +149,18 @@ def fil(sub: SubForum, ex: str = Query("")):
 
 @router.post("/forum")
 def publier(sub: SubForum, corps: ForumMessageIn):
-    """Post into a published exercise's thread, or ask for help on it.
+    """Post into a thread: a question, a "bloqué ici", or a REPLY to either.
 
-    ONE ROUTE FOR BOTH, and the difference is `step`: with one, this is a
-    "bloqué ici" and it is PRIVATE by default; without, it is the ordinary
-    public question the forum has always had. Two routes would mean two places
-    to bound a message's length, and the one that drifted would be the one
-    that stopped bounding it.
+    ONE ROUTE FOR ALL THREE, and the differences are two optional fields.
+    `step` makes it a "bloqué ici", private by default in the forum; `reply_to`
+    makes it an answer. Separate routes would mean separate places to bound a
+    message's length, and the one that drifted would be the one that stopped
+    bounding it.
+
+    A REPLY CARRIES NO VISIBILITY OF ITS OWN -- it is refused if it tries.
+    In a chat everything is public anyway; in the forum a reply belongs to the
+    conversation it joins, and letting a body set it would be a way to publish
+    a line into a thread under the wrong audience.
 
     NO CODE IS EVER TRANSMITTED. The form asks what was observed, not what was
     written -- that is what keeps the charter tenable, and there is no field
@@ -108,6 +172,38 @@ def publier(sub: SubForum, corps: ForumMessageIn):
     texte, message = forum_service.forum_texte(corps.text)
     if message:
         return headers.erreur(400, message)
+
+    reponse_a = None
+    if corps.reply_to:
+        reponse_a = _message_id(corps.reply_to)
+        if reponse_a is None:
+            return headers.erreur(400, "identifiant invalide")
+        if corps.visibility:
+            return headers.erreur(
+                400, "une réponse hérite de la visibilité de sa question")
+
+    # THE QUOTA FIRST, THEN THE HANDLE. `freiner_forum` raises, so a throttled
+    # request does no database work at all -- drawing a name for someone we
+    # are about to refuse would be a read per rejected burst message.
+    freiner_forum(sub)
+    # THE MASKED HANDLE IS DRAWN BEFORE THE MESSAGE IS WRITTEN, so the message
+    # comes out already signed. Doing it after would show the first post of
+    # every new account as "Participant" until they wrote a second one.
+    _assurer_alias(sub)
+
+    if reponse_a is not None:
+        # None = mute, [] = the target does not exist or lives in another
+        # thread. The SAME 404 for both refusals, as everywhere in this file:
+        # telling them apart would tell whoever is trying that an id exists.
+        ecrit = state.forum_repondre(uuid.uuid4().hex, entree["id"], sub,
+                                     texte, reponse_a)
+        if ecrit is None:
+            return headers.erreur(503, "la base ne répond pas")
+        if not ecrit:
+            return headers.erreur(404, "message introuvable")
+        forum_live.notify(entree["id"])
+        return {"ok": True}
+
     step, message = forum_service.forum_step(corps.step)
     if message:
         return headers.erreur(400, message)
@@ -115,14 +211,67 @@ def publier(sub: SubForum, corps: ForumMessageIn):
     if message:
         return headers.erreur(400, message)
     visibility, message = forum_service.forum_visibility(
-        corps.visibility, step is not None)
+        corps.visibility, step is not None, entree["id"])
     if message:
         return headers.erreur(400, message)
-    freiner_forum(sub)
     if not state.forum_publier(uuid.uuid4().hex, entree["id"], sub, texte,
                                step, blocked_kind, visibility):
         return headers.erreur(503, "la base ne répond pas")
+    forum_live.notify(entree["id"])
     return {"ok": True}
+
+
+@router.get("/forum/search")
+def rechercher(sub: SubForum, q: str = Query("")):
+    """Search the archive -- and propose duplicates. THE SAME QUERY for both.
+
+    Typed into the compose box it answers "someone already asked this"; typed
+    into the search bar it answers "what was the reply I got last week". Two
+    routes would be two places for the privacy clause to drift, and the one
+    that drifted would be the one that stopped protecting.
+
+    THE PRIVACY RULE IS THE `WHERE` in `state.forum_search`, not a filter
+    here: a private forum question never surfaces to anyone but its author,
+    moderators included.
+
+    NO `freiner_forum`: this is a read, and a ten-second cooldown would make
+    it useless mid-typing -- which is precisely when it prevents a duplicate.
+    The page debounces, and the LIMIT bounds the cost.
+    """
+    resultats = state.forum_search(q, sub, config.FORUM_SEARCH_MAX)
+    if resultats is None:
+        return headers.erreur(503, "la base ne répond pas")
+    return {"results": resultats}
+
+
+@router.get("/forum/message")
+def permalien(sub: SubForum, id: str = Query("")):
+    """One question and ALL its replies, wherever it is in the archive.
+
+    WITHOUT THIS, SEARCH IS A LIST OF EXCERPTS ONE CANNOT OPEN: a message
+    three thousand posts back is inside no thread window, so `GET /forum`
+    would never return it.
+
+    IT GOES THROUGH THE SAME `forum_vue()`/`can_see()` as a thread -- same
+    rules, same identity translation, same single 404 for "does not exist" and
+    "not for you".
+    """
+    message_id = _message_id(id)
+    if message_id is None:
+        return headers.erreur(400, "identifiant invalide")
+    fil, messages = state.forum_conversation(message_id, sub)
+    if messages is None:
+        return headers.erreur(503, "la base ne répond pas")
+    if not messages:
+        return headers.erreur(404, "message introuvable")
+    moderateur = security.is_moderator(sub)
+    profils = state.forum_profils(
+        [m["account"] for m in messages] + [sub]) or {}
+    views = forum_service.forum_vue(messages, sub, moderateur, profils)
+    if not views:
+        return headers.erreur(404, "message introuvable")
+    return {"exercise_id": fil, "chat": forum_service.est_chat(fil),
+            "moderator": moderateur, "messages": views}
 
 
 @router.post("/forum/visibility")
@@ -150,22 +299,35 @@ def open_to_group(sub: SubForum, corps: ForumTargetIn):
 
 
 @router.post("/forum/helpful")
-def mark_helpful(sub: SubForum, corps: ForumTargetIn):
-    """"Ça m'a aidé" -- a usefulness counter, NOT a popularity vote.
+def voter(sub: SubForum, corps: ForumVoteIn):
+    """The vote: +1, -1 on a reply, or 0 to take it back. NOT a popularity score.
+
+    THE URL DOES NOT CHANGE, and the body is a superset of the old one: a page
+    still in a student's cache sends `{id}`, `value` defaults to 1, and it
+    means exactly what "ça m'a aidé" meant. A new route would have been a
+    second place to bound the same gesture, for nothing.
+
+    ON A QUESTION, +1 READS AS "MOI AUSSI" -- that is what tells the
+    instructor what is actually being asked, without counting anybody. -1 IS
+    REFUSED ON A QUESTION, and the refusal is the `WHERE` of
+    `state.forum_voter`, not this router and not the page's choice of buttons:
+    a question cannot be buried by a vote, which is the whole promise of a
+    place built for people who are afraid to ask.
 
     IT GRANTS NOTHING: no XP, no achievement, no card. A message written to be
-    upvoted is a message written for the counter, and this forum has no
-    currency for that on purpose.
+    upvoted is a message written for the counter.
 
-    ONE'S OWN MESSAGE IS REFUSED IN SQL (`m.account <> %s`), together with the
-    duplicate and the made-up id: three races closed by one statement instead
-    of three `if`s that each leave one open. All three answer the same 404.
+    THE SAME 404 for a made-up id, one's own message, and a -1 aimed at a
+    question: telling them apart would tell whoever is trying which is which.
     """
     message_id = _message_id(corps.id)
     if message_id is None:
         return headers.erreur(400, "identifiant invalide")
     freiner_forum(sub)
-    marked = state.forum_mark_helpful(message_id, sub)
+    if int(corps.value) == 0:
+        marked = state.forum_devoter(message_id, sub)
+    else:
+        marked = state.forum_voter(message_id, sub, corps.value)
     if marked is None:
         return headers.erreur(503, "la base ne répond pas")
     if not marked:
@@ -183,11 +345,15 @@ def supprimer(sub: SubForum, id: str = Query("")):
     message_id = _message_id(id)
     if message_id is None:
         return headers.erreur(400, "identifiant invalide")
+    # READ THE THREAD BEFORE THE ROW GOES AWAY: after the DELETE there is
+    # nothing left to ask which room to ring.
+    fil = state.forum_fil_de(message_id)
     efface = state.forum_supprimer(message_id, sub)
     if efface is None:
         return headers.erreur(503, "la base ne répond pas")
     if not efface:
         return headers.erreur(404, "message introuvable")
+    forum_live.notify(fil)
     return {"ok": True}
 
 
@@ -252,11 +418,17 @@ def moderer(sub: SubModerateur, corps: ForumModerationIn):
     # a report readable.
     if corps.action not in ("hide", "restore", "retain", "unretain"):
         return headers.erreur(400, "action inconnue")
+    fil = state.forum_fil_de(message_id)
     fait = state.forum_moderer(uuid.uuid4().hex, message_id, sub, corps.action)
     if fait is None:
         return headers.erreur(503, "la base ne répond pas")
     if not fait:
         return headers.erreur(404, "message introuvable")
+    # HIDING MUST REACH THE ROOM. Without the bell, a message hidden because
+    # it had to be stays on every screen already open until each reader
+    # happens to navigate -- precisely the case where hiding it fast was the
+    # whole point.
+    forum_live.notify(fil)
     return {"ok": True}
 
 
@@ -288,6 +460,28 @@ def who_needs_help(sub: SubModerateur):
             "steps": [{"id": k, "title": v} for k, v in forum_service.STEPS.items()],
             "blocked_kinds": [{"id": k, "title": v}
                               for k, v in forum_service.BLOCKED_KINDS.items()]}
+
+
+@router.get("/forum/top")
+def top(sub: SubModerateur):
+    """"Questions du moment": the most upvoted roots of the window.
+
+    A SEPARATE ROUTE FROM `/forum/help`, ON PURPOSE. That one's contract is
+    written in its docstring -- "COUNTS AND STEPS, NEVER PEOPLE. No `sub`, no
+    name, no text, no code" -- and a ranking needs the text. Widening a
+    promise already written down costs more than a second route carrying a
+    different one.
+
+    STILL NO `sub` AND NO NAME. What comes out is a handle, a text, a thread
+    and two numbers -- the same discipline as everywhere else in this file.
+
+    STUDENTS SEE NO RANKING AT ALL. A public counter on what each person asked
+    is the opposite of what this whole feature is for.
+    """
+    rows = state.forum_top(HELP_WINDOW_HOURS, config.FORUM_MAX_FIL)
+    if rows is None:
+        return headers.erreur(503, "la base ne répond pas")
+    return {"rows": rows, "hours": HELP_WINDOW_HOURS}
 
 
 def _effacer_nom(message_id):
@@ -395,3 +589,112 @@ def ecrire_profil(sub: SubForum, corps: ForumProfilIn):
             leaderboard_opt_in=corps.leaderboard_opt_in):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}
+
+
+# --- Le chat en direct ---------------------------------------------------------
+
+
+@router.websocket("/forum/live")
+async def live(socket: WebSocket):
+    """Une sonnette par fil. ELLE NE TRANSPORTE AUCUN MESSAGE.
+
+    Une trame sortante dit `{"t": "new"}` et rien d'autre ; le client relance
+    `GET /forum?ex=…`, qui applique `can_see()` par lecteur comme il le fait
+    déjà. C'est ce qui garde la règle de visibilité, le quota, la borne de
+    texte, les listes fermées et le tirage d'alias à UN SEUL ENDROIT -- la
+    route HTTP. Relayer le texte voudrait dire réimplémenter tout ça par
+    destinataire, sur le chemin le plus difficile à éprouver.
+
+    Conséquence gratuite : un lecteur qui n'a pas le droit de voir un message
+    reçoit la sonnette et redessine la même chose. Même l'EXISTENCE du message
+    ne fuit pas.
+
+    LA SÉQUENCE EST CELLE DES DEUX AUTRES SOCKETS (`/team/live`,
+    `/scratch/live`), et c'est délibéré : origine, accept, `hello` borné puis
+    analysé, autorisation, salle. Une quatrième façon d'ouvrir une socket
+    serait une quatrième façon de se tromper d'ordre.
+    """
+    # L'ORIGINE D'ABORD : une WebSocket n'est pas soumise au CORS, le
+    # navigateur l'ouvre vers n'importe quel hôte et n'envoie qu'`Origin`. Le
+    # jeton de la première trame reste la vraie barrière ; refuser ici coûte
+    # une comparaison et ferme la porte plus tôt. Une origine ABSENTE est
+    # acceptée : c'est un client non-navigateur, qui doit de toute façon
+    # connaître un jeton valide.
+    origine = socket.headers.get("origin", "").strip().rstrip("/")
+    if origine and origine not in config.ORIGINS:
+        await socket.close(code=deps.CLOSE_FORBIDDEN)
+        return
+    await socket.accept()
+    try:
+        hello = await asyncio.wait_for(socket.receive_text(), timeout=10)
+    except Exception:
+        await socket.close(code=deps.CLOSE_BAD)
+        return
+    # BORNÉ AVANT D'ÊTRE ANALYSÉ. Le middleware borne les corps HTTP, mais une
+    # trame WebSocket ne passe pas par lui : la même enveloppe est reposée ici
+    # à la main, sinon ce serait la seule porte non bornée de l'application.
+    if len(hello) > config.FORUM_LIVE_FRAME:
+        await socket.close(code=deps.CLOSE_BAD)
+        return
+    try:
+        ouverture = json.loads(hello)
+    except ValueError:
+        ouverture = None
+    if not isinstance(ouverture, dict) or ouverture.get("t") != "hello":
+        await socket.close(code=deps.CLOSE_BAD)
+        return
+    jeton, fil = ouverture.get("token"), ouverture.get("thread")
+    if not isinstance(jeton, str) or not jeton or not isinstance(fil, str):
+        await socket.close(code=deps.CLOSE_BAD)
+        return
+
+    # « LES DISCUSSIONS NE SONT PAS ACTIVÉES » AVANT « TON JETON EST REFUSÉ »,
+    # le même ordre que les routes HTTP (503 avant 401) et que la Console. Un
+    # déploiement sans forum ne doit pas répondre « authentifie-toi » à une
+    # fonctionnalité qu'il n'offre pas.
+    if not forum_service.forum_enabled():
+        await socket.close(code=deps.CLOSE_UNAVAILABLE)
+        return
+
+    # `current_user` APPELLE L'ÉMETTEUR et bloque : dans le threadpool, comme
+    # tous les endpoints HTTP. L'attendre sur la boucle gèlerait toutes les
+    # autres sockets le temps d'un jeton froid.
+    sub = await run_in_threadpool(security.current_user,
+                                  {"Authorization": "Bearer " + jeton})
+    if not sub:
+        await socket.close(code=deps.CLOSE_UNAUTHORIZED)
+        return
+
+    # LA MÊME PORTE QUE LES ROUTES : `_entree` lit le catalogue (donc le
+    # disque, donc le threadpool), et un fil inconnu n'ouvre rien. Il n'y a
+    # aucun chemin par lequel une socket atteindrait un fil qu'un GET
+    # refuserait.
+    entree = await run_in_threadpool(_entree, fil)
+    if entree is None:
+        await socket.close(code=deps.CLOSE_BAD)
+        return
+    cle = entree["id"]
+    if forum_live.full(cle):
+        await socket.close(code=deps.CLOSE_BUSY)
+        return
+
+    connexion = forum_live.Connection(socket, cle)
+    forum_live.join(connexion)
+    try:
+        await connexion.send({"t": "ready", "thread": cle})
+        while True:
+            entrant = await socket.receive_text()
+            # ON JETTE TOUT CE QUI ENTRE, et ce n'est pas une omission : le
+            # client n'a rien à dire ici, il écrit par HTTP où vivent le
+            # quota et les bornes. Une socket qui accepterait un message
+            # serait une seconde porte d'écriture, avec sa propre validation à
+            # tenir synchronisée -- exactement ce que « une sonnette, pas un
+            # transport » refuse. La borne reste, parce qu'un client qui pousse
+            # un mégaoctet est un client à déconnecter.
+            if len(entrant) > config.FORUM_LIVE_FRAME:
+                await socket.close(code=deps.CLOSE_BAD)
+                return
+    except Exception:
+        pass
+    finally:
+        forum_live.leave(connexion)

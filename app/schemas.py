@@ -103,6 +103,12 @@ class ForumMessageIn(_AvecExercice):
     step: str | None = None
     blocked_kind: str | None = None
     visibility: str | None = None
+    # THE MESSAGE THIS ANSWERS, by its public handle. SHAPE ONLY: that the
+    # target exists and lives in this thread is the `WHERE` of
+    # `state.forum_repondre`, and that a reply carries no visibility of its
+    # own is `forum_visibility`. There is no author field here, and there must
+    # not be one -- who is replying comes from the token.
+    reply_to: str | None = None
 
 
 class ForumTargetIn(BaseModel):
@@ -116,6 +122,21 @@ class ForumTargetIn(BaseModel):
     model_config = _CONFIG
 
     id: str = ""
+
+
+class ForumVoteIn(BaseModel):
+    """POST /forum/vote -- +1, -1, or 0 to take one's vote back.
+
+    SHAPE ONLY. That -1 is refused on a QUESTION is the `WHERE` of
+    `state.forum_voter`, not a validator here: a rule that protects someone
+    belongs in the statement that writes, where two clicks cannot race past
+    it.
+    """
+
+    model_config = _CONFIG
+
+    id: str = ""
+    value: int = 1
 
 
 class ForumSignalementIn(BaseModel):

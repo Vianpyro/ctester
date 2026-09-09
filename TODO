@@ -1,6 +1,7 @@
-- [ ] Add additionnal exercices
-- [ ] Add LeetCode-type tags to exercices so students can search by tag for studying before exams
-- [ ] Add a ranked mode -> see docs/gamification/ranked.md
+- [~] Add additionnal exercices
+- [~] Add LeetCode-type tags to exercices so students can search by tag for studying before exams
+- [~] Add a ranked mode -> see docs/gamification/ranked.md
 - [~] Translate code to English since the repo is public
 - [ ] Connect forum to Discord (Discord bot)
-- [ ] Questions en live anonymes pour les timides
+- [~] Questions en live anonymes pour les timides
+- [ ] Add error highlighting in text editor

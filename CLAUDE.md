@@ -1303,6 +1303,153 @@ relire un fil empêcherait de suivre la réponse qu'on attend.
 **Ajouter une table de forum sans l'ajouter à `forget()` fait échouer
 `test_ctester.py`** — le contrôle lit `schema.sql` et compte les tables.
 
+## Le chat en direct (public, à auteurs masqués)
+
+Un étudiant qui a peur du ridicule ne pose pas sa question. Le chat est la
+réponse à ça, et **ce n'est pas un canal secret : tout y est public, c'est le
+NOM DE L'AUTEUR qui est masqué**, avec la possibilité de l'afficher pour qui le
+veut. Le forum, lui, garde ses questions privées (« Je suis bloqué ici »)
+exactement comme avant.
+
+**LE CHAT EST UN PRÉFIXE DE CLÉ DE FIL, PAS UNE TABLE.** `@chat:<exercice>` et
+`@chat:general` sont des valeurs de plus dans `forum_message.exercise_id`, et
+`est_chat()` est le seul prédicat que la distinction coûte — il sert à trois
+endroits : forcer la visibilité, choisir le rendu de l'auteur, étiqueter
+l'écran. Une table `chat_message` aurait dupliqué la borne de texte, le quota,
+le signalement, la modération, le masquage et `forget()` : six règles dont
+celle qui dérive est celle qui cesse de border. Une colonne `kind` aurait
+ajouté un `WHERE` à chaque requête du forum, et celui qu'on oublie est celui
+qui mélange les deux espaces. **`@` ne peut apparaître dans aucun identifiant
+du catalogue**, donc une clé de chat ne résout chez personne et ne devient
+jamais un chemin.
+
+**TOUT EST PUBLIC, ET C'EST UNE LIGNE DANS `forum_visibility()`.** C'est ce qui
+supprime la moitié difficile de la fonctionnalité : `can_see()` **ne change pas
+d'un caractère** — « visible de tous » est déjà son premier cas — donc il n'y a
+**aucune règle de confidentialité neuve** à écrire pour le chat.
+
+**L'ANONYME EST MASQUÉ, PAS INDISTINCT.** « Participant » pour tout le monde
+rendait une conversation illisible : on ne sait pas qui répond à qui. Le repli
+de `forum_identite()` est donc l'**alias** — `policy.possible_aliases()`, 324
+combinaisons d'un vocabulaire **fermé**, donc rien de ce qu'un étudiant tape ne
+peut l'atteindre, **donc il n'y a aucun pseudonyme à modérer**. C'est la même
+valeur qu'au classement, exprès : une seule identité masquée par compte.
+L'ordre est : soi-même → « Vous (alias) », un modérateur → « Enseignant », un
+nom choisi et rendu public → ce nom, sinon l'alias, sinon « Participant ».
+**On a modifié `forum_identite()`, pas dupliqué** : une seconde fonction
+d'identité serait le second endroit où la visibilité d'un nom peut diverger de
+ce que la base dit. Conséquence assumée : le forum en profite aussi.
+
+**L'ALIAS EST RÉTROACTIF, et c'est une propriété.** `forum_profile` est en ajout
+seul et la dernière ligne fait foi, donc « Un autre nom » renomme l'auteur
+affiché de tout l'historique — un étudiant qui se sent exposé se détache de son
+passé d'un clic. Le formulaire le dit avant le clic.
+
+**LE PSEUDONYME ÉTAIT INATTEIGNABLE, ET C'ÉTAIT LE BLOCAGE.** Le bloc de
+`forum.js` était dessiné sous `if (profil.alias)` alors que la **seule** chose
+qui écrit un alias est le bouton dedans : il était donc caché exactement pour
+les comptes qui n'en avaient pas. Bénin tant que l'alias n'était qu'une
+décoration de classement, bloquant dès qu'il est la façon d'apparaître. Le
+bloc est désormais inconditionnel, un alias est tiré **à la première
+écriture** (`_assurer_alias`, best effort — vocabulaire épuisé ⇒
+« Participant », **jamais un refus de publier**), et `test_page.js` refuse que
+la garde revienne.
+
+**`reply_to` PORTE TOUJOURS LA RACINE.** Répondre à une réponse stocke l'id de
+la racine, et l'aplatissement est `COALESCE(t.reply_to, t.message_id)` **dans
+le SQL** : un fil reste plat à dessiner, sans profondeur à borner. C'est de la
+**navigation, pas de la confidentialité** — la règle que la colonne porte est
+l'intégrité (la racine doit exister dans le même fil), et c'est le `WHERE` de
+l'`INSERT ... SELECT`.
+
+**LA LECTURE DU FIL SE BORNE PAR RACINE**, et c'est l'historique qui l'impose :
+à dix mille messages, borner les messages finirait par couper entre une
+question et sa réponse, et la réponse reviendrait seule, illisible pour la
+personne à qui elle était écrite. La fenêtre garde aussi les racines les plus
+**récentes** — elle gardait les plus anciennes, ce qui aurait affiché les deux
+cents premiers messages du semestre et jamais celui qu'on vient d'écrire.
+
+**LA SOCKET EST UNE SONNETTE, PAS UN TRANSPORT.** `WS /forum/live` envoie
+`{"t":"new"}` et rien d'autre ; le client relance `GET /forum`. C'est ce qui
+garde `can_see()`, le quota, la borne de 1200 caractères, les listes fermées et
+le tirage d'alias à **un seul endroit**. Conséquence gratuite : un lecteur sans
+droit sur un message reçoit la sonnette et redessine la même chose — même
+l'**existence** du message ne fuit pas. `notify()` traverse depuis le
+threadpool par `loop.call_soon_threadsafe`, **enveloppé** : une sonnette ratée
+ne fait jamais échouer un `POST /forum`. `services/forum_live.py` est un `dict`
+en mémoire de processus, comme `collab.py` — **une raison de plus pour un seul
+worker**.
+
+**LE −1 EST INTERDIT SUR UNE QUESTION PAR LE `WHERE`, PAS PAR L'INTERFACE.**
+`forum_helpful` gagne une colonne `value` (±1) et son INSERT une quatrième
+condition : `AND (%(value)s = 1 OR m.reply_to IS NOT NULL)`. Une question ne
+peut donc pas être enterrée par un vote — la promesse d'un endroit fait pour
+ceux qui ont peur de demander —, et c'est Postgres qui la tient, pas le fait de
+ne pas dessiner le bouton. Sur une question, le +1 se lit « moi aussi » : c'est
+lui qui donne « les questions les plus courantes », sans compter personne.
+Un GRANT de colonne de plus, `UPDATE (value)`, pour le changement d'avis.
+**Le vote n'accorde toujours rien** : ni XP, ni succès, ni carte.
+
+**LA RECHERCHE ET LA DÉTECTION DE DOUBLON SONT LA MÊME REQUÊTE**
+(`GET /forum/search`), sur une colonne `tsvector` **générée** et un index GIN —
+aucune extension, aucun trigger, aucun GRANT. **La confidentialité y est le
+`WHERE`** (`visibility = 'thread' OR account = moi`) : une question privée du
+forum ne remonte jamais comme « quelqu'un a déjà demandé ça ». **Un modérateur
+n'a pas d'exception** — il lit les fils, et une branche de moins est une
+branche de moins à se tromper. Pas de `freiner_forum` dessus : c'est une
+lecture, et un cooldown de 10 s la rendrait inutile pendant la frappe ; le
+débounce est côté page.
+
+**`GET /forum/message` est le permalien**, et il existe parce qu'un résultat de
+recherche vieux de trois mille messages n'est dans la fenêtre d'aucun fil :
+sans lui, la recherche montre des extraits qu'on ne peut pas ouvrir.
+
+**`GET /forum/top` est une route à part, pas un élargissement de
+`/forum/help`.** Le docstring de celle-là est un contrat écrit — « COUNTS AND
+STEPS, NEVER PEOPLE » — et un classement a besoin du texte. Les étudiants ne
+voient **aucun palmarès** : un compteur public sur ce que chacun a demandé est
+le contraire de ce que tout ceci cherche.
+
+**Ce qui n'est PAS construit** : aucun élagueur d'historique (rien ne supprime,
+donc il n'y a pas de limite à écrire — `FORUM_MAX_FIL` borne l'affichage, pas
+la conservation) ; aucune pastille de non-lu hors de la vue (elle demanderait
+une socket permanente pour tout le monde, la charge que `/live` a refusée) ;
+aucun regroupement automatique de doublons (on propose, un humain décide) ;
+aucun « en train d'écrire ». Et **aucun nouveau drapeau** : tout s'éteint avec
+le forum, par `CTESTER_FORUM_MODERATORS` vide.
+
+**Côté déploiement : rien.** « Websockets Support » est déjà coché (`/team/live`
+l'a activé), `wsproto` est déjà dans `/deps`, les migrations de `schema.sql`
+sont idempotentes, et le seul GRANT nouveau vit dans `schema.sql`.
+
+**Un piège déjà payé ici** : un `CREATE INDEX` sur une colonne ajoutée par un
+`ALTER` plus bas passe sur une base neuve et **fait tomber la convergence** sur
+une base existante. `test_aucun_index_ne_precede_la_colonne_qu_il_indexe` monte
+la garde, et il a servi.
+
+## Le classement : l'enseignant le lit, il n'y figure jamais
+
+Lire `/leaderboard` n'a jamais demandé de participer — la route n'est gardée
+que par `Sub`. Ce qui manquait est l'inverse : **rien n'empêchait un enseignant
+d'y APPARAÎTRE** s'il cochait la case, et son XP est de l'XP de test.
+
+L'exclusion est **une clause dans le même `WHERE` que l'opt-in**
+(`AND p.account <> ALL(%(staff)s::text[])`, la liste venant de
+`config.FORUM_MODERATORS`) : un modérateur ne produit **aucune ligne**, donc il
+n'y a rien à masquer en aval, et `divisions_view()` hérite de l'exclusion
+gratuitement. L'équité ne doit pas dépendre de se souvenir de ne pas cocher.
+La charge ne lui renvoie pas non plus d'`alias` — dire « tu apparais sous X » à
+quelqu'un que la requête exclut serait la page qui contredit le SQL.
+
+**`?group=` n'est honoré que pour un modérateur**, rôle recalculé côté serveur.
+Pour un étudiant il est **ignoré, pas refusé** : c'est un paramètre de confort,
+et un 403 ferait ressembler un lien partagé à une panne.
+
+**LE SEUIL DE COHORTE MINIMALE S'APPLIQUE À L'ENSEIGNANT AUSSI**, et c'est un
+refus délibéré. C'est le seul garde-fou qui empêche un tableau de décrire
+quatre personnes identifiables, et l'enseignant est précisément celui qui
+pourrait relier des pseudonymes à des visages au fil des semaines.
+
 ## Le thème enregistré sur le compte
 
 **`localStorage` était par appareil, et c'est tout le problème qu'on répare.**

@@ -418,22 +418,32 @@ const FORUM_MAX = 400;
 // UN TEXTE HOSTILE, ecrit par un autre etudiant. C'est la donnee la moins
 // digne de confiance de toute la page : si elle passe par innerHTML, elle
 // s'execute chez celui qui lit le fil.
+// LES MESSAGES SONT STOCKÉS SOUS L'EXERCICE NU, et le faux serveur traduit la
+// clé de fil (`@chat:tp2-ex3`) vers elle : le chat et le forum d'un exercice
+// partagent la table côté serveur, donc les partager ici garde le harnais
+// aussi proche de la production que possible.
 const FORUM = {
-  "tp2-ex3": [{ id: "m-autre", ex: "tp2-ex3", author: "Participant",
+  "tp2-ex3": [{ id: "m-autre", ex: "tp2-ex3", author: "Rotor cuivré",
                 mine: false, hidden: false, created_at: "2026-09-03T22:30Z",
-                reportable_name: false,
+                reportable_name: false, reply_to: null,
+                upvotes: 0, downvotes: 0, my_vote: 0,
                 text: "<img src=x onerror=alert(1)> j'ai la meme erreur" },
               { id: "m-nomme", ex: "tp2-ex3", author: "Bob B", mine: false,
                 hidden: false, created_at: "2026-09-03T22:35Z", group: 4,
-                reportable_name: true, text: "moi aussi" }],
+                reportable_name: true, reply_to: null,
+                upvotes: 0, downvotes: 0, my_vote: 0, text: "moi aussi" }],
   "tp2-ex0": [],
 };
+// LA CLÉ DE FIL -> LE MAGASIN. `@chat:general` a le sien, comme sur le serveur.
+const filNu = (cle) => String(cle || "").replace(/^@chat:/, "");
 const FORUM_SIGNALES = new Map();   // identifiant de message -> combien de fois
 // LE PROFIL DE CE COMPTE. `suggestion` est le `preferred_username` de Rauthy :
 // une PROPOSITION, qui ne doit rien afficher tant qu'on n'a pas enregistre.
+// `alias` PART À NULL, EXPRÈS : c'est l'état de tout compte qui n'a jamais
+// ouvert le classement, c'est-à-dire l'état où le bouton était introuvable.
 const PROFIL = { display_name: null, group_number: null, display_name_public: false,
                  group_number_public: false, max_display_name: 24, group_numbers: [4, 6],
-                 suggestion: "vveremme" };
+                 alias: null, suggestion: "vveremme" };
 const forumEnvois = [];
 let forumCompteur = 0;
 // UNE COMPETENCE HOSTILE : les identifiants viennent du depot de tests, et un
@@ -717,6 +727,13 @@ global.fetch = async (url, opts) => {
     return { ok: true, status: 200,
              json: async () => ({ sources: BROUILLONS_SERVEUR[ex] || {} }) };
   }
+  // LE TIRAGE DU NOM MASQUÉ, comme le serveur : il ÉCRIT sur le profil, y
+  // compris quand il n'y en avait pas -- c'est exactement l'état où le bouton
+  // était introuvable, donc l'état que ce harnais doit reproduire.
+  if (String(url) === "leaderboard/alias") {
+    PROFIL.alias = PROFIL.alias === "Rotor cuivré" ? "Piston lisse" : "Rotor cuivré";
+    return rendJson({ alias: PROFIL.alias });
+  }
   if (String(url).startsWith("forum")) return forumRepond(url, opts);
   if (url.split("?")[0] === "submit") return SUBMIT_RESPONSE;
   return { ok: true, status: 200, json: async () => POLL_RESPONSE };
@@ -785,9 +802,13 @@ function forumRepond(url, opts) {
                              + " caractères)");
     }
     forumCompteur++;
-    (FORUM[corps.exercise_id] || (FORUM[corps.exercise_id] = [])).push({
-      id: "m" + forumCompteur, ex: corps.exercise_id, author: "Vous", mine: true,
-      hidden: false, created_at: "2026-09-03 10:0" + forumCompteur,
+    const cle = filNu(corps.exercise_id);
+    (FORUM[cle] || (FORUM[cle] = [])).push({
+      id: "m" + forumCompteur, ex: cle, author: "Vous (Rotor cuivré)",
+      mine: true, hidden: false,
+      created_at: "2026-09-03 10:0" + forumCompteur,
+      reply_to: corps.reply_to || null,
+      upvotes: 0, downvotes: 0, my_vote: 0,
       text: corps.text });
     return rendJson({ ok: true });
   }
@@ -797,14 +818,17 @@ function forumRepond(url, opts) {
     for (const ex of Object.keys(FORUM)) {
       FORUM[ex] = FORUM[ex].filter((m) => m.id !== id || !m.mine);
     }
+
     return rendJson({ ok: true });
   }
-  const ex = decodeURIComponent(String(url).split("ex=")[1] || "");
+  const cle = decodeURIComponent(String(url).split("ex=")[1] || "");
   return rendJson({
-    exercise_id: ex,
+    exercise_id: cle,
+    chat: cle.startsWith("@chat:"),
     moderator: FORUM_MODERATEUR,
     max: FORUM_MAX,
-    messages: (FORUM[ex] || []).filter((m) => FORUM_MODERATEUR || !m.hidden),
+    messages: (FORUM[filNu(cle)] || []).filter(
+      (m) => FORUM_MODERATEUR || !m.hidden),
   });
 }
 
@@ -2135,8 +2159,14 @@ const attendre = async () => { await sleep(); await sleep(); };
         "la charte est dans la vue, en toutes lettres");
   check(/Modération humaine/.test(vuForum) && /rien n'est vérifié/.test(vuForum),
         "et la modération n'est jamais présentée comme automatique");
-  check(/j'ai la meme erreur/.test(vuForum) && /Participant/.test(vuForum),
-        "le fil montre le message d'un autre, signé « Participant »");
+  // L'ANONYME EST MASQUÉ, PAS INDISTINCT. « Participant » pour tout le monde
+  // rendait une conversation illisible -- on ne savait pas qui répondait à
+  // qui. Le repli est maintenant l'alias, tiré d'un vocabulaire FERMÉ, donc
+  // suivable sans être identifiant et sans rien à modérer.
+  check(/j'ai la meme erreur/.test(vuForum) && /Rotor cuivré/.test(vuForum),
+        "le fil montre le message d'un autre, signé de son nom masqué");
+  check(!/\bParticipant\b/.test(vuForum),
+        "et plus « Participant », qui ne distinguait personne de personne");
   check(/&lt;img src=x onerror=alert\(1\)&gt;/.test(vuForum),
         "dont le HTML est ÉCHAPPÉ à l'affichage, pas interprété");
   check(!/sub-/.test(vuForum), "et aucun identifiant de compte n'apparaît");
@@ -2168,6 +2198,36 @@ const attendre = async () => { await sleep(); await sleep(); };
         + "connexion de quelqu'un ne se publie pas tout seul");
   check(/Bob B/.test(vuForum) && /groupe 04/.test(vuForum),
         "un nom choisi par un autre s'affiche, avec son groupe sur deux chiffres");
+
+  // --- LE NOM MASQUÉ DOIT ÊTRE ATTEIGNABLE ---------------------------------
+  // C'EST LE CONTRÔLE QUI AURAIT ATTRAPÉ LE DÉFAUT. Le bloc était dessiné
+  // sous `if (profil.alias)`, alors que la SEULE chose qui écrit un alias est
+  // le bouton dedans : il était donc caché exactement pour les comptes qui
+  // n'avaient pas de nom. Bénin tant que l'alias n'était qu'une décoration de
+  // classement ; bloquant depuis qu'il est la façon dont on apparaît dans le
+  // chat. Sans ce test, quelqu'un remettra la garde « pour ne pas afficher un
+  // champ vide ».
+  const contenuPanneau = contenuDe(panneau);
+  check(/Mon nom masqué/.test(contenuPanneau),
+        "le bloc du nom masqué est dessiné MÊME SANS alias : " + contenuPanneau.slice(0, 200));
+  const tirer = tousLesNoeuds(panneau)
+    .find((n) => /Tirer un nom|Un autre nom/.test(n.textContent || ""));
+  check(!!tirer, "et son bouton est là, seul chemin pour en obtenir un");
+  calls.length = 0;
+  await tirer.listeners.click();
+  await sleep(); await sleep(); await sleep();
+  check(calls.some((c) => String(c.url) === "leaderboard/alias"),
+        "le bouton tire bien un nom côté serveur");
+  // `chargerProfil()` relit le profil, les équipes ET la liste : plusieurs
+  // allers-retours avant que le panneau ne soit redessiné.
+  await sleep(); await sleep(); await sleep(); await sleep(); await sleep();
+  // ET L'APERÇU NE PROMET PAS « PARTICIPANT » : l'encart dit « voilà
+  // exactement ce que les autres verront », donc il doit montrer le nom
+  // masqué, pas un mot que personne ne lira.
+  check(/Rotor cuivré/.test(contenuDe(panneau)),
+        "l'aperçu montre le nom masqué : " + contenuDe(panneau).slice(-400));
+  check(/y compris sur tes messages déjà publiés/.test(contenuDe(panneau)),
+        "et le caractère rétroactif du changement est écrit avant le clic");
 
   // --- CHOISIR SON ÉQUIPE, DANS « Mon identité » ---------------------------
   // LES ÉQUIPES PRÉEXISTENT, NUMÉROTÉES PAR GROUPE, et on prend une place
@@ -2462,8 +2522,13 @@ const attendre = async () => { await sleep(); await sleep(); };
   await attendre(); await attendre(); await attendre();
   check(nodes.charte.hidden === true, "l'accepter la referme");
   const envoi = forumEnvois.find(e => e.url === "forum");
-  check(envoi && envoi.corps.exercise_id === "tp2-ex3" && /boucle/.test(envoi.corps.text),
-        "le message part, avec l'exercice affiché");
+  // LE FIL PAR DÉFAUT EST LE CHAT DE L'EXERCICE, et la clé le dit. Ouvrir
+  // « Discussions » pendant un labo, c'est vouloir parler tout de suite ; le
+  // forum et sa question privée restent à un onglet de là.
+  check(envoi && envoi.corps.exercise_id === "@chat:tp2-ex3"
+        && /boucle/.test(envoi.corps.text),
+        "le message part dans le chat de l'exercice affiché : "
+        + JSON.stringify(envoi && envoi.corps.exercise_id));
   check(/Message publié/.test(vuDuForum()),
         "la page le confirme : " + vuDuForum().slice(0, 40));
   check(/Ma \*\*boucle\*\* ne s'arrête pas/.test(JSON.stringify(FORUM)),
@@ -2516,8 +2581,73 @@ const attendre = async () => { await sleep(); await sleep(); };
   nodes.forumex.value = "tp2-ex0";
   await nodes.forumex.listeners.change();
   await attendre(); await attendre();
-  check(calls.some(c => String(c.url).startsWith("forum?ex=tp2-ex0")),
+  check(calls.some(c => String(c.url).startsWith(
+          "forum?ex=" + encodeURIComponent("@chat:tp2-ex0"))),
         "changer d'exercice recharge le fil correspondant");
+
+  // --- LE DIRECT NE DOIT PAS VOLER LE CURSEUR ------------------------------
+  // Une sonnette arrive pendant qu'on tape. Si `rafraichirFil()` redessinait
+  // à chaque fois, le `<textarea>` serait recréé et le curseur renvoyé à la
+  // fin -- au milieu d'une phrase, plusieurs fois par minute pendant un labo.
+  // La signature est ce qui l'empêche, et c'est elle qu'on éprouve.
+  nodes.forumex.value = "tp2-ex3";
+  await nodes.forumex.listeners.change();
+  await attendre(); await attendre();
+  const champ = document.getElementById("forumtexte");
+  champ.value = "je suis en train d'écrire";
+  await champ.listeners.input();
+  calls.length = 0;
+  await ctester.forum.rafraichirFil();
+  await attendre(); await attendre();
+  check(calls.filter(c => String(c.url).startsWith("forum?ex=")).length === 1,
+        "une sonnette déclenche EXACTEMENT une relecture du fil");
+  check(document.getElementById("forumtexte") === champ
+        && champ.value === "je suis en train d'écrire",
+        "et rien ne bouge quand le fil n'a pas changé : le champ est le même");
+
+  // Un vrai message qui arrive, lui, redessine.
+  FORUM["tp2-ex3"].push({ id: "m-neuf", ex: "tp2-ex3", author: "Piston lisse",
+                          mine: false, hidden: false, reply_to: null,
+                          created_at: "2026-09-03T22:40Z", reportable_name: false,
+                          upvotes: 0, downvotes: 0, my_vote: 0,
+                          text: "un message arrivé pendant qu'on lisait" });
+  await ctester.forum.rafraichirFil();
+  await attendre(); await attendre();
+  check(/arrivé pendant qu'on lisait/.test(vuDuForum()),
+        "un message neuf, lui, apparaît sans recharger la page");
+
+  // --- RÉPONDRE VISE UN MESSAGE -------------------------------------------
+  const repondre = tousLesNoeuds(nodes.vueforum)
+    .find(n => (n.textContent || "") === "Répondre");
+  check(!!repondre, "chaque message porte un bouton « Répondre »");
+  await repondre.listeners.click();
+  await attendre();
+  check(/Réponse à un message/.test(vuDuForum()),
+        "et le formulaire le DIT avant qu'on écrive : sans ça on tape une "
+        + "réponse en croyant ouvrir une question");
+  const zoneReponse = document.getElementById("forumtexte");
+  zoneReponse.value = "voilà ce que j'ai trouvé";
+  await zoneReponse.listeners.input();
+  forumEnvois.length = 0;
+  const envoyerReponse = tousLesNoeuds(nodes.vueforum)
+    .find(n => (n.textContent || "") === "Répondre" && n.className === "");
+  await envoyerReponse.listeners.click();
+  await attendre(); await attendre(); await attendre();
+  const reponseEnvoyee = forumEnvois.find(e => e.url === "forum");
+  check(reponseEnvoyee && reponseEnvoyee.corps.reply_to,
+        "la réponse part avec `reply_to` : " + JSON.stringify(
+          reponseEnvoyee && reponseEnvoyee.corps));
+  check(reponseEnvoyee && reponseEnvoyee.corps.visibility === undefined,
+        "et SANS visibilité -- une réponse hérite de sa conversation, et le "
+        + "serveur refuse qu'elle en porte une");
+
+  // ON REMET LE HARNAIS OÙ ON L'A TROUVÉ : ce fichier est un scénario linéaire,
+  // et les vérifications qui suivent lisent le fil vide de tp2-ex0.
+  FORUM["tp2-ex3"] = FORUM["tp2-ex3"].filter(
+    (m) => m.id === "m-autre" || m.id === "m-nomme");
+  nodes.forumex.value = "tp2-ex0";
+  await nodes.forumex.listeners.change();
+  await attendre(); await attendre();
   check(/Personne n'a encore écrit/.test(vuDuForum()),
         "un fil vide le dit, et invite à écrire");
 

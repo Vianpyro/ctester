@@ -16,9 +16,11 @@ Both rules are in the service, exercised by direct call.
 import secrets
 import uuid
 
+import config
 import policy
 import state
 import headers
+import security
 from deps import Sub
 from fastapi import APIRouter, Query
 from services import leaderboard
@@ -27,28 +29,61 @@ router = APIRouter(tags=["leaderboard"])
 
 
 @router.get("/leaderboard")
-def read_leaderboard(sub: Sub, scope: str = Query("group")):
+def read_leaderboard(sub: Sub, scope: str = Query("group"),
+                     group: int | None = Query(None)):
     """This account's ranking: its group by default, the whole course on ask.
 
     THE GROUP COMES FROM THE PROFILE, never from the query string: `?group=6`
     would let anyone read a cohort they are not in, and a cohort of strangers
     is exactly what the minimum-cohort rule exists to prevent.
+
+    ONE EXCEPTION, AND IT IS RECOMPUTED SERVER-SIDE: a moderator may name a
+    group. For them the reason above evaporates -- they already read every
+    thread of every group -- and "see how section 04 is doing" is the whole
+    point of giving an instructor a ranking. A `?group=` from anyone else is
+    IGNORED, not refused: it is a convenience parameter, and a 403 would make
+    a shared link look like an outage.
+
+    THE INSTRUCTOR READS IT AND NEVER APPEARS IN IT. That exclusion is not
+    here -- it is the `WHERE` of `state.leaderboard_rows`, next to the opt-in,
+    because fairness must not depend on a router remembering to filter.
+
+    THE MINIMUM COHORT STILL APPLIES TO THEM. It is what keeps a table from
+    describing four identifiable people, and the instructor is precisely the
+    person who could tie aliases to faces over a term. A group under the
+    threshold yields no table, for anybody.
     """
     profile = state.forum_profil(sub)
     if profile is None:
         return headers.erreur(503, "la base ne répond pas")
-    group = None if scope == "course" else profile.get("group_number")
-    rows = state.leaderboard_rows(group, leaderboard.WINDOW_DAYS)
+    moderator = security.is_moderator(sub)
+    if scope == "course":
+        wanted = None
+    elif moderator and group is not None:
+        wanted = group
+    else:
+        wanted = profile.get("group_number")
+    staff = config.FORUM_MODERATORS
+    rows = state.leaderboard_rows(wanted, leaderboard.WINDOW_DAYS, staff)
     if rows is None:
         return headers.erreur(503, "la base ne répond pas")
-    payload = leaderboard.leaderboard_view(rows, sub, group)
-    payload["scope"] = "course" if group is None else "group"
-    payload["alias"] = profile.get("alias") or ""
+    payload = leaderboard.leaderboard_view(rows, sub, wanted)
+    payload["scope"] = "course" if wanted is None else "group"
+    payload["group"] = wanted
+    # PAS D'ALIAS POUR UN MODÉRATEUR : le `WHERE` l'exclut du tableau, donc
+    # renvoyer « tu apparais sous X » serait la charge qui contredit la
+    # requête. On supprime la contradiction à la source plutôt que de compter
+    # sur la page pour ne pas l'afficher.
+    payload["alias"] = "" if moderator else (profile.get("alias") or "")
+    # THE PAGE MUST NOT SAY "you appear as X" TO SOMEONE THE `WHERE` EXCLUDES.
+    # It is the server that knows, so it is the server that says so.
+    payload["moderator"] = moderator
+    payload["groups"] = list(config.FORUM_GROUPES) if moderator else []
     # THE DIVISIONS ARE READ ON THE WHOLE COURSE, always: they are a picture
     # of the cohort, and a picture of one group of four would be a picture of
     # four people.
-    everyone = (state.leaderboard_rows(None, leaderboard.WINDOW_DAYS)
-                if group is not None else rows)
+    everyone = (state.leaderboard_rows(None, leaderboard.WINDOW_DAYS, staff)
+                if wanted is not None else rows)
     payload["divisions"] = leaderboard.divisions_view(everyone or [])
     return payload
 

@@ -28,6 +28,38 @@ from security import is_moderator, oidc_enabled
 # goes through a report and someone reading it.
 
 
+# --- LE CHAT ------------------------------------------------------------------
+# LE CHAT EST PUBLIC, LE FORUM GARDE LE PRIVÉ, ET LE PRÉFIXE EST TOUTE LA
+# DISTINCTION. Un fil de chat est une valeur de plus dans `exercise_id` :
+# `@chat:<exercice>` ou `@chat:general`. Pas de table (elle dupliquerait la
+# borne de texte, le quota, le signalement, la modération, le masquage et
+# `forget()` -- six règles dont celle qui dérive est celle qui cesse de
+# border), pas de colonne `kind` (elle ajouterait un `WHERE` à chaque requête
+# du forum, et celui qu'on oublierait serait celui qui mélange les deux
+# espaces).
+#
+# `@` NE PEUT APPARAÎTRE DANS AUCUN IDENTIFIANT DU CATALOGUE, donc une clé de
+# chat ne résout par `find_exercise()` chez personne -- et ne devient jamais un
+# chemin : le forum n'ouvre aucun fichier.
+CHAT_PREFIX = "@chat:"
+CHAT_GENERAL = CHAT_PREFIX + "general"
+
+
+def est_chat(fil):
+    """True si cette clé de fil est un chat. Le seul prédicat que la distinction coûte.
+
+    Il sert à TROIS endroits, pas un de plus : forcer la visibilité à
+    l'écriture (`forum_visibility`), choisir le rendu de l'auteur
+    (`forum_identite`), et étiqueter l'écran.
+    """
+    return str(fil or "").startswith(CHAT_PREFIX)
+
+
+def chat_de(exercice):
+    """La clé du fil de chat d'un exercice. Une concaténation, nommée une fois."""
+    return CHAT_PREFIX + str(exercice)
+
+
 def forum_enabled():
     """True when the forum can be offered. FALSE by default.
 
@@ -168,7 +200,7 @@ def forum_blocked_kind(raw):
     return value, None
 
 
-def forum_visibility(raw, with_step):
+def forum_visibility(raw, with_step, fil=None):
     """(visibility, error) -- private by default for a "stuck" post.
 
     A POST WITH A STEP DEFAULTS TO PRIVATE, an ordinary one to `thread`. That
@@ -176,7 +208,17 @@ def forum_visibility(raw, with_step):
     the same breath, to say so publicly. `thread` is refused on a stuck post --
     the two paths stay distinguishable, which is what lets the aggregate count
     "opened to the group" as a separate number.
+
+    DANS UN CHAT, TOUT EST PUBLIC, et c'est ici que ça se décide -- une ligne,
+    au seul endroit qui décidait déjà de la visibilité. `can_see()` ne change
+    donc pas d'un caractère : un message `thread` est visible de tous, c'est
+    déjà son premier cas. C'est ce qui fait qu'il n'y a AUCUNE règle de
+    confidentialité neuve à écrire pour le chat.
     """
+    if est_chat(fil):
+        if raw not in (None, "", "thread"):
+            return None, "dans le chat, tous les messages sont publics"
+        return "thread", None
     if raw is None or raw == "":
         return ("private" if with_step else "thread"), None
     value = str(raw)
@@ -242,16 +284,41 @@ def forum_identite(profil, sub, auteur, moderateur_lecteur):
     owner made it visible; the group number also comes out for the
     instructor, at all times, because that is what lets a problem be traced
     to a group without asking anyone for a name.
+
+    L'ANONYME EST MASQUÉ, PAS INDISTINCT. « Participant » pour tout le monde
+    rendait une conversation illisible : on ne sait pas qui répond à qui. Le
+    repli est donc l'ALIAS -- tiré d'un vocabulaire fermé
+    (`policy.possible_aliases()`), donc rien de ce qu'un étudiant tape ne peut
+    l'atteindre, DONC IL N'Y A AUCUN PSEUDONYME À MODÉRER. C'est la même
+    valeur qu'au classement, exprès : une seule identité masquée par compte,
+    et « Un autre nom » la change partout, historique compris.
+
+    ON MODIFIE CETTE FONCTION, ON NE LA DUPLIQUE PAS. Une seconde fonction
+    d'identité serait le second endroit où la visibilité d'un nom peut diverger
+    de ce que la base dit. Conséquence assumée : le forum en profite aussi,
+    deux « Participant » y devenant distinguables.
+
+    « Participant » RESTE le dernier repli, pour un compte qui n'a pas encore
+    d'alias -- un nom manquant ne doit jamais empêcher d'afficher un message.
+
+    L'ALIAS N'EST PAS SIGNALABLE : le troisième retour ne parle que du nom
+    TAPÉ. Signaler un mot d'un vocabulaire fermé n'aurait rien à corriger.
     """
     profil = profil or {}
     pseudo = profil.get("display_name")
+    alias = profil.get("alias")
     choisi = bool(pseudo) and bool(profil.get("display_name_public"))
     if auteur == sub:
-        nom = "Vous"
+        # SOUS QUEL NOM JE PARLE. Quelqu'un qui écrit masqué doit pouvoir lire
+        # sa propre poignée : sans ça, il ne peut pas se reconnaître dans le
+        # fil, ni savoir ce que les autres voient de lui.
+        nom = "Vous (%s)" % alias if alias else "Vous"
     elif is_moderator(auteur):
         nom = "Enseignant"
+    elif choisi:
+        nom = pseudo
     else:
-        nom = pseudo if choisi else "Participant"
+        nom = alias or "Participant"
     groupe = profil.get("group_number")
     if groupe is not None and not (profil.get("group_number_public")
                                   or moderateur_lecteur or auteur == sub):
@@ -306,8 +373,18 @@ def forum_vue(messages, sub, moderateur, profils=None):
                     # is what turns the button off for someone who already
                     # clicked it, without a second round trip.
                     "retained": bool(m.get("retained")),
-                    "helpful": int(m.get("helpful") or 0),
-                    "helped_me": bool(m.get("helped_me"))})
+                    # LE LIEN VERS LA RACINE, un handle opaque déjà public.
+                    # C'est de la navigation : la visibilité d'une réponse ne
+                    # se dérive pas de lui, elle est la sienne.
+                    "reply_to": m.get("reply_to"),
+                    # LE VOTE, EN DEUX COMPTEURS ET UN SIGNE. `downvotes` ne
+                    # peut être non nul que sur une réponse -- le `WHERE` de
+                    # `forum_voter` l'y enferme -- donc aucune question
+                    # n'affiche jamais de négatif, sans qu'une règle
+                    # d'affichage ait à le tenir.
+                    "upvotes": int(m.get("upvotes") or 0),
+                    "downvotes": int(m.get("downvotes") or 0),
+                    "my_vote": int(m.get("my_vote") or 0)})
     return vus
 
 

@@ -169,10 +169,26 @@ let threadStateInfo = null;
 // The instructor's "who needs help" rows (design 1h). `null` until read, and
 // `null` is not "nobody" -- during an outage those are opposite claims.
 let helpRows = null;
+let topRows = null;          // « Questions du moment », modérateur seulement
 let erreur = "";
 let annonce = "";
-let exercice = "";
+let exercice = "";           // LA CLÉ DU FIL, pas l'exercice : `@chat:…` ou un id
 let saisie = "";
+// QUEL ESPACE ON REGARDE. Le chat est public, le forum garde le privé, et le
+// préfixe `@chat:` est toute la distinction (voir `services/forum.py`). Le
+// défaut est le chat : c'est ce qu'on vient chercher quand on ouvre
+// « Discussions » pendant un labo.
+let modeFil = "chat-ex";
+let estChat = true;
+let repondA = null;          // la racine à laquelle on répond, ou null
+let socket = null;
+let socketRetard = 1000;     // recul progressif entre deux reconnexions
+let recherche = "";
+let resultats = null;
+let doublons = null;
+let minuterieDoublon = null;
+let permalien = null;        // une conversation ouverte depuis la recherche
+let exerciceForce = "";     // l'exercice choisi DANS la vue, s'il l'a été
 let titre = null;
 let zone = null;
 let apercu = null;
@@ -183,11 +199,31 @@ let champPseudo = null;
 
 // --- Network -----------------------------------------------------------------
 
+// L'EXERCICE QUE LE FIL REGARDE, jamais la clé du fil. `exercice` porte
+// maintenant `@chat:tp2-ex3` aussi bien que `tp2-ex3` : le chercher tel quel
+// dans le catalogue ne trouverait rien et retomberait silencieusement sur le
+// premier exercice de la liste.
 function currentExercise() {
   const cat = ctester.catalogue();
-  const target = exercice || ctester.exerciceOuvert() || ctester.exerciceChoisi();
+  const nu = exercice.startsWith(CHAT_PREFIX)
+    ? exercice.slice(CHAT_PREFIX.length) : exercice;
+  const target = exerciceForce || nu
+    || ctester.exerciceOuvert() || ctester.exerciceChoisi();
   const found = cat.find(t => t.id === target) || cat[0];
   return found ? found.id : "";
+}
+
+// LA CLÉ DU FIL EST CALCULÉE À UN SEUL ENDROIT. Le serveur ne connaît que des
+// clés : `@chat:general`, `@chat:<exercice>`, ou l'identifiant d'exercice nu
+// pour le forum. La page ne fabrique donc jamais un préfixe ailleurs qu'ici.
+const CHAT_PREFIX = "@chat:";
+const CHAT_GENERAL = CHAT_PREFIX + "general";
+
+function cleFil() {
+  if (modeFil === "chat-general") return CHAT_GENERAL;
+  const ex = currentExercise();
+  if (!ex) return modeFil === "chat-ex" ? CHAT_GENERAL : "";
+  return modeFil === "forum" ? ex : CHAT_PREFIX + ex;
 }
 
 const INDISPO = "Les discussions ne sont pas disponibles pour l'instant. "
@@ -198,6 +234,11 @@ async function charger(id) {
   fil = null;
   signalements = null;
   nomsSignales = null;
+  // ON NE RÉPOND PAS À UN MESSAGE D'UN AUTRE FIL. Changer de fil abandonne la
+  // cible : sans ça, `reply_to` viserait une racine que le serveur refuserait
+  // (le `WHERE` exige le même fil), et l'étudiant lirait « message
+  // introuvable » sans comprendre pourquoi.
+  if (id !== exercice) { repondA = null; permalien = null; }
   exercice = id;
   if (!ctester.compte) {
     erreur = "Reconnecte-toi pour ouvrir les discussions.";
@@ -214,6 +255,7 @@ async function charger(id) {
     return;
   }
   fil = response.messages;
+  estChat = !!response.chat;
   moderateur = !!response.moderator;
   maxTexte = response.max || 0;
   steps = Array.isArray(response.steps) ? response.steps : [];
@@ -233,6 +275,12 @@ async function charger(id) {
     // for two halves of the same question is one click too many.
     const helpResponse = await ctester.compte.getJson("forum/help");
     helpRows = helpResponse && Array.isArray(helpResponse.rows) ? helpResponse : null;
+    // « QUESTIONS DU MOMENT » : ce qui est le plus demandé maintenant. Lu avec
+    // le reste de l'écran de modération, pas sur un onglet à lui -- un
+    // enseignant qui ouvre la modération pendant un labo veut les deux, et
+    // deux clics pour deux moitiés de la même question, c'en est un de trop.
+    const topResponse = await ctester.compte.getJson("forum/top");
+    topRows = topResponse && Array.isArray(topResponse.rows) ? topResponse : null;
   }
   await chargerProfil();
 }
@@ -288,6 +336,15 @@ function redessiner() {
   else dessiner();
 }
 
+// RÉPONDRE : on retient la cible, le formulaire le dit, et `publier` ajoute
+// `reply_to`. Le serveur aplatit vers la racine lui-même -- répondre à une
+// réponse n'a donc rien de particulier ici.
+function repondreA(id) {
+  repondA = id;
+  dessiner();
+  if (zone && zone.focus) zone.focus();
+}
+
 async function publier(text, extra) {
   const ok = await ecrire("forum", "POST",
                           Object.assign({ exercise_id: exercice, text: text },
@@ -323,12 +380,16 @@ const openToGroup = (id) => ecrire(
   "Ta question est maintenant visible par ton groupe.",
   "Impossible de l'ouvrir à ton groupe");
 
-// A USEFULNESS COUNTER, NOT A VOTE, and it grants nothing. The server refuses
-// one's own message and the duplicate; both come back as the same refusal.
-const markHelpful = (id) => ecrire(
-  "forum/helpful", "POST", { id: id },
-  "Merci — ça aide les suivants à trouver la bonne réponse.",
-  "Impossible de marquer ce message");
+// LE VOTE. `value` vaut +1, -1 ou 0 (retirer). Le serveur refuse son propre
+// message ET LE -1 SUR UNE QUESTION -- on ne dessine pas le bouton, mais ce
+// n'est pas ce qui tient la règle : elle est dans le `WHERE` de l'instruction,
+// donc elle tient aussi contre quelqu'un qui appelle la route à la main.
+//
+// IL N'ACCORDE RIEN : ni XP, ni succès, ni carte.
+const voter = (id, value) => ecrire(
+  "forum/helpful", "POST", { id: id, value: value },
+  value === 0 ? "Vote retiré." : "Merci — ça aide les suivants.",
+  "Impossible de voter");
 
 const effacerNom = (id) => ecrire(
   "forum/moderation", "POST", { id: id, action: "clear-name" },
@@ -653,10 +714,17 @@ function myIdentity() {
   block.append(nameLabel, nameField, groupLabel, groupField);
   const frameField = plateFramePicker(block);
 
-  // THE RANKING NAME IS READ-ONLY AND REDRAWN, never typed: a leaderboard
-  // carrying student-written text would need moderating, and this one does
-  // not, because nothing typed can reach it.
-  if (profil.alias) block.append(aliasBlock());
+  // THE MASKED NAME IS READ-ONLY AND REDRAWN, never typed: a name carrying
+  // student-written text would need moderating, and this one does not,
+  // because nothing typed can reach it.
+  //
+  // DRAWN UNCONDITIONALLY, AND THAT IS A FIX. It used to be `if
+  // (profil.alias)`, which was a chicken-and-egg: the ONLY thing that writes
+  // an alias is the button inside this block, so the button was hidden from
+  // exactly the accounts that had no name -- all of them, unless they had
+  // opened the leaderboard. Harmless while the alias was decoration on a
+  // ranking; blocking now that it is how one appears in the chat.
+  block.append(aliasBlock());
 
   const preview = node("div", "previewplate");
   const readForm = () => ({
@@ -680,9 +748,10 @@ function myIdentity() {
   if (!profil.display_name && profil.suggestion) {
     block.append(node("p", "aide", "Nom proposé par ta connexion — modifie-le si tu veux, il ne s'affiche qu'une fois enregistré et coché."));
   }
-  block.append(node("p", "aide", "Décoché, rien de tout ça n'apparaît aux "
-    + "autres. L'enseignant, lui, voit toujours ton numéro de groupe — "
-    + "jamais ton nom si tu ne l'affiches pas."));
+  block.append(node("p", "aide", "Décoché, ton vrai nom n'apparaît nulle part : "
+    + "tu écris sous ton nom masqué ci-dessus. L'enseignant, lui, voit "
+    + "toujours ton numéro de groupe — jamais ton nom si tu ne l'affiches "
+    + "pas."));
   block.append(node("h3", "soustitre", "Aperçu"));
   block.append(preview);
   block.append(node("p", "aide", "Voilà exactement ce que les autres verront."));
@@ -719,21 +788,33 @@ function plateFramePicker(block) {
   return field;
 }
 
+// L'URL RESTE `leaderboard/alias` alors que le pseudonyme ne sert plus qu'au
+// classement : elle vit dans le cache des pages des étudiants, et la renommer
+// ne rachèterait rien. Même raisonnement que `/tp/<id>.json`.
 function aliasBlock() {
   const box = node("div", "");
-  box.append(node("label", "", "Nom de classement (tiré au hasard)"));
+  box.append(node("label", "", "Mon nom masqué (tiré au hasard)"));
   const line = node("p", "aliasrow");
-  line.append(node("b", "alias-value", profil.alias));
-  line.append(button("Un autre", "nav", async () => {
-    const answer = await ctester.compte.sendJson("leaderboard/alias", "POST", {});
-    annonce = answer && answer.ok ? "Nouveau pseudonyme."
-                                  : "Le pseudonyme n'a pas pu être changé.";
-    await chargerProfil();
-    renderPanel();
-  }));
+  line.append(node("b", "alias-value", profil.alias || "pas encore tiré"));
+  line.append(button(profil.alias ? "Un autre nom" : "Tirer un nom", "nav",
+    async () => {
+      const answer = await ctester.compte.sendJson("leaderboard/alias", "POST", {});
+      annonce = answer && answer.ok ? "Nouveau pseudonyme."
+                                    : "Le pseudonyme n'a pas pu être changé.";
+      await chargerProfil();
+      renderPanel();
+    }));
   box.append(line);
-  box.append(node("p", "aide", "C'est ce nom, et lui seul, qui apparaît au "
-    + "classement. Rechange-le quand tu veux."));
+  box.append(node("p", "aide", "C'est sous ce nom que tu apparais dans le chat "
+    + "et au classement tant que tu n'affiches pas le tien. Il est tiré d'une "
+    + "liste fermée — personne ne peut écrire ce qu'il veut."));
+  // CE QUE « RÉTROACTIF » VEUT DIRE, ÉCRIT AVANT LE CLIC. La dernière ligne
+  // de profil FAIT le profil, donc changer de nom renomme aussi l'auteur de
+  // tous ses messages passés. C'est une propriété (quelqu'un qui se sent
+  // exposé se détache de son historique d'un clic), mais elle surprend si on
+  // ne la dit pas.
+  box.append(node("p", "aide", "Le changer remplace ton nom partout, y compris "
+    + "sur tes messages déjà publiés."));
   return box;
 }
 
@@ -750,9 +831,13 @@ function drawPlatePreview(box, form) {
   const plate = node("div", "plate plan"
     + (form.plate_frame ? " frame-" + form.plate_frame : ""));
   const name = form.display_name_public ? String(form.display_name || "").trim() : "";
+  // LE REPLI EST L'ALIAS, PAS « PARTICIPANT ». L'encart promet « voilà
+  // exactement ce que les autres verront » : afficher un mot que personne ne
+  // verra en ferait un aperçu qui ment, ce qui est pire que pas d'aperçu.
+  const masque = (profil && profil.alias) || "Participant";
   const line = node("div", "row");
-  line.append(node("span", "initials", initialsOf(name)));
-  line.append(node("span", "name", name || "Participant"));
+  line.append(node("span", "initials", initialsOf(name || masque)));
+  line.append(node("span", "name", name || masque));
   plate.append(line);
   const tags = node("div", "tags");
   const group = form.group_number_public ? String(form.group_number || "").trim() : "";
@@ -809,14 +894,170 @@ function exercisePicker() {
     option.textContent = tp.group + " — " + (tp.short || tp.label);
     menu.append(option);
   }
-  menu.value = exercice;
+  // LE MENU PORTE L'EXERCICE, `exercice` PORTE LA CLÉ DU FIL. Les deux ne
+  // sont plus la même chaîne depuis que le chat existe : `cleFil()` traduit,
+  // et c'est le seul endroit qui le fait.
+  const base = exercice.startsWith(CHAT_PREFIX)
+    ? exercice.slice(CHAT_PREFIX.length) : exercice;
+  menu.value = base;
   menu.addEventListener("change", async () => {
     annonce = "";
-    await charger(menu.value);
-    dessiner();
+    await ouvrirFil(modeFil === "chat-general" ? "chat-ex" : modeFil,
+                    menu.value);
   });
   block.append(label, menu);
   return block;
+}
+
+// LES TROIS ESPACES, ET LEUR DIFFÉRENCE EST ÉCRITE. Un étudiant doit savoir
+// avant d'écrire si ce qu'il tape est public : c'est le contrat que le chat
+// passe avec lui, et le cacher derrière un onglet muet le romprait.
+function filPicker() {
+  const block = node("div", "bloc");
+  block.append(node("h3", "soustitre", "Où écrire"));
+  const row = node("div", "row");
+  const onglets = [
+    ["chat-ex", "Chat de l'exercice"],
+    ["chat-general", "Chat général"],
+    ["forum", "Forum de l'exercice"],
+  ];
+  for (const [mode, titre] of onglets) {
+    row.append(button(titre, modeFil === mode ? "" : "nav",
+                      () => ouvrirFil(mode)));
+  }
+  block.append(row);
+  block.append(node("p", "aide", estChat
+    ? "Ici tout est public : ton message est lisible par tous les comptes du cours, sous ton nom masqué."
+    : "Ici tu peux poser une question privée (« Je suis bloqué ici ») que seul le chargé de lab lira."));
+  return block;
+}
+
+async function ouvrirFil(mode, base) {
+  modeFil = mode;
+  annonce = "";
+  permalien = null;
+  if (base !== undefined) exerciceForce = base;
+  await charger(cleFil());
+  brancherSocket();
+  dessiner();
+}
+
+// LE CONTENEUR EST STABLE, SON CONTENU CHANGE. C'est ce qui permet de poser
+// des propositions pendant la frappe SANS redessiner le formulaire : un
+// `dessiner()` recréerait le `<textarea>` et renverrait le curseur à la fin,
+// au milieu d'une phrase.
+function remplirDoublons(box) {
+  box.innerHTML = "";
+  if (!doublons || !doublons.length) return;
+  const bloc = node("div", "bloc second");
+  bloc.append(node("h4", "soustitre", "Peut-être déjà demandé"));
+  bloc.append(resultatsListe(doublons, ""));
+  bloc.append(node("p", "aide", "Si ce n'est pas ta question, publie la tienne : c'est fait pour."));
+  box.append(bloc);
+}
+
+function majDoublons() {
+  const box = $("forumdoublons");
+  if (box) remplirDoublons(box);
+}
+
+// LE DÉBOUNCE EST TOUTE LA GESTION DE CHARGE DE CETTE FONCTION. La route est
+// une lecture sur index, sans quota (un cooldown de dix secondes la rendrait
+// inutile pendant la frappe, c'est-à-dire au seul moment où elle sert) : ce
+// qui la borne est de ne pas partir à chaque touche.
+function guetterDoublon() {
+  if (repondA) return;
+  if (minuterieDoublon) clearTimeout(minuterieDoublon);
+  const texte = saisie;
+  if (texte.trim().length < 8) { doublons = null; return; }
+  minuterieDoublon = setTimeout(async () => {
+    const trouves = await chercher(texte);
+    doublons = trouves.slice(0, 3);
+    // ON NE REDESSINE QUE SI ON A QUELQUE CHOSE À MONTRER, et jamais le
+    // formulaire entier : redessiner pendant la frappe rendrait le champ et
+    // ferait perdre le curseur.
+    if (doublons.length) majDoublons();
+  }, 400);
+}
+
+// LA RECHERCHE ET LA DÉTECTION DE DOUBLON SONT LA MÊME ROUTE. Ici c'est
+// l'accès à l'historique : un message d'il y a trois semaines n'est dans la
+// fenêtre d'aucun fil, donc sans ça il est inatteignable.
+function searchBox() {
+  const block = node("div", "bloc");
+  block.append(node("h3", "soustitre", "Chercher"));
+  const field = document.createElement("input");
+  field.type = "search";
+  field.id = "forumrecherche";
+  field.placeholder = "un mot de la question…";
+  field.value = recherche;
+  field.addEventListener("input", () => { recherche = field.value; });
+  const go = async () => {
+    resultats = await chercher(recherche);
+    dessiner();
+    const again = $("forumrecherche");
+    if (again && again.focus) again.focus();
+  };
+  field.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  block.append(field);
+  block.append(button("Chercher", "nav", go));
+  if (resultats !== null) block.append(resultatsListe(resultats, "Aucun message ne correspond."));
+  return block;
+}
+
+// UN RÉSULTAT S'OUVRE PAR LE PERMALIEN, jamais en devinant son fil : la
+// conversation entière arrive du serveur, filtrée par les mêmes règles que le
+// fil.
+function resultatsListe(rows, vide) {
+  if (!rows.length) return node("p", "aide", vide);
+  const list = node("ul", "fil");
+  for (const r of rows) {
+    const item = document.createElement("li");
+    item.className = "message";
+    const head = node("p", "qui");
+    head.append(node("span", "auteur", filLisible(r.exercise_id)));
+    if (r.replies) head.append(node("span", "tag accent",
+      r.replies > 1 ? r.replies + " réponses" : "1 réponse"));
+    else head.append(node("span", "tag", "sans réponse"));
+    if (r.upvotes) head.append(node("span", "tag", r.upvotes + " × même question"));
+    item.append(head);
+    // `textContent` POUR UN EXTRAIT : il ne passe pas par Markdown, donc pas
+    // par l'assainisseur, donc il ne doit jamais devenir du HTML.
+    item.append(node("p", "extrait", r.extrait));
+    item.append(button("Ouvrir", "nav", () => ouvrirPermalien(r.id)));
+    list.append(item);
+  }
+  return list;
+}
+
+function filLisible(cle) {
+  if (cle === CHAT_GENERAL) return "Chat général";
+  const nu = cle.startsWith(CHAT_PREFIX) ? cle.slice(CHAT_PREFIX.length) : cle;
+  const trouve = (ctester.catalogue() || []).find((t) => t.id === nu);
+  const nom = trouve ? (trouve.short || trouve.label) : nu;
+  return cle.startsWith(CHAT_PREFIX) ? "Chat — " + nom : "Forum — " + nom;
+}
+
+async function chercher(terms) {
+  if (!ctester.compte || !String(terms || "").trim()) return [];
+  const answer = await ctester.compte.getJson(
+    "forum/search?q=" + encodeURIComponent(terms));
+  return answer && Array.isArray(answer.results) ? answer.results : [];
+}
+
+async function ouvrirPermalien(id) {
+  const answer = await ctester.compte.getJson(
+    "forum/message?id=" + encodeURIComponent(id));
+  if (!answer || !Array.isArray(answer.messages)) {
+    annonce = "Cette conversation n'est pas disponible.";
+    dessiner();
+    return;
+  }
+  fil = answer.messages;
+  estChat = !!answer.chat;
+  permalien = id;
+  threadStateInfo = null;
+  dessiner();
 }
 
 // WHICH FORM IS OPEN. "question" is the ordinary public post the forum has
@@ -830,8 +1071,24 @@ let chosenVisibility = "private";
 
 function postForm() {
   const block = node("div", "bloc");
+  // RÉPONDRE À QUELQU'UN SE DIT AVANT D'ÉCRIRE. Sans cette bande, on tape une
+  // réponse en croyant ouvrir une nouvelle question -- et l'inverse.
+  if (repondA) {
+    const bande = node("div", "row");
+    bande.append(node("span", "tag accent", "Réponse à un message"));
+    bande.append(button("Annuler la réponse", "nav", () => {
+      repondA = null;
+      dessiner();
+    }));
+    block.append(bande);
+  }
   const tabs = node("div", "tabs");
-  const modes = [["question", "Poser une question"], ["bloque", "Je suis bloqué ici"]];
+  // DANS UN CHAT IL N'Y A QU'UNE FAÇON D'ÉCRIRE, parce qu'il n'y a rien de
+  // privé à choisir. Les deux onglets appartiennent au forum : les montrer
+  // ici promettrait une question privée que le serveur refuserait.
+  const modes = estChat || repondA
+    ? []
+    : [["question", "Poser une question"], ["bloque", "Je suis bloqué ici"]];
   for (const pair of modes) {
     const tab = button(pair[1], "nav" + (composeMode === pair[0] ? " on" : ""), () => {
       if (composeMode === pair[0]) return;
@@ -843,7 +1100,7 @@ function postForm() {
   }
   block.append(tabs);
 
-  const stuck = composeMode === "bloque";
+  const stuck = composeMode === "bloque" && !estChat && !repondA;
   if (stuck) {
     // WHAT GOES WITH THE QUESTION, SAID BEFORE IT IS WRITTEN. The exercise
     // and the step travel; THE CODE DOES NOT, and that is what keeps the
@@ -857,6 +1114,8 @@ function postForm() {
 
   const label = node("label", "", (stuck
       ? "Ce que tu as déjà essayé"
+      : repondA ? "Ta réponse"
+      : estChat ? "Ta question — personne ne juge, et tu es masqué"
       : "Ta question ou ton explication")
     + (maxTexte ? " (" + maxTexte + " caractères au plus)" : ""));
   label.setAttribute("for", "forumtexte");
@@ -884,21 +1143,40 @@ function postForm() {
     zone.addEventListener("input", () => {
       saisie = zone.value;
       rendreMarkdown(apercu, saisie);
+      guetterDoublon();
     });
     block.append(previewTitle, apercu);
   } else {
     apercu = null;
-    zone.addEventListener("input", () => { saisie = zone.value; });
+    zone.addEventListener("input", () => {
+      saisie = zone.value;
+      guetterDoublon();
+    });
+  }
+
+  // « QUELQU'UN A DÉJÀ DEMANDÉ ÇA », ET ON NE FAIT QUE LE PROPOSER. Jamais
+  // bloquant : décider à la place de quelqu'un que sa question est un doublon
+  // est exactement la façon de le faire taire, ce que tout ceci cherche à
+  // éviter. Pas sur une réponse -- on répond à un message précis.
+  if (!repondA) {
+    const box = node("div", "");
+    box.id = "forumdoublons";
+    block.append(box);
+    remplirDoublons(box);
   }
 
   if (stuck) block.append(visibilityPicker());
 
-  block.append(button("Publier", "", () => {
+  block.append(button(repondA ? "Répondre" : "Publier", "", () => {
     saisie = zone.value;
     const text = saisie;
-    const extra = stuck ? { step: chosenStep || "statement",
-                            blocked_kind: chosenBlockedKind || undefined,
-                            visibility: chosenVisibility } : {};
+    // UNE RÉPONSE NE PORTE NI ÉTAPE NI VISIBILITÉ : elle hérite de la
+    // conversation qu'elle rejoint, et le serveur REFUSE qu'elle en porte
+    // une. Les envoyer quand même ferait un 400 que personne ne comprendrait.
+    const extra = repondA ? { reply_to: repondA }
+      : stuck ? { step: chosenStep || "statement",
+                  blocked_kind: chosenBlockedKind || undefined,
+                  visibility: chosenVisibility } : {};
     if (ctester.sessionGet(CHARTE_VUE)) publier(text, extra);
     else showGuidelines(() => publier(text, extra));
   }));
@@ -1032,19 +1310,35 @@ function messageItem(m) {
       actions.append(button("Rendre visible à mon groupe", "", () => openToGroup(m.id)));
     }
   } else {
-    // "ÇA M'A AIDÉ" IS NOT A VOTE, and it is not offered on one's own message
-    // -- the server refuses that in SQL, and offering a button that always
-    // fails would be a button that lies. Already marked: the count stays,
-    // the button goes.
-    actions.append(m.helped_me
-      ? node("span", "tag accent", "tu as trouvé ça utile")
-      : button("Ça m'a aidé" + (m.helpful ? " (" + m.helpful + ")" : ""),
-               "nav", () => markHelpful(m.id)));
+    // LE VOTE N'EST PAS OFFERT SUR SON PROPRE MESSAGE -- le serveur le refuse
+    // en SQL, et un bouton qui échoue toujours est un bouton qui ment.
+    //
+    // SUR UNE QUESTION, +1 SE LIT « MOI AUSSI » ; SUR UNE RÉPONSE, « ÇA M'A
+    // AIDÉ » ET SON CONTRAIRE. Le -1 n'est pas dessiné sur une racine, mais
+    // ce n'est pas ce qui l'interdit : c'est le `WHERE` de l'instruction. Une
+    // question ne peut donc pas être enterrée par un vote, ce qui est la
+    // promesse d'un endroit fait pour ceux qui ont peur de demander.
+    const estReponse = !!m.reply_to;
+    const plus = estReponse ? "Ça m'a aidé" : "Moi aussi";
+    actions.append(button(
+      (m.my_vote === 1 ? "✓ " : "") + plus + (m.upvotes ? " (" + m.upvotes + ")" : ""),
+      m.my_vote === 1 ? "" : "nav",
+      () => voter(m.id, m.my_vote === 1 ? 0 : 1)));
+    if (estReponse) {
+      actions.append(button(
+        (m.my_vote === -1 ? "✓ " : "") + "Ça m'a induit en erreur"
+        + (m.downvotes ? " (" + m.downvotes + ")" : ""),
+        "nav", () => voter(m.id, m.my_vote === -1 ? 0 : -1)));
+    }
     actions.append(button("Signaler", "nav", () => signaler(m.id)));
   }
-  if (m.mine && m.helpful) {
-    actions.append(node("span", "tag", m.helpful + " personne"
-      + (m.helpful > 1 ? "s ont" : " a") + " trouvé ça utile"));
+  // RÉPONDRE EST OFFERT SUR TOUT MESSAGE VISIBLE, y compris le sien : on
+  // complète sa propre question sans en publier une seconde.
+  actions.append(button("Répondre", "nav", () => repondreA(m.id)));
+  if (m.mine && m.upvotes) {
+    actions.append(node("span", "tag", m.upvotes + " personne"
+      + (m.upvotes > 1 ? "s ont" : " a") + (m.reply_to ? " trouvé ça utile"
+                                                       : " la même question")));
   }
   // ONLY WHAT IS DISPLAYED CAN BE REPORTED: the button only exists on a name
   // someone else chose. "Participant" cannot be reported, there is nothing
@@ -1097,21 +1391,50 @@ function threadState() {
 
 function theThread() {
   const block = node("div", "bloc");
-  block.append(node("h3", "soustitre", "Le fil"));
+  block.append(node("h3", "soustitre", permalien ? "Une conversation" : "Le fil"));
+  if (permalien) {
+    // ON EST ARRIVÉ ICI PAR LA RECHERCHE. Le bouton de retour est la seule
+    // sortie : sans lui, on lirait une conversation isolée sans savoir
+    // comment revenir au fil qu'on regardait.
+    block.append(button("Revenir au fil", "nav", async () => {
+      permalien = null;
+      await charger(cleFil());
+      dessiner();
+    }));
+  }
   if (!fil.length) {
-    block.append(node("p", "aide", "Personne n'a encore écrit sur cet exercice. Une question bien posée en aide souvent plusieurs."));
+    block.append(node("p", "aide", estChat
+      ? "Personne n'a encore écrit ici. Une question, même « bête », en débloque souvent plusieurs."
+      : "Personne n'a encore écrit sur cet exercice. Une question bien posée en aide souvent plusieurs."));
     return block;
   }
   const state = threadState();
   if (state) block.append(state);
   const list = node("ul", "fil");
-  // RETAINED FIRST, then chronological. A thread one comes to for an answer
-  // must not make one scroll past nine messages to find the one the course
-  // stands behind -- and the rest stays in order, because a discussion read
-  // out of order is not a discussion.
-  const retained = fil.filter(m => m.retained);
-  const rest = fil.filter(m => !m.retained);
-  for (const m of retained.concat(rest)) list.append(messageItem(m));
+  // LES RÉPONSES SOUS LEUR RACINE. `reply_to` porte toujours la racine (le
+  // serveur aplatit), donc il n'y a qu'un niveau à dessiner et aucune
+  // récursion : un fil reste plat, ce qui est exactement pourquoi la colonne
+  // est faite comme ça.
+  const racines = fil.filter((m) => !m.reply_to);
+  const parRacine = {};
+  for (const m of fil) {
+    if (!m.reply_to) continue;
+    (parRacine[m.reply_to] = parRacine[m.reply_to] || []).push(m);
+  }
+  // RETENUES D'ABORD, puis chronologique. Un fil qu'on ouvre pour une réponse
+  // ne doit pas faire défiler neuf messages avant celle que le cours assume
+  // -- et le reste garde son ordre, une discussion lue en désordre n'étant
+  // plus une discussion.
+  const ordre = racines.filter((m) => m.retained)
+                       .concat(racines.filter((m) => !m.retained));
+  for (const racine of ordre) {
+    list.append(messageItem(racine));
+    for (const reponse of (parRacine[racine.id] || [])) {
+      const item = messageItem(reponse);
+      item.className += " reponse";
+      list.append(item);
+    }
+  }
   block.append(list);
   return block;
 }
@@ -1197,7 +1520,14 @@ function dessiner() {
   titre.id = "forumtitre";
   titre.tabIndex = -1;
   box.append(titre);
-  box.append(node("p", "aide", "Visible par les autres comptes connectés du cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès. Tu y apparais comme « Participant » tant que tu n'as pas choisi de nom dans Compte → Mon identité."));
+  // CE QUE L'ÉTUDIANT DOIT SAVOIR AVANT D'ÉCRIRE : que c'est public, et sous
+  // quel nom il apparaît. Le second point est la raison d'être de tout ceci,
+  // donc il est dit ici et pas seulement dans un panneau qu'on n'ouvre pas.
+  const masque = (profil && profil.alias) || "un nom masqué";
+  box.append(node("p", "aide", "Visible par les autres comptes connectés du "
+    + "cours. Ce n'est pas une note, et ça n'a aucun effet sur tes progrès. "
+    + "Tu y apparais sous « " + masque + " » — ton vrai nom n'apparaît que si "
+    + "tu l'affiches dans Compte → Mon identité."));
 
   // THE CONTEXT WE JUST LOST. Opening discussions clears the workbench: we
   // arrive here to talk about a verdict that is no longer visible. Recalling
@@ -1222,7 +1552,10 @@ function dessiner() {
   const right = node("div", "colonne large");
   box.append(left, right);
 
-  if (ctester.catalogue().length) left.append(exercisePicker());
+  left.append(filPicker());
+  if (ctester.catalogue().length && modeFil !== "chat-general") {
+    left.append(exercisePicker());
+  }
 
   const rules = node("div", "bloc second");
   rules.append(node("h3", "soustitre", "Ce qui se publie ici"));
@@ -1237,6 +1570,7 @@ function dessiner() {
     return;
   }
   left.append(postForm());
+  right.append(searchBox());
   right.append(theThread());
   // MODERATION IS NO LONGER RENDERED HERE. What remains is a door to it,
   // visible only to a moderator.
@@ -1324,6 +1658,56 @@ function exerciseLabel(id) {
 // THE MODERATION SCREEN, kept apart. It has no business in a student's
 // path, and the instructor opening it does not need to go through a thread
 // to get there.
+// LES QUESTIONS LES PLUS VOTÉES, ET SEULEMENT POUR L'ENSEIGNANT. Les
+// étudiants ne voient aucun palmarès : un compteur public sur ce que chacun a
+// demandé est le contraire de ce que le chat cherche à obtenir.
+//
+// LE « MOI AUSSI » EST CE QUI RÉPOND À « QU'EST-CE QUI BLOQUE LA CLASSE ? »
+// sans compter personne : c'est un nombre par question, pas un nombre par
+// étudiant.
+function topQueue() {
+  const block = node("div", "bloc");
+  block.append(node("h3", "soustitre", "Questions du moment"));
+  if (!topRows) {
+    block.append(node("p", "rate", "Le classement des questions n'a pas pu être lu."));
+    return block;
+  }
+  const rows = (topRows.rows || []).filter((r) => r.upvotes || !r.replies);
+  if (!rows.length) {
+    block.append(node("p", "aide", "Rien qui ressorte sur les dernières "
+      + topRows.hours + " heures."));
+    return block;
+  }
+  const list = node("ul", "fil");
+  for (const r of rows.slice(0, 10)) {
+    const item = document.createElement("li");
+    item.className = "message";
+    const head = node("p", "qui");
+    head.append(node("span", "auteur", filLisible(r.exercise_id)));
+    if (r.upvotes) {
+      head.append(node("span", "tag accent", r.upvotes + " × « moi aussi »"));
+    }
+    head.append(node("span", "tag", r.replies
+      ? (r.replies > 1 ? r.replies + " réponses" : "1 réponse")
+      : "sans réponse"));
+    if (r.visibility !== "thread") head.append(node("span", "tag", "privée"));
+    if (r.step) head.append(node("span", "tag", stepLabel(r.step)));
+    item.append(head);
+    // `textContent` : ce texte vient d'un étudiant et ne passe pas par
+    // l'assainisseur -- il ne doit donc jamais devenir du HTML.
+    item.append(node("p", "extrait", r.text));
+    item.append(button("Ouvrir la conversation", "nav", async () => {
+      await basculer();
+      await ouvrirPermalien(r.id);
+    }));
+    list.append(item);
+  }
+  block.append(list);
+  block.append(node("p", "aide", "Sur les dernières " + topRows.hours
+    + " heures. Aucun nom, aucun compte : un nombre par question."));
+  return block;
+}
+
 function dessinerModeration() {
   const box = $("vuemoderation");
   box.innerHTML = "";
@@ -1340,22 +1724,109 @@ function dessinerModeration() {
   }
   // THE AGGREGATE COMES FIRST: during a lab it is the actionable half, and
   // the report queue is the one that can wait ten minutes.
-  box.append(helpQueue(), moderationQueue(), nameQueue());
+  box.append(topQueue(), helpQueue(), moderationQueue(), nameQueue());
 }
 
 async function basculerModeration() {
   if (ctester.vue() === "moderation") { await basculer(); return; }
-  await charger(exercice || currentExercise());
+  await charger(exercice || cleFil());
   dessinerModeration();
   ctester.afficherVue("moderation");
   const head = $("moderationtitre");
   if (head && head.focus) head.focus();
 }
 
+// --- Le direct ----------------------------------------------------------------
+// LA SOCKET EST UNE SONNETTE. Elle ne transporte aucun message : le serveur
+// dit « du neuf », on relit le fil par HTTP, et `can_see()` s'applique par
+// lecteur exactement comme d'habitude. Rien de la règle de visibilité ne vit
+// de ce côté-ci.
+//
+// DÉGRADER, JAMAIS BLOQUER : socket morte, le fil se recharge sur action
+// comme avant. C'est l'inverse de `team.js`, où l'absence de Yjs doit
+// verrouiller l'éditeur -- là-bas un « au mieux » détruirait du travail, ici
+// il ne coûte qu'un clic.
+
+function debrancherSocket() {
+  const ancienne = socket;
+  socket = null;
+  if (ancienne) {
+    try { ancienne.close(); } catch (e) { /* déjà fermée */ }
+  }
+}
+
+function brancherSocket() {
+  debrancherSocket();
+  if (!ctester.compte || !ctester.token() || !exercice) return;
+  let ouverte;
+  try {
+    ouverte = new WebSocket(ctester.socketUrl("/forum/live"));
+  } catch (e) {
+    return;                       // pas de direct : le reste marche
+  }
+  socket = ouverte;
+  const vise = exercice;
+  ouverte.onopen = () => {
+    socketRetard = 1000;
+    // LE JETON PART DANS LA PREMIÈRE TRAME, jamais dans l'URL : un navigateur
+    // ne peut pas poser d'`Authorization` sur une WebSocket, et un jeton en
+    // paramètre d'URL est un jeton dans tous les journaux de proxy du chemin.
+    try {
+      ouverte.send(JSON.stringify(
+        { t: "hello", token: ctester.token(), thread: vise }));
+    } catch (e) { /* fermée entre-temps */ }
+  };
+  ouverte.onmessage = (ev) => {
+    let trame = null;
+    try { trame = JSON.parse(ev.data); } catch (e) { return; }
+    if (!trame || trame.t !== "new") return;
+    rafraichirFil();
+  };
+  ouverte.onclose = () => {
+    if (socket !== ouverte) return;     // remplacée : rien à reconnecter
+    socket = null;
+    if (ctester.vue() !== "forum") return;
+    setTimeout(brancherSocket, socketRetard);
+    socketRetard = Math.min(socketRetard * 2, 30000);
+  };
+}
+
+// LA SIGNATURE ÉVITE DE REDESSINER POUR RIEN. Sans elle, chaque sonnette
+// recréerait le `<textarea>` et renverrait le curseur à la fin pendant qu'on
+// tape. Elle porte ce qui change à l'écran : les identifiants, le masquage et
+// les votes.
+function signatureDuFil(messages) {
+  return (messages || []).map(
+    (m) => m.id + ":" + (m.hidden ? 1 : 0) + ":" + m.upvotes + ":"
+           + m.downvotes + ":" + m.my_vote + ":" + (m.retained ? 1 : 0)).join(",");
+}
+
+async function rafraichirFil() {
+  // LE FIL SEUL, pas `charger()` : celui-ci enchaîne la file de modération et
+  // l'agrégat d'aide pour un modérateur, c'est-à-dire deux requêtes de plus à
+  // chaque message publié dans la salle.
+  if (permalien || !ctester.compte || !exercice) return;
+  const avant = signatureDuFil(fil);
+  const response = await ctester.compte.getJson(
+    "forum?ex=" + encodeURIComponent(exercice));
+  if (!response || !Array.isArray(response.messages)) return;
+  if (signatureDuFil(response.messages) === avant) return;
+  fil = response.messages;
+  threadStateInfo = response.state || null;
+  dessiner();
+}
+
 // --- Entry points -------------------------------------------------------------
 
 async function basculer() {
-  if (ctester.vue() === "forum") { ctester.afficherVue(""); return; }
+  if (ctester.vue() === "forum") {
+    // LA SOCKET MEURT AVEC LA VUE. Une salle par onglet ouvert et par fil,
+    // gardée pendant qu'on code, serait la charge que le compteur de présence
+    // a refusée pour de bonnes raisons.
+    debrancherSocket();
+    ctester.afficherVue("");
+    return;
+  }
   annonce = "";
   // THE LIBRARIES ARRIVE WITH THE VIEW, not with the page. A failure is not
   // blocking: `renderAvailable` stays false and everything displays as
@@ -1366,7 +1837,8 @@ async function basculer() {
   } catch (e) {
     renderAvailable = false;
   }
-  await charger(currentExercise());
+  await charger(cleFil());
+  brancherSocket();
   dessiner();
   ctester.afficherVue("forum");
   // Focus follows the view: without this, tabbing would restart from the
@@ -1376,6 +1848,15 @@ async function basculer() {
 }
 
 function oublier() {
+  // LA SOCKET PART AVEC LA SESSION. Sans ça, une déconnexion laisserait une
+  // salle ouverte sur un jeton qui n'est plus valide.
+  debrancherSocket();
+  repondA = null;
+  permalien = null;
+  resultats = null;
+  doublons = null;
+  recherche = "";
+  exerciceForce = "";
   fil = null;
   signalements = null;
   moderateur = false;
@@ -1384,6 +1865,7 @@ function oublier() {
   saisie = "";
   profil = null;
   nomsSignales = null;
+  topRows = null;
   // THE NEW STATE LEAVES TOO. `helpRows` is a moderator's aggregate and
   // `threadStateInfo` a thread's, both about people who are still here -- neither has
   // any business surviving the session that read them.
@@ -1424,6 +1906,11 @@ ctester.forum = {
   ouvrirIdentite: ouvrirIdentite,
   oublier: oublier,
   fil: () => fil,
+  // Exposées pour le harnais : le direct et la recherche sont les deux
+  // chemins qu'un `node --check` ne peut pas éprouver.
+  rafraichirFil: rafraichirFil,
+  ouvrirFil: ouvrirFil,
+  socketOuverte: () => !!socket,
   // Exposed for the test harness: this is THE function the whole safety of
   // rendering depends on, and it must be testable against real hostile
   // payloads rather than by code inspection.

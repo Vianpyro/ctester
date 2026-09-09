@@ -186,6 +186,22 @@ CREATE TABLE IF NOT EXISTS forum_message (
     -- before this column, hence the DEFAULT: an old row reads as what it was.
     visibility  TEXT        NOT NULL DEFAULT 'thread'
                             CHECK (visibility IN ('private', 'group', 'thread')),
+    -- THE ANSWER'S LINK TO ITS QUESTION, and it always carries the ROOT --
+    -- never an intermediate reply. Replying to a reply stores the root's id,
+    -- so a thread stays flat to draw, `can_see` needs one dictionary lookup
+    -- instead of a walk, and there is no depth to bound. NULL is a root.
+    --
+    -- IT IS NAVIGATION, NOT PRIVACY: a chat is public, so a reply is visible
+    -- exactly like anything else. The rule this column does carry is
+    -- integrity -- the root must exist in the SAME thread, and that is the
+    -- `WHERE` of the INSERT (see `forum_publier`), not an `if`.
+    reply_to    TEXT,
+    -- FULL-TEXT SEARCH, MAINTAINED BY POSTGRES ITSELF. A generated column
+    -- cannot drift from the text it indexes, needs no trigger to keep, and is
+    -- never listed in an INSERT -- so it needs no GRANT of its own. It is
+    -- what makes "someone already asked this" and "find the answer I got last
+    -- week" the SAME query (see `forum_search`).
+    search      tsvector    GENERATED ALWAYS AS (to_tsvector('french', text)) STORED,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -304,6 +320,15 @@ CREATE TABLE IF NOT EXISTS forum_reported_name (
 CREATE TABLE IF NOT EXISTS forum_helpful (
     message_id TEXT        NOT NULL,
     account    TEXT        NOT NULL,      -- the one who found it useful
+    -- THE SIGN, AND -1 EXISTS ONLY ON A REPLY. A question cannot be buried by
+    -- a vote -- that is the whole promise of a place built for people who are
+    -- afraid to ask -- and the rule lives in the `WHERE` of the INSERT
+    -- (`forum_voter`), next to "not my own message" and "not twice". A `if`
+    -- in a router would leave the race the statement closes.
+    --
+    -- DEFAULT 1 IS WHAT MAKES THE MIGRATION FREE: every row written before
+    -- this column was a "ça m'a aidé", which is exactly a +1.
+    value      SMALLINT    NOT NULL DEFAULT 1 CHECK (value IN (-1, 1)),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, account)
 );
@@ -546,6 +571,46 @@ ALTER TABLE forum_message DROP CONSTRAINT IF EXISTS forum_message_visibility_che
 ALTER TABLE forum_message ADD  CONSTRAINT forum_message_visibility_check
     CHECK (visibility IN ('private', 'group', 'thread'));
 
+-- LE CHAT : une réponse liée à sa question, et la recherche plein texte.
+--
+-- `reply_to` PORTE TOUJOURS LA RACINE (voir le CREATE plus haut). Rien à
+-- rétro-remplir : un message écrit avant cette colonne est une racine, ce
+-- qu'il était.
+ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS reply_to TEXT;
+
+-- LA COLONNE GÉNÉRÉE RÉÉCRIT LA TABLE une fois, à la première convergence qui
+-- l'ajoute. C'est acceptable ici -- quelques milliers de lignes -- et c'est le
+-- prix d'un index qui ne peut pas diverger de son texte. `IF NOT EXISTS` fait
+-- que les convergences suivantes ne coûtent qu'une lecture de catalogue.
+ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS search tsvector
+    GENERATED ALWAYS AS (to_tsvector('french', text)) STORED;
+
+-- LE VOTE PREND UN SIGNE. `DEFAULT 1` rétro-remplit les « ça m'a aidé »
+-- existants en +1, ce qu'ils étaient déjà : aucune ligne à reprendre.
+ALTER TABLE forum_helpful ADD COLUMN IF NOT EXISTS value SMALLINT NOT NULL
+    DEFAULT 1;
+
+-- Le CHECK voyage à part, même raison que celui de `visibility` juste au
+-- dessus : nommé, droppé, re-ajouté, il reste UNE contrainte quel que soit le
+-- nombre de rejeux.
+ALTER TABLE forum_helpful DROP CONSTRAINT IF EXISTS forum_helpful_value_check;
+ALTER TABLE forum_helpful ADD  CONSTRAINT forum_helpful_value_check
+    CHECK (value IN (-1, 1));
+
+-- LES DEUX INDEX DU CHAT VIVENT ICI, PAS PLUS HAUT, et un test le tient : un
+-- index déclaré au-dessus de l'ALTER qui ajoute sa colonne passe sur une base
+-- neuve (le CREATE TABLE a déjà la colonne) et fait TOMBER la convergence sur
+-- une base existante. C'est la panne qui n'existe qu'en production.
+--
+-- GIN pour la recherche : la seule lecture du forum qui ne soit clé ni sur un
+-- fil ni sur une clé primaire. `(reply_to, created_at)` pour lire les
+-- réponses d'une racine -- sans lui, un fil de dix mille messages ferait un
+-- balayage complet à chaque dessin.
+CREATE INDEX IF NOT EXISTS forum_message_search_idx
+    ON forum_message USING GIN (search);
+CREATE INDEX IF NOT EXISTS forum_message_reply_idx
+    ON forum_message (reply_to, created_at);
+
 -- The plate, the drawn alias and the leaderboard opt-in (designs 1c/1d).
 -- `false` FOR BOTH FLAGS IS THE ONLY SAFE BACKFILL: an existing account has
 -- consented to nothing, so it joins no ranking and shows no badge until its
@@ -711,6 +776,12 @@ BEGIN
     -- `test_postgres.py` éprouve les DEUX moitiés -- que ces deux colonnes
     -- passent, et que `text` et `account` soient refusés.
     EXECUTE 'GRANT UPDATE (hidden, visibility) ON forum_message TO ctester_app';
+
+    -- ENCORE UN GRANT DE COLONNE. `UPDATE (value)` autorise exactement un
+    -- geste : changer d'avis sur un vote (`ON CONFLICT ... DO UPDATE`).
+    -- `message_id` et `account` restent inécrivables, donc aucune requête ne
+    -- peut déplacer le vote de quelqu'un sur un autre message.
+    EXECUTE 'GRANT UPDATE (value) ON forum_helpful TO ctester_app';
 
     -- LES ÉQUIPES SE FORMENT ELLES-MÊMES, donc il faut un INSERT, et il faut
     -- le dire : cette table était en lecture seule, et « rejoindre une équipe

@@ -31,8 +31,11 @@ async function load() {
     error = "Reconnecte-toi pour voir le classement.";
     return;
   }
+  // `?group=` N'EST HONORÉ QUE POUR UN MODÉRATEUR, et c'est le serveur qui
+  // recalcule le rôle : l'envoyer depuis ici ne donne rien à un étudiant.
   const response = await ctester.compte.getJson(
-    "leaderboard?scope=" + encodeURIComponent(scope));
+    "leaderboard?scope=" + encodeURIComponent(scope)
+    + (groupeVise === null ? "" : "&group=" + encodeURIComponent(groupeVise)));
   if (!response || typeof response.participating !== "boolean") {
     projection = null;
     error = "Le classement n'est pas disponible pour l'instant. L'exercice et "
@@ -63,6 +66,32 @@ const plural = (n, word) => n + " " + word + (n > 1 ? "s" : "");
 // `textContent` EVERYWHERE. An alias is drawn from a closed vocabulary on the
 // server, so it cannot carry markup -- but the rule does not depend on that
 // staying true, and the day it changes this file must not be the reason.
+
+// LE GROUPE QUE L'ENSEIGNANT REGARDE. `null` = le sien (donc, pour un
+// enseignant sans groupe au profil, tout le cours).
+let groupeVise = null;
+
+// LE SÉLECTEUR N'EXISTE QUE POUR UN MODÉRATEUR, et c'est le SERVEUR qui le
+// dit (`moderator` dans la réponse) : la page ne devine pas un rôle.
+function groupSwitch(view) {
+  if (!view.moderator || !(view.groups || []).length) return null;
+  const row = node("div", "tabs");
+  const entries = [[null, "Tous les groupes"]].concat(
+    view.groups.map((g) => [g, "Groupe " + String(g).padStart(2, "0")]));
+  for (const [value, title] of entries) {
+    const tab = button(title, "nav" + (groupeVise === value ? " on" : ""),
+      async () => {
+        if (groupeVise === value) return;
+        groupeVise = value;
+        scope = value === null ? "course" : "group";
+        await load();
+        render();
+      });
+    tab.setAttribute("aria-pressed", groupeVise === value ? "true" : "false");
+    row.append(tab);
+  }
+  return row;
+}
 
 function scopeSwitch() {
   const row = node("div", "tabs");
@@ -184,6 +213,16 @@ function divisions(view) {
 // this screen needs no moderation of its own.
 function aliasRow(view) {
   const block = node("div", "bloc");
+  // ON NE DIT PAS « TU APPARAIS SOUS X » À QUELQU'UN QUE LE `WHERE` EXCLUT.
+  // L'enseignant lit le classement et n'y figure jamais -- son XP est de l'XP
+  // de test, et un tableau qui le porterait serait injuste pour tous ceux qui
+  // y sont. La règle est en SQL ; ce qui est ici, c'est de ne pas mentir
+  // dessus.
+  if (view.moderator) {
+    block.append(node("p", "", "Tu n'apparais pas au classement : il ne "
+      + "compte que les comptes étudiants qui s'y sont inscrits."));
+    return block;
+  }
   const row = node("p", "aliasrow");
   row.append(node("span", "", "Tu apparais sous"));
   row.append(node("b", "alias-value", view.alias || "—"));
@@ -226,7 +265,10 @@ function render() {
     box.append(invitation());
     return;
   }
-  box.append(scopeSwitch(), aliasRow(projection), standing(projection));
+  const parGroupe = groupSwitch(projection);
+  if (parGroupe) box.append(parGroupe);
+  else box.append(scopeSwitch());
+  box.append(aliasRow(projection), standing(projection));
   box.append(projection.rows.length ? table(projection) : tooSmall(projection));
   box.append(divisions(projection));
 }

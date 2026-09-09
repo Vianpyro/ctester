@@ -427,12 +427,22 @@ def read_unlock_rates():
 # reports -- same rule as `/progres`.
 
 
-def leaderboard_rows(group_number, days):
+def leaderboard_rows(group_number, days, staff=()):
     """[{account, alias, group_number, recent, lifetime}] for OPTED-IN accounts.
 
     OPT-IN IS THE `WHERE`, NOT A FILTER APPLIED AFTER: an account that did not
     check the box produces no row at all, so there is nothing to forget to
     hide downstream. `group_number` None means the whole course.
+
+    AND THE INSTRUCTOR IS EXCLUDED BY THE SAME `WHERE`, for the same reason.
+    Their XP is test XP -- they wrote the exercises -- so a ranking carrying
+    them would be unfair to every student in it, and fairness must not depend
+    on remembering not to tick a box. `staff` comes from the caller
+    (`config.FORUM_MODERATORS`) rather than from an import here: this module
+    stays the SQL layer, and the moderator list is configuration.
+
+    An empty `staff` excludes nobody -- `x <> ALL(ARRAY[]::text[])` is true --
+    so a deployment without moderators behaves exactly as before.
 
     An opted-in account with nothing this week IS returned, at zero. Dropping
     it would make the cohort size depend on the week, and the cohort size is
@@ -456,9 +466,11 @@ def leaderboard_rows(group_number, days):
         "  FROM profile p"
         "  LEFT JOIN xp_transaction x ON x.account = p.account"
         " WHERE p.leaderboard_opt_in"
+        "   AND p.account <> ALL(%(staff)s::text[])"
         "   AND (%(group)s::smallint IS NULL OR p.group_number = %(group)s) "
         " GROUP BY p.account, p.alias, p.group_number",
         {"days": max(int(days), 1),
+         "staff": sorted(staff or ()),
          "group": None if group_number is None else int(group_number)},
         read=True)
     if rows is None:
@@ -588,23 +600,40 @@ def forum_fil(exercise_id, limit, reader=None):
     returned the same way, with their visibility, and `forum_vue()` drops the
     ones the reader has no business seeing.
 
-    THREE THINGS TRAVEL WITH A MESSAGE NOW, and all three are derived, never
-    stored on the row: whether a moderator has retained it as the answer (the
-    latest `retain`/`unretain` in the journal), how many accounts found it
-    useful, and whether the reader is one of them. Deriving beats a counter
-    column -- there is no number to drift, and no UPDATE grant to widen.
+    THE LIMIT BOUNDS ROOTS, NOT MESSAGES, and that is what an archive of ten
+    thousand messages forces. Bounding messages would eventually cut a thread
+    between a question and its answer: the reply would come back alone, its
+    root gone, unreadable for the very person it was written for. Here a
+    question and ALL its replies enter and leave together. No outer LIMIT, on
+    purpose -- truncating a root's replies is the exact failure this CTE
+    exists to prevent, and one root with thousands of replies is a moderation
+    problem, not a query one.
 
-    `reader` is only used to answer "did I already mark this useful"; it never
-    changes which rows come back.
+    FOUR THINGS TRAVEL WITH A MESSAGE, all derived, none stored on the row:
+    whether a moderator retained it as the answer (the latest
+    `retain`/`unretain` in the journal), how many accounts voted it up, how
+    many voted it down, and what THIS reader voted. Deriving beats counter
+    columns -- no number to drift, no UPDATE grant to widen.
+
+    `reader` only answers "what did I vote"; it never changes which rows come
+    back.
     """
     rows = _query(
+        "WITH racines AS ("
+        "   SELECT message_id FROM forum_message"
+        "    WHERE exercise_id = %(ex)s AND reply_to IS NULL"
+        "    ORDER BY created_at DESC, message_id DESC"
+        "    LIMIT %(limit)s) "
         "SELECT m.message_id, m.account, m.text, m.hidden, m.created_at,"
-        "       m.step, m.blocked_kind, m.visibility,"
+        "       m.step, m.blocked_kind, m.visibility, m.reply_to,"
         "       COALESCE(r.action = 'retain', false),"
         "       (SELECT count(*) FROM forum_helpful h"
-        "         WHERE h.message_id = m.message_id),"
-        "       EXISTS (SELECT 1 FROM forum_helpful h"
-        "                WHERE h.message_id = m.message_id AND h.account = %(who)s)"
+        "         WHERE h.message_id = m.message_id AND h.value = 1),"
+        "       (SELECT count(*) FROM forum_helpful h"
+        "         WHERE h.message_id = m.message_id AND h.value = -1),"
+        "       COALESCE((SELECT h.value FROM forum_helpful h"
+        "                  WHERE h.message_id = m.message_id"
+        "                    AND h.account = %(who)s), 0)"
         "  FROM forum_message m"
         "  LEFT JOIN LATERAL ("
         "       SELECT action FROM forum_moderation"
@@ -612,16 +641,142 @@ def forum_fil(exercise_id, limit, reader=None):
         "          AND action IN ('retain', 'unretain')"
         "        ORDER BY created_at DESC, action_id DESC LIMIT 1) r ON true"
         " WHERE m.exercise_id = %(ex)s"
-        " ORDER BY m.created_at, m.message_id LIMIT %(limit)s",
+        "   AND (m.message_id IN (SELECT message_id FROM racines)"
+        "        OR m.reply_to IN (SELECT message_id FROM racines))"
+        " ORDER BY m.created_at, m.message_id",
         {"ex": exercise_id, "limit": max(int(limit), 0), "who": reader or ""},
         read=True)
+    return _messages(rows)
+
+
+def _messages(rows):
+    """The row shape every thread read shares. None stays None."""
     if rows is None:
         return None
     return [{"id": row[0], "account": row[1], "text": row[2],
              "hidden": bool(row[3]), "created_at": _minute(row[4]),
              "step": row[5], "blocked_kind": row[6], "visibility": row[7],
-             "retained": bool(row[8]), "helpful": int(row[9]),
-             "helped_me": bool(row[10])} for row in rows]
+             "reply_to": row[8], "retained": bool(row[9]),
+             "upvotes": int(row[10]), "downvotes": int(row[11]),
+             "my_vote": int(row[12])} for row in rows]
+
+
+def forum_conversation(message_id, reader=None):
+    """(thread key, [messages]) -- the root of `message_id` and all its replies.
+
+    THE PERMALINK, and it exists because a search result is worth nothing
+    without somewhere to land: a message three thousand posts back is inside
+    no thread window, so `forum_fil` would never return it.
+
+    IT RENDERS THROUGH THE SAME `forum_vue()`/`can_see()` as a thread -- same
+    columns, same order, same identity translation. A second rendering path
+    would be a second place for a visibility rule to drift.
+
+    (None, None) when the database is mute, (None, []) when there is no such
+    message -- the caller answers the same 404 either way.
+    """
+    rows = _query(
+        "WITH cible AS ("
+        "   SELECT COALESCE(reply_to, message_id) AS racine, exercise_id"
+        "     FROM forum_message WHERE message_id = %(id)s) "
+        "SELECT m.message_id, m.account, m.text, m.hidden, m.created_at,"
+        "       m.step, m.blocked_kind, m.visibility, m.reply_to,"
+        "       COALESCE(r.action = 'retain', false),"
+        "       (SELECT count(*) FROM forum_helpful h"
+        "         WHERE h.message_id = m.message_id AND h.value = 1),"
+        "       (SELECT count(*) FROM forum_helpful h"
+        "         WHERE h.message_id = m.message_id AND h.value = -1),"
+        "       COALESCE((SELECT h.value FROM forum_helpful h"
+        "                  WHERE h.message_id = m.message_id"
+        "                    AND h.account = %(who)s), 0),"
+        "       c.exercise_id"
+        "  FROM forum_message m"
+        "  JOIN cible c ON m.message_id = c.racine OR m.reply_to = c.racine"
+        "  LEFT JOIN LATERAL ("
+        "       SELECT action FROM forum_moderation"
+        "        WHERE message_id = m.message_id"
+        "          AND action IN ('retain', 'unretain')"
+        "        ORDER BY created_at DESC, action_id DESC LIMIT 1) r ON true"
+        " ORDER BY m.created_at, m.message_id",
+        {"id": message_id, "who": reader or ""}, read=True)
+    if rows is None:
+        return None, None
+    if not rows:
+        return None, []
+    return rows[0][13], _messages(rows)
+
+
+def forum_search(terms, reader, limit):
+    """[{id, exercise_id, extrait, created_at, upvotes, replies}]. None if mute.
+
+    ONE QUERY FOR TWO USES: typed into the compose box it proposes duplicates,
+    typed into the search bar it reaches the archive. Two queries would be two
+    places for the clause below to drift, and the one that drifted would be
+    the one that stopped protecting.
+
+    THE PRIVACY RULE IS THE `WHERE`, NOT A FILTER AFTER: a private forum
+    question can never surface as "someone already asked this" to anyone but
+    its author. Everything in a chat is public, so the clause is always true
+    there -- it stays anyway, because this table also holds the forum's
+    private questions, and a clause dropped because "it cannot happen here"
+    is the one that fires later.
+
+    A MODERATOR GETS NO EXCEPTION. They read threads already; widening this
+    `WHERE` for them would be one more branch to get wrong, for nothing.
+
+    `left(text, 240)` RATHER THAN `ts_headline`: the page shows the excerpt
+    through `textContent`, and a highlight is not worth a formatting-option
+    string. ponytail: ts_headline the day the excerpt is worth it.
+    """
+    terms = str(terms or "").strip()
+    if not terms:
+        return []
+    rows = _query(
+        "SELECT m.message_id, m.exercise_id, left(m.text, 240), m.created_at,"
+        "       (SELECT count(*) FROM forum_helpful h"
+        "         WHERE h.message_id = m.message_id AND h.value = 1),"
+        "       (SELECT count(*) FROM forum_message rp"
+        "         WHERE rp.reply_to = COALESCE(m.reply_to, m.message_id))"
+        "  FROM forum_message m, websearch_to_tsquery('french', %(q)s) AS q(tsq)"
+        " WHERE m.search @@ q.tsq"
+        "   AND m.hidden = false"
+        "   AND (m.visibility = 'thread' OR m.account = %(me)s)"
+        " ORDER BY ts_rank(m.search, q.tsq) DESC, m.created_at DESC"
+        " LIMIT %(limit)s",
+        {"q": terms, "me": reader or "", "limit": max(int(limit), 1)},
+        read=True)
+    if rows is None:
+        return None
+    return [{"id": r[0], "exercise_id": r[1], "extrait": r[2],
+             "created_at": _minute(r[3]), "upvotes": int(r[4]),
+             "replies": int(r[5])} for r in rows]
+
+
+def forum_top(hours, limit):
+    """The most upvoted ROOTS of the last `hours`. Moderator-only, see the router.
+
+    ROOTS ONLY: "what is being asked" is a question, and ranking replies in
+    the same table would put answers above the questions they answer.
+    """
+    rows = _query(
+        "SELECT m.message_id, m.exercise_id, m.text, m.created_at, m.visibility,"
+        "       m.step, m.blocked_kind,"
+        "       (SELECT count(*) FROM forum_helpful h"
+        "         WHERE h.message_id = m.message_id AND h.value = 1) AS votes,"
+        "       (SELECT count(*) FROM forum_message rp"
+        "         WHERE rp.reply_to = m.message_id)"
+        "  FROM forum_message m"
+        " WHERE m.reply_to IS NULL AND m.hidden = false"
+        "   AND m.created_at >= now() - make_interval(hours => %(hours)s)"
+        " ORDER BY votes DESC, m.created_at DESC"
+        " LIMIT %(limit)s",
+        {"hours": max(int(hours), 1), "limit": max(int(limit), 1)}, read=True)
+    if rows is None:
+        return None
+    return [{"id": r[0], "exercise_id": r[1], "text": r[2],
+             "created_at": _minute(r[3]), "visibility": r[4], "step": r[5],
+             "blocked_kind": r[6], "upvotes": int(r[7]), "replies": int(r[8])}
+            for r in rows]
 
 
 def forum_publier(message_id, exercise_id, user, text, step=None,
@@ -638,6 +793,38 @@ def forum_publier(message_id, exercise_id, user, text, step=None,
         " VALUES (%s, %s, %s, %s, %s, %s, %s)",
         (message_id, exercise_id, user, text, step, blocked_kind, visibility),
     ) is not None
+
+
+def forum_repondre(message_id, exercise_id, user, text, target):
+    """Reply to `target`. [] if the target is unknown or in another thread.
+
+    THE FLATTENING IS `COALESCE(t.reply_to, t.message_id)`, AND IT IS THE
+    WHOLE TRICK: replying to a reply stores the ROOT's id, so a thread stays
+    flat to draw, `can_see` needs one dictionary lookup rather than a walk,
+    and there is no depth to bound. One expression, in SQL, so it cannot be
+    forgotten by a caller.
+
+    THE `WHERE` IS THE RULE, as everywhere in this file: the root must exist
+    AND live in the same thread. A made-up id inserts nothing -- there is no
+    prior read to race, and no `if` in a router to get wrong. This is
+    INTEGRITY, not privacy: a chat is public, so a reply is visible exactly
+    like anything else, and it carries no visibility of its own.
+
+    Separate from `forum_publier` rather than a parameter on it, because the
+    two return different things: a root is a plain INSERT that only fails when
+    the database is mute, a reply can be legitimately REFUSED. Folding them
+    would mean one function whose False means two different HTTP answers.
+    """
+    return _query(
+        "INSERT INTO forum_message"
+        "  (message_id, exercise_id, account, text, visibility, reply_to)"
+        " SELECT %(id)s, %(ex)s, %(who)s, %(text)s, 'thread',"
+        "        COALESCE(t.reply_to, t.message_id)"
+        "   FROM forum_message t"
+        "  WHERE t.message_id = %(target)s AND t.exercise_id = %(ex)s"
+        " RETURNING message_id",
+        {"id": message_id, "ex": exercise_id, "who": user, "text": text,
+         "target": target}, read=True)
 
 
 def forum_open_to_group(message_id, user):
@@ -658,23 +845,46 @@ def forum_open_to_group(message_id, user):
         " RETURNING message_id", (message_id, user), read=True)
 
 
-def forum_mark_helpful(message_id, user):
-    """Mark someone ELSE's message useful. [] if unknown, one's own, or already marked.
+def forum_voter(message_id, user, value):
+    """Vote on someone ELSE's message. [] if refused, None if the base is mute.
 
-    THREE PROTECTIONS IN ONE STATEMENT, like `forum_signaler`: the SELECT
-    forbids a made-up id, `m.account <> %s` forbids marking one's own message,
-    and the primary key forbids the duplicate. A read followed by a write
-    would leave all three races open -- and the middle one is the whole
-    difference between a usefulness counter and a popularity vote one can
-    stuff.
+    FOUR PROTECTIONS IN ONE STATEMENT, and that is the point of writing it as
+    an `INSERT ... SELECT` rather than a read then a write:
+
+      * the SELECT forbids a made-up id;
+      * `m.account <> %(who)s` forbids voting on one's own message;
+      * `m.reply_to IS NOT NULL` FORBIDS -1 ON A QUESTION -- a question cannot
+        be buried by a vote, which is the whole promise of a place built for
+        people who are afraid to ask. It is held by the statement, not by the
+        page choosing not to draw a button;
+      * the primary key holds "once per account", and `DO UPDATE` turns the
+        second vote into a change of mind rather than a duplicate.
+
+    `DO UPDATE` IS WHY THE SCHEMA GRANTS `UPDATE (value)` -- a column grant,
+    so `message_id` and `account` stay unwritable and nobody's vote can be
+    moved onto another message.
+
+    IT STILL GRANTS NOTHING. No XP, no achievement, no card: a message written
+    to be upvoted is a message written for the counter. On a question the +1
+    reads as "moi aussi", which is what tells the instructor what is being
+    asked -- without counting anybody.
     """
+    value = 1 if int(value) >= 0 else -1
     return _query(
-        "INSERT INTO forum_helpful (message_id, account)"
-        " SELECT m.message_id, %(who)s FROM forum_message m"
+        "INSERT INTO forum_helpful (message_id, account, value)"
+        " SELECT m.message_id, %(who)s, %(value)s FROM forum_message m"
         "  WHERE m.message_id = %(id)s AND m.account <> %(who)s"
-        " ON CONFLICT (message_id, account) DO NOTHING"
-        " RETURNING message_id",
-        {"who": user, "id": message_id}, read=True)
+        "    AND (%(value)s = 1 OR m.reply_to IS NOT NULL)"
+        " ON CONFLICT (message_id, account) DO UPDATE SET value = EXCLUDED.value"
+        " RETURNING forum_helpful.message_id",
+        {"who": user, "id": message_id, "value": value}, read=True)
+
+
+def forum_devoter(message_id, user):
+    """Take one's own vote back. [] if there was none -- the same 404 as the rest."""
+    return _query(
+        "DELETE FROM forum_helpful WHERE message_id = %s AND account = %s"
+        " RETURNING message_id", (message_id, user), read=True)
 
 
 def forum_supprimer(message_id, user):
@@ -687,6 +897,20 @@ def forum_supprimer(message_id, user):
     return _query(
         "DELETE FROM forum_message WHERE message_id = %s AND account = %s"
         " RETURNING message_id", (message_id, user), read=True)
+
+
+def forum_fil_de(message_id):
+    """The thread key a message lives in, or "" -- for ringing the room.
+
+    A separate one-row read rather than a wider `RETURNING` on the delete and
+    the moderation statements: those two are the file's most carefully written
+    SQL (an access-control `WHERE`, a two-write CTE), and widening them to
+    carry a value only a notification needs would put a bell in the way of a
+    rule. Both actions are rare; this costs a primary-key lookup.
+    """
+    rows = _query("SELECT exercise_id FROM forum_message WHERE message_id = %s",
+                  (message_id,), read=True)
+    return rows[0][0] if rows else ""
 
 
 def forum_signaler(message_id, user):

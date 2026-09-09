@@ -1834,7 +1834,11 @@ def test_every_persistence_function_degrades_without_a_database():
         (state.forum_fil, ("ex", 10), None),
         (state.forum_publier, ("m", "ex", "u", "x"), False),
         (state.forum_open_to_group, ("m", "u"), None),
-        (state.forum_mark_helpful, ("m", "u"), None),
+        (state.forum_voter, ("m", "u", 1), None),
+        (state.forum_devoter, ("m", "u"), None),
+        (state.forum_repondre, ("m", "ex", "u", "x", "r"), None),
+        (state.forum_search, ("quoi", "u", 5), None),
+        (state.forum_top, (8, 10), None),
         (state.forum_supprimer, ("m", "u"), None),
         (state.forum_signaler, ("m", "u"), None),
         (state.forum_signalements, (10,), None),
@@ -4527,6 +4531,121 @@ def test_console_n_a_pas_de_liste_d_includes():
     corps = corps[:corps.index("\ndef ")]
     assert "read_allowed" not in corps
     assert "forbidden_includes" not in corps
+
+
+def test_le_chat_force_le_public_et_le_prefixe_est_toute_la_distinction():
+    """Dans un chat tout est public, et c'est `forum_visibility` qui le tient.
+
+    C'EST LA LIGNE QUI SUPPRIME LA MOITIÉ DIFFICILE DE LA FONCTIONNALITÉ. Le
+    chat n'ayant aucun message privé, `can_see()` ne change pas d'un caractère
+    -- « visible de tous » est déjà son premier cas -- et il n'y a AUCUNE
+    règle de confidentialité neuve à écrire. Le forum, lui, garde son privé.
+
+    Le contrôle vaut donc dans les deux sens : ce que le chat refuse, ET ce
+    que le forum continue d'accepter.
+    """
+    salon = forum.CHAT_GENERAL
+    assert forum.est_chat(salon) and forum.est_chat("@chat:tp2-ex3")
+    assert not forum.est_chat("tp2-ex3")
+    assert not forum.est_chat("") and not forum.est_chat(None)
+
+    # Dans un chat : `thread`, quoi qu'on demande, et un refus explicite.
+    assert forum.forum_visibility(None, False, salon) == ("thread", None)
+    assert forum.forum_visibility("", True, salon) == ("thread", None)
+    assert forum.forum_visibility("thread", True, salon) == ("thread", None)
+    for interdit in ("private", "group"):
+        valeur, message = forum.forum_visibility(interdit, True, salon)
+        assert valeur is None and "publics" in message, interdit
+
+    # Hors chat, RIEN NE BOUGE : une demande d'aide reste privée par défaut.
+    assert forum.forum_visibility(None, True) == ("private", None)
+    assert forum.forum_visibility(None, False) == ("thread", None)
+    assert forum.forum_visibility("thread", True)[0] is None
+
+    # LE PRÉFIXE NE PEUT PAS ÊTRE UN IDENTIFIANT DE CATALOGUE : c'est ce qui
+    # garantit qu'une clé de chat ne résout chez personne, donc ne devient
+    # jamais un chemin.
+    assert "@" in forum.CHAT_PREFIX
+
+
+def test_un_auteur_masque_reste_suivable():
+    """L'anonyme est MASQUÉ, pas indistinct -- et c'est l'alias qui le rend suivable.
+
+    « Participant » pour tout le monde rendait une conversation illisible : on
+    ne savait pas qui répondait à qui. L'alias vient d'un vocabulaire FERMÉ
+    (`policy.possible_aliases()`), donc rien de ce qu'un étudiant tape ne peut
+    l'atteindre, DONC IL N'Y A AUCUN PSEUDONYME À MODÉRER.
+
+    L'ORDRE COMPTE, et il est éprouvé en entier : « Enseignant » l'emporte
+    toujours, un nom choisi l'emporte sur l'alias, et « Participant » reste le
+    dernier repli -- un nom manquant ne doit jamais empêcher d'afficher un
+    message.
+    """
+    garde = config.FORUM_MODERATORS
+    try:
+        config.FORUM_MODERATORS = frozenset({"sub-mod"})
+        fil = [{"id": "a" * 32, "account": "sub-bob", "text": "x",
+                "hidden": False, "created_at": "2026-09-03T10:00Z"},
+               {"id": "b" * 32, "account": "sub-carl", "text": "y",
+                "hidden": False, "created_at": "2026-09-03T10:01Z"},
+               {"id": "c" * 32, "account": "sub-mod", "text": "z",
+                "hidden": False, "created_at": "2026-09-03T10:02Z"}]
+        profils = {"sub-bob": {"alias": "Rotor cuivré"},
+                   "sub-carl": {"alias": "Piston lisse"},
+                   "sub-mod": {"alias": "Came trempée"}}
+        vus = forum.forum_vue(fil, "sub-alice", False, profils)
+        noms = [v["author"] for v in vus]
+        # DEUX ANONYMES SONT DISTINGUABLES : c'est tout l'objet du changement.
+        assert noms[0] == "Rotor cuivré" and noms[1] == "Piston lisse"
+        assert noms[0] != noms[1]
+        # « ENSEIGNANT » L'EMPORTE, toujours : on doit reconnaître la réponse
+        # du cours, et un alias d'enseignant la rendrait indistincte.
+        assert noms[2] == "Enseignant"
+        # UN ALIAS N'EST PAS SIGNALABLE : il n'y a rien à corriger dans un mot
+        # tiré d'une liste fermée.
+        assert all(v["reportable_name"] is False for v in vus)
+
+        # Un nom CHOISI l'emporte sur l'alias.
+        choisi = dict(profils, **{"sub-bob": {"alias": "Rotor cuivré",
+                                              "display_name": "Bob",
+                                              "display_name_public": True}})
+        vu = forum.forum_vue(fil, "sub-alice", False, choisi)[0]
+        assert vu["author"] == "Bob" and vu["reportable_name"] is True
+
+        # SOI-MÊME : « Vous », plus le nom masqué -- quelqu'un qui écrit
+        # masqué doit pouvoir se reconnaître dans le fil.
+        moi = forum.forum_vue(fil, "sub-bob", False, profils)[0]
+        assert moi["author"] == "Vous (Rotor cuivré)"
+
+        # SANS ALIAS, « Participant » reste : un nom manquant n'empêche pas
+        # d'afficher un message.
+        assert forum.forum_vue(fil, "sub-alice", False, {})[0]["author"] == "Participant"
+
+        # ET TOUJOURS AUCUN `sub` DANS LA CHARGE.
+        assert "sub-bob" not in json.dumps(vus + [vu, moi], ensure_ascii=False)
+    finally:
+        config.FORUM_MODERATORS = garde
+
+
+def test_une_reponse_voyage_avec_son_lien_et_ses_deux_compteurs():
+    """`forum_vue` sort `reply_to`, `upvotes`, `downvotes` et `my_vote`.
+
+    `reply_to` EST UN HANDLE OPAQUE, déjà public : c'est ce qui permet à la
+    page de dessiner une réponse sous sa question sans qu'aucun `sub` ne
+    traverse. Les deux compteurs sont dérivés côté SQL ; ici on vérifie
+    seulement qu'ils franchissent la frontière, et sous ces noms-là -- la page
+    et le harnais lisent les mêmes.
+    """
+    fil = [{"id": "a" * 32, "account": "sub-bob", "text": "q", "hidden": False,
+            "created_at": "2026-09-03T10:00Z", "reply_to": None,
+            "upvotes": 3, "downvotes": 0, "my_vote": 1},
+           {"id": "b" * 32, "account": "sub-carl", "text": "r", "hidden": False,
+            "created_at": "2026-09-03T10:01Z", "reply_to": "a" * 32,
+            "upvotes": 1, "downvotes": 2, "my_vote": -1}]
+    vus = forum.forum_vue(fil, "sub-alice", False, {})
+    assert vus[0]["reply_to"] is None and vus[1]["reply_to"] == "a" * 32
+    assert vus[0]["upvotes"] == 3 and vus[0]["my_vote"] == 1
+    assert vus[1]["downvotes"] == 2 and vus[1]["my_vote"] == -1
 
 
 if __name__ == "__main__":

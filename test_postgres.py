@@ -476,7 +476,12 @@ def forum():
         thread[0]["created_at"]
     # ONE THREAD PER EXERCISE: nothing leaks from one exercise into another.
     assert len(state.forum_fil("tp2-ex0", 200)) == 1
-    assert state.forum_fil("tp2-ex3", 1) == thread[:1]    # the limit applies
+    # LA LIMITE BORNE LES RACINES, ET GARDE LES PLUS RÉCENTES. Elle gardait
+    # les plus ANCIENNES : sur un fil de dix mille messages, cela affichait
+    # les deux cents premiers messages du semestre et jamais celui qu'on vient
+    # d'écrire. La fenêtre remonte donc le temps depuis maintenant, puis rend
+    # ce qu'elle a gardé dans l'ordre de lecture.
+    assert state.forum_fil("tp2-ex3", 1) == thread[-1:]
 
     # THE PRIMARY KEY IS THE RULE: the same report twice is one row.
     assert state.forum_signaler(m2, ALICE) == [(m2,)]
@@ -590,9 +595,9 @@ def stuck_and_helpful():
         control AND the one-way rule at once -- `account = %s AND visibility =
         'private'`. Split into a read then a write, two clicks could race
         past it; written this way, the second one finds nothing.
-      * `forum_mark_helpful` is an `INSERT ... SELECT` whose `WHERE` refuses
-        one's own message, over a primary key that refuses the duplicate.
-        Three refusals, one statement.
+      * `forum_voter` is an `INSERT ... SELECT` whose `WHERE` refuses one's
+        own message AND -1 on a question, over a primary key that turns the
+        second vote into a change of mind. Four rules, one statement.
 
     And `forum_fil`'s LATERAL join, which derives the retained answer from
     the append-only journal rather than from a column.
@@ -618,20 +623,87 @@ def stuck_and_helpful():
     assert [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
             if m["id"] == BLOQUE][0]["visibility"] == "group"
 
-    # "HELPFUL MARK": one's own is refused, a stranger's id is refused, the
-    # duplicate is refused -- all three by the one statement.
-    assert state.forum_mark_helpful(BLOQUE, ALICE) == []       # one's own row
-    assert state.forum_mark_helpful("0" * 32, BOB) == []       # unknown id
-    assert state.forum_mark_helpful(BLOQUE, BOB) != []
-    assert state.forum_mark_helpful(BLOQUE, BOB) == []         # duplicate
-    # AND THE OTHER WAY AROUND, on a message BOB posted elsewhere: marking
-    # helpful is symmetric, and `forget` must erase both sides.
-    assert state.forum_mark_helpful("c" * 32, ALICE) != []
+    # LE VOTE : son propre message refusé, un id inventé refusé, et le second
+    # vote qui devient un changement d'avis -- tout par la même instruction.
+    assert state.forum_voter(BLOQUE, ALICE, 1) == []           # one's own row
+    assert state.forum_voter("0" * 32, BOB, 1) == []           # unknown id
+    assert state.forum_voter(BLOQUE, BOB, 1) != []
+    assert state.forum_voter(BLOQUE, BOB, 1) != []             # idempotent
+    # LE -1 SUR UNE QUESTION EST REFUSÉ PAR L'INSTRUCTION, et c'est LA règle
+    # qui compte : une question ne peut pas être enterrée par un vote. On
+    # l'éprouve en l'envoyant, parce que la page ne dessine pas ce bouton --
+    # ce qui n'est justement pas ce qui l'interdit.
+    assert state.forum_voter(BLOQUE, BOB, -1) == []
     seen = [m for m in state.forum_fil("tp2-ex3", 200, BOB)
            if m["id"] == BLOQUE][0]
-    assert seen["helpful"] == 1 and seen["helped_me"] is True
+    assert seen["upvotes"] == 1 and seen["downvotes"] == 0
+    assert seen["my_vote"] == 1
     assert [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
-            if m["id"] == BLOQUE][0]["helped_me"] is False
+            if m["id"] == BLOQUE][0]["my_vote"] == 0
+    # AND THE OTHER WAY AROUND, on a message BOB posted elsewhere: voting is
+    # symmetric, and `forget` must erase both sides.
+    assert state.forum_voter("c" * 32, ALICE, 1) != []
+
+    # UNE RÉPONSE, ELLE, ACCEPTE LE -1 -- et le `WHERE` de l'INSERT est ce qui
+    # fait la différence entre les deux, pas un `if` quelque part.
+    REPONSE = "7" * 32
+    assert state.forum_repondre(REPONSE, "tp2-ex3", BOB, "essaie ça", BLOQUE) != []
+    # L'APLATISSEMENT : répondre à une RÉPONSE vise la RACINE.
+    ENCORE = "6" * 32
+    assert state.forum_repondre(ENCORE, "tp2-ex3", ALICE, "merci", REPONSE) != []
+    par_id = {m["id"]: m for m in state.forum_fil("tp2-ex3", 200, ALICE)}
+    assert par_id[REPONSE]["reply_to"] == BLOQUE
+    assert par_id[ENCORE]["reply_to"] == BLOQUE, "une réponse vise la RACINE"
+    # LE `WHERE` REFUSE UNE RACINE D'UN AUTRE FIL, et un id inventé.
+    assert state.forum_repondre("5" * 32, "tp2-ex0", BOB, "x", BLOQUE) == []
+    assert state.forum_repondre("5" * 32, "tp2-ex3", BOB, "x", "0" * 32) == []
+    assert state.forum_voter(REPONSE, ALICE, -1) != []
+    assert state.forum_voter(REPONSE, ALICE, 1) != []          # changement d'avis
+    apres = {m["id"]: m for m in state.forum_fil("tp2-ex3", 200, ALICE)}
+    assert apres[REPONSE]["upvotes"] == 1 and apres[REPONSE]["downvotes"] == 0
+    assert state.forum_devoter(REPONSE, ALICE) != []
+    assert state.forum_devoter(REPONSE, ALICE) == []
+    assert {m["id"]: m for m in state.forum_fil("tp2-ex3", 200, ALICE)}[
+        REPONSE]["upvotes"] == 0
+
+    # LA FENÊTRE SE BORNE PAR RACINE : une réponse ne survit JAMAIS sans sa
+    # question. Avec une limite de 1, on obtient la dernière racine ET toutes
+    # ses réponses -- jamais une réponse orpheline.
+    court = state.forum_fil("tp2-ex3", 1, ALICE)
+    racines = [m for m in court if not m["reply_to"]]
+    assert len(racines) == 1, court
+    assert all(m["reply_to"] == racines[0]["id"]
+               for m in court if m["reply_to"]), court
+
+    # LE PERMALIEN rend la conversation entière, depuis n'importe lequel de
+    # ses messages -- c'est ce qui donne un point d'arrivée à la recherche.
+    fil_cle, conv = state.forum_conversation(ENCORE, ALICE)
+    assert fil_cle == "tp2-ex3"
+    assert {m["id"] for m in conv} == {BLOQUE, REPONSE, ENCORE}
+    assert state.forum_conversation("0" * 32, ALICE) == (None, [])
+
+    # LA RECHERCHE : LA CLAUSE DE CONFIDENTIALITÉ EST LE `WHERE`. Une question
+    # privée ne remonte que chez son auteur -- pas chez un autre compte, et
+    # PAS chez un modérateur non plus, qui n'a aucune exception ici.
+    PRIVEE = "4" * 32
+    assert state.forum_publier(PRIVEE, "tp2-ex3", ALICE,
+                               "mon segfault mysterieux", "execution",
+                               "wrong-result", "private")
+    a_elle = [r["id"] for r in state.forum_search("segfault", ALICE, 5)]
+    a_lui = [r["id"] for r in state.forum_search("segfault", BOB, 5)]
+    assert PRIVEE in a_elle, a_elle
+    assert PRIVEE not in a_lui, a_lui
+    assert state.forum_search("", ALICE, 5) == []
+    # `websearch_to_tsquery` NE LÈVE PAS sur une entrée hostile : c'est ce qui
+    # permet de l'appeler à chaque frappe sans valider quoi que ce soit avant.
+    for hostile in ("&& ||", '"', "a:*!", "'; DROP TABLE forum_message; --"):
+        assert state.forum_search(hostile, ALICE, 5) is not None, hostile
+
+    # « QUESTIONS DU MOMENT » : des RACINES, jamais des réponses -- sinon les
+    # réponses passeraient devant les questions qu'elles répondent.
+    top = state.forum_top(24, 50)
+    assert top is not None and all(r["id"] != REPONSE for r in top), top
+    assert any(r["id"] == BLOQUE for r in top)
 
     # THE RETAINED ANSWER IS DERIVED FROM THE JOURNAL, and reversible, and it
     # edits NOTHING: the text is byte-for-byte what it was.
@@ -750,6 +822,12 @@ def forum_privileges():
     with psycopg.connect(DSN, autocommit=True) as cx:
         cx.execute("UPDATE forum_message SET hidden = hidden")
         cx.execute("UPDATE forum_message SET visibility = visibility")
+        # ET LA TROISIÈME COLONNE ÉCRIVABLE DU FORUM : le signe d'un vote,
+        # qu'on change en changeant d'avis (`ON CONFLICT ... DO UPDATE`). Sans
+        # ce GRANT, « retirer mon vote » et « changer d'avis » échoueraient en
+        # production et nulle part ailleurs -- la panne exacte que l'`UPDATE`
+        # manquant du thème a coûté une fois.
+        cx.execute("UPDATE forum_helpful SET value = value")
     print("ok   forum: only `hidden` and `visibility` are writable, "
           "the rest is append-only")
 
@@ -789,7 +867,10 @@ def deletion():
     assert state.read_progress(BOB)["xp"] == 15
     # AND THE NEIGHBOR'S MESSAGES STAY. Erasing one's account does not erase
     # other people's conversation -- only what this person wrote.
-    assert count("forum_message", BOB) == 2, "message erased from the neighbor!"
+    # (deux messages plus la réponse que BOB a écrite sous la question d'ALICE
+    # : c'est justement le cas qui compte -- effacer un compte ne doit pas
+    # emporter la réponse que quelqu'un d'autre a écrite dedans.)
+    assert count("forum_message", BOB) == 3, "message erased from the neighbor!"
     assert count("forum_report", BOB) == 1
     assert state.forget(ALICE)                            # replayable
     # ET LE TRAVAIL DE L'ÉQUIPE SURVIT. Effacer un membre ne doit pas emporter

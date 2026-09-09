@@ -16,6 +16,7 @@ Un test qui ne vérifie qu'un refus laisse passer une borne posée un cran trop
 serré, et c'est l'étudiant qui la découvre à 23 h la veille de la remise.
 """
 
+import asyncio
 import contextlib
 import io
 import json
@@ -46,6 +47,7 @@ import main        # noqa: E402
 import security    # noqa: E402
 import policy as politique  # noqa: E402
 from services import collab  # noqa: E402
+from services import forum_live  # noqa: E402
 from services import quotas  # noqa: E402
 
 CONNUE = "https://tch009.thevhome.com"
@@ -95,7 +97,7 @@ class BaseSimulee:
         self.pratique, self.jobs = {}, set()
         self.evenements, self.xp, self.succes = {}, {}, {}
         self.faits = []          # le journal, dans l'ordre d'écriture
-        self.utiles = set()      # (message, account) -- "ça m'a aidé"
+        self.utiles = {}         # (message, account) -> +1 / -1
         self.retenus = {}        # message -> retained by a moderator?
         # LE LISTAGE EST ECRIT PAR L'ENSEIGNANT, PAS PAR L'API : ces deux
         # tables se remplissent ici comme `import_teams.py` les remplit en
@@ -353,13 +355,16 @@ class BaseSimulee:
             compte[succes_id] = compte.get(succes_id, 0) + 1
         return compte, len({u for (u, _) in self.pratique})
 
-    def leaderboard_rows(self, group_number, days):
+    def leaderboard_rows(self, group_number, days, staff=()):
+        self._staff = set(staff or ())
         rows = []
         for compte, profil in self.profils.items():
             if not profil.get("leaderboard_opt_in"):
                 continue
             if group_number is not None and profil.get("group_number") != group_number:
                 continue
+            if compte in self._staff:
+                continue      # THE INSTRUCTOR IS EXCLUDED BY THE `WHERE`
             n = sum(1 for (u, _) in self.xp if u == compte)
             rows.append({"account": compte, "alias": profil.get("alias"),
                          "group_number": profil.get("group_number"),
@@ -375,24 +380,96 @@ class BaseSimulee:
                 "achievements": mien(self.succes), "transactions": mien(self.xp)}
 
     # -- forum
+    def _vue_message(self, m, reader):
+        return dict(m, retained=self.retenus.get(m["id"], False),
+                    upvotes=sum(1 for (i, _), v in self.utiles.items()
+                                if i == m["id"] and v == 1),
+                    downvotes=sum(1 for (i, _), v in self.utiles.items()
+                                  if i == m["id"] and v == -1),
+                    my_vote=self.utiles.get((m["id"], reader or ""), 0))
+
     def forum_fil(self, ex, limite, reader=None):
-        views = []
+        # THE LIMIT BOUNDS ROOTS, like the SQL: replies ride along with their
+        # root, so a question and its answers enter and leave together.
+        racines = [m["id"] for m in self.messages
+                   if m["exercise_id"] == ex and not m.get("reply_to")][-limite:]
+        gardes = set(racines)
+        return [self._vue_message(m, reader) for m in self.messages
+                if m["exercise_id"] == ex
+                and (m["id"] in gardes or m.get("reply_to") in gardes)]
+
+    def forum_fil_de(self, mid):
         for m in self.messages:
-            if m["exercise_id"] != ex:
+            if m["id"] == mid:
+                return m["exercise_id"]
+        return ""
+
+    def forum_conversation(self, mid, reader=None):
+        cible = next((m for m in self.messages if m["id"] == mid), None)
+        if cible is None:
+            return None, []
+        racine = cible.get("reply_to") or cible["id"]
+        vus = [self._vue_message(m, reader) for m in self.messages
+               if m["id"] == racine or m.get("reply_to") == racine]
+        return (cible["exercise_id"], vus) if vus else (None, [])
+
+    def forum_search(self, terms, reader, limit):
+        terms = (terms or "").strip().lower()
+        if not terms:
+            return []
+        hits = []
+        for m in self.messages:
+            if m["hidden"] or terms not in m["text"].lower():
                 continue
-            views.append(dict(m, retained=self.retenus.get(m["id"], False),
-                              helpful=sum(1 for (i, _) in self.utiles if i == m["id"]),
-                              helped_me=(m["id"], reader or "") in self.utiles))
-        return views[:limite]
+            # THE PRIVACY CLAUSE, mirrored: public, or one's own.
+            if (m.get("visibility") or "thread") != "thread" and m["account"] != reader:
+                continue
+            racine = m.get("reply_to") or m["id"]
+            hits.append({"id": m["id"], "exercise_id": m["exercise_id"],
+                         "extrait": m["text"][:240],
+                         "created_at": m["created_at"],
+                         "upvotes": sum(1 for (i, _), v in self.utiles.items()
+                                        if i == m["id"] and v == 1),
+                         "replies": sum(1 for r in self.messages
+                                        if r.get("reply_to") == racine)})
+        return hits[:limit]
+
+    def forum_top(self, hours, limit):
+        roots = [m for m in self.messages
+                 if not m.get("reply_to") and not m["hidden"]]
+        rows = [{"id": m["id"], "exercise_id": m["exercise_id"],
+                 "text": m["text"], "created_at": m["created_at"],
+                 "visibility": m.get("visibility") or "thread",
+                 "step": m.get("step"), "blocked_kind": m.get("blocked_kind"),
+                 "upvotes": sum(1 for (i, _), v in self.utiles.items()
+                                if i == m["id"] and v == 1),
+                 "replies": sum(1 for r in self.messages
+                                if r.get("reply_to") == m["id"])}
+                for m in roots]
+        return sorted(rows, key=lambda r: -r["upvotes"])[:limit]
 
     def forum_publier(self, mid, ex, user, texte, step=None, blocked_kind=None,
                       visibility="thread"):
         self.messages.append({"id": mid, "exercise_id": ex, "account": user,
                               "text": texte, "hidden": False,
                               "step": step, "blocked_kind": blocked_kind,
-                              "visibility": visibility,
+                              "visibility": visibility, "reply_to": None,
                               "created_at": "2026-09-04"})
         return True
+
+    def forum_repondre(self, mid, ex, user, texte, target):
+        # THE SAME `WHERE` AS THE SQL: the target must exist AND live in this
+        # thread; the stored link is always the ROOT.
+        for m in self.messages:
+            if m["id"] == target and m["exercise_id"] == ex:
+                self.messages.append(
+                    {"id": mid, "exercise_id": ex, "account": user,
+                     "text": texte, "hidden": False, "step": None,
+                     "blocked_kind": None, "visibility": "thread",
+                     "reply_to": m.get("reply_to") or m["id"],
+                     "created_at": "2026-09-04"})
+                return [mid]
+        return []
 
     def forum_open_to_group(self, mid, user):
         # THE SAME RULE AS THE SQL `WHERE`: one's own, and private only.
@@ -403,14 +480,20 @@ class BaseSimulee:
                 return [mid]
         return []
 
-    def forum_mark_helpful(self, mid, user):
+    def forum_voter(self, mid, user, value):
+        value = 1 if int(value) >= 0 else -1
         for m in self.messages:
-            if m["id"] == mid and m["account"] != user:
-                if (mid, user) in self.utiles:
-                    return []
-                self.utiles.add((mid, user))
+            # THE FOUR CLAUSES OF THE SQL, in the same order: the id exists,
+            # it is not one's own, and -1 ONLY ON A REPLY. `DO UPDATE` makes a
+            # second vote a change of mind, not a duplicate.
+            if (m["id"] == mid and m["account"] != user
+                    and (value == 1 or m.get("reply_to"))):
+                self.utiles[(mid, user)] = value
                 return [mid]
         return []
+
+    def forum_devoter(self, mid, user):
+        return [mid] if self.utiles.pop((mid, user), None) is not None else []
 
     def forum_help_rows(self, limit, hours):
         groups = {}
@@ -1930,31 +2013,351 @@ def test_a_private_question_does_not_cross_the_http_boundary():
                       headers=auth("alice")).status_code == 404
 
 
-def test_helpful_mark_cannot_be_self_voted_and_counts_once():
-    """A usefulness counter, not a popularity vote -- and it grants NOTHING.
+def test_le_vote_refuse_le_sien_et_refuse_le_moins_un_sur_une_question():
+    """Le vote : +1 partout, -1 SUR UNE RÉPONSE SEULEMENT, 0 pour le retirer.
 
-    Three refusals in a single database statement: the made-up id, one's own
-    message, and the duplicate. All three return the same response.
+    LA RÈGLE QUI COMPTE EST LA TROISIÈME. Une question ne peut pas être
+    enterrée par un vote -- c'est la promesse d'un endroit fait pour ceux qui
+    ont peur de demander -- et elle est tenue par le `WHERE` de l'instruction,
+    pas par le fait que la page ne dessine pas le bouton. On l'éprouve donc en
+    envoyant le -1 que la page n'enverrait jamais.
+
+    L'URL NE CHANGE PAS et le corps est un sur-ensemble : `{id}` seul vaut
+    encore +1, ce que « ça m'a aidé » voulait dire. Une page restée dans le
+    cache d'un étudiant continue de marcher.
+
+    ET LE SECOND VOTE EST UN CHANGEMENT D'AVIS, plus un doublon refusé :
+    `ON CONFLICT DO UPDATE`. Un bouton de vote qu'on ne peut pas défaire est
+    un bouton qu'on n'ose pas cliquer.
     """
     tokens = {"alice": "sub-alice", "bob": "sub-bob"}
     with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
-        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "my answer"},
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "ma question"},
                headers=auth("alice"))
-        mid = fake.messages[0]["id"]
-        # One's own message: refused, like a made-up id.
-        assert c.post("/forum/helpful", json={"id": mid},
+        question = fake.messages[0]["id"]
+        c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "ma réponse",
+                               "reply_to": question}, headers=auth("bob"))
+        reponse = fake.messages[1]["id"]
+
+        # Son propre message : refusé, comme un id inventé.
+        assert c.post("/forum/helpful", json={"id": question},
                       headers=auth("alice")).status_code == 404
         assert c.post("/forum/helpful", json={"id": "0" * 32},
                       headers=auth("bob")).status_code == 404
-        assert c.post("/forum/helpful", json={"id": mid},
+        # Le corps historique, sans `value` : c'est un +1.
+        assert c.post("/forum/helpful", json={"id": question},
                       headers=auth("bob")).status_code == 200
-        # Twice: the primary key refuses, and the route says the same thing.
-        assert c.post("/forum/helpful", json={"id": mid},
+
+        # LE -1 SUR UNE QUESTION EST REFUSÉ PAR L'INSTRUCTION.
+        assert c.post("/forum/helpful", json={"id": question, "value": -1},
                       headers=auth("bob")).status_code == 404
-        seen = c.get("/forum?ex=tp2-ex3", headers=auth("bob")).json()["messages"][0]
-        assert seen["helpful"] == 1 and seen["helped_me"] is True
-        # AND NO XP COMES OUT OF IT: marking helpful does not touch progression.
+        # Le même -1 sur une RÉPONSE passe.
+        assert c.post("/forum/helpful", json={"id": reponse, "value": -1},
+                      headers=auth("alice")).status_code == 200
+
+        fil = c.get("/forum?ex=tp2-ex3", headers=auth("bob")).json()["messages"]
+        vue_question = [m for m in fil if m["id"] == question][0]
+        vue_reponse = [m for m in fil if m["id"] == reponse][0]
+        assert vue_question["upvotes"] == 1 and vue_question["my_vote"] == 1
+        # AUCUNE QUESTION N'AFFICHE JAMAIS DE NÉGATIF, et ce n'est pas une
+        # règle d'affichage : c'est le schéma qui la porte.
+        assert vue_question["downvotes"] == 0
+        assert vue_reponse["downvotes"] == 1
+
+        # Changer d'avis, puis retirer son vote.
+        assert c.post("/forum/helpful", json={"id": question, "value": 1},
+                      headers=auth("bob")).status_code == 200
+        assert c.post("/forum/helpful", json={"id": question, "value": 0},
+                      headers=auth("bob")).status_code == 200
+        fil = c.get("/forum?ex=tp2-ex3", headers=auth("bob")).json()["messages"]
+        assert [m for m in fil if m["id"] == question][0]["upvotes"] == 0
+
+        # ET IL N'EN SORT AUCUN XP : voter ne touche pas la progression.
         assert fake.xp == {} and fake.succes == {}
+
+
+def test_le_chat_est_un_fil_a_part_et_tout_y_est_public():
+    """La clé `@chat:` ouvre un fil, et le serveur y force le public.
+
+    LE CHAT ET LE FORUM PARTAGENT LA TABLE, séparés par un préfixe. Ce qui
+    s'éprouve ici est la frontière : une clé de chat s'ouvre, une clé
+    fabriquée ne s'ouvre pas, et une question privée est REFUSÉE dans le chat
+    -- avec une phrase, pas un 500.
+    """
+    tokens = {"alice": "sub-alice"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        for cle in ("@chat:general", "@chat:tp2-ex3"):
+            r = c.get("/forum?ex=" + cle, headers=auth("alice"))
+            assert r.status_code == 200, (cle, r.text)
+            assert r.json()["chat"] is True, cle
+        # Le forum du même exercice reste un AUTRE fil, et il n'est pas un chat.
+        assert c.get("/forum?ex=tp2-ex3",
+                     headers=auth("alice")).json()["chat"] is False
+        # UNE CLÉ FABRIQUÉE N'OUVRE RIEN : l'exercice doit exister.
+        for invente in ("@chat:inconnu", "@chat:", "@chat:../etc"):
+            assert c.get("/forum?ex=" + invente,
+                         headers=auth("alice")).status_code == 400, invente
+
+        # TOUT Y EST PUBLIC, et le refus le dit.
+        r = c.post("/forum", json={"exercise_id": "@chat:general",
+                                   "text": "j'ose demander", "step": "statement",
+                                   "visibility": "private"}, headers=auth("alice"))
+        assert r.status_code == 400 and "publics" in r.json()["error"], r.text
+        # Sans visibilité demandée, ça passe -- et c'est stocké en `thread`.
+        assert c.post("/forum", json={"exercise_id": "@chat:general",
+                                      "text": "j'ose demander"},
+                      headers=auth("alice")).status_code == 200
+        assert fake.messages[0]["visibility"] == "thread"
+        # Et le forum, lui, garde son privé : rien n'a changé de ce côté.
+        assert c.post("/forum", json={"exercise_id": "tp2-ex3",
+                                      "text": "bloqué", "step": "compilation"},
+                      headers=auth("alice")).status_code == 200
+        assert fake.messages[1]["visibility"] == "private"
+
+
+def test_une_reponse_vise_sa_racine_et_n_a_pas_de_visibilite_a_elle():
+    """`reply_to` : aplati vers la racine, borné au fil, sans visibilité propre.
+
+    TROIS REFUS, ET CHACUN A SA RAISON. Un identifiant mal formé est un 400
+    (c'est de la forme) ; une cible d'un AUTRE fil est un 404, le même que
+    partout -- dire « elle existe mais pas ici » apprendrait qu'elle existe ;
+    et une visibilité envoyée avec une réponse est un 400, parce qu'une
+    réponse hérite de la conversation qu'elle rejoint.
+
+    ET L'APLATISSEMENT S'ÉPROUVE : répondre à une réponse vise la RACINE, ce
+    qui est ce qui garde un fil plat à dessiner.
+    """
+    tokens = {"alice": "sub-alice", "bob": "sub-bob"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        c.post("/forum", json={"exercise_id": "@chat:general", "text": "ma question"},
+               headers=auth("alice"))
+        racine = fake.messages[0]["id"]
+        c.post("/forum", json={"exercise_id": "@chat:tp2-ex3", "text": "ailleurs"},
+               headers=auth("alice"))
+        ailleurs = fake.messages[1]["id"]
+
+        assert c.post("/forum", json={"exercise_id": "@chat:general", "text": "r",
+                                      "reply_to": "pas-un-id"},
+                      headers=auth("bob")).status_code == 400
+        # UNE CIBLE D'UN AUTRE FIL : le `WHERE` de l'INSERT la refuse.
+        assert c.post("/forum", json={"exercise_id": "@chat:general", "text": "r",
+                                      "reply_to": ailleurs},
+                      headers=auth("bob")).status_code == 404
+        assert c.post("/forum", json={"exercise_id": "@chat:general", "text": "r",
+                                      "reply_to": "0" * 32},
+                      headers=auth("bob")).status_code == 404
+        # UNE RÉPONSE NE PORTE PAS SA VISIBILITÉ.
+        r = c.post("/forum", json={"exercise_id": "@chat:general", "text": "r",
+                                   "reply_to": racine, "visibility": "private"},
+                   headers=auth("bob"))
+        assert r.status_code == 400 and "hérite" in r.json()["error"], r.text
+
+        assert c.post("/forum", json={"exercise_id": "@chat:general",
+                                      "text": "ma réponse", "reply_to": racine},
+                      headers=auth("bob")).status_code == 200
+        reponse = fake.messages[2]["id"]
+        assert fake.messages[2]["reply_to"] == racine
+        # RÉPONDRE À UNE RÉPONSE VISE LA RACINE : un seul niveau, toujours.
+        assert c.post("/forum", json={"exercise_id": "@chat:general",
+                                      "text": "et encore", "reply_to": reponse},
+                      headers=auth("alice")).status_code == 200
+        assert fake.messages[3]["reply_to"] == racine
+
+        # ET AUCUN `sub` NE TRAVERSE, réponses comprises.
+        charge = c.get("/forum?ex=@chat:general", headers=auth("bob")).text
+        assert "sub-alice" not in charge and "sub-bob" not in charge
+
+
+def test_le_permalien_rend_une_conversation_et_le_meme_404_partout():
+    """`GET /forum/message` : la racine et ses réponses, où qu'elles soient.
+
+    SANS LUI, LA RECHERCHE EST UNE LISTE D'EXTRAITS QU'ON NE PEUT PAS OUVRIR :
+    un message de la semaine dernière n'est dans la fenêtre d'aucun fil.
+    """
+    tokens = {"alice": "sub-alice", "bob": "sub-bob"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        c.post("/forum", json={"exercise_id": "@chat:general", "text": "question"},
+               headers=auth("alice"))
+        racine = fake.messages[0]["id"]
+        c.post("/forum", json={"exercise_id": "@chat:general", "text": "réponse",
+                               "reply_to": racine}, headers=auth("bob"))
+        vue = c.get("/forum/message?id=" + racine, headers=auth("bob")).json()
+        assert [m["text"] for m in vue["messages"]] == ["question", "réponse"]
+        assert vue["exercise_id"] == "@chat:general" and vue["chat"] is True
+        # DEPUIS LA RÉPONSE ON REMONTE À LA CONVERSATION ENTIÈRE.
+        depuis = c.get("/forum/message?id=" + fake.messages[1]["id"],
+                       headers=auth("bob")).json()
+        assert len(depuis["messages"]) == 2
+        assert c.get("/forum/message?id=zz", headers=auth("bob")).status_code == 400
+        assert c.get("/forum/message?id=" + "0" * 32,
+                     headers=auth("bob")).status_code == 404
+
+
+def test_la_recherche_ne_remonte_jamais_la_question_privee_d_un_autre():
+    """La clause de confidentialité de la recherche, éprouvée des deux côtés.
+
+    C'EST LE CONTRÔLE QUI COMPTE DANS TOUT CE FICHIER POUR CETTE ROUTE. Une
+    question privée qui remonterait comme « quelqu'un a déjà demandé ça »
+    serait exactement la fuite que l'anonymat promet d'empêcher -- et elle
+    serait invisible, puisque la recherche a l'air de marcher.
+    """
+    tokens = {"alice": "sub-alice", "bob": "sub-bob", "prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, _fake, _tmp):
+        c.post("/forum", json={"exercise_id": "tp2-ex3",
+                               "text": "segfault mysterieux", "step": "execution"},
+               headers=auth("alice"))
+        c.post("/forum", json={"exercise_id": "@chat:general",
+                               "text": "segfault en public"}, headers=auth("alice"))
+
+        def trouve(qui):
+            r = c.get("/forum/search?q=segfault", headers=auth(qui))
+            assert r.status_code == 200, r.text
+            return [x["extrait"] for x in r.json()["results"]]
+
+        # Son auteur retrouve la sienne...
+        assert "segfault mysterieux" in trouve("alice")
+        # ... et PERSONNE D'AUTRE, modérateur compris : pas d'exception ici.
+        assert "segfault mysterieux" not in trouve("bob")
+        assert "segfault mysterieux" not in trouve("prof")
+        # Le message public, lui, se trouve de partout.
+        assert "segfault en public" in trouve("bob")
+        # Une recherche vide ne coûte rien et ne rend rien.
+        assert c.get("/forum/search?q=", headers=auth("bob")).json()["results"] == []
+
+
+def test_la_sonnette_du_chat_refuse_dans_le_bon_ordre_et_ne_dit_rien_d_autre():
+    """`WS /forum/live` : l'ordre des refus, la borne, et RIEN dans la trame.
+
+    L'ORDRE EST LOAD-BEARING. « Les discussions ne sont pas activées » doit
+    passer AVANT « ton jeton est refusé » : un déploiement sans forum ne
+    répond pas « authentifie-toi » à une fonctionnalité qu'il n'offre pas.
+    C'est le même 503-avant-401 que les routes HTTP, sur un chemin où
+    personne ne le rejouerait sans ce contrôle.
+
+    ET LA TRAME NE PORTE AUCUN MESSAGE. C'est LA propriété du dessin : la
+    sonnette dit « du neuf », le client relit par HTTP, et `can_see()` reste à
+    un seul endroit. Un jour quelqu'un voudra « optimiser » en y mettant le
+    texte ; ce contrôle est ce qui le fera échouer.
+    """
+    from starlette.websockets import WebSocketDisconnect
+
+    # 1. FORUM ÉTEINT (aucun modérateur configuré) : 4503, et pas 4401 --
+    #    on envoie exprès un jeton invalide pour prouver l'ordre.
+    with contexte(jetons={"alice": "sub-alice"}, moderateurs=[]) as (c, _f, _t):
+        try:
+            with c.websocket_connect("/forum/live") as socket:
+                socket.send_json({"t": "hello", "token": "n'importe quoi",
+                                  "thread": "@chat:general"})
+                socket.receive_json()
+            raise AssertionError("une socket s'est ouverte sans forum")
+        except WebSocketDisconnect as exc:
+            assert exc.code == 4503, exc.code
+
+    with contexte(jetons={"alice": "sub-alice"},
+                  moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        # 2. Forum actif, jeton refusé : 4401.
+        try:
+            with c.websocket_connect("/forum/live") as socket:
+                socket.send_json({"t": "hello", "token": "faux",
+                                  "thread": "@chat:general"})
+                socket.receive_json()
+            raise AssertionError("un jeton invalide a été accepté")
+        except WebSocketDisconnect as exc:
+            assert exc.code == 4401, exc.code
+
+        # 3. Fil inconnu : 4400, la même porte que le GET.
+        try:
+            with c.websocket_connect("/forum/live") as socket:
+                socket.send_json({"t": "hello", "token": "alice",
+                                  "thread": "@chat:inconnu"})
+                socket.receive_json()
+            raise AssertionError("un fil inventé a été accepté")
+        except WebSocketDisconnect as exc:
+            assert exc.code == 4400, exc.code
+
+        # 4. Une trame hors bornes ferme la socket : une trame WebSocket ne
+        #    passe par aucun middleware, donc par aucune borne de corps.
+        with c.websocket_connect("/forum/live") as socket:
+            socket.send_json({"t": "hello", "token": "alice",
+                              "thread": "@chat:general"})
+            pret = socket.receive_json()
+            assert pret == {"t": "ready", "thread": "@chat:general"}, pret
+            try:
+                socket.send_text("x" * (config.FORUM_LIVE_FRAME + 1))
+                socket.receive_json()
+                raise AssertionError("une trame hors bornes a été acceptée")
+            except WebSocketDisconnect as exc:
+                assert exc.code == 4400, exc.code
+
+    # 5. LA SONNETTE NE PORTE AUCUN CONTENU, et c'est LA propriété du dessin.
+    #    Éprouvée sur `_ring` directement et pas à travers `TestClient` : là,
+    #    le POST et la socket vivent dans deux boucles d'événements
+    #    différentes, donc la sonnette ne peut structurellement pas traverser
+    #    -- ce qui éprouverait le harnais, pas le code.
+    forum_live.reset()
+
+    class SocketMuette:
+        def __init__(self):
+            self.trames = []
+
+        async def send_text(self, data):
+            self.trames.append(json.loads(data))
+
+    fausse = SocketMuette()
+    connexion = forum_live.Connection(fausse, "@chat:general")
+    forum_live.join(connexion)
+    try:
+        asyncio.new_event_loop().run_until_complete(
+            forum_live._ring("@chat:general"))
+        assert fausse.trames == [{"t": "new", "thread": "@chat:general"}], \
+            fausse.trames
+        # Aucun texte, aucun identifiant de message, aucun `sub` : le client
+        # doit relire par HTTP, où `can_see()` s'applique par lecteur.
+        assert set(fausse.trames[0]) == {"t", "thread"}
+    finally:
+        forum_live.leave(connexion)
+        forum_live.reset()
+
+
+def test_le_classement_exclut_l_enseignant_et_ne_le_dit_pas_a_l_envers():
+    """L'enseignant lit le classement et n'y figure JAMAIS.
+
+    L'EXCLUSION EST DANS LE `WHERE`, à côté de l'opt-in : l'équité ne doit pas
+    dépendre du fait de se souvenir de ne pas cocher une case. On coche donc
+    la case pour lui, exprès, et on vérifie qu'il n'en sort rien.
+
+    `?group=` N'EST HONORÉ QUE POUR UN MODÉRATEUR, et il est IGNORÉ pour un
+    étudiant -- pas refusé : un 403 ferait ressembler un lien partagé à une
+    panne.
+    """
+    tokens = {"alice": "sub-alice", "prof": "sub-prof"}
+    with contexte(jetons=tokens, moderateurs=["sub-prof"]) as (c, fake, _tmp):
+        for qui, groupe, alias in (("sub-alice", 4, "Rotor cuivré"),
+                                   ("sub-prof", 6, "Vilebrequin trempé")):
+            fake.profils[qui] = {"account": qui, "alias": alias,
+                                 "group_number": groupe,
+                                 "leaderboard_opt_in": True,
+                                 "display_name": None,
+                                 "display_name_public": False,
+                                 "group_number_public": False}
+        reponse = c.get("/leaderboard?scope=course", headers=auth("prof"))
+        vue = reponse.json()
+        assert vue["moderator"] is True
+        # LA CASE EST COCHÉE POUR LUI, EXPRÈS, et il n'en sort quand même rien.
+        assert "Vilebrequin trempé" not in reponse.text, reponse.text
+        assert "sub-prof" not in reponse.text
+        # ET LA COHORTE NE LE COMPTE PAS NON PLUS : l'exclusion est dans la
+        # requête, donc elle se propage aux divisions sans une ligne de plus.
+        assert vue["cohort"] == 1 and vue["rows"] == []
+        assert sum(d["accounts"] for d in vue["divisions"]) == 1
+
+        # UN ÉTUDIANT NE CHOISIT PAS SON GROUPE : le paramètre est ignoré.
+        mien = c.get("/leaderboard?scope=group&group=6", headers=auth("alice")).json()
+        assert mien["group"] == 4 and mien["moderator"] is False
+        assert mien["groups"] == []
+        # LE MODÉRATEUR, LUI, LE CHOISIT.
+        vise = c.get("/leaderboard?scope=group&group=4", headers=auth("prof")).json()
+        assert vise["group"] == 4 and vise["groups"] == [4, 6]
 
 
 def test_retaining_an_answer_does_not_edit_the_message():
@@ -2258,7 +2661,7 @@ def test_visibility_and_helpful_report_a_database_outage():
         assert r.status_code == 503, r.text
 
     base = BaseSimulee()
-    base.forum_mark_helpful = lambda *a: None
+    base.forum_voter = lambda *a: None
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.post("/forum/helpful", json={"id": "0" * 32}, headers=auth("alice"))

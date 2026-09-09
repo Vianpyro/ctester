@@ -1201,6 +1201,26 @@ pre {
    vocabulary the verdict channel already uses for state. */
 .message.privee { border-left: 3px solid var(--line-2); padding-left: .5rem; }
 
+/* UNE RÉPONSE SE LIT SOUS SA QUESTION. `reply_to` porte toujours la racine
+   (le serveur aplatit), donc il n'y a QU'UN niveau à décaler : pas de
+   récursion, pas de profondeur à borner, pas d'indentation qui finit par
+   sortir de l'écran au huitième message. */
+.message.reponse {
+  margin-left: 1.5rem;
+  border-left: 2px solid var(--line-2);
+  padding-left: .6rem;
+}
+
+/* L'EXTRAIT D'UN RÉSULTAT DE RECHERCHE. Il arrive par `textContent`, jamais
+   par Markdown : il ne passe donc pas par l'assainisseur, et il ne doit
+   jamais devenir du HTML. */
+.extrait {
+  margin: .3rem 0;
+  color: var(--texte-2, inherit);
+  font-size: .95em;
+  overflow-wrap: anywhere;
+}
+
 /* --- The team workspace ------------------------------------------------------
    THE ASSIGNMENT'S HEADER SITS ABOVE THE LAB CONTEXT, and it borrows that
    block's grammar on purpose -- same padding, same rule underneath, same
