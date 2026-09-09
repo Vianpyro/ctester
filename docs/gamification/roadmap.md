@@ -35,7 +35,7 @@ la Phase 2, et ne dit rien de la maitrise.
 **Ce qui reste ouvert.** L'equilibre du quota d'ecriture (10 s / 20 par heure et
 par compte) et la longueur maximale (1200 caracteres) sont des valeurs non
 observees. Le forum depend entierement d'une moderation humaine : sa charge reelle
-a 27 etudiants n'est pas connue, et c'est le critere de sortie a surveiller.
+a 80 etudiants n'est pas connue, et c'est le critere de sortie a surveiller.
 
 ## Phase 2 — maitrise verifiee (livree)
 

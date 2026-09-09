@@ -1,7 +1,7 @@
 -- ctester -- state for students who choose to sign in.
 --
 -- SQLITE WOULD HAVE BEEN ENOUGH, AND THAT BELONGS HERE rather than in a
--- conversation nobody will find in six months. The real load is 27 students,
+-- conversation nobody will find in six months. The real load is 80 students,
 -- one term, a few dozen writes an hour at the peak of a lab session, and a
 -- single process doing the writing. `sqlite3` ships with Python: nothing to
 -- install in the exposed container, no service to watch, no backup to arrange.

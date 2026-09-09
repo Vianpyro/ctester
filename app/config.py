@@ -135,7 +135,7 @@ FORUM_MAX_CHARS = _entier("CTESTER_FORUM_MAX_CHARS", "1200")
 FORUM_COOLDOWN = _entier("CTESTER_FORUM_COOLDOWN", "10")
 FORUM_HOURLY = _entier("CTESTER_FORUM_HOURLY_QUOTA", "20")
 FORUM_PSEUDO_MAX = _entier("CTESTER_FORUM_PSEUDO_MAX", "24")
-# READ bound for a thread and the moderation queue. An exercise thread at 27
+# READ bound for a thread and the moderation queue. An exercise thread at 80
 # students does not come close; the bound exists so the page can never
 # receive an endless object the day something goes wrong.
 FORUM_MAX_FIL = 200

@@ -101,7 +101,7 @@ sur un exercice n'a personne a qui poser une question conceptuelle. Le faire
 attendre la maitrise verifiee (Phase 2), puis les objectifs collectifs (Phase 4),
 c'est ne rien livrer avant la fermeture de decembre. Un fil par exercice est la
 plus petite chose qui reponde a ce besoin, et c'est la seule qui puisse etre
-moderee par une personne a 27 etudiants.
+moderee par une personne a 80 etudiants.
 
 **La moderation est HUMAINE, et c'est la condition d'existence de la fonction.**
 Le produit ne pretend a aucun endroit reconnaitre une solution automatiquement —

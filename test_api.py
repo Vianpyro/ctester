@@ -1150,7 +1150,7 @@ def test_quota_horaire_pile_et_un_de_trop():
 def test_quota_par_compte_pas_par_ip_derriere_un_nat():
     """Deux comptes derrière UNE SEULE IP ne partagent pas le quota.
 
-    C'est le cas du labo : 27 postes sortent par la même IP NATée, et compter
+    C'est le cas du labo : 80 postes sortent par la même IP NATée, et compter
     par IP y ferait qu'un seul étudiant bloque toute la salle. L'anonyme, lui,
     reste compté par IP -- il n'a rien d'autre.
     """

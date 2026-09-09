@@ -28,7 +28,7 @@ except ImportError:         # image built without it: persistence is simply abse
 DSN = os.environ.get("CTESTER_DB_DSN", "")
 
 # ponytail: ONE connection behind a global lock, not a pool. The most frequent
-# write is a draft every 1.5 s per signed-in student; at 27 of them the queue
+# write is a draft every 1.5 s per signed-in student; at 80 of them the queue
 # behind this lock is permanently empty. Move to psycopg_pool the day it is not.
 _lock = threading.Lock()
 _conn = None

@@ -10,7 +10,7 @@ A MISSING PROJECTION IS NOT A ZERO. Database down: 503 and no number.
 Announcing "0 XP" during an outage tells someone their work is gone.
 
 ponytail: seven serialized SQL round trips behind `state.py`'s single lock.
-Grouping them into one read is doable and not done -- at 27 students the
+Grouping them into one read is doable and not done -- at 80 students the
 queue behind that lock is empty, and one grouped query is harder to read
 back. The threshold is a p95 of this route above one second, which
 `load_test.py` reports on its own.

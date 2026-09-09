@@ -19,7 +19,7 @@ pydantic==2.13.5
 starlette==1.6.0
 
 # Le serveur ASGI. PAS `uvicorn[standard]` : cet extra ajoute uvloop, httptools,
-# watchfiles et websockets. À 27 étudiants et quelques requêtes par seconde, le
+# watchfiles et websockets. À 80 étudiants et quelques requêtes par seconde, le
 # gain de débit est invisible, et ce sont quatre dépendances de plus -- dont
 # deux avec du C -- dans le seul processus exposé à Internet. `h11` (pur Python,
 # et la seule implémentation HTTP/1.1 dont uvicorn ait besoin) suffit.

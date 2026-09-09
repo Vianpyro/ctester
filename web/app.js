@@ -497,7 +497,7 @@ function sessionDrop(name) {
 }
 
 // THE STATION ID, so the anonymous quota is not the whole room's. In the
-// first labs, 27 stations exit through a single NATed IP. It lives in
+// first labs, 80 stations exit through a single NATed IP. It lives in
 // `localStorage` and NOT in `sessionStorage` like /live's: two tabs are
 // indeed two open windows, but a single student. It proves nothing and only
 // ever travels to /submit.

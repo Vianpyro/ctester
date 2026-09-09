@@ -104,7 +104,7 @@ def current_user(headers):
 
     VALIDATED BY ASKING RAUTHY (/userinfo) instead of verifying a signature
     locally: that keeps a crypto library and its key rotation out of an image
-    that serves 27 students. The price is one round trip per cold token, paid
+    that serves 80 students. The price is one round trip per cold token, paid
     down by a few minutes of cache.
 
     FAILURES ARE CACHED TOO, briefly. Without that, a loop of made-up tokens
@@ -198,7 +198,7 @@ def client_id(headers, peer, station=None):
     Cloudflare. This is a load regulator, not access control -- the session
     key is the access control.
     """
-    # THE ACCOUNT FIRST, THE IP AS A FALLBACK. In the lab, 27 students exit
+    # THE ACCOUNT FIRST, THE IP AS A FALLBACK. In the lab, 80 students exit
     # through a single NATed IP: counting by IP would make one student block
     # the whole room. A validated `sub` is fairer AND harder to forge than the
     # IP. The anonymous visitor only has their IP -- and no account to protect.
@@ -212,7 +212,7 @@ def client_id(headers, peer, station=None):
         xff = headers.get("X-Forwarded-For")
         address = xff.split(",")[0].strip()[:64] if xff else peer
     # THE ANONYMOUS VISITOR IS COUNTED PER STATION, NOT PER ROOM. In the first
-    # labs nobody is signed in yet: 27 stations exit through a single NATed
+    # labs nobody is signed in yet: 80 stations exit through a single NATed
     # IP, and an IP-based counter makes all of them wait because of one. The
     # token comes from the browser (localStorage), so it proves nothing -- but
     # the IP alone proved nothing either once you hit the origin directly.

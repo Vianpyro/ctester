@@ -1724,7 +1724,7 @@ tourne** : `docker stats --no-stream ctester-web-1 ctester-postgres`, `uptime`,
 Ce qu'on décide APRÈS, et pas avant :
 
 - **`GET /progres` fait six allers-retours SQL sérialisés** derrière le verrou
-  unique. Les regrouper en une lecture est faisable et pas fait : à 27 étudiants
+  unique. Les regrouper en une lecture est faisable et pas fait : à 80 étudiants
   la file derrière ce verrou est vide, et une requête groupée est plus dure à
   relire. Le seuil, c'est un p95 de `/progres` au-dessus d'une seconde — le
   script le signale tout seul.
@@ -1785,7 +1785,7 @@ orphelinerait les documents qu'elle a écrits.
 **Placer quelqu'un après l'ouverture** — celui qui n'a rien choisi, ou qui
 s'est trompé d'équipe : c'est le seul cas qui demande l'enseignant, puisque
 les listes sont alors figées pour tout le monde. Volontairement pas de bouton
-d'expulsion dans la page : il faudrait décider qui l'a, et à 27 étudiants qui
+d'expulsion dans la page : il faudrait décider qui l'a, et à 80 étudiants qui
 se connaissent le problème se règle en parlant.
 
 **Charge.** `ctester_workers` (2) = compilations simultanées = cœurs que le juge
@@ -2411,7 +2411,7 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   charge, pas contrôle d'accès — la clé de session est le contrôle d'accès.
   Quotas en mémoire, RAZ au redémarrage du conteneur.
 - **`etat.py`** — une connexion Postgres derrière un verrou global, pas de pool.
-  À 27 étudiants connectés, la file derrière le verrou est vide. `psycopg_pool`
+  À 80 étudiants connectés, la file derrière le verrou est vide. `psycopg_pool`
   le jour où elle ne l'est plus.
 - **`runner.py`** — le verrou entre workers, c'est `os.mkdir` (atomique, un seul
   hôte). Sondage du spool à 0,5 s ; une unité systemd `.path` le jour où cette
@@ -2464,6 +2464,6 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   reprendre — et les trois compteurs qu'elle rend sont déjà la forme d'une
   liste.
 - **`forum.js`** — un fil se lit en entier (200 messages au plus), sans
-  pagination ni chargement incrémental. À 27 étudiants et un exercice ouvert à
+  pagination ni chargement incrémental. À 80 étudiants et un exercice ouvert à
   la fois, un fil dépasse rarement la dizaine. Paginer le jour où la borne se
   voit. Même remarque pour la file de modération, qui n'a ni filtre ni tri.

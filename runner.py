@@ -1005,7 +1005,7 @@ CACHE_DIR = "cache"
 # THE STORE MUST LAST A SEMESTER, not one session: in week 4, week 1's
 # exercises reopen to review for the midterm, and an entry written in
 # September is still correct as long as its test has not moved. Order of
-# magnitude: 27 students x 73 exercises x ~10 distinct submissions. A verdict
+# magnitude: 80 students x 73 exercises x ~10 distinct submissions. A verdict
 # is a few kilobytes (output is bounded by MAX_GCC_CHARS / MAX_CASE_OUTPUT /
 # MAX_STDERR), so ~40 MB, ~200 MB worst case. CTESTER_CACHE_MAX=0 turns it off
 # without redeploying: that is the rollback.
