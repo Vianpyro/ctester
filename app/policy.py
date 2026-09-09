@@ -143,19 +143,65 @@ POLICY = {
     },
 
     # THE DRAWN ALIAS: a closed vocabulary, so nothing typed by a student can
-    # ever land in it. Two lists, one adjective and one part -- 18 x 18 = 324
+    # ever land in it. Two lists, one adjective and one part -- 30 x 20 = 600
     # combinations for a cohort of about thirty, which is enough for
     # `draw_alias()` to find a free one in a handful of tries.
     "aliases": {
-        "parts": ["Rotor", "Palier", "Came", "Bobine", "Vilebrequin", "Ressort",
-                  "Engrenage", "Roulement", "Vérin", "Relais", "Diode",
-                  "Capteur", "Poulie", "Arbre", "Piston", "Soupape",
-                  "Culasse", "Cardan"],
-        "adjectives": ["cuivré", "lisse", "excentrée", "primaire", "trempé",
-                       "rodé", "hélicoïdal", "conique", "pneumatique",
-                       "bistable", "zener", "inductif", "crantée", "cannelé",
-                       "flottant", "tarée", "culottée", "homocinétique"],
-    },
+        "parts": [
+            "Rotor",
+            "Palier",
+            "Came",
+            "Vilebrequin",
+            "Ressort",
+            "Engrenage",
+            "Roulement",
+            "Vérin",
+            "Relais",
+            "Capteur",
+            "Arbre",
+            "Piston",
+            "Moteur",
+            "Module",
+            "Circuit",
+            "Processeur",
+            "Algorithme",
+            "Compilateur",
+            "Pointeur",
+            "Registre",
+            "Octet",
+            "Paquet",
+            "Serveur",
+            "Noyau",
+            "Thread",
+            "Signal",
+            "Bit",
+            "Vecteur",
+            "Graphe",
+            "Nœud"
+        ],
+        "adjectives": [
+            "cuivré",
+            "lisse",
+            "excentré",
+            "primaire",
+            "trempé",
+            "rodé",
+            "hélicoïdal",
+            "conique",
+            "pneumatique",
+            "bistable",
+            "inductif",
+            "cranté",
+            "cannelé",
+            "flottant",
+            "modulaire",
+            "numérique",
+            "logique",
+            "robuste",
+            "compact",
+            "optimisé"
+        ]
+    }
 
     # PLATE FRAMES: decoration, and nothing else. `threshold` is the level
     # from which one is offered; the first is always available so an account
