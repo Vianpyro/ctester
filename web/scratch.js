@@ -258,9 +258,7 @@ function batir() {
   vue.append(titre);
 
   const intro = node("p", "explique",
-    "Écris un programme C, lance-le, et réponds-lui quand il demande quelque"
-    + " chose. Rien de ce qui se passe ici ne compte dans ta progression :"
-    + " c'est un brouillon pour essayer.");
+    "Écris un programme C, lance-le, c'est un brouillon pour essayer.");
   vue.append(intro);
 
   const cadre = node("div", "plan scratchpan");
