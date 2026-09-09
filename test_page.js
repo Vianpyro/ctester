@@ -311,6 +311,15 @@ if (MODE === "verrou") global.location.search = "?tp=tp12-ex1";
 // SANS CLE D'ACCES : le lien de Moodle porte `?k=`, mais un signet, une
 // adresse tapee de tete ou un lien partage entre etudiants ne l'ont pas.
 if (MODE === "sanscle") global.location.search = "";
+// LE RETOUR DE RAUTHY, ET IL NE S'EPROUVE QU'AU PREMIER CHARGEMENT : c'est
+// `authCode` qui decide d'aller chercher compte.js, et il est lu une fois, a
+// l'evaluation d'app.js. Le verificateur PKCE est deja en session, comme
+// `startSignIn` l'y a laisse avant la redirection.
+if (MODE === "retour") {
+  global.location.search = "?code=code-de-retour&state=etat-de-retour";
+  session["ctester.pkce"] = JSON.stringify(
+    { verifier: "le-verificateur", state: "etat-de-retour" });
+}
 
 // LE CATALOGUE v2 TEL QUE `publish_content.projection()` l'écrit. Il porte
 // TOUS les exercices, ouverts ou non -- montrer n'est pas donner -- et
@@ -394,6 +403,50 @@ const OIDC_RESPONSE = { issuer: "https://auth.example", client_id: "ctester",
 let SUBMIT_RESPONSE;
 let DECOUVERTE_CASSEE = false;
 const JETON = "jeton-de-test";
+// --- LE POINT DE JETON DE L'ÉMETTEUR, EN CARTON ----------------------------
+// LE JETON D'ACCÈS EST COURT, ET C'EST TOUT LE SUJET. Ce bouchon-là fait ce
+// que Rauthy fait : il échange un code, il renouvelle, il FAIT TOURNER le
+// refresh token, et il sait refuser. Sans lui, le harnais ne pourrait
+// éprouver qu'un jeton éternel -- c'est-à-dire pas la panne qu'on répare.
+//
+// `JETON_SERVEUR` est ce que l'API accepte À CET INSTANT : le distinguer du
+// jeton que la page tient est la seule façon de jouer « ton jeton vient
+// d'expirer » sans attendre une vraie heure.
+let JETON_SERVEUR = JETON;
+let JETON_REFUS = false;        // le refresh token n'est plus accepté
+let JETON_ROTATION = true;      // Rauthy en rend un NEUF à chaque échange
+let JETON_ACCEPTE = true;       // le jeton renouvelé vaut quelque chose
+let JETON_DUREE = 300;          // `expires_in`
+let JETON_ATTENTE = null;       // une promesse que le point de jeton attend
+const ID_TOKEN = "id-token-a-ne-jamais-envoyer";
+const echangesJeton = [];       // ce que le point de jeton a reçu
+let refreshSuivant = 0;
+let accesSuivant = 0;
+
+async function pointDeJeton(opts) {
+  const recu = Object.fromEntries(
+    new URLSearchParams((opts && opts.body) || ""));
+  echangesJeton.push(recu);
+  // UNE POIGNÉE DE MAIN QU'ON PEUT TENIR OUVERTE : c'est ce qui permet de
+  // déconnecter PENDANT un renouvellement, le seul moment où un résultat en
+  // retard peut ressusciter une session fermée.
+  if (JETON_ATTENTE) await JETON_ATTENTE;
+  if (JETON_REFUS) return rendErreur(400, "invalid_grant");
+  const acces = recu.grant_type === "refresh_token"
+    ? "acces-" + (++accesSuivant) : JETON;
+  if (JETON_ACCEPTE) JETON_SERVEUR = acces;
+  const corps = { access_token: acces, token_type: "Bearer",
+                  id_token: ID_TOKEN };
+  if (JETON_DUREE) corps.expires_in = JETON_DUREE;
+  if (JETON_ROTATION) corps.refresh_token = "refresh-" + (++refreshSuivant);
+  return rendJson(corps);
+}
+// Fermer une socket COMME LE SERVEUR le fait : avec un code. Le faux
+// WebSocket ne le fait pas tout seul -- `close()` est ce que la PAGE appelle.
+const fermer = (socket, code) => {
+  socket.readyState = 3;
+  if (socket.onclose) socket.onclose({ code: code });
+};
 // LE THÈME DU COMPTE, cote serveur. Une chaine vide veut dire « ce compte n'a
 // rien choisi » -- ce qui n'est pas la meme chose qu'une panne, et la page ne
 // doit pas ecraser le theme de l'appareil dans ce cas.
@@ -504,7 +557,7 @@ const equipeEnvois = [];
 
 function equipeRepond(url, opts) {
   const porteur = opts && opts.headers && opts.headers.Authorization;
-  if (porteur !== "Bearer " + JETON) return rendErreur(401, "connexion requise");
+  if (porteur !== "Bearer " + JETON_SERVEUR) return rendErreur(401, "connexion requise");
   const methode = (opts && opts.method) || "GET";
   const corps = opts && opts.body ? JSON.parse(opts.body) : null;
   const chemin = String(url).split("?")[0];
@@ -675,6 +728,7 @@ global.fetch = async (url, opts) => {
         { id: "q3", group: "Exercice 2 : hexadécimal", label: "23", type: "hex8" },
       ] }) };
   }
+  if (String(url) === "https://auth.example/token") return pointDeJeton(opts);
   if (url.includes("openid-configuration")) {
     if (DECOUVERTE_CASSEE) throw new Error("fournisseur injoignable");
     return { ok: true, status: 200, json: async () => ({
@@ -691,7 +745,7 @@ global.fetch = async (url, opts) => {
     // LE JETON FAIT FOI. Une requete de compte sans en-tete doit repartir
     // vide : c'est ce qui distingue « pas connecte » de « rien a montrer ».
     const porteur = opts && opts.headers && opts.headers.Authorization;
-    if (porteur !== "Bearer " + JETON) {
+    if (porteur !== "Bearer " + JETON_SERVEUR) {
       return { ok: false, status: 401, json: async () => ({}) };
     }
     if (url === "progres" && PROGRES_CASSE) {
@@ -704,7 +758,7 @@ global.fetch = async (url, opts) => {
   if (url === "scratch/draft") {
     // MEME PORTE QUE LES AUTRES ROUTES DE COMPTE : le jeton fait foi.
     const porteur = opts && opts.headers && opts.headers.Authorization;
-    if (porteur !== "Bearer " + JETON) {
+    if (porteur !== "Bearer " + JETON_SERVEUR) {
       return { ok: false, status: 401, json: async () => ({}) };
     }
     if (opts && opts.method === "PUT") {
@@ -716,7 +770,7 @@ global.fetch = async (url, opts) => {
   if (url === "preferences") {
     // MEME PORTE QUE LES AUTRES ROUTES DE COMPTE : le jeton fait foi.
     const porteur = opts && opts.headers && opts.headers.Authorization;
-    if (porteur !== "Bearer " + JETON) {
+    if (porteur !== "Bearer " + JETON_SERVEUR) {
       return { ok: false, status: 401, json: async () => ({}) };
     }
     if (opts && opts.method === "PUT") {
@@ -756,7 +810,7 @@ const rendErreur = (code, quoi) =>
 function forumRepond(url, opts) {
   const porteur = opts && opts.headers && opts.headers.Authorization;
   // LE JETON FAIT FOI, comme sur les autres routes de compte.
-  if (porteur !== "Bearer " + JETON) return rendErreur(401, "connexion requise");
+  if (porteur !== "Bearer " + JETON_SERVEUR) return rendErreur(401, "connexion requise");
   if (FORUM_CASSE) return rendErreur(503, "la base ne répond pas");
   const methode = (opts && opts.method) || "GET";
   const corps = opts && opts.body ? JSON.parse(opts.body) : null;
@@ -914,6 +968,57 @@ const attendre = async () => { await sleep(); await sleep(); };
     check(global.ctester.catalogue().length === 0,
           "absent : et n'annonce aucun exercice, plutôt qu'un menu vide");
     console.log(failures ? `\n${failures} ÉCHEC(S)` : "\nun catalogue absent se voit");
+    process.exit(failures ? 1 : 0);
+  }
+  // --- LE RETOUR DE RAUTHY : CE QUE L'ECHANGE DU CODE RANGE -----------------
+  if (MODE === "retour") {
+    for (let n = 0; n < 80 && !echangesJeton.length; n++) await attendre();
+    await attendre(); await attendre();
+    check(echangesJeton.length === 1,
+          "retour : le code est echange UNE fois : " + echangesJeton.length);
+    const envoi = echangesJeton[0] || {};
+    check(envoi.grant_type === "authorization_code" && envoi.code === "code-de-retour",
+          "retour : avec le code recu : " + JSON.stringify(envoi));
+    check(envoi.code_verifier === "le-verificateur",
+          "retour : ET SON VERIFICATEUR PKCE -- ajouter offline_access ne "
+          + "remplace aucune moitie du flot : " + JSON.stringify(envoi));
+    // LES TROIS MORCEAUX, RANGES CHACUN A SA PLACE.
+    check(global.ctester.token() === JETON,
+          "retour : le jeton d'ACCES devient le jeton de la page : "
+          + global.ctester.token());
+    check(global.ctester.token() !== ID_TOKEN,
+          "retour : et surtout pas l'`id_token`, qui n'est pas un porteur");
+    check(session["ctester.refresh"] === "refresh-1",
+          "retour : le refresh token est garde : " + session["ctester.refresh"]);
+    check(session["ctester.token"] === JETON,
+          "retour : le jeton d'acces aussi, la ou il vivait deja");
+    const expire = Number(session["ctester.expire"]);
+    const attendu = Math.floor(Date.now() / 1000) + JETON_DUREE;
+    check(expire > attendu - 5 && expire <= attendu,
+          "retour : l'expiration est datee depuis `expires_in` : " + expire);
+    // TOUT EN `sessionStorage`, RIEN EN `localStorage` : sur un poste de labo
+    // partage, un refresh token qui survit a l'onglet est une session offerte
+    // au suivant.
+    check(!Object.keys(storage).some(
+            (k) => String(storage[k]).includes("refresh-1")),
+          "retour : rien de tout ca ne descend en `localStorage` : "
+          + JSON.stringify(Object.keys(storage)));
+    // LA SESSION DEMARRE VRAIMENT : sans ca on prouverait un rangement, pas
+    // une connexion.
+    check(calls.some((c) => c.url === "etats"),
+          "retour : et la session s'ouvre pour de bon");
+    // LE POINT QUI COMPTE : ni le refresh token ni l'id_token ne franchissent
+    // la frontiere de CTester. Le seul appel qui a le droit de porter le
+    // premier est celui de l'emetteur.
+    const versCTester = calls.filter(
+      (c) => !String(c.url).startsWith("https://auth.example"));
+    const fuite = JSON.stringify(versCTester);
+    check(!fuite.includes("refresh-1") && !fuite.includes(ID_TOKEN),
+          "retour : aucune requete vers l'API ne porte le refresh token ni "
+          + "l'id_token");
+    console.log("");
+    console.log(failures ? failures + " ÉCHEC(S)"
+                         : "l'echange du code range les trois morceaux");
     process.exit(failures ? 1 : 0);
   }
   if (MODE === "sanscle") {
@@ -3495,6 +3600,239 @@ const attendre = async () => { await sleep(); await sleep(); };
         + " changement d'écran");
   check(nodes.viewscratch.hidden === true, "et la vue se referme");
 
+  // --- LE CYCLE DE VIE DU JETON D'ACCES -------------------------------------
+  // LA PANNE QU'ON REPARE : un onglet reste ouvert pendant un cours, le jeton
+  // d'acces meurt de sa belle mort, et la page deconnectait l'etudiant --
+  // brouillon, fil et salle d'equipe compris -- sans que personne n'ait rien
+  // fait. Ce qui suit eprouve le renouvellement de bout en bout, y compris les
+  // trois facons de le rater : la course, le resultat en retard, et la boucle.
+  const sec = () => Math.floor(Date.now() / 1000);
+  const jetonValide = () => global.ctester.jetonValide();
+  const remettreSession = (reste) => {
+    JETON_SERVEUR = JETON;
+    JETON_REFUS = false;
+    JETON_ACCEPTE = true;
+    global.ctester.setToken(JETON);
+    session["ctester.refresh"] = "refresh-tenu";
+    session["ctester.expire"] = String(sec() + (reste === undefined ? 3600 : reste));
+    echangesJeton.length = 0;
+    calls.length = 0;
+  };
+
+  // SANS REFRESH TOKEN, RIEN NE CHANGE. Un emetteur qui refuse
+  // `offline_access`, ou une session ouverte avant ce correctif : la page doit
+  // se comporter exactement comme avant, pas se deconnecter d'elle-meme.
+  remettreSession(10);
+  delete session["ctester.refresh"];
+  echangesJeton.length = 0;
+  check(await jetonValide() === false,
+        "sans refresh token, la page le dit au lieu d'inventer");
+  check(echangesJeton.length === 0,
+        "et ne demande rien a l'emetteur : " + echangesJeton.length);
+  check(global.ctester.token() === JETON,
+        "surtout, elle ne se deconnecte pas toute seule pour autant");
+
+  // UN JETON CONFORTABLEMENT VALIDE NE DECLENCHE RIEN. Sans ce controle, un
+  // renouvellement a chaque requete transformerait la page d'un etudiant en
+  // generateur de charge pointe sur Rauthy.
+  remettreSession();
+  check(await jetonValide() === true, "un jeton valide est utilisable tel quel");
+  check(echangesJeton.length === 0,
+        "et ne coute AUCUN aller-retour : " + echangesJeton.length);
+
+  // LA MARGE : on renouvelle AVANT l'expiration, pas apres l'echec. Et cinq
+  // appels simultanes ne doivent produire QU'UNE requete -- avec la rotation
+  // active, les quatre autres bruleraient le refresh token que la premiere est
+  // en train d'utiliser, et le perdant deconnecterait l'etudiant.
+  remettreSession(30);
+  const avantRotation = session["ctester.refresh"];
+  const cinq = await Promise.all([jetonValide(), jetonValide(), jetonValide(),
+                                  jetonValide(), jetonValide()]);
+  check(cinq.every(Boolean), "cinq appels concurrents reussissent tous");
+  check(echangesJeton.length === 1,
+        "et se partagent UN SEUL renouvellement : " + echangesJeton.length);
+  check(echangesJeton[0].grant_type === "refresh_token"
+        && echangesJeton[0].refresh_token === avantRotation,
+        "qui presente bien le refresh token garde : "
+        + JSON.stringify(echangesJeton[0]));
+  check(global.ctester.token() !== JETON && !!global.ctester.token(),
+        "le jeton d'acces est remplace : " + global.ctester.token());
+  check(session["ctester.refresh"] !== avantRotation
+        && /^refresh-/.test(session["ctester.refresh"] || ""),
+        "LA ROTATION EST SUIVIE : garder l'ancien deconnecterait l'etudiant au "
+        + "renouvellement suivant, une heure plus tard, sans un mot : "
+        + session["ctester.refresh"]);
+  check(Number(session["ctester.expire"]) > sec() + JETON_DUREE - 5,
+        "et la nouvelle expiration est datee");
+
+  // UN 401 : UN RENOUVELLEMENT, UN REESSAI, ET LA REPONSE DU REESSAI.
+  // L'expiration est loin -- c'est le serveur qui refuse, pas notre horloge --
+  // donc c'est bien le 401 qui declenche, et rien d'autre.
+  remettreSession();
+  JETON_SERVEUR = "jeton-que-le-serveur-attend";
+  const etats = await global.ctester.compte.getJson("etats");
+  check(!!etats && Array.isArray(etats.states),
+        "un 401 rend au bout du compte la reponse du REESSAI, pas le refus : "
+        + JSON.stringify(etats));
+  check(echangesJeton.length === 1,
+        "avec EXACTEMENT un renouvellement : " + echangesJeton.length);
+  check(calls.filter((c) => c.url === "etats").length === 2,
+        "et EXACTEMENT un reessai : "
+        + calls.filter((c) => c.url === "etats").length);
+  check(!!global.ctester.token(), "la session tient");
+
+  // UN SECOND 401 DECONNECTE. C'est la seule facon de ne pas boucler : un
+  // jeton frappe il y a une seconde et deja refuse n'est pas un probleme de
+  // synchronisation.
+  remettreSession();
+  JETON_SERVEUR = "jeton-que-le-serveur-attend";
+  JETON_ACCEPTE = false;             // le renouvellement ne convainc personne
+  const refus = await global.ctester.compte.getJson("etats");
+  check(refus === null, "un second 401 ne rend rien");
+  check(calls.filter((c) => c.url === "etats").length === 2,
+        "et n'a REESSAYE QU'UNE FOIS : "
+        + calls.filter((c) => c.url === "etats").length);
+  check(echangesJeton.length === 1,
+        "un seul renouvellement, pas une boucle : " + echangesJeton.length);
+  check(!global.ctester.token(), "la session est fermee");
+  check(!session["ctester.refresh"] && !session["ctester.expire"]
+        && !session["ctester.token"],
+        "ET TOUT LE MATERIEL D'AUTHENTIFICATION AVEC : "
+        + JSON.stringify([session["ctester.token"], session["ctester.refresh"],
+                          session["ctester.expire"]]));
+
+  // UN RENOUVELLEMENT REFUSE DECONNECTE AUSSI. Revoque, expire, deja tourne :
+  // il n'y a plus rien a tenter, et faire semblant est exactement ce qui
+  // produit une page qui tourne en rond.
+  remettreSession(10);
+  JETON_REFUS = true;
+  check(await jetonValide() === false, "un refresh token refuse rend faux");
+  check(!global.ctester.token(), "et ferme la session au lieu de reessayer");
+
+  // LE RESULTAT EN RETARD NE RESSUSCITE RIEN. Se deconnecter PENDANT un
+  // renouvellement est le cas ou une reponse en vol peut rouvrir une session
+  // fermee -- sur un poste de labo, pour la personne qui s'assied ensuite.
+  remettreSession(10);
+  let debloquer;
+  JETON_ATTENTE = new Promise((ok) => { debloquer = ok; });
+  const enVol = jetonValide();
+  await attendre();
+  check(echangesJeton.length === 1, "le renouvellement est bien parti");
+  global.ctester.compte.signOut();
+  check(!global.ctester.token(), "la deconnexion est immediate");
+  debloquer();
+  JETON_ATTENTE = null;
+  check(await enVol === false, "le renouvellement en vol rend faux");
+  await attendre();
+  check(!global.ctester.token(),
+        "ET NE RESSUSCITE PAS LA SESSION FERMEE : " + global.ctester.token());
+  check(!session["ctester.refresh"],
+        "ni ne reecrit le refresh token qui venait d'etre efface : "
+        + session["ctester.refresh"]);
+
+  // LA SOUMISSION AUSSI, ET C'EST LA PLUS SILENCIEUSE DE TOUTES. `/submit`
+  // accepte un job anonyme : un jeton mort n'y est pas refuse, il est IGNORE.
+  // Le job part sans proprietaire, l'etat et l'XP ne sont jamais ecrits, et
+  // l'etudiant voit un verdict parfaitement normal.
+  remettreSession(30);                        // dans la marge de renouvellement
+  const jetonAvant = global.ctester.token();
+  POLL_RESPONSE = { state: "queued", position: 1 };
+  SUBMIT_RESPONSE = { ok: true, status: 200,
+                      json: async () => ({ id: "f".repeat(32) }) };
+  await choisir("TP 2", "tp2-ex0");
+  nodes.code.value = codeUnique();
+  await nodes.go.listeners.click();
+  await attendre(); await attendre();
+  const envoiSoumis = calls.find((c) => String(c.url).startsWith("submit"));
+  check(!!envoiSoumis, "la soumission part");
+  check(global.ctester.token() !== jetonAvant,
+        "le jeton a bien ete renouvele avant qu'elle parte");
+  check(envoiSoumis && envoiSoumis.opts.headers.Authorization
+        === "Bearer " + global.ctester.token(),
+        "et elle porte le jeton RENOUVELE, donc elle reste attribuee au "
+        + "compte : " + (envoiSoumis && envoiSoumis.opts.headers.Authorization));
+
+  // --- LES SOCKETS ----------------------------------------------------------
+  // Elles portent le jeton dans leur PREMIERE TRAME, donc elles doivent le
+  // renouveler avant d'ouvrir, et savoir quoi faire d'un 4401 -- sans quoi
+  // l'espace d'equipe et la Console se rouvrent en boucle en disant « ta
+  // session a expire » sur une session parfaitement vivante.
+  remettreSession();
+  await nodes.scratch.listeners.click();
+  await attendre(); await attendre();
+  nodes.scratchcode.value = "int main(void){return 0;}";
+  await nodes.scratchgo.listeners.click();
+  await attendre(); await attendre();
+  const premiere = derniereSocket();
+  check(!!premiere && /scratch[/]live$/.test(premiere.url),
+        "la Console ouvre sa socket");
+  check(premiere.envoyes[0].token === global.ctester.token(),
+        "et y met le jeton d'acces COURANT : "
+        + JSON.stringify(premiere.envoyes[0].token));
+  check(!JSON.stringify(premiere.envoyes).includes("refresh-"),
+        "jamais le refresh token, qui n'a rien a faire sur une socket : "
+        + JSON.stringify(premiere.envoyes));
+
+  // UN 4401 : ON RENOUVELLE, ON ROUVRE, AVEC LE NOUVEAU JETON.
+  echangesJeton.length = 0;
+  fermer(premiere, 4401);
+  for (let n = 0; n < 20 && derniereSocket() === premiere; n++) await attendre();
+  const seconde = derniereSocket();
+  check(seconde !== premiere && /scratch[/]live$/.test(seconde.url),
+        "un 4401 rouvre la Console au lieu de rendre la main");
+  check(echangesJeton.length === 1,
+        "apres UN renouvellement : " + echangesJeton.length);
+  check(seconde.envoyes[0].token === global.ctester.token()
+        && seconde.envoyes[0].token !== premiere.envoyes[0].token,
+        "et la nouvelle socket porte le NOUVEAU jeton : "
+        + JSON.stringify(seconde.envoyes[0].token));
+
+  // UN SECOND 4401 NE RELANCE RIEN. Un serveur qui refuse un jeton frappe il y
+  // a une seconde ne se convaincra pas au troisieme essai, et la boucle
+  // couterait une place de file a chaque tour.
+  const combien = sockets.length;
+  fermer(seconde, 4401);
+  await attendre(); await attendre(); await attendre();
+  check(sockets.length === combien,
+        "pas de boucle reconnexion/renouvellement : "
+        + (sockets.length - combien) + " socket(s) de trop");
+
+  // ET UN RENOUVELLEMENT REFUSE DECONNECTE, plutot que de laisser un terminal
+  // s'arreter sans rien dire.
+  remettreSession();
+  await nodes.scratchgo.listeners.click();
+  await attendre(); await attendre();
+  const troisieme = derniereSocket();
+  JETON_REFUS = true;
+  fermer(troisieme, 4401);
+  await attendre(); await attendre(); await attendre();
+  check(!global.ctester.token(),
+        "un renouvellement refuse sur une socket deconnecte le compte");
+  JETON_REFUS = false;
+
+  // LES TROIS SOCKETS SONT JUMELLES, et la quatrieme qu'on ecrira dans six
+  // mois le sera aussi. Ce balayage-la est ce qui evite qu'une seule des trois
+  // soit corrigee -- exactement la moitie de la panne qu'on ne reproduit pas.
+  for (const fichier of ["team.js", "forum.js", "scratch.js"]) {
+    const source = lire(fichier);
+    check(source.includes("ctester.jetonValide()"),
+          fichier + " verifie le jeton AVANT d'ouvrir sa socket");
+    check(source.includes("ctester.rafraichirJeton()"),
+          fichier + " sait renouveler sur un refus 4401");
+    check(!/refresh_token|ctester\.refresh/.test(source),
+          fichier + " ne connait pas le refresh token, et ne doit pas");
+  }
+
+  // LE POINT QUI COMPTE, SUR TOUTE LA VISITE : aucun refresh token n'a jamais
+  // franchi la frontiere de CTester. Le seul appel autorise a en porter un est
+  // celui de l'emetteur.
+  const versCTester = calls.filter(
+    (c) => !String(c.url).startsWith("https://auth.example"));
+  check(!JSON.stringify(versCTester).includes("refresh-"),
+        "aucune requete vers l'API ne porte de refresh token");
+  check(!JSON.stringify(sockets.map((k) => k.envoyes || [])).includes("refresh-"),
+        "aucune trame de socket non plus");
+
   for (const [hote, attendu] of [
     ["tch009.thevhome.com", "https://tch099.thevhome.com/catalog.json"],
     ["vianpyro.github.io", "https://tch099.thevhome.com/catalog.json"],
@@ -3508,7 +3846,7 @@ const attendre = async () => { await sleep(); await sleep(); };
   // LE CATALOGUE ABSENT ET LE LIEN VERROUILLÉ, dans leur propre processus. Le catalogue
   // n'est lu qu'une fois par chargement de page : les éprouver ici voudrait
   // dire rejouer un premier chargement, ce qu'aucun `await` ne sait faire.
-  for (const mode of ["absent", "verrou", "sanscle"]) {
+  for (const mode of ["absent", "verrou", "sanscle", "retour"]) {
     const fils = require("child_process").spawnSync(
       process.execPath, [__filename, APP],
       { env: Object.assign({}, process.env, { CTESTER_MODE: mode }),

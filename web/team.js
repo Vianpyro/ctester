@@ -36,6 +36,11 @@ const SAVE_DELAY = 1500;
 // restarted is not hammered by four browsers.
 const RETRY = [1000, 2000, 4000, 8000, 15000];
 
+// The one code we can do something about ourselves: the token expired while
+// the room was open, and renewing it is cheaper than telling someone to sign
+// in again. See `connect`'s close handler.
+const UNAUTHORIZED = 4401;
+
 // The four close codes the server uses. A student whose session expired and a
 // student who is not on a team must not both read "connection lost".
 const CLOSED = {
@@ -232,7 +237,12 @@ function send(payload) {
   }
 }
 
-function connect(live) {
+async function connect(live) {
+  // THE TOKEN GOES IN THE FIRST FRAME, so it has to still be good BEFORE the
+  // socket opens: a room refused on 4401 costs a full round trip and a
+  // reconnection, where renewing here costs nothing when the token is fresh.
+  await ctester.jetonValide();
+  if (session !== live) return;     // the workspace closed while we waited
   let socket;
   try {
     socket = new WebSocket(ctester.socketUrl("/team/live"));
@@ -254,6 +264,25 @@ function connect(live) {
     if (session !== live) return;
     live.online = [];
     if (CLOSED[event.code]) {
+      // AN EXPIRED TOKEN IS THE ONE REFUSAL WE CAN ANSWER OURSELVES. One
+      // renewal, one reconnection, and `live.reauth` is what stops it there:
+      // cleared only by a room that actually said `ready`, so a server that
+      // keeps refusing a freshly minted token ends up as the sentence below
+      // instead of an endless loop.
+      if (event.code === UNAUTHORIZED && !live.reauth) {
+        live.reauth = true;
+        draw();
+        ctester.rafraichirJeton().then((ok) => {
+          if (session !== live) return;
+          if (ok) return connect(live);
+          // The refresh was refused: `compte.js` has already signed out, and
+          // the sentence tells them what to do about it.
+          live.fatal = CLOSED[UNAUTHORIZED];
+          lock(live, true);
+          draw();
+        });
+        return;
+      }
       // A REFUSAL IS NOT A NETWORK PROBLEM, and retrying it forever would
       // hide the sentence that says what to do about it.
       live.fatal = CLOSED[event.code];
@@ -318,6 +347,9 @@ function onFrame(live, raw) {
 
 function onReady(live, frame) {
   live.attempts = 0;
+  // THE ROOM ACCEPTED US, so the next expiry -- an hour into a lab -- gets its
+  // own renewal. Without this line a session could only ever be renewed once.
+  live.reauth = false;
   live.me = frame.me || "";
   // THE EPOCH IS THE SEAM. The server drops a room as soon as its last member
   // leaves and rebuilds it -- with a new epoch -- for whoever arrives next.
@@ -685,9 +717,11 @@ async function downloadArchive() {
   say("");
   let answer;
   try {
-    answer = await fetch(API("team/handin.zip?assignment="
-                             + encodeURIComponent(session.assignment)),
-                         { headers: { Authorization: "Bearer " + ctester.token() } });
+    // THROUGH `compte.js`, LIKE EVERY OTHER AUTHENTICATED CALL: an archive is
+    // asked for at hand-in time, which is exactly when a tab has been open all
+    // evening and the access token has quietly died.
+    answer = await ctester.compte.authFetch(
+      "team/handin.zip?assignment=" + encodeURIComponent(session.assignment));
   } catch (e) {
     say("Le serveur ne répond pas. Réessaie dans un instant.", true);
     return;
@@ -814,7 +848,7 @@ async function enter(tp) {
     files: (tp.files || []).map((f) => f.name),
     server: (document_ && document_.sources) || {},
     online: [], carets: {}, attempts: 0, epoch: "", seeded: false,
-    note: "", me: "", fatal: "", saveTimer: null, timer: null,
+    note: "", me: "", fatal: "", reauth: false, saveTimer: null, timer: null,
   };
   if (!live.files.length) live.files = ["submission.c"];
   session = live;

@@ -12,7 +12,7 @@ const loaded = {};
 // Cloudflare caches static assets independently from index.html.  Keep this
 // token in sync with index.html whenever app.js or a lazy module changes, so a
 // deployed page cannot combine a new core with an old compte.js/quiz.js.
-const ASSET_REVISION = "20260909-chat";
+const ASSET_REVISION = "20260909-refresh";
 
 // ponytail: <script> injection, not import(). See above. Move to ES modules
 // the day shared state is truly separated.
@@ -1663,6 +1663,20 @@ Object.assign(ctester, {
   token: () => token,
   oidc: () => oidc,
   setToken: setToken,
+  // THE AUTH MODULE'S TWO DOORS, FORWARDED -- AND THE CORE STAYS IGNORANT OF
+  // WHAT IS BEHIND THEM. It does not know what a refresh token is, and must
+  // not: `token()` is the ACCESS token, and that is the only credential
+  // anything outside `compte.js` ever sees. But the three socket modules all
+  // need "is my token still good" before opening and "renew it" when the
+  // server closes on 4401, and a `ctester.compte && …` guard copied into each
+  // of them is a guard that ends up missing from one.
+  //
+  // No account module means no OIDC at all on this deployment: the token is
+  // whatever it is, and there is nothing to renew.
+  jetonValide: () => (ctester.compte ? ctester.compte.jetonValide()
+                                     : Promise.resolve(!!token)),
+  rafraichirJeton: () => (ctester.compte ? ctester.compte.rafraichirJeton()
+                                         : Promise.resolve(false)),
   refreshAccount: refreshAccount,
   switchMode: switchMode,
   fillExercises: fillExercises,
@@ -2358,6 +2372,12 @@ async function submitCode(scope) {
   setBusy(true);
   renderVerdict({ cls: "wait", titre: "Envoi…" });
   try {
+    // RENEWED BEFORE THE SUBMISSION, AND THIS IS THE SILENT ONE. `/submit`
+    // accepts an anonymous job: an expired token is not REFUSED here, it is
+    // IGNORED -- the job is recorded with no owner, so the status, the
+    // practice attempt and the XP simply never happen, and nothing on screen
+    // says a word about it. A 401 would at least have been visible.
+    if (token) await ctester.jetonValide();
     const r = await fetch(API("submit?poste=" + encodeURIComponent(stationId())), {
       method: "POST",
       // Signing in is optional: with no token, the submission stays

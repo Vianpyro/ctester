@@ -1816,6 +1816,89 @@ ls /opt/ctester/spool/cache | wc -l            # le cache de verdicts
 du -sh /opt/ctester/spool/cache                # ~46 Mo pour 20 000 entrées
 ```
 
+## La session OIDC : le jeton d'accès n'est pas une session
+
+**Un onglet laissé ouvert pendant un cours se déconnectait tout seul**, et
+c'était toute la panne : le jeton d'accès de Rauthy dure des minutes, la page
+le traitait comme un identifiant de session durable, et à son expiration le
+premier 401 fermait la session — brouillon, fil, salle d'équipe compris. Rien
+à l'écran ne disait pourquoi, puisque l'étudiant n'avait rien fait.
+
+**Le correctif est un `refresh_token`, et il vit ENTIÈREMENT dans
+`web/compte.js`.** Pas de BFF, pas de session serveur, pas de route neuve :
+l'API continue de ne voir que des jetons d'accès, `security.current_user()`
+n'a pas bougé d'une ligne, et **rien du backend n'a été touché**.
+
+- **`scope=openid profile offline_access`** dans la requête d'autorisation.
+  PKCE est intact — c'est un scope de plus, pas un flot différent.
+- **Trois choses en `sessionStorage`**, comme le jeton d'accès l'était déjà :
+  `ctester.token`, `ctester.refresh`, `ctester.expire`. **Jamais
+  `localStorage`** : sur un poste de labo partagé, un refresh token qui
+  survit à l'onglet est une session offerte au suivant.
+- **LE REFRESH TOKEN NE SORT PAS DU MODULE.** Il ne va qu'au point de jeton de
+  l'émetteur. Il n'est pas dans `ctester.token()` (qui veut dire le jeton
+  d'ACCÈS, et rien d'autre), pas dans un en-tête vers notre API, pas dans une
+  trame WebSocket. Un test balaie toutes les requêtes et toutes les trames de
+  la visite pour le vérifier.
+- **`ensureValidAccessToken()` renouvelle 60 s AVANT l'expiration**, plutôt
+  qu'après un échec : un 401 coûte un aller-retour, et sur une socket une
+  reconnexion entière.
+- **UN SEUL RENOUVELLEMENT EN VOL** (`refreshing`). Avec la rotation activée,
+  cinq appels concurrents brûleraient chacun le refresh token que le premier
+  est en train d'utiliser, et le perdant déconnecterait l'étudiant.
+- **LA ROTATION EST SUIVIE** : un `refresh_token` neuf dans la réponse
+  remplace l'ancien sur-le-champ. Garder l'ancien marche exactement une fois,
+  puis déconnecte une heure plus tard, sans un mot.
+- **`generation` EST LA GARDE CONTRE LE RÉSULTAT EN RETARD.** `signOut()`
+  l'incrémente ; un renouvellement parti avant est ignoré à son retour. Sans
+  elle, se déconnecter pendant un renouvellement rouvrait la session une
+  seconde plus tard — sur un poste partagé, pour la personne suivante.
+- **`authFetch()` : un renouvellement, un réessai, puis dehors.** Un second
+  401 sur un jeton frappé il y a une seconde n'est pas un problème de
+  synchronisation ; le réessayer ne produirait qu'une page qui tourne.
+- **Pas de refresh token = pas une panne.** Un émetteur qui refuse
+  `offline_access` laisse la page se comporter exactement comme avant : le
+  jeton vit sa vie, et le 401 qui suit ferme la session comme il l'a toujours
+  fait. Rien ne se déconnecte pour l'absence de matériel de renouvellement.
+
+**LES QUATRE PORTEURS DU JETON, ET IL N'Y EN A PAS UN CINQUIÈME.** Trois
+sockets l'envoient dans leur PREMIÈRE TRAME (un navigateur ne peut pas poser
+d'`Authorization` sur une WebSocket) et `/submit` le pose en en-tête depuis le
+noyau. Les quatre appellent `ctester.jetonValide()` avant de partir ; les trois
+sockets savent en plus répondre au `4401` du serveur : **un** renouvellement,
+**une** reconnexion, et un refus déconnecte au lieu de boucler.
+
+- **La soumission est la plus silencieuse des quatre**, et c'est pour ça
+  qu'elle compte : `/submit` accepte un job anonyme, donc un jeton mort n'y est
+  pas REFUSÉ, il est IGNORÉ. Le job partait sans propriétaire, l'état, la
+  tentative et l'XP n'étaient jamais écrits, et l'étudiant lisait un verdict
+  parfaitement normal. Un 401 aurait au moins été visible.
+- **Une garde par socket, bornée à un essai**, et ce qui la réarme diffère
+  parce que les trois n'ont pas le même signal de succès : `team.js` sur la
+  trame `ready` (la salle a vraiment accepté), `forum.js` et `scratch.js` sur
+  le prochain geste de l'étudiant (le paramètre `reprise` distingue le clic de
+  la reconnexion automatique). Sans ça, un serveur qui refuserait un jeton tout
+  neuf ferait tourner la paire renouvellement/reconnexion pour toujours.
+- `test_page.js` balaie les trois fichiers et refuse celui qui ne ferait pas
+  les deux — la quatrième socket qu'on écrira dans six mois tombera dessus.
+
+**Côté déploiement, une seule chose, et elle est chez Rauthy** : le client
+`ctester` doit **autoriser le scope `offline_access` et le grant
+`refresh_token`**. Sans ça, l'émetteur rend un jeton d'accès et rien pour le
+renouveler — la page marche exactement comme avant le correctif, sans un
+message d'erreur : c'est le faux négatif à connaître si les déconnexions
+continuent. Aucun changement dans `VHome`, aucune variable, aucune migration,
+et la CSP portait déjà l'origine de l'émetteur dans `connect-src` (la
+découverte et l'échange du code y allaient déjà).
+
+**Éprouvé par `test_page.js`** : l'échange du code range les trois morceaux
+(dans son PROPRE processus, `CTESTER_MODE=retour` — `authCode` est lu une fois,
+au chargement de la page), la marge, l'absence de renouvellement quand le jeton
+est bon, les cinq appels concurrents qui n'en font qu'un, la rotation, le 401
+qui réessaie une fois, le second 401 qui déconnecte, le renouvellement refusé,
+la déconnexion qui efface tout, le résultat en retard qui ne ressuscite rien,
+et les trois comportements de socket.
+
 ## L'adresse de l'API et CORS
 
 **`web/config.js` est le SEUL endroit où vit l'adresse de l'API**, et il décrit

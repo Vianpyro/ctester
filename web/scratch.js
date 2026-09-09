@@ -30,6 +30,12 @@ const FERMETURES = {
   4503: "La Console ne répond pas en ce moment. Réessaie dans une minute.",
 };
 
+// Le seul code de fermeture auquel on réponde autrement qu'en l'affichant :
+// voir `lancer`.
+const NON_AUTORISE = 4401;
+// Un renouvellement de jeton déjà tenté pour cette session.
+let reauth = false;
+
 // Pourquoi le programme s'est arrêté. `exited` n'est pas là : un programme qui
 // se termine normalement n'a rien à expliquer, on affiche son code de sortie.
 const RAISONS = {
@@ -149,8 +155,12 @@ function enregistrer() {
 
 // --- La session ----------------------------------------------------------------
 
-function lancer() {
+// `reprise` : une relance après renouvellement du jeton, pas un clic. C'est ce
+// qui borne le renouvellement à UN par session -- un clic repart d'une ardoise
+// propre, la relance automatique hérite de l'essai précédent.
+async function lancer(reprise) {
   if (socket) return;
+  if (!reprise) reauth = false;
   const code = $("scratchcode").value;
   if (!code.trim()) {
     annoncer("Il n'y a encore rien à exécuter : écris ou colle ton programme.",
@@ -160,6 +170,13 @@ function lancer() {
   $("scratchout").textContent = "";
   annoncer("Connexion…");
   occupe(true);
+
+  // LE JETON PART DANS LA PREMIÈRE TRAME : il doit être encore bon avant
+  // d'ouvrir. Une session refusée en 4401 est une place de file dépensée pour
+  // rien, et l'étudiant lit « ta session a expiré » alors qu'elle ne l'est
+  // plus depuis qu'on l'a renouvelée.
+  await ctester.jetonValide();
+  if (socket) return;               // une autre session s'est ouverte entre-temps
 
   let ouvert;
   try {
@@ -210,10 +227,23 @@ function lancer() {
 
   ouvert.onclose = (event) => {
     if (socket === ouvert) socket = null;
-    const dit = FERMETURES[event && event.code];
-    if (dit) annoncer(dit, true);
     occupe(false);
     $("scratchsaisie").value = "";
+    // UN JETON EXPIRÉ SE RÉPARE ICI, ET RIEN NE S'EST ENCORE EXÉCUTÉ : le
+    // serveur refuse à la trame `hello`, avant la file et avant le conteneur.
+    // On renouvelle une fois et on relance le MÊME programme ; `reauth` arrête
+    // là, sinon un refus obstiné relancerait la Console à l'infini.
+    if (event && event.code === NON_AUTORISE && !reauth) {
+      reauth = true;
+      annoncer("Reconnexion…");
+      ctester.rafraichirJeton().then((ok) => {
+        if (ok) return lancer(true);
+        annoncer(FERMETURES[NON_AUTORISE], true);
+      });
+      return;
+    }
+    const dit = FERMETURES[event && event.code];
+    if (dit) annoncer(dit, true);
   };
 
   ouvert.onerror = () => {
@@ -328,7 +358,10 @@ function batir() {
 
   // LIÉS UNE SEULE FOIS : ce fichier n'est chargé qu'une fois, mais
   // `basculer()` est rappelée à chaque ouverture de la vue.
-  go.addEventListener("click", lancer);
+  // UN CLIC N'EST PAS UNE REPRISE, et l'écouteur passerait son `Event` en
+  // premier argument : `lancer(reprise)` le lirait comme « relance
+  // automatique » et ne réarmerait jamais le renouvellement de jeton.
+  go.addEventListener("click", () => lancer());
   stop.addEventListener("click", arreter);
   envoi.addEventListener("click", envoyer);
   eof.addEventListener("click", finEntree);

@@ -35,15 +35,162 @@ function config() {
 let states = {};
 let practice = {};
 
-// THE ONLY PASSAGE POINT for authenticated calls, so the only place `API()`
-// needs to be set: states, practice, draft, preferences, progress and forum
-// all go through here. This file's TWO OTHER `fetch` calls -- OIDC discovery
-// and the token endpoint -- carry absolute URLs coming from the issuer:
-// prefixing them would send them to the API instead.
-const authFetch = (url, options) => fetch(API(url), Object.assign({}, options, {
+// --- THE OIDC LIFECYCLE, AND IT LIVES ONLY HERE --------------------------
+//
+// THE ACCESS TOKEN IS NOT A SESSION. It is short-lived (Rauthy hands out
+// minutes, not hours), and a tab left open through a lecture used to come
+// back signed out -- the student lost their thread, their draft indicator and
+// their team room for no reason they could see. The refresh token is what
+// keeps the session alive without sending anyone back to Rauthy.
+//
+// THREE THINGS ARE STORED, ALL IN `sessionStorage` LIKE THE ACCESS TOKEN
+// ALREADY WAS: they die with the tab, which is the whole point on a shared
+// lab machine. `localStorage` would hand the next student a working session.
+//
+// THE REFRESH TOKEN NEVER LEAVES THIS MODULE. It goes to exactly one place,
+// the issuer's token endpoint; it is not in `ctester.token()`, not in a
+// header to our API, not in a WebSocket frame. `ctester.token()` means the
+// ACCESS token, and nothing else.
+const REFRESH_KEY = "ctester.refresh";
+const EXPIRY_KEY = "ctester.expire";
+// Refreshed a minute BEFORE it dies, rather than after a request has already
+// failed: a 401 costs a round trip and, on a WebSocket, a whole reconnection.
+const REFRESH_MARGIN = 60;
+
+// The single in-flight refresh. Five calls discovering the expiry at the same
+// moment must produce ONE request to Rauthy: with rotation on, the other four
+// would each burn the refresh token the first one is using, and whichever
+// lost the race would sign the student out.
+let refreshing = null;
+// BUMPED BY `signOut`. A refresh started before the sign-out lands after it,
+// and storing its grant would silently sign the account back in -- on a lab
+// machine, for whoever sits down next. The generation is what makes that
+// result droppable.
+let generation = 0;
+
+const refreshTokenStored = () => sessionGet(REFRESH_KEY);
+const expiresAt = () => Number(sessionGet(EXPIRY_KEY)) || 0;
+const seconds = () => Math.floor(Date.now() / 1000);
+
+// AN UNKNOWN LIFETIME IS NOT AN EXPIRED ONE. A provider that omits
+// `expires_in` leaves us with 0, and refreshing on every single request would
+// turn one student's page into a load generator aimed at the issuer. We then
+// wait for the 401, which is exactly the old behaviour.
+const nearlyExpired = () => {
+  const at = expiresAt();
+  return at > 0 && seconds() >= at - REFRESH_MARGIN;
+};
+
+// WHAT THE TOKEN ENDPOINT GAVE US, WRITTEN DOWN. Both grant types come
+// through here, so rotation and expiry can only be handled one way.
+function storeGrant(granted) {
+  // ROTATION: Rauthy may hand back a NEW refresh token and kill the old one
+  // on the spot. Keeping the old one would work exactly once and then sign
+  // the student out an hour later, with nothing on screen to explain it.
+  // Absent means "keep using the one you have" -- not "forget it".
+  if (typeof granted.refresh_token === "string" && granted.refresh_token) {
+    sessionSet(REFRESH_KEY, granted.refresh_token);
+  }
+  const life = Number(granted.expires_in);
+  sessionSet(EXPIRY_KEY,
+             String(Number.isFinite(life) && life > 0 ? seconds() + life : 0));
+  // LAST, AND ON PURPOSE: `setToken` redraws the banner, and it must never
+  // announce a session whose refresh material is only half written down.
+  setToken(granted.access_token);
+}
+
+async function askForRefresh(carried) {
+  let granted = null;
+  try {
+    const doc = await discovery();
+    const answer = await fetch(doc.token_endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: config().client_id,
+        refresh_token: carried,
+      }).toString(),
+    });
+    granted = answer.ok ? await answer.json() : null;
+  } catch (e) {
+    granted = null;                 // network, CSP, provider down: all the same
+  }
+  return granted && typeof granted.access_token === "string" ? granted : null;
+}
+
+// ONE REFRESH AT A TIME, AND ONE ONLY. Returns true when the access token
+// that follows is usable.
+function refreshAccessToken() {
+  if (refreshing) return refreshing;
+  // NOTHING TO RENEW WITH IS NOT A REFUSAL, and it must not sign anyone out:
+  // an issuer that declined `offline_access`, or a session opened before this
+  // existed. The page then behaves exactly as it did before -- the access
+  // token lives out its life, and the 401 that follows ends the session, as
+  // it always has.
+  const carried = refreshTokenStored();
+  if (!carried) return Promise.resolve(false);
+  const started = generation;
+  refreshing = askForRefresh(carried).then((granted) => {
+    refreshing = null;
+    // A STALE RESULT MUST NOT RESURRECT A CLOSED SESSION. Someone signed out
+    // while this was in flight; the answer is now about an account that is no
+    // longer here.
+    if (started !== generation) return false;
+    if (!granted) {
+      // Revoked, expired, rotated out from under us, or simply absent: there
+      // is nothing left to try, and pretending otherwise is how a page ends
+      // up refreshing forever.
+      signOut();
+      return false;
+    }
+    storeGrant(granted);
+    return true;
+  }, () => {
+    refreshing = null;
+    return false;
+  });
+  return refreshing;
+}
+
+// CALLED BEFORE ANYTHING THAT CARRIES THE TOKEN -- a request, a WebSocket.
+// True when the access token can be used; false means "send it anyway and let
+// the 401 decide", which is the honest answer when we have no way to renew.
+async function ensureValidAccessToken() {
+  if (!ctester.token()) return false;
+  if (!nearlyExpired()) return true;
+  return await refreshAccessToken();
+}
+
+const withToken = (url, options) => fetch(API(url), Object.assign({}, options, {
   headers: Object.assign({}, (options && options.headers) || {},
                          { Authorization: "Bearer " + ctester.token() }),
 }));
+
+// THE ONLY PASSAGE POINT for authenticated calls, so the only place `API()`
+// needs to be set: states, practice, draft, preferences, progress and forum
+// all go through here. This file's THREE OTHER `fetch` calls -- OIDC
+// discovery, the code exchange and the refresh -- carry absolute URLs coming
+// from the issuer: prefixing them would send them to the API instead.
+//
+// ONE REFRESH, ONE RETRY, THEN OUT. A second 401 on a token minted seconds
+// earlier is not a timing problem, and retrying it again would only produce a
+// page that spins instead of one that says to sign in again.
+async function authFetch(url, options) {
+  await ensureValidAccessToken();
+  // THE SESSION CLOSED WHILE WE WERE RENEWING IT. Sending `Bearer null` would
+  // only be asking the API to say 401 on our behalf.
+  if (!ctester.token()) return new Response(null, { status: 401 });
+  const answer = await withToken(url, options);
+  if (answer.status !== 401) return answer;
+  if (!await refreshAccessToken()) {
+    signOut();                      // no refresh material, or it was refused
+    return answer;
+  }
+  const second = await withToken(url, options);
+  if (second.status === 401) signOut();
+  return second;
+}
 
 async function getJson(path) {
   if (!ctester.token()) return null;
@@ -164,7 +311,11 @@ async function startSignIn() {
     response_type: "code",
     client_id: config().client_id,
     redirect_uri: redirectUri(),
-    scope: "openid profile",
+    // `offline_access` IS WHAT ASKS FOR A REFRESH TOKEN, and it is the whole
+    // fix: without it Rauthy issues an access token and nothing to renew it
+    // with, so an open tab signs itself out when that token dies. PKCE is
+    // untouched -- this adds a scope, it replaces no part of the flow.
+    scope: "openid profile offline_access",
     state: state,
     code_challenge: await challengeFor(verifier),
     code_challenge_method: "S256",
@@ -199,7 +350,11 @@ async function finishSignIn() {
           + "fonctionne exactement pareil.", true);
     return;
   }
-  setToken(granted.access_token);
+  // THE THREE PIECES AT ONCE: the access token to call with, the refresh
+  // token to renew it, and when it dies. An issuer that grants no refresh
+  // token still signs in perfectly -- the session then lasts exactly as long
+  // as it did before.
+  storeGrant(granted);
 }
 
 function setToken(value) {
@@ -207,6 +362,13 @@ function setToken(value) {
 }
 
 function signOut() {
+  // FIRST, AND BEFORE ANYTHING ASYNCHRONOUS. A refresh in flight is answered
+  // for a generation that no longer exists, so its grant is dropped instead
+  // of writing a fresh session over the one just closed.
+  generation++;
+  refreshing = null;
+  sessionDrop(REFRESH_KEY);
+  sessionDrop(EXPIRY_KEY);
   states = {};
   practice = {};
   // MARKS LEAVE WITH THE SESSION: leaving "validated" check marks in the
@@ -279,6 +441,11 @@ async function demarrer() {
   if (authCode) await finishSignIn();
   ctester.refreshAccount();
   if (!ctester.token()) return;
+  // A TAB REOPENED AFTER A BREAK carries a token that died in the meantime.
+  // Renewing it here, once, is what keeps the four reads below from all
+  // failing at the same moment and signing the student out on arrival.
+  await ensureValidAccessToken();
+  if (!ctester.token()) return;     // the refresh was refused: already out
   // BEFORE the projections: this is the screen being fixed, and it must
   // happen as early as possible in the session.
   await chargerTheme();
@@ -293,6 +460,11 @@ ctester.compte = {
   signOut: signOut,
   getJson: getJson,
   sendJson: sendJson,
+  // THE REQUEST ITSELF, for the one caller whose answer is not JSON: the
+  // hand-in ZIP. It gets the renewal, the single retry and the sign-out for
+  // free -- rebuilding an `Authorization` header outside this file would be a
+  // second place where an expired token is handled, or is not.
+  authFetch: authFetch,
   syncDraft: syncDraft,
   loadStates: loadStates,
   loadPractice: loadPractice,
@@ -302,5 +474,12 @@ ctester.compte = {
   chargerTheme: chargerTheme,
   enregistrerTheme: enregistrerTheme,
   oublier: oublier,
+  // THE TWO DOORS THE SOCKETS NEED, and the only ones. A WebSocket cannot
+  // carry an `Authorization` header, so each module sends the token in its
+  // first frame -- which means each has to know the token is still good
+  // BEFORE opening, and what to do when the server says it is not. Neither
+  // of these ever hands out the refresh token.
+  jetonValide: ensureValidAccessToken,
+  rafraichirJeton: refreshAccessToken,
 };
 })(window.ctester);

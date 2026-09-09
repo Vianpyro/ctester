@@ -186,6 +186,11 @@ let estChat = true;
 let repondA = null;          // la racine à laquelle on répond, ou null
 let socket = null;
 let socketRetard = 1000;     // recul progressif entre deux reconnexions
+// Le code de fermeture « ta session a expiré », et le seul auquel on réponde
+// autrement qu'en réessayant : voir `brancherSocket`.
+const NON_AUTORISE = 4401;
+// Un renouvellement de jeton déjà tenté sur cette chaîne de reconnexions.
+let reauth = false;
 let recherche = "";
 let resultats = null;
 let doublons = null;
@@ -2061,9 +2066,21 @@ function debrancherSocket() {
   }
 }
 
-function brancherSocket() {
+// `reprise` DISTINGUE LE CLIC DE LA RECONNEXION, et c'est ce qui borne le
+// renouvellement de jeton : un geste de l'étudiant (ouvrir un fil, ouvrir le
+// dock) repart d'une ardoise propre, une reconnexion automatique hérite de
+// l'essai précédent. Sans cette distinction, un serveur qui refuserait un
+// jeton tout neuf ferait tourner la paire refresh/reconnexion pour toujours.
+async function brancherSocket(reprise) {
   debrancherSocket();
+  if (!reprise) reauth = false;
   if (!ctester.compte || !ctester.token() || !exercice) return;
+  // LE JETON PART DANS LA PREMIÈRE TRAME : il doit donc être encore bon avant
+  // qu'on ouvre, sinon la sonnette se fait refuser en 4401 et le panneau reste
+  // muet le temps d'une reconnexion.
+  await ctester.jetonValide();
+  const vise = exercice;
+  if (socket || !ctester.token() || vise !== exercice) return;
   let ouverte;
   try {
     ouverte = new WebSocket(ctester.socketUrl("/forum/live"));
@@ -2071,7 +2088,6 @@ function brancherSocket() {
     return;                       // pas de direct : le reste marche
   }
   socket = ouverte;
-  const vise = exercice;
   ouverte.onopen = () => {
     socketRetard = 1000;
     // LE JETON PART DANS LA PREMIÈRE TRAME, jamais dans l'URL : un navigateur
@@ -2088,14 +2104,23 @@ function brancherSocket() {
     if (!trame || trame.t !== "new") return;
     rafraichirFil();
   };
-  ouverte.onclose = () => {
+  ouverte.onclose = (event) => {
     if (socket !== ouverte) return;     // remplacée : rien à reconnecter
     socket = null;
     // LE DOCK COMPTE AUTANT QUE LA VUE. Sans cette moitié, une coupure d'une
     // seconde laissait le panneau latéral muet pour le reste de la séance,
     // sans que rien ne le dise -- la pire des pannes de chat.
     if (ctester.vue() !== "forum" && !dockOuvert) return;
-    setTimeout(brancherSocket, socketRetard);
+    // UN JETON EXPIRÉ EST LE SEUL REFUS QU'ON SACHE RÉPARER SOI-MÊME : on
+    // renouvelle une fois, on rouvre tout de suite, et `reauth` arrête là.
+    // Un renouvellement refusé a déjà déconnecté le compte (`compte.js`), donc
+    // il n'y a plus de fil à rouvrir -- et surtout pas en boucle.
+    if (event && event.code === NON_AUTORISE && !reauth) {
+      reauth = true;
+      ctester.rafraichirJeton().then((ok) => { if (ok) brancherSocket(true); });
+      return;
+    }
+    setTimeout(() => brancherSocket(true), socketRetard);
     socketRetard = Math.min(socketRetard * 2, 30000);
   };
 }
