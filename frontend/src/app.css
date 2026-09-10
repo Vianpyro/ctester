@@ -313,6 +313,60 @@ main {
 .codein::placeholder { color: var(--muted); opacity: 1; }
 .codein::selection { background: color-mix(in srgb, var(--ink) 30%, transparent); }
 
+/* THE SYNTAX CHECKER. Two levels and two colours, because the difference is
+   CONFIDENCE: `--bad` is a fault that is certain without reading the program,
+   `--wait` is a heuristic that says "peut-être" in its own words. Same pair on
+   the gutter number, the underline and the list, so one glance sorts them.
+
+   THE UNDERLINE IS ITS OWN LAYER inside `#pane`, like `#carets`: it shares the
+   padding that the arithmetic starts from and NOTHING of the `.hl` / `.codein`
+   metrics contract. A wavy CSS GRADIENT and not a `data:` SVG -- `img-src
+   'self'` refuses those, and a checker that silently draws nothing would be
+   worse than no checker. */
+.gutter .error { color: var(--bad); font-weight: 600; }
+.gutter .hint  { color: var(--wait); font-weight: 600; }
+
+#squiggles {
+  position: absolute; inset: 0;
+  overflow: hidden; pointer-events: none;
+}
+#squiggles .squig {
+  position: absolute; display: block;
+  background-repeat: repeat-x;
+  background-position: bottom left;
+  background-size: 6px 3px;
+}
+#squiggles .squig.error {
+  background-image: repeating-linear-gradient(
+    135deg, var(--bad) 0 1px, transparent 1px 3px);
+}
+#squiggles .squig.hint {
+  background-image: repeating-linear-gradient(
+    135deg, var(--wait) 0 1px, transparent 1px 3px);
+}
+
+/* The list sits between the code and the action bar: it is about the code, and
+   reading it should not mean leaving the line it names. */
+#diags {
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  max-height: 7rem; overflow-y: auto;
+  border-top: 1px solid var(--line); background: var(--panel);
+}
+#diags[hidden] { display: none; }
+.diag {
+  display: flex; gap: .6rem; align-items: baseline; text-align: left;
+  padding: .3rem .75rem; border: 0; border-left: 3px solid transparent;
+  background: none; color: var(--fg); font-size: 12.5px; cursor: pointer;
+}
+.diag:hover { background: var(--card); }
+.diag:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.diag.error { border-left-color: var(--bad); }
+.diag.hint  { border-left-color: var(--wait); }
+.diag .diagline {
+  flex: 0 0 auto; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+}
+.diag .diagtexte { flex: 1 1 auto; }
+
 .tc { color: var(--syn-comment); font-style: italic; }
 .ts { color: var(--syn-string); }
 .tp { color: var(--syn-pre); }

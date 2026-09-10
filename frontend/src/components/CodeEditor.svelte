@@ -20,8 +20,10 @@
   import { editor } from "../lib/state/editor.svelte";
   import { drafts } from "../lib/state/drafts.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
-  import { gutterText, highlight } from "../lib/domain/highlight";
+  import { highlight } from "../lib/domain/highlight";
   import { keyEdit, type Edit } from "../lib/domain/keys";
+  import { check, type Issue } from "../lib/domain/syntax";
+  import { measure, rowColumn, selectionBands, type Metrics } from "../lib/collab/carets";
   import RemoteCarets from "./RemoteCarets.svelte";
 
   let zone: HTMLTextAreaElement | undefined = $state();
@@ -32,7 +34,53 @@
   let scroll = $state({ left: 0, top: 0 });
 
   const painted = $derived(highlight(editor.text));
-  const lines = $derived(gutterText(editor.text.split("\n").length));
+  const lines = $derived(editor.text.split("\n").length);
+
+  // --- THE SYNTAX CHECK ----------------------------------------------------
+  // NOT A `$derived`, AND THE DELAY IS THE FEATURE. Announcing "unclosed
+  // parenthesis" on the keystroke that types `(` is a checker that scolds while
+  // you write. Each keystroke pushes the deadline back, so it speaks once the
+  // typing pauses.
+
+  let issues = $state<Issue[]>([]);
+
+  $effect(() => {
+    const source = editor.text;
+    const timer = setTimeout(() => {
+      issues = check(source);
+    }, 600);
+    return () => clearTimeout(timer);
+  });
+
+  /** The flagged line numbers, 1-based, and the worst level on each. */
+  const flagged = $derived.by(() => {
+    const rows = new Map<number, string>();
+    for (const issue of issues) {
+      const row = rowColumn(editor.text, issue.from).row + 1;
+      if (issue.level === "error" || !rows.has(row)) rows.set(row, issue.level);
+    }
+    return rows;
+  });
+
+  // Measured like `RemoteCarets` does, and for the same reason: no metrics means
+  // NO underline. One drawn at the wrong place points at innocent code.
+  let metrics = $state<Metrics | null>(null);
+
+  $effect(() => {
+    const element = editor.element;
+    void editor.activeFile;
+    metrics = element && issues.length ? measure(element) : null;
+  });
+
+  const usable = $derived(!!metrics && !!metrics.char && !!metrics.line);
+
+  /** Put the caret on a fault. The list is a way IN, not just a report. */
+  function goTo(issue: Issue) {
+    if (!zone) return;
+    zone.focus();
+    zone.setSelectionRange(issue.from, issue.to);
+    editor.notify("onCaret");
+  }
 
   // The element is registered here and nowhere else: `editor.write()` is the one
   // place a caret can be lost, and it needs the element to preserve it.
@@ -177,7 +225,12 @@
        `aria-controls` nor a `tabpanel`: a screen reader announced a tab whose panel
        it could not find, and partial ARIA is worse than none. -->
   <div id="edwrap" class="edwrap" role="tabpanel">
-    <pre bind:this={gutter} id="gutter" class="gutter" aria-hidden="true">{lines}</pre>
+    <!-- A FLAGGED LINE IS A COLOURED NUMBER, not an added glyph: the gutter is
+         `text-align: right`, so a `▲` in front would shove that one line's digits
+         sideways. Rendered as spans rather than `{@html}` -- the numbers come from
+         a counter, but this file has no business growing a second innerHTML. -->
+    <pre bind:this={gutter} id="gutter" class="gutter" aria-hidden="true">{#each { length: lines } as _, i}<span
+          class={flagged.get(i + 1) ?? ""}>{i + 1}</span>{"\n"}{/each}</pre>
     <div id="pane" class="pane">
       <!-- ONE OF THE TWO PLACES THIS APPLICATION USES `{@html}`, and it is safe for
            exactly one reason: every branch of `highlight()` runs its slice through
@@ -204,6 +257,32 @@
            on top of it. `pointer-events: none` in the stylesheet: this layer must
            never intercept a click meant for the editor. Empty outside a team room. -->
       <RemoteCarets {scroll} />
+      <!-- THE UNDERLINE IS A LAYER, NEVER A SPAN INSIDE `#hl`. Wrapping the
+           coloured text would put a second thing inside the one element whose
+           metrics must match `#code` to the pixel. `selectionBands()` already
+           turns a range into one rectangle per line, in the same arithmetic the
+           teammates' carets use. -->
+      <div id="squiggles" aria-hidden="true">
+        {#if usable && metrics}
+          {#each issues as issue (issue.from + ":" + issue.message)}
+            {#each selectionBands(editor.text, issue.from, issue.to, metrics, scroll) as band}
+              <i class={"squig " + issue.level} style={band}></i>
+            {/each}
+          {/each}
+        {/if}
+      </div>
     </div>
+  </div>
+  <!-- WHAT THE CHECKER FOUND, under the code and above the buttons. Two levels,
+       and the wording already says which is which: an "error" is certain, a
+       "hint" is a guess written as one. Each row is a button, so the keyboard
+       reaches the fault the same way the mouse does. -->
+  <div id="diags" aria-live="polite" hidden={issues.length === 0}>
+    {#each issues as issue (issue.from + ":" + issue.message)}
+      <button type="button" class={"diag " + issue.level} onclick={() => goTo(issue)}>
+        <span class="diagline">ligne {rowColumn(editor.text, issue.from).row + 1}</span>
+        <span class="diagtexte">{issue.message}</span>
+      </button>
+    {/each}
   </div>
 </div>

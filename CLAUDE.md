@@ -2138,6 +2138,81 @@ d'avant, pile d'annulation comprise.
   que Backspace retire du même geste. `domain/highlight.ts` est le lexeur C à
   brancher ici le jour où un mauvais placement se voit vraiment.
 
+### Le correcteur syntaxique
+
+`domain/syntax.ts`, pur : du texte entre, des **offsets** sortent. Il tourne
+pendant la frappe et ne remplace jamais le verdict — il évite l'aller-retour
+pour les fautes qu'on voit sans comprendre le programme, celles dont gcc nomme
+la ligne SUIVANTE.
+
+**UN SEUL PASSAGE PRODUIT LE SOL DE TOUT LE RESTE.** Le scanner rend `blanked` :
+la même source, même longueur, mêmes sauts de ligne, avec le CONTENU des
+commentaires et des littéraux remplacé par des espaces. C'est ce qui rend les
+heuristiques triviales *et* sûres — aucune règle ne peut être trompée par un
+`;`, un `{` ou une apostrophe française (« aujourd'hui ») dans un commentaire,
+ni par le `//` de `printf("http://x")`.
+
+**Pourquoi pas `highlight.ts`.** C'est une seule expression rationnelle qui rend
+du HTML : ni position, ni pile d'imbrication, et c'est l'une des deux seules
+sorties de cette application qui touchent `innerHTML`. Y greffer un flux de
+jetons, pour un besoin entièrement positionnel, toucherait le fichier le plus
+sensible pour économiser vingt lignes. Le coût assumé est deux grammaires ; ce
+qui attrape la dérive est le piège du `//` dans une chaîne, éprouvé des deux
+côtés.
+
+**TROIS RÈGLES DE SILENCE, ET ELLES VALENT AUTANT QUE LES RÈGLES.** Un
+correcteur qui se trompe sur du code juste apprend à l'étudiant à ignorer le
+panneau — et le message qui comptait part avec.
+
+- **Une erreur CERTAINE éteint TOUTES les heuristiques.** Une accolade ouverte
+  rend le découpage en instructions faux ; les devinettes rempliraient le
+  panneau de fiction au moment précis où l'étudiant ne peut plus trier. Même
+  principe que `OUTCOMES.compile_error` : corrige la PREMIÈRE.
+- **Un guillemet ou un `/*` perdu ARRÊTE le scanner sur-le-champ**, pile de
+  délimiteurs jetée. Sans ça `puts("salut);` rend trois messages pour une
+  faute : le guillemet, la `(` qu'il a avalée, et le `{` qui paraît alors non
+  fermé.
+- **Six au plus**, triés par offset.
+
+**Les quatre heuristiques sont formulées au conditionnel, et chacune a sa
+garde** — celle qui compte est écrite à côté d'elle :
+
+| Règle | La garde, et pourquoi |
+|---|---|
+| `=` au lieu de `==` | **la PROFONDEUR 1** : `while ((c = getchar()) != EOF)` est l'idiome du cours, son `=` est à la profondeur 2 |
+| `if (…);` | **`if` seulement** : un `for(…);` et un `while(…);` sont des attentes actives légitimes |
+| `scanf` sans `&` | **`%s` exclu** : `scanf("%s", nom)` sur un tableau de caractères est correct et très courant ; le signaler discréditerait tout le panneau. Rien qui ne soit un identifiant nu (`&x`, `tab[i]`) n'est touché |
+| `;` manquant | sept gardes (équilibre des délimiteurs sur la ligne, opérateur final, en-tête de contrôle, directive, étiquette, ligne suivante en continuation). **Un faux négatif est gratuit, un faux positif coûte la crédibilité du panneau** |
+
+**LE SOULIGNEMENT EST UNE COUCHE, JAMAIS UN SPAN DANS `#hl`.** Envelopper le
+texte coloré mettrait une seconde chose dans le seul élément dont les métriques
+doivent coller à `#code` au pixel. `selectionBands()` de `lib/collab/carets.ts`
+rend déjà un rectangle par ligne, dans la même arithmétique que les curseurs des
+coéquipiers — et ce module est **déjà dans le paquet principal**
+(`RemoteCarets.svelte` est importé statiquement), donc la géométrie ne coûte pas
+un octet de plus. Un **dégradé CSS** et pas un SVG `data:` : `img-src 'self'`
+refuse ceux-là, et un correcteur qui ne dessinerait rien en silence serait pire
+que pas de correcteur.
+
+**Dans la gouttière, une ligne fautive est un NUMÉRO COLORÉ**, pas un glyphe
+ajouté : `.gutter` est en `text-align: right`, donc un `▲` devant décalerait les
+chiffres de cette seule ligne. Deux couleurs pour deux niveaux de CONFIANCE :
+`--bad` pour le certain, `--wait` pour la piste.
+
+**Le délai de 600 ms n'est pas un détail de performance.** `check()` coûte des
+microsecondes ; ce que le `setTimeout` achète, c'est de ne pas annoncer
+« parenthèse non fermée » à la frappe même du `(`. Chaque touche repousse
+l'échéance : le correcteur parle quand on s'arrête d'écrire.
+
+**Pas dans la Console** (`features/scratch/Console.svelte`) : même superposition,
+donc c'est une reprise du même bloc, à faire le jour où quelqu'un le demande.
+Et **aucun lien avec le verdict du serveur** — les numéros de ligne de gcc ne
+sont toujours pas analysés côté page.
+
+Éprouvé par `frontend/tests/syntax.test.ts`, où **la moitié des cas gardent un
+silence** : chaque heuristique a son jumeau, la faute qu'elle doit attraper et
+le code juste qu'elle ne doit pas toucher.
+
 ### Le noyau
 
 - **UNE SEULE FONCTION CONSTRUIT UNE REQUÊTE**, `lib/api/client.ts`, et **elle

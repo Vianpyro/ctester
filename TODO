@@ -13,6 +13,8 @@
       sandbox the socket it exists to be isolated from), and `ctester-pull`
       restarts the containers -- it cannot live inside one it restarts.
 - [~] Questions en live anonymes pour les timides
-- [ ] Add error highlighting in text editor
+- [x] Add error highlighting in text editor -- a client-side C checker
+      (`frontend/src/lib/domain/syntax.ts`): five certain faults plus four of the
+      course's classic traps, gutter + squiggle + list. No dependency, no wasm.
 - [x] Add tabulations and "autocomplete" for `(` -> `)`, `"` -> `"`, `[` -> `]`, etc...
 - [ ] Add GIFs? (Klipy? + GIPHY?)
