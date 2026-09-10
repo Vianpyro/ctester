@@ -6,7 +6,13 @@
 // those.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { EXPIRY_KEY, REFRESH_KEY, TOKEN_KEY } from "../src/lib/auth/keys";
+import {
+  DEADLINE_KEY,
+  EXPIRY_KEY,
+  REFRESH_KEY,
+  SESSION_MAX_DAYS,
+  TOKEN_KEY,
+} from "../src/lib/auth/keys";
 import {
   authRequest,
   ensureValid,
@@ -61,21 +67,35 @@ beforeEach(() => {
   grants = [];
   apiStatuses = [];
   vi.stubGlobal("fetch", fakeFetch);
+  localStorage.clear();
+  sessionStorage.clear();
   session.deployment = { issuer: ISSUER, client_id: "ctester" };
   session.setToken("jeton-1");
-  sessionStorage.setItem(REFRESH_KEY, "refresh-1");
-  sessionStorage.setItem(EXPIRY_KEY, String(seconds() + 3600));
+  localStorage.setItem(REFRESH_KEY, "refresh-1");
+  localStorage.setItem(EXPIRY_KEY, String(seconds() + 3600));
+  localStorage.setItem(DEADLINE_KEY, String(seconds() + SESSION_MAX_DAYS * 86400));
 });
 
 const tokenCalls = () => calls.filter((c) => c.url === TOKEN_ENDPOINT);
 
 describe("where the credentials live", () => {
-  it("keeps all of it in sessionStorage and NOTHING in localStorage", () => {
-    // On a shared lab machine, a refresh token outliving the tab is a session offered to
-    // whoever sits down next.
-    expect(sessionStorage.getItem(TOKEN_KEY)).toBe("jeton-1");
-    expect(Object.keys(localStorage)).not.toContain(REFRESH_KEY);
-    expect(Object.keys(localStorage)).not.toContain(TOKEN_KEY);
+  // THE LABS ARE A WEEK APART. `sessionStorage` dies with the tab, so a student who
+  // closed their browser on Tuesday evening came back the next Tuesday with no refresh
+  // token at all -- the renewal was never asked, and looked broken. This is the half of
+  // the fix that no amount of refresh-token work could replace.
+  it("survives the tab, because a weekly lab does not fit in one", () => {
+    expect(localStorage.getItem(TOKEN_KEY)).toBe("jeton-1");
+    expect(sessionStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(sessionStorage.getItem(REFRESH_KEY)).toBeNull();
+  });
+
+  it("covers the ten days the course needs, and no more", () => {
+    // Seven days between labs, three for whoever finishes late. The number is the
+    // calendar, and it must match Rauthy's `refresh_token_lifetime` (240 hours).
+    expect(SESSION_MAX_DAYS).toBe(10);
+    const until = Number(localStorage.getItem(DEADLINE_KEY));
+    expect(until).toBeGreaterThan(seconds() + 9 * 86400);
+    expect(until).toBeLessThanOrEqual(seconds() + 10 * 86400);
   });
 });
 
@@ -89,7 +109,7 @@ describe("ensureValid", () => {
 
   it("renews a MINUTE BEFORE expiry rather than after a 401", async () => {
     // A 401 costs a round trip and, on a WebSocket, a whole reconnection.
-    sessionStorage.setItem(EXPIRY_KEY, String(seconds() + 30));
+    localStorage.setItem(EXPIRY_KEY, String(seconds() + 30));
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     expect(await ensureValid()).toBe(true);
     expect(tokenCalls()).toHaveLength(1);
@@ -99,7 +119,7 @@ describe("ensureValid", () => {
   it("treats an UNKNOWN lifetime as usable, not as expired", async () => {
     // A provider that omits `expires_in` leaves 0, and renewing on every request would turn
     // one student's page into a load generator aimed at the issuer.
-    sessionStorage.setItem(EXPIRY_KEY, "0");
+    localStorage.setItem(EXPIRY_KEY, "0");
     expect(await ensureValid()).toBe(true);
     expect(tokenCalls()).toHaveLength(0);
   });
@@ -125,20 +145,20 @@ describe("renew", () => {
     // nothing on screen to explain it.
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     await renew();
-    expect(sessionStorage.getItem(REFRESH_KEY)).toBe("refresh-2");
+    expect(localStorage.getItem(REFRESH_KEY)).toBe("refresh-2");
   });
 
   it("keeps the one it has when the answer carries no new refresh token", async () => {
     // Absent means "keep using the one you have", not "forget it".
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     await renew();
-    expect(sessionStorage.getItem(REFRESH_KEY)).toBe("refresh-1");
+    expect(localStorage.getItem(REFRESH_KEY)).toBe("refresh-1");
   });
 
   it("dates the expiry from `expires_in`", async () => {
     grants = [{ access_token: "jeton-2", expires_in: 120 }];
     await renew();
-    const at = Number(sessionStorage.getItem(EXPIRY_KEY));
+    const at = Number(localStorage.getItem(EXPIRY_KEY));
     expect(at).toBeGreaterThan(seconds() + 110);
     expect(at).toBeLessThanOrEqual(seconds() + 120);
   });
@@ -158,16 +178,36 @@ describe("renew", () => {
     grants = [null];
     expect(await renew()).toBe(false);
     expect(session.token).toBeNull();
-    expect(sessionStorage.getItem(REFRESH_KEY)).toBeNull();
+    expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
   });
 
   it("is not a refusal when there is nothing to renew WITH", async () => {
     // An issuer that declined `offline_access`, or a session opened before this existed:
     // the page then behaves exactly as it did before, and nothing signs itself out.
-    sessionStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(REFRESH_KEY);
     expect(await renew()).toBe(false);
     expect(session.token).toBe("jeton-1");
     expect(tokenCalls()).toHaveLength(0);
+  });
+
+  it("PUSHES THE DEADLINE BACK on every successful grant", async () => {
+    // Sliding, not a countdown from the first sign-in: a student who works every week must
+    // never be asked to sign in again, and one who stops must eventually be. This is also
+    // what Rauthy's rotating refresh token does, so the two clocks agree by construction.
+    localStorage.setItem(DEADLINE_KEY, String(seconds() + 120));
+    grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
+    await renew();
+    expect(Number(localStorage.getItem(DEADLINE_KEY))).toBeGreaterThan(seconds() + 9 * 86400);
+  });
+
+  it("gives up on a session abandoned past its deadline, WITHOUT asking the issuer", async () => {
+    // This is the deadline doing what the closing tab used to do. Rauthy's own refresh
+    // token dies on the same schedule, so asking would only be asking it to refuse.
+    localStorage.setItem(DEADLINE_KEY, String(seconds() - 1));
+    expect(await renew()).toBe(false);
+    expect(tokenCalls()).toHaveLength(0);
+    expect(session.token).toBeNull();
+    expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
   });
 
   it("drops a LATE result rather than resurrecting a closed session", async () => {
@@ -235,8 +275,13 @@ describe("signOut", () => {
     });
     signOut();
     expect(session.token).toBeNull();
-    expect(sessionStorage.getItem(TOKEN_KEY)).toBeNull();
-    expect(sessionStorage.getItem(REFRESH_KEY)).toBeNull();
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
+    // AND THE DEADLINE, from the core. The credentials outlive the tab now, so a sign-out
+    // that left any of the four behind would be a sign-out that only hid the session --
+    // on a shared station, for the next person to sit down.
+    expect(localStorage.getItem(EXPIRY_KEY)).toBeNull();
+    expect(localStorage.getItem(DEADLINE_KEY)).toBeNull();
     expect(forgotten).toBe(true);
     release();
   });
@@ -256,11 +301,46 @@ describe("signOut", () => {
   });
 });
 
+describe("what a page load finds in storage", () => {
+  // THE CREDENTIALS OUTLIVE THE BROWSER NOW, so the check that used to be free -- the tab
+  // closing -- has to be made explicitly, and it has to be made BEFORE the first paint
+  // draws a signed-in bar. `vi.resetModules()` is the only way to reach it: the session is
+  // a singleton built at import time, which is exactly the moment being tested.
+  const freshSession = async () => {
+    vi.resetModules();
+    return (await import("../src/lib/auth/session.svelte")).session;
+  };
+
+  it("restores a session that is still within its deadline", async () => {
+    localStorage.setItem(TOKEN_KEY, "jeton-garde");
+    localStorage.setItem(DEADLINE_KEY, String(seconds() + 86400));
+    expect((await freshSession()).token).toBe("jeton-garde");
+  });
+
+  it("restores one with no deadline at all -- a session from before this existed", async () => {
+    localStorage.setItem(TOKEN_KEY, "jeton-ancien");
+    localStorage.removeItem(DEADLINE_KEY);
+    expect((await freshSession()).token).toBe("jeton-ancien");
+  });
+
+  it("ERASES an abandoned one instead of opening it", async () => {
+    // Eleven days later on a shared station: the deadline is the whole protection, so it
+    // must not merely hide the token -- it has to take the refresh token with it.
+    localStorage.setItem(TOKEN_KEY, "jeton-abandonne");
+    localStorage.setItem(REFRESH_KEY, "refresh-abandonne");
+    localStorage.setItem(DEADLINE_KEY, String(seconds() - 1));
+    expect((await freshSession()).token).toBeNull();
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
+    expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
+    expect(localStorage.getItem(DEADLINE_KEY)).toBeNull();
+  });
+});
+
 describe("a deployment with no issuer", () => {
   it("renews nothing and refuses nothing: the token lives its life", async () => {
     session.deployment = {};
     session.setToken("jeton-1");
-    sessionStorage.setItem(EXPIRY_KEY, String(seconds() - 10));
+    localStorage.setItem(EXPIRY_KEY, String(seconds() - 10));
     // Nearly expired, but there is no OIDC on this deployment at all.
     expect(await ensureValid()).toBe(true);
     expect(await renew()).toBe(false);

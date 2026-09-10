@@ -12,9 +12,16 @@
 // token lives out its life and the 401 that follows ends the session. Nothing
 // signs itself out for the absence of renewal material.
 
-import { session, signOut, whenSignedOut } from "./session.svelte";
-import { sessionGet, sessionSet, sessionDrop } from "../storage";
-import { EXPIRY_KEY, PKCE_KEY, REFRESH_KEY, RETURN_KEY } from "./keys";
+import { dropCredentials, session, signOut, whenSignedOut } from "./session.svelte";
+import { localGet, localSet, sessionGet, sessionSet, sessionDrop } from "../storage";
+import {
+  DEADLINE_KEY,
+  EXPIRY_KEY,
+  PKCE_KEY,
+  REFRESH_KEY,
+  RETURN_KEY,
+  SESSION_MAX_DAYS,
+} from "./keys";
 
 /** Renewed a minute BEFORE it dies, not after a request has already failed. */
 const REFRESH_MARGIN = 60;
@@ -49,8 +56,27 @@ async function discovery(): Promise<Discovery> {
 }
 
 const seconds = () => Math.floor(Date.now() / 1000);
-const storedRefreshToken = () => sessionGet(REFRESH_KEY);
-const expiresAt = () => Number(sessionGet(EXPIRY_KEY)) || 0;
+const storedRefreshToken = () => localGet(REFRESH_KEY);
+const expiresAt = () => Number(localGet(EXPIRY_KEY)) || 0;
+/** 0 means "no deadline recorded" -- a session from before this existed. */
+const deadline = () => Number(localGet(DEADLINE_KEY)) || 0;
+
+/**
+ * THE DEADLINE SLIDES, IT IS NOT A COUNTDOWN FROM THE FIRST SIGN-IN. A student
+ * who works every week must never be signed out; one who stops must eventually
+ * be. So each successful grant pushes it back to `SESSION_MAX_DAYS` from now,
+ * which is exactly what Rauthy's rotating refresh token does on its side -- the
+ * two clocks agree by construction rather than by being watched.
+ */
+function pushDeadline(): void {
+  localSet(DEADLINE_KEY, String(seconds() + SESSION_MAX_DAYS * 86400));
+}
+
+/** Past its deadline: unused for too long, and no longer renewable. */
+const abandoned = (): boolean => {
+  const until = deadline();
+  return until > 0 && seconds() >= until;
+};
 
 /**
  * AN UNKNOWN LIFETIME IS NOT AN EXPIRED ONE. A provider that omits `expires_in`
@@ -73,10 +99,13 @@ function storeGrant(granted: Grant): void {
   // the student out an hour later with nothing on screen to explain it. Absent
   // means "keep using the one you have", not "forget it".
   if (typeof granted.refresh_token === "string" && granted.refresh_token) {
-    sessionSet(REFRESH_KEY, granted.refresh_token);
+    localSet(REFRESH_KEY, granted.refresh_token);
   }
   const life = Number(granted.expires_in);
-  sessionSet(EXPIRY_KEY, String(Number.isFinite(life) && life > 0 ? seconds() + life : 0));
+  localSet(EXPIRY_KEY, String(Number.isFinite(life) && life > 0 ? seconds() + life : 0));
+  // THE SESSION IS ALIVE, SO ITS DEADLINE MOVES. This is the line that makes a
+  // weekly lab a session that never asks for a password again.
+  pushDeadline();
   // LAST, AND ON PURPOSE: setting the token redraws the bar, and it must never
   // announce a session whose renewal material is only half written down.
   session.setToken(granted.access_token ?? null);
@@ -112,6 +141,15 @@ let refreshing: Promise<boolean> | null = null;
 
 export function refreshAccessToken(): Promise<boolean> {
   if (refreshing) return refreshing;
+  // ABANDONED FOR TOO LONG: this is the deadline doing what the closing tab
+  // used to do. Asking the issuer would be asking it to refuse -- its own
+  // refresh token expires on the same schedule -- so we end the session here
+  // and say so, rather than turning it into a failed request.
+  if (abandoned()) {
+    dropCredentials();
+    signOut();
+    return Promise.resolve(false);
+  }
   const carried = storedRefreshToken();
   if (!carried) return Promise.resolve(false);
   const started = session.generation;
@@ -150,8 +188,7 @@ export async function ensureValidAccessToken(): Promise<boolean> {
 /** Called by `signOut` through the hook below, and by a refused refresh. */
 export function forgetRenewal(): void {
   refreshing = null;
-  sessionDrop(REFRESH_KEY);
-  sessionDrop(EXPIRY_KEY);
+  dropCredentials();
 }
 
 // --- Signing in ---------------------------------------------------------------
@@ -181,10 +218,19 @@ export async function startSignIn(): Promise<void> {
     response_type: "code",
     client_id: config().client_id,
     redirect_uri: redirectUri(),
-    // `offline_access` IS WHAT ASKS FOR A REFRESH TOKEN, and it is the whole
-    // fix: without it Rauthy issues an access token and nothing to renew it
-    // with, so an open tab signs itself out when that token dies. PKCE is
-    // untouched -- this adds a scope, it replaces no part of the flow.
+    // `offline_access` IS THE STANDARD WAY TO ASK FOR A REFRESH TOKEN, AND
+    // RAUTHY IGNORES IT. This comment used to claim it was "the whole fix";
+    // it is not, and believing that cost a round of debugging. Rauthy has no
+    // `offline_access` handling at all -- `Client::allow_refresh_token()` is
+    // exactly `is_flow_enabled(GrantType::RefreshToken)` -- so what decides
+    // whether a refresh token comes back is the `refresh_token` flow being
+    // ticked on the client, in the Admin UI, and nothing here.
+    //
+    // IT IS KEPT ANYWAY, and not out of superstition: it is what the spec says
+    // to send, Rauthy drops unknown scopes silently rather than refusing the
+    // request (`sanitize_login_scopes`), and an issuer that is not Rauthy would
+    // need it. PKCE is untouched -- this is a scope, it replaces no part of the
+    // flow.
     scope: "openid profile offline_access",
     state,
     code_challenge: await challengeFor(verifier),

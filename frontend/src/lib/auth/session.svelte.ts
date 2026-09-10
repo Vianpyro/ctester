@@ -12,23 +12,62 @@
 // `ensureValid()` renews a minute BEFORE expiry rather than after a 401 -- on a
 // WebSocket a 401 costs a whole reconnection.
 //
+// AND THE SESSION IS NOT THE TAB EITHER, which is the half that was missing:
+// the labs are a week apart, so the browser is closed between them. The
+// credentials therefore live in `localStorage`, bounded by a deadline instead
+// of by the tab -- `keys.ts` carries that decision and its price.
+//
 // THE REFRESH TOKEN NEVER LEAVES `./oidc.ts`. It goes to exactly one place, the
 // issuer's token endpoint. It is not in `token()`, not in a header to our API,
 // not in a WebSocket frame. `token()` means the ACCESS token and nothing else.
 
 import { decode, fetchApi, type ApiResult, type RequestOptions } from "../api/client";
-import { sessionGet, sessionSet, sessionDrop } from "../storage";
-import { TOKEN_KEY } from "./keys";
+import { localGet, localSet, localDrop } from "../storage";
+import { DEADLINE_KEY, EXPIRY_KEY, REFRESH_KEY, TOKEN_KEY } from "./keys";
 import type { Deployment } from "../api/types";
 
+const seconds = () => Math.floor(Date.now() / 1000);
+
 /**
- * `sessionStorage` AND NOT `localStorage`, deliberately: the token dies with
- * the tab. On a shared lab machine, one that outlived the tab would hand the
- * next student a working session.
+ * When this session stops being renewable, or 0 for "no deadline recorded".
+ *
+ * READ IN THE CORE, WRITTEN IN `oidc.ts`. It is a bare timestamp comparison and
+ * it has to happen at boot, before anything knows whether OIDC is even on this
+ * deployment -- so the reading half cannot live behind a dynamic import.
  */
+const deadline = (): number => Number(localGet(DEADLINE_KEY)) || 0;
+
+/**
+ * Every trace of a session, gone. `signOut` calls it, and so does the boot
+ * check below: a credential past its deadline must not survive being read.
+ */
+export function dropCredentials(): void {
+  localDrop(TOKEN_KEY);
+  localDrop(REFRESH_KEY);
+  localDrop(EXPIRY_KEY);
+  localDrop(DEADLINE_KEY);
+}
+
+/**
+ * The stored access token, unless this session has sat unused past its
+ * deadline -- in which case nothing is returned AND nothing is left behind.
+ *
+ * THIS IS WHAT REPLACES THE TAB. The credentials live in `localStorage` now
+ * (see `keys.ts`), so closing the browser no longer ends the session; the
+ * deadline does, and it is the only thing that does.
+ */
+function storedToken(): string | null {
+  const until = deadline();
+  if (until > 0 && seconds() >= until) {
+    dropCredentials();
+    return null;
+  }
+  return localGet(TOKEN_KEY) || null;
+}
+
 class Session {
   /** The access token, or null. Reactive: the bar redraws from it. */
-  token = $state<string | null>(sessionGet(TOKEN_KEY) || null);
+  token = $state<string | null>(storedToken());
   /** What `/oidc.json` said. `null` until it answers -- and it may never. */
   deployment = $state<Deployment | null>(null);
 
@@ -59,8 +98,8 @@ class Session {
 
   setToken(value: string | null): void {
     this.token = value || null;
-    if (this.token) sessionSet(TOKEN_KEY, this.token);
-    else sessionDrop(TOKEN_KEY);
+    if (this.token) localSet(TOKEN_KEY, this.token);
+    else localDrop(TOKEN_KEY);
   }
 }
 
@@ -89,6 +128,11 @@ export function signOut(): void {
   // writing a fresh session over the one just closed.
   session.generation++;
   session.setToken(null);
+  // THE DEADLINE AND THE RENEWAL MATERIAL GO WITH IT, from the core rather than
+  // from `oidc.ts`: a session restored from `localStorage` on a page that never
+  // loaded the OIDC half still has both of them on disk, and a sign-out that
+  // left them there would be a sign-out that only hid the session.
+  dropCredentials();
   for (const forget of onSignOut) {
     try {
       forget();

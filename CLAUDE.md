@@ -1925,10 +1925,12 @@ n'a pas bougé d'une ligne, et **rien du backend n'a été touché**.
 
 - **`scope=openid profile offline_access`** dans la requête d'autorisation.
   PKCE est intact — c'est un scope de plus, pas un flot différent.
-- **Trois choses en `sessionStorage`**, comme le jeton d'accès l'était déjà :
-  `ctester.token`, `ctester.refresh`, `ctester.expire`. **Jamais
-  `localStorage`** : sur un poste de labo partagé, un refresh token qui
-  survit à l'onglet est une session offerte au suivant.
+- **Quatre choses en `localStorage`** : `ctester.token`, `ctester.refresh`,
+  `ctester.expire` et `ctester.until`. Elles ont commencé en `sessionStorage`,
+  et **ce choix a dû être renversé** — voir « Dix jours » plus bas : un labo
+  hebdomadaire ne tient pas dans un onglet. Le vérificateur PKCE et la
+  requête de retour, eux, restent en `sessionStorage` : ils vivent quelques
+  secondes, dans un seul onglet.
 - **LE REFRESH TOKEN NE SORT PAS DU MODULE.** Il ne va qu'au point de jeton de
   l'émetteur. Il n'est pas dans `ctester.token()` (qui veut dire le jeton
   d'ACCÈS, et rien d'autre), pas dans un en-tête vers notre API, pas dans une
@@ -1978,14 +1980,54 @@ sockets savent en plus répondre au `4401` du serveur : **un** renouvellement,
   pour toutes : un seul renouvellement en vol, la rotation suivie, le résultat en
   retard qui ne ressuscite rien.
 
-**Côté déploiement, une seule chose, et elle est chez Rauthy** : le client
-`ctester` doit **autoriser le scope `offline_access` et le grant
-`refresh_token`**. Sans ça, l'émetteur rend un jeton d'accès et rien pour le
-renouveler — la page marche exactement comme avant le correctif, sans un
-message d'erreur : c'est le faux négatif à connaître si les déconnexions
-continuent. Aucun changement dans `VHome`, aucune variable, aucune migration,
-et la CSP portait déjà l'origine de l'émetteur dans `connect-src` (la
-découverte et l'échange du code y allaient déjà).
+### Dix jours, et les TROIS choses qu'il a fallu pour les obtenir
+
+**Le premier correctif n'a pas suffi, et il a fallu comprendre pourquoi.** Le
+renouvellement était juste ; il n'était simplement jamais demandé. Trois causes
+indépendantes, chacune capable à elle seule de reproduire le symptôme :
+
+1. **`sessionStorage` MEURT AVEC L'ONGLET, et c'était la cause dominante.** Les
+   labos sont HEBDOMADAIRES : l'étudiant ferme son navigateur le mardi soir et
+   revient le mardi suivant. Le refresh token était parti avec l'onglet — aucune
+   machinerie de renouvellement ne survit à ça. Les identifiants vivent donc
+   maintenant en `localStorage` (`lib/auth/keys.ts`).
+2. **`refresh_token_lifetime` vaut 48 h chez Rauthy, par défaut.** Même un
+   onglet laissé ouvert mourait donc au bout de deux jours. Porté à **240 h**
+   dans `playbooks/rauthy_games.yml` (`VHome`). **Il n'y a pas de réglage par
+   client** : la valeur est globale à l'instance, Parcello en hérite.
+3. **Le flow `refresh_token` doit être coché sur le client `ctester`**, dans
+   l'UI Admin. C'est la seule chose qui décide qu'un refresh token soit émis —
+   `allow_refresh_token()` est exactement
+   `is_flow_enabled(GrantType::RefreshToken)`.
+
+**`offline_access` NE FAIT RIEN CHEZ RAUTHY, et cette page a dit le
+contraire.** Ce document affirmait que c'était « tout le correctif » ; c'est
+faux, et le croire coûte une soirée. Rauthy n'implémente pas ce scope — il
+n'apparaît nulle part dans son code hors d'un test commenté — et retire
+silencieusement les scopes qu'un client n'autorise pas (`sanitize_login_scopes`),
+donc le demander ne casse rien et ne débloque rien. On le garde parce que c'est
+ce que la spec prescrit et qu'un autre émetteur en aurait besoin, **pas** parce
+qu'il agit ici.
+
+**LA BORNE EST UNE ÉCHÉANCE, PLUS UN ONGLET, et c'est le prix assumé.**
+`ctester.until` coupe une session après `SESSION_MAX_DAYS` (10) **d'inactivité**,
+et elle GLISSE : chaque renouvellement réussi la repousse, exactement comme la
+rotation du refresh token le fait côté Rauthy — les deux horloges s'accordent par
+construction plutôt que d'être surveillées. C'est ce qui remplace la protection
+que donnait l'onglet : une session abandonnée sur un poste partagé cesse de
+marcher toute seule au lieu de jamais. **Le risque résiduel est réel** : qui
+s'en va sans cliquer « Se déconnecter » laisse une session ouverte jusqu'à cette
+échéance. Le bouton, lui, efface les quatre clés d'un coup.
+
+**Les deux nombres doivent rester égaux** : `SESSION_MAX_DAYS` (en JOURS, dans
+`keys.ts`) et `refresh_token_lifetime` (en HEURES, dans `VHome`). Si l'émetteur
+abandonne le premier, l'étudiant est déconnecté par une requête qui échoue au
+lieu de l'être par l'horloge de la page — c'est-à-dire par un message qui ne
+veut rien dire pour lui.
+
+Rien d'autre côté déploiement : aucune migration, et la CSP portait déjà
+l'origine de l'émetteur dans `connect-src` (la découverte et l'échange du code y
+allaient déjà).
 
 **Éprouvé par `session.test.ts`** : la marge, l'absence de renouvellement quand le jeton
 est bon, les cinq appels concurrents qui n'en font qu'un, la rotation, le 401

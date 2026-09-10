@@ -4,13 +4,16 @@
 //
 // THE TWO STORES MEAN DIFFERENT THINGS, and the split is load-bearing:
 //
-//   sessionStorage  dies with the tab. The access token, the refresh token, the
-//                   PKCE verifier, the session key from Moodle's link, the
-//                   presence id. On a shared lab machine, anything here that
-//                   outlived the tab would be handed to the next student.
+//   sessionStorage  dies with the tab. The PKCE verifier, the session key from
+//                   Moodle's link, the presence id. On a shared lab machine,
+//                   anything here that outlived the tab would be handed to the
+//                   next student.
 //   localStorage    the device's memory. Drafts, the theme (read by
 //                   `public/theme.js` before the first paint), the station id,
-//                   whether the chat dock was open.
+//                   whether the chat dock was open -- AND, since the weekly-lab
+//                   requirement, the session credentials: see `auth/keys.ts`
+//                   for why the tab stopped being an acceptable bound and what
+//                   replaced it.
 
 export function sessionGet(name: string): string {
   try {
