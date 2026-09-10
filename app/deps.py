@@ -84,7 +84,7 @@ class Refus(Exception):
     NOT `HTTPException`: that one can only carry a `detail`, while a 429 must
     also return `retry_after` -- the page uses it to say how long to wait
     instead of inviting a re-click. A dict in `detail` would produce
-    `{"error": {...}}`, which `app.js` does not know how to read.
+    `{"error": {...}}`, which the page does not know how to read.
     """
 
     def __init__(self, code, message, **extra):

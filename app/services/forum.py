@@ -7,7 +7,8 @@ exercises it by searching for `sub` in the JSON payload -- including in the
 most detailed view, a moderator's.
 
 THE SERVER RENDERS NOTHING AND SANITIZES NOTHING, IT BOUNDS. Messages are
-stored in their SOURCE form; it is `forum.js` that escapes `<` before Markdown
+stored in their SOURCE form; it is the page (`domain/markdown.ts`) that escapes
+`<` before Markdown
 parsing then runs the output through DOMPurify. Sanitizing here would freeze
 the rule at write time, whereas a rule tightened later must apply to messages
 already in the database.
@@ -76,7 +77,7 @@ def forum_texte(brut):
 
     WHAT IS STORED IS THE SOURCE, NOT HTML. The server renders nothing and
     sanitizes nothing: it bounds. Rendering -- Markdown then a sanitizer --
-    happens at DISPLAY time, on every display, in `forum.js`. Sanitizing only
+    happens at DISPLAY time, on every display, in the page. Sanitizing only
     at write time would be the wrong half of the work: a rule tightened later
     would not apply to messages already in the database.
 

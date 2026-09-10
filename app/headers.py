@@ -28,9 +28,9 @@ import config
 # front/back split from costing one extra round trip per request: without it,
 # every PUT and every DELETE would pay for one.
 #
-# DELETE IS IN THE LIST AND MUST STAY THERE -- `compte.js` deletes an account,
-# `forum.js` a message. Forgetting it only breaks cross-origin, meaning only
-# production, and only these two buttons.
+# DELETE IS IN THE LIST AND MUST STAY THERE -- the page deletes an account
+# (`DELETE /moi`) and a forum message. Forgetting it only breaks cross-origin,
+# meaning only production, and only these two buttons.
 PREFLIGHT = {
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
@@ -161,8 +161,8 @@ class JSON(JSONResponse):
 def erreur(code, message, cle="error", **extra):
     """The error body the page expects: `{"error": "..."}`, and nothing else.
 
-    A SINGLE SHAPE, because `app.js` reads `out.error` and displays whatever
-    it finds there. `cle` exists only for the verdict poll, which answers
+    A SINGLE SHAPE, because the page reads `error` off the body and displays
+    whatever it finds there. `cle` exists only for the verdict poll, which answers
     `{"state": ...}`; `extra` carries `retry_after` on a 429, which the page
     uses to say how long to wait instead of inviting a re-click.
     """
@@ -214,16 +214,17 @@ def fichier_du_disque(request, base, nom, ctype, issuer=""):
     """A file from disk, and `base` SAYS WHICH OF THE TWO DIRECTORIES.
 
     No default, on purpose: the page (`config.PAGE`) and the release the
-    worker publishes (`config.PUBLISHED`) have lived apart since `web/` was
+    worker publishes (`config.PUBLISHED`) have lived apart since the page was
     meant for GitHub Pages, and both go through here. A default would make it
     look for `exercises/<id>.json` in the page's directory -- a 500 on every
     statement and every quiz, in production only, because a harness that
     mounts both in the same place cannot see it.
 
-    `nom` NEVER COMES FROM THE URL AS-IS: callers rebuild it from the catalog
-    or from a closed list. There is therefore no path to traverse, and no
-    `..` to filter -- filtering would mean accepting an input, which we do
-    not.
+    `nom` NEVER COMES FROM THE URL AS-IS: callers rebuild it from the catalog,
+    from a closed list, or -- for the built bundle's content-hashed assets --
+    from a closed PATTERN with no path separator in it, checked against a file
+    the build actually wrote. There is therefore no path to traverse, and no
+    `..` to filter: filtering would mean accepting an input, which we do not.
     """
     try:
         with open(os.path.join(base, nom), "rb") as fh:

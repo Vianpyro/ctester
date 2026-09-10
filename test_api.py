@@ -857,7 +857,7 @@ def test_un_seul_vary_annoncant_les_deux_axes():
 
 
 def test_preflight_sur_toute_route_meme_inconnue():
-    """204, et `DELETE` dans la liste -- `compte.js` et `forum.js` en dépendent.
+    """204, et `DELETE` dans la liste -- supprimer un compte et un message en dépendent.
 
     Le préflight ne passe pas par le routeur : il répond avant, donc un chemin
     qui n'existe pas encore répond quand même. `Max-Age` évite un aller-retour
@@ -1709,45 +1709,80 @@ def test_304_garde_la_csp_et_le_cache():
         assert r2.content == b"", r2.content
 
 
-def test_page_serves_an_allow_listed_file_other_than_index():
-    """`/{nom:path}`: `index.html` has its own test; another name from the
-    list (`app.js`) was never served successfully, only its 404 was.
+def test_page_sert_un_fichier_racine_de_la_liste_close():
+    """`/{nom:path}` : `index.html` a son test ; un autre nom de la liste
+    (`theme.js`) n'avait jamais été servi avec succès, seul son 404 l'était.
+
+    `theme.js` PORTE UN NOM STABLE, contrairement au reste du paquet : c'est le
+    script d'avant-première-peinture, référencé par ce nom depuis `index.html`,
+    et le seul script du document qui ne soit pas issu du build.
     """
-    page = os.path.join(HERE, "web")
-    if not os.path.isdir(page):
-        return
     with contexte() as (c, _, _tmp):
-        config.PAGE = page
+        with open(os.path.join(config.PAGE, "theme.js"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("/* le theme avant la premiere peinture */")
         c2 = TestClient(main.create_app())
-        r = c2.get("/app.js")
+        r = c2.get("/theme.js")
         assert r.status_code == 200, r.status_code
         assert r.headers["content-type"].startswith("text/javascript")
 
 
 def test_page_sert_une_liste_close_pas_un_repertoire():
-    """`StaticFiles` monterait un RÉPERTOIRE. Ici chaque nom est écrit en clair."""
+    """`StaticFiles` monterait un RÉPERTOIRE. Ici chaque nom de la racine est
+    écrit en clair, et `assets/` est un MOTIF fermé plus un contrôle
+    d'existence -- pas une ouverture.
+
+    LE MOTIF EXISTE PARCE QUE LE PAQUET PORTE UN HACHAGE DE CONTENU dans ses
+    noms de fichiers (`index-CODmhrno.js`), ce qui a remplacé le jeton `?v=`
+    tenu à la main dans deux fichiers et périmé en silence. Un nom pareil ne
+    s'énumère pas d'avance : on en contraint donc la FORME, sans séparateur, et
+    on exige que le build l'ait vraiment écrit.
+    """
     from routers import page as routeur_page
     with contexte() as (c, _, tmp):
-        config.PAGE = os.path.join(tmp, "web")
+        del tmp
+        actifs = os.path.join(config.PAGE, "assets")
+        os.makedirs(actifs)
         with open(os.path.join(config.PAGE, "secret.txt"), "w",
                   encoding="utf-8") as fh:
             fh.write("pas pour toi")
+        with open(os.path.join(actifs, "index-abc123.js"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("export default 1;")
         c2 = TestClient(main.create_app())
+        # La racine reste une liste écrite en clair.
         assert c2.get("/secret.txt").status_code == 404
         assert c2.get("/../app/catalog.json").status_code in (404, 400)
         assert "secret.txt" not in routeur_page.SERVIS
+        # Un actif que le build a écrit passe...
+        r = c2.get("/assets/index-abc123.js")
+        assert r.status_code == 200, r.status_code
+        assert r.headers["content-type"].startswith("text/javascript")
+        # ... et TOUT LE RESTE non. Un nom qui n'existe pas, une extension hors
+        # de la table, un séparateur, un `..` : aucun n'atteint le disque.
+        for chemin in ("/assets/absent-000000.js", "/assets/secret.txt",
+                       "/assets/../secret.txt", "/assets/..%2fsecret.txt",
+                       "/assets/sous/dossier.js", "/assets/.env",
+                       "/assets/" + "x" * 200 + ".js"):
+            assert c2.get(chemin).status_code in (400, 404), chemin
+        # ET LE SECRET N'EST PAS JOIGNABLE PAR `assets/` non plus, même en le
+        # nommant exactement : il n'est pas dans `assets/`.
+        assert c2.get("/assets/secret-txt.js").status_code == 404
 
 
 def test_page_absente_ne_monte_aucune_route_de_fichier():
     """Sans `CTESTER_PAGE`, cette origine ne répond plus que sur des données.
 
-    C'est l'état visé par la séparation front/back : `/` n'existe plus.
+    C'est l'état visé par la séparation front/back : `/` n'existe plus, et pas
+    davantage un actif du paquet.
     """
     with contexte() as (c, _, _tmp):
+        del c
         config.PAGE = ""
         c2 = TestClient(main.create_app())
         assert c2.get("/").status_code == 404
-        assert c2.get("/app.js").status_code == 404
+        assert c2.get("/theme.js").status_code == 404
+        assert c2.get("/assets/index-abc123.js").status_code == 404
         # L'API, elle, répond toujours.
         assert c2.get("/healthz").status_code == 200
         assert c2.get("/catalog.json").status_code == 200

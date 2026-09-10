@@ -1,7 +1,8 @@
 """The live collaboration relay: rooms, presence, and nothing else.
 
 WHAT THIS MODULE IS NOT. It is not a CRDT, and it does not know what a
-character is. Teams edit with Yjs in the browser (`web/vendor/`), and this
+character is. Teams edit with Yjs in the browser (an npm dependency bundled
+into the team workspace's own chunk), and this
 process forwards the opaque frames Yjs produces from one member of a room to
 the others, verbatim. That split is the whole design:
 

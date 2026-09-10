@@ -1,10 +1,15 @@
 __pycache__/
 
 
-# Le harnais de la page a une dependance de TEST (jsdom, voir package.json) :
-# elle donne un vrai DOM a DOMPurify pour que les tests XSS soient reels.
-# L application, elle, n a aucune dependance npm.
+# La page se construit (Svelte + Vite + TypeScript), donc elle a des dependances
+# npm : trois en production, bundlees dans le morceau qui les charge (marked,
+# DOMPurify, Yjs), le reste en outillage. L API, elle, n en a aucune.
 node_modules/
 
 # Contenu publie localement pour essayer la page (voir CLAUDE.md).
 .pub-dev/
+
+# La page CONSTRUITE. Elle est reproduite par `npm run build` a partir de ce que
+# le depot contient, et la CI la reconstruit avant de la publier : la commiter
+# serait un second exemplaire a faire deriver.
+frontend/dist/

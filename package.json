@@ -1,11 +1,28 @@
 {
   "name": "ctester-page",
   "private": true,
-  "description": "Harnais de test de la page. L'application, elle, n'a AUCUNE dependance npm : marked et DOMPurify sont vendorises dans web/vendor/ et servis depuis cette origine.",
+  "type": "module",
+  "description": "The student-facing page: Svelte + Vite + TypeScript, built to a static bundle that GitHub Pages serves. The API lives in app/ and is reached over HTTP and WebSocket only.",
   "scripts": {
-    "test": "node test_page.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dompurify": "3.4.14",
+    "marked": "18.0.11",
+    "yjs": "13.6.32"
   },
   "devDependencies": {
-    "jsdom": "30.0.1"
+    "@sveltejs/vite-plugin-svelte": "7.3.0",
+    "@types/node": "^24.13.4",
+    "jsdom": "30.0.1",
+    "svelte": "5.57.0",
+    "svelte-check": "4.7.6",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vitest": "5.0.0"
   }
 }

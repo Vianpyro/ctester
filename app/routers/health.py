@@ -62,14 +62,14 @@ def oidc():
     The page queries it before displaying anything: without `issuer`, the
     whole sign-in block stays inert and the anonymous path is exactly what it
     was. `forum` travels here because this is already the "what is offered"
-    endpoint -- false or absent, the button does not exist and `forum.js` is
-    never requested.
+    endpoint -- false or absent, the button does not exist and the chat's chunk
+    is never requested.
     """
     if not security.oidc_enabled():
         return {}
     # `scratch` voyage ici pour la même raison que `forum` : c'est déjà
     # l'endpoint « ce qui est offert », et faux ou absent, le bouton n'existe
-    # pas -- donc `scratch.js` n'est jamais demandé.
+    # pas -- donc le morceau de la Console n'est jamais demandé.
     # `discord` est l'INVITATION, rien de plus : une URL affichée dans le chat.
     # Le cours a déjà un Discord ; taire son existence dans la page ne le fait
     # pas disparaître, ça oblige juste les étudiants à retrouver le lien

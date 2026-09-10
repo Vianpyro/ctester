@@ -2414,7 +2414,8 @@ def test_forum_texte_borne_et_stocke_la_source():
 
     LE SERVEUR NE REND RIEN ET N'ASSAINIT RIEN. Ce qui est stocke est le
     Markdown tel qu'il a ete tape -- balises comprises, sous leur forme source.
-    Le rendu et l'assainissement se font a CHAQUE affichage, dans `forum.js` :
+    Le rendu et l'assainissement se font a CHAQUE affichage, dans la page
+    (`frontend/src/lib/domain/markdown.ts`) :
     assainir a l'ecriture seulement laisserait les messages deja en base hors de
     portee d'une regle resserree ensuite.
     """
@@ -2439,35 +2440,58 @@ def test_forum_texte_borne_et_stocke_la_source():
 
 
 def test_forum_bibliotheques_epinglees():
-    """Les trois bibliotheques sont VERSIONNEES, presentes, et servies.
+    """Les trois bibliotheques sont EPINGLEES A UNE VERSION EXACTE, et chargees
+    seulement par le morceau qui en a besoin.
 
     CE CONTROLE EXISTE PARCE QU'UN ASSAINISSEUR ABSENT NE SE VOIT PAS. La page
     retombe alors sur du texte brut -- c'est le bon comportement -- et personne
-    ne remarque que le rendu a disparu. Ici, un nom qui ne correspond plus entre
-    `VENDOR`, le module qui la charge et le disque fait echouer la suite tout de
-    suite.
+    ne remarque que le rendu a disparu.
 
-    LE MODULE QUI CHARGE CHAQUE FICHIER EST NOMME, et c'est la moitie utile du
-    controle : `marked` et DOMPurify n'existent que pour le forum, Yjs que pour
-    l'espace d'equipe. Un fichier servi que plus personne ne charge est du poids
-    mort dans une liste blanche, et c'est exactement ce qu'on ne veut pas y
-    laisser trainer.
+    ELLES ETAIENT VENDORISEES, ELLES SONT MAINTENANT DES DEPENDANCES npm. Le
+    fichier portait la version dans son NOM ; c'est desormais `package.json`
+    plus le lockfile, ce qui est plus fort : une montee de version ne peut plus
+    se faire en renommant. Un intervalle (`^`, `~`) est refuse ici -- un
+    assainisseur HTML ne doit pas changer parce qu'un `npm install` a tourne.
+
+    LE MODULE QUI LA CHARGE EST NOMME, et c'est la moitie utile du controle :
+    marked et DOMPurify n'existent que pour le chat, Yjs que pour l'espace
+    d'equipe. Une bibliotheque importee depuis le noyau la ferait descendre
+    dans le parcours anonyme, qui n'en telecharge pas un octet.
     """
-    charge_par = {"vendor/marked-18.0.11.umd.js": "forum.js",
-                  "vendor/purify-3.4.14.min.js": "forum.js",
-                  "vendor/yjs-13.6.32.iife.js": "team.js"}
-    assert set(config.VENDOR) == set(charge_par), config.VENDOR
-    for chemin in config.VENDOR:
-        sur_disque = os.path.join(HERE, "web", *chemin.split("/"))
-        assert os.path.exists(sur_disque), chemin
-        source = lire(os.path.join(HERE, "web", charge_par[chemin]))
-        assert '"' + chemin + '"' in source, chemin
-        # Le nom PORTE la version : c'est ce qui rend l'epinglage impossible a
-        # perdre, et une montee de version impossible a faire par accident.
-        assert re.search(r"-\d+\.\d+\.\d+[.-]", chemin), chemin
-        # `/vendor/` N'EST PAS UN REPERTOIRE OUVERT : la liste est close, comme
-        # celle des `.js` de la page.
-        assert chemin.startswith("vendor/"), chemin
+    manifeste = json.loads(lire(os.path.join(HERE, "package.json")))
+    epingles = manifeste.get("dependencies") or {}
+    charge_par = {
+        # Le rendu Markdown, et rien d'autre : ce module vit dans le morceau du
+        # chat, qu'un compte connecte ne telecharge qu'au clic.
+        "marked": {"frontend/src/lib/domain/markdown.ts"},
+        "dompurify": {"frontend/src/lib/domain/markdown.ts"},
+        # Yjs vit dans le morceau de l'espace d'equipe. Deux fichiers, parce
+        # que le document et le transport sont separes : `document.ts` est pur
+        # (la diff, testee sans reseau), `room.svelte.ts` porte la socket.
+        "yjs": {"frontend/src/lib/collab/document.ts",
+                "frontend/src/lib/collab/room.svelte.ts"},
+    }
+    assert set(epingles) == set(charge_par), epingles
+    for paquet, modules in charge_par.items():
+        version = epingles[paquet]
+        # UNE VERSION EXACTE : ni `^`, ni `~`, ni `*`, ni `latest`.
+        assert re.fullmatch(r"\d+\.\d+\.\d+", version), (paquet, version)
+        for module in modules:
+            assert '"' + paquet + '"' in lire(
+                os.path.join(HERE, *module.split("/"))), (paquet, module)
+    # ET NULLE PART AILLEURS : un import depuis le noyau les mettrait dans le
+    # paquet principal, celui que l'anonyme telecharge.
+    for racine, _, fichiers in os.walk(os.path.join(HERE, "frontend", "src")):
+        for nom in fichiers:
+            if not nom.endswith((".ts", ".svelte")):
+                continue
+            chemin = os.path.join(racine, nom)
+            relatif = os.path.relpath(chemin, HERE).replace(os.sep, "/")
+            source = lire(chemin)
+            for paquet, modules in charge_par.items():
+                if relatif in modules:
+                    continue
+                assert 'from "' + paquet + '"' not in source, (relatif, paquet)
 
 
 def test_csp_without_an_issuer_omits_the_extra_connect_src_origin():
@@ -2511,7 +2535,19 @@ def test_csp_du_document():
     envisageait : plutot que de surveiller un hachage, la page n'a plus AUCUN
     script inline, et `csp()` refuse d'en hacher un.
     """
-    page = lire(os.path.join(HERE, "web", "index.html")).encode()
+    # LA SOURCE, ET LE PAQUET CONSTRUIT QUAND IL EST LA. C'est le document
+    # CONSTRUIT que le serveur sert et que `csp()` hache : si Vite y remettait
+    # un jour un script inline, `csp()` LEVERAIT plutot que de le hacher, et la
+    # page repondrait 500 -- bruyamment, comme voulu. La CI construit avant de
+    # lancer ceci, donc elle eprouve l'artefact reel ; sur une machine qui n'a
+    # pas construit, la source suffit a tenir les deux copies de la politique.
+    pages = [lire(os.path.join(HERE, "frontend", "index.html")).encode()]
+    construit = os.path.join(HERE, "frontend", "dist", "index.html")
+    if os.path.exists(construit):
+        pages.append(lire(construit).encode())
+    for page in pages:
+        assert b"<script" in page and not csp._INLINE_SCRIPT_RE.findall(page), page
+    page = pages[0]
     politique = csp.csp(page, "https://auth.exemple/auth/v1")
     assert "default-src 'none'" in politique
     # PAS DE HACHAGE, et pas de script inline pour en avoir besoin.
@@ -2834,14 +2870,15 @@ def test_chaque_raison_de_console_a_un_message():
     code de sortie.
     """
     worker = lire(os.path.join(HERE, "runner.py"))
-    page = lire(os.path.join(HERE, "web", "scratch.js"))
-    bloc = page.split("const RAISONS = {")[1].split("};")[0]
+    page = lire(os.path.join(HERE, "frontend", "src", "features", "scratch",
+                             "session.svelte.ts"))
+    bloc = page.split("const REASONS: Record<string, string> = {")[1].split("};")[0]
     connues = set(re.findall("^\\s*(\\w+):", bloc, re.M)) | {"exited"}
     motif = 'reason["\']?[=:]\\s*["\'](\\w+)["\']'
     emises = set(re.findall(motif, worker))
     orphelines = sorted(emises - connues)
     assert not orphelines, (
-        "le worker peut emettre " + ", ".join(orphelines) + " mais scratch.js "
+        "le worker peut emettre " + ", ".join(orphelines) + " mais la Console "
         "n'a pas de phrase pour ces raisons-la : l'etudiant lirait un code de "
         "sortie au lieu de savoir quoi faire.")
 
@@ -2875,7 +2912,8 @@ def test_les_websockets_ont_une_implementation_epinglee():
 def test_le_conteneur_web_n_importe_que_ce_qu_il_monte():
     """`app/` NE PEUT IMPORTER QUE `app/`. Les modules de la RACINE sont au worker.
 
-    LE CONTENEUR WEB MONTE `app/`, `web/` ET `published/`, ET RIEN D'AUTRE --
+    LE CONTENEUR WEB MONTE `app/`, LA PAGE CONSTRUITE ET `published/`, ET RIEN
+    D'AUTRE --
     c'est ce qui fait qu'il n'a jamais accès aux tests ni aux corrigés. Un
     `import content_catalog` (ou `runner`, ou `publish_content`) dans `app/`
     passe donc parfaitement ici, où la racine est dans `sys.path`, et fait
@@ -4072,8 +4110,11 @@ def test_un_exercice_de_devoir_ne_compte_dans_aucune_pratique():
     # branche qui refuse l'XP nomme le meme champ.
     source = lire(os.path.join(HERE, "app", "routers", "submission.py"))
     assert 'entree.get("assignment")' in source
-    # LA PAGE PORTE LE MEME FILTRE POUR L'EXPORT.
-    page = lire(os.path.join(HERE, "web", "app.js"))
+    # LA PAGE PORTE LE MEME FILTRE POUR L'EXPORT, et a un seul endroit :
+    # `exportableExercises()`. Sans lui, six modules partages tomberaient dans
+    # le `main.c` personnel de quelqu'un.
+    page = lire(os.path.join(HERE, "frontend", "src", "lib", "domain",
+                             "catalog.ts"))
     assert "!t.assignment" in page
 
 

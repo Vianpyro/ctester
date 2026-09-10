@@ -19,7 +19,7 @@ import config
 # NO INLINE SCRIPT ANYWHERE IN THE PAGE, so no hash to keep up to date. That
 # is what lets the same policy hold in a header here AND in `index.html`'s
 # `<meta>`, which GitHub Pages serves with no way to set a header. The theme
-# bootstrap lives in `web/config.js`, loaded at the top of `<head>` with no
+# bootstrap lives in `frontend/public/theme.js`, loaded at the top of `<head>` with no
 # `defer`: it therefore runs before the first paint, like the inline script
 # it replaces. An inline script added back by mistake is then blocked loudly,
 # instead of going through a copied hash that silently goes stale.
@@ -40,11 +40,11 @@ def csp(body, issuer=""):
     not scripts, and removing them would require rewriting three components
     for zero gain against the threat this targets.
 
-    `connect-src` must contain the OIDC issuer: `compte.js` fetches the
+    `connect-src` must contain the OIDC issuer: the page's OIDC module fetches the
     discovery document there, then the token. Without it, sign-in fails
     silently -- exactly the kind of failure a CSP produces without saying so.
     It must also contain the API: during the move, this server still serves
-    the page while `config.js` already calls `tch099`.
+    the page while its own config already calls `tch099`.
 
     `body` IS READ ONLY TO REFUSE AN INLINE SCRIPT. The page no longer has
     any; one that came back would not be hashed on the sly, it would fail
@@ -54,7 +54,7 @@ def csp(body, issuer=""):
         raise ValueError(
             "un <script> inline est apparu dans la page : `script-src 'self'` "
             "le bloque, ici comme dans le <meta> servi par GitHub Pages. "
-            "Sortir le code dans un fichier, comme web/config.js.")
+            "Sortir le code dans un fichier, comme frontend/public/theme.js.")
     origines = []
     if config.API_ORIGIN:
         # L'API, ET LA MEME EN `wss://`. La collaboration d'equipe ouvre une

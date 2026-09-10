@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<!-- THE ORDER OF THIS HEAD IS LOAD-BEARING, and it is the order it has always
+     had: icon, charset, the CSP `<meta>`, viewport, robots, title, the
+     pre-paint theme script. The policy must come right after `<meta charset>`
+     and before everything it governs -- a browser only applies it from the
+     moment it reads it. -->
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta charset="utf-8">
+<!-- TWO COPIES OF THIS POLICY EXIST, and `test_csp_du_document` compares them
+     directive by directive: this one (GitHub Pages, which can set no header)
+     and the one `app/csp.py` sets as a header (this server, and the local
+     mode). Editing one without the other fails the tests.
+
+     `frame-ancestors` IS ABSENT ON PURPOSE: a `<meta>` cannot carry it and the
+     browser says so in the console -- a red console is a production outage we
+     have already had. It lives in the header, and in front of Pages it is
+     reposted as `X-Frame-Options: DENY` by a Cloudflare Transform Rule. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' https://tch099.thevhome.com wss://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- DELIBERATE: a temporary site, students have the link, and staying out of
+     search engines limits traffic on personal infrastructure. Lighthouse's SEO
+     score is therefore the expected result -- do not "fix" it. -->
+<meta name="robots" content="noindex, nofollow">
+<title>TCH009 — Tester mon code</title>
+<!-- NO `defer`, AND NOT A MODULE: see frontend/public/theme.js. -->
+<script src="/theme.js"></script>
+</head>
+<body>
+<div id="app"></div>
+<!-- The bundle. A module script is deferred by spec, so it runs once the
+     document is parsed -- which is what a component tree wants. -->
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

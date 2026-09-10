@@ -34,9 +34,13 @@ def _entier(nom, defaut):
 
 # --- Filesystem --------------------------------------------------------------
 SPOOL = os.environ.get("CTESTER_SPOOL", "/spool")
-# THE PAGE LIVES ELSEWHERE THAN THE CATALOG since `web/` is published
-# separately. TEMPORARY: exists only for the duration of the move to GitHub
-# Pages.
+# THE PAGE LIVES ELSEWHERE THAN THE CATALOG since it is published separately.
+# TEMPORARY: exists only for the duration of the move to GitHub Pages.
+#
+# IT IS THE BUILT BUNDLE, NOT THE SOURCES. Since the page became Svelte +
+# TypeScript there is nothing servable in `frontend/src`: what this points at is
+# `frontend/dist`, written by `npm run build`. Nothing in this container
+# compiles anything -- the build happens in CI, and locally before launching.
 #
 # TO TURN THE PAGE OFF, EMPTY THE VARIABLE, DO NOT DELETE IT
 # (`CTESTER_PAGE=` in Compose). Absent, the default below takes over and the
@@ -68,24 +72,24 @@ ORIGINS = tuple(o.strip().rstrip("/") for o in os.environ.get(
 
 # TRANSITION: the origin the PAGE calls. This server still serves the page
 # during the move, so its CSP must allow `connect-src` to the API -- otherwise
-# the window where `tch009` is still on the Dell but `config.js` already
-# points at `tch099` is a dead page. Disappears with the page's router.
+# the window where `tch009` is still on the Dell but the page's own config
+# (`frontend/src/lib/config.ts`) already points at `tch099` is a dead page.
+# Disappears with the page's router.
 API_ORIGIN = os.environ.get("CTESTER_API_ORIGIN", "https://tch099.thevhome.com")
 
 PORT = _entier("CTESTER_PORT", "8000")
 
-# THE TWO RENDERING LIBRARIES, PINNED IN THEIR FILE NAME. They live in the
-# repo (`web/vendor/`, see its README) and are served from this origin: the
-# CSP says `script-src 'self'`, so a CDN would be blocked, and that is
-# intentional. Bumping a version requires touching this list AND `forum.js`
-# -- an HTML sanitizer upgrade must not happen by accident.
-VENDOR = ("vendor/marked-18.0.11.umd.js", "vendor/purify-3.4.14.min.js",
-          # Yjs, and it is the collaboration itself rather than a rendering
-          # helper: `team.js` fetches it the moment a team workspace opens,
-          # never before. Same rules as the other two -- pinned in the file
-          # name, served from this origin, and bumped in three places on
-          # purpose (here, `web/vendor/README.md`, `team.js`).
-          "vendor/yjs-13.6.32.iife.js")
+# THE THREE THIRD-PARTY LIBRARIES ARE NO LONGER LISTED HERE, and that is the
+# one thing the build step took away from this file. They used to be vendored
+# IIFE files pinned BY FILE NAME and served from this origin, so the allow-list
+# had to name them. They are now npm dependencies pinned to an exact version in
+# `package.json` and bundled into the lazy chunk that needs them -- marked and
+# DOMPurify with the chat, Yjs with the team workspace. The pin is the lockfile,
+# which is stronger than a file name, and `test_ctester.py` still refuses a
+# version that moves without being meant to.
+#
+# `script-src 'self'` is unchanged: everything is still served from this origin,
+# so a CDN would still be blocked, and that is still intentional.
 
 # AUTOMATIC DOCUMENTATION IS OFF BY DEFAULT, and this is not modesty.
 # `/docs`, `/redoc` and `/openapi.json` are public in FastAPI: they describe
@@ -122,7 +126,7 @@ OIDC_TTL = _entier("CTESTER_OIDC_CACHE_TTL", "300")
 # --- Peer help forum -----------------------------------------------------------
 # OFF BY DEFAULT, AND THAT IS THE SAFE SETTING. Without at least one
 # configured moderator `sub`, the forum is off: the button does not appear,
-# `forum.js` is never requested, and the routes answer 503 saying so. A forum
+# the chat's chunk is never requested, and the routes answer 503 saying so. A forum
 # with nobody to moderate it is a solution-sharing channel with a charter on
 # top -- we do not open it "in the meantime".
 #

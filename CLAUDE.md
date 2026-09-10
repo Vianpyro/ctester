@@ -15,12 +15,29 @@ Tout se règle par variables d'environnement, et **tous** les réglages vivent
 dans `app/config.py`, avec le défaut du rôle Ansible en face de chacun. C'est ce
 qui rend les contrôles ci-dessous exécutables hors déploiement.
 
-Rien à compiler, rien à lier, rien à construire : pas de Dockerfile. L'image
-officielle `python:3.13-slim` est lancée telle quelle sur un code monté en
-lecture seule, et les dépendances de `requirements.txt` (fastapi, uvicorn,
-pydantic, starlette, h11, psycopg) vivent à côté dans le volume `ctester_deps`
+**⚠ CE QUE LA MIGRATION DE LA PAGE DEMANDE À `VHome`, ET C'EST TOUT.** La page
+est passée à Svelte + Vite + TypeScript : elle se CONSTRUIT, et l'artefact est
+`frontend/dist` au lieu de `web/`. La CI le construit et le publie sur GitHub
+Pages toute seule — rien à faire là. Ce qui reste manuel est le montage du
+conteneur web : `CTESTER_PAGE` doit désigner un `dist`, pas `src/web`. **Le
+chemin de la migration sans risque est de VIDER `ctester_page`** : l'origine de
+l'API ne sert alors plus que des données (c'est l'état visé de la séparation),
+et Pages sert la page comme il le fait déjà pour `tch009`. La monter demanderait
+une tâche de build sur le Dell, que personne ne veut : le worker y est root, et
+il n'y a ni Node ni npm sur cette machine.
+
+**RIEN À COMPILER CÔTÉ SERVEUR** : pas de Dockerfile. L'image officielle
+`python:3.13-slim` est lancée telle quelle sur un code monté en lecture seule, et
+les dépendances de `requirements.txt` (fastapi, uvicorn, pydantic, starlette,
+h11, psycopg, wsproto) vivent à côté dans le volume `ctester_deps`
 (`PYTHONPATH=/deps`), posé par une tâche Ansible qui ne rejoue que si le fichier
 change. Une CVE dans l'image, c'est `docker compose pull`.
+
+**LA PAGE, ELLE, SE CONSTRUIT** — c'est le seul endroit du projet où il y a une
+étape de build, et elle ne tourne jamais sur le Dell. `npm run build` produit
+`frontend/dist`, un paquet statique ; la CI le construit, l'éprouve, puis publie
+CET artefact sur GitHub Pages. Le conteneur web ne compile rien : quand il sert
+encore la page (`CTESTER_PAGE`), il sert le paquet déjà construit.
 
 ## L'API — un seul point d'entrée
 
@@ -49,6 +66,22 @@ app/services/teams.py   la porte d'un devoir d'équipe, l'identité visible
                         par les coéquipiers, et l'archive de remise
 app/services/collab.py  les salles de collaboration : un relais, PAS un CRDT
 app/services/scratch.py la Console : le protocole d'une session interactive
+```
+
+La page, elle, vit dans `frontend/` — voir « La page » plus bas :
+
+```
+frontend/index.html            le document, et la copie <meta> de la CSP
+frontend/public/theme.js       le thème AVANT la première peinture
+frontend/src/lib/domain/       la logique PURE : catalogue, verdict, coloration,
+                               export main.c, rendu Markdown -- aucun DOM
+frontend/src/lib/state/        l'état, un petit module par propriétaire
+frontend/src/lib/api/          le client typé et LES TYPES DU FIL
+frontend/src/lib/auth/         la session OIDC, coupée en deux (noyau / à la demande)
+frontend/src/lib/collab/       le document partagé et la géométrie des curseurs
+frontend/src/components/       l'atelier : éditeur, verdict, barre, actions
+frontend/src/features/         les écrans chargés à la demande, un répertoire chacun
+frontend/tests/                les suites Vitest
 ```
 
 Deux règles qui tiennent le reste :
@@ -94,27 +127,34 @@ GRANT de colonne sont éprouvés contre un vrai Postgres par `test_postgres.py`,
 et les réécrire en SQLAlchemy async remplacerait du SQL prouvé par du SQL à
 prouver dans la seule couche où une erreur donne accès aux données d'autrui.
 
-**La page vit dans `web/`, l'API dans `app/`**, et c'est la séparation en cours :
-`web/` est destiné à GitHub Pages,
-`app/` reste sur le Dell. Tant que les deux ne sont pas séparés, l'API sert
-encore les deux — la page depuis `CTESTER_PAGE` (`/web`), le catalogue depuis
-`CTESTER_PUBLISHED` (`/published`). Deux variables, deux montages : confondre
-les deux fait servir un catalogue introuvable, ou une page introuvable.
-`CTESTER_STATIC` a disparu avec la phase 8 : il n'y a plus rien à servir sous
-`app/`.
+**La page vit dans `frontend/`, l'API dans `app/`**, et c'est la séparation en
+cours : la page est destinée à GitHub Pages, `app/` reste sur le Dell. Tant que
+les deux ne sont pas séparés, l'API sert encore les deux — la page depuis
+`CTESTER_PAGE`, le catalogue depuis `CTESTER_PUBLISHED` (`/published`). Deux
+variables, deux montages : confondre les deux fait servir un catalogue
+introuvable, ou une page introuvable. `CTESTER_STATIC` a disparu avec la phase
+8 : il n'y a plus rien à servir sous `app/`.
 
-La page est en treize fichiers, tous servis par la liste blanche de `app/routers/page.py` :
-`index.html` (le markup seul), `style.css`, `config.js` (l'adresse de l'API),
-`app.js` (le noyau), puis `quiz.js`, `compte.js`, `progres.js`, `forum.js`,
-`exporter.js`, `classement.js`, `collection.js`, `team.js` et `scratch.js`
-(la Console), que le noyau va
-chercher **à la demande**. S'y ajoutent trois bibliothèques tierces
-**épinglées par version** dans `web/vendor/`, servies par la même liste blanche
-et chargées seulement quand elles servent : marked et DOMPurify à l'ouverture
-des discussions, Yjs à l'ouverture d'un espace d'équipe — voir
-`web/vendor/README.md`.
-Rien de tout ça n'est compilé ni assemblé : ce que le dépôt contient est ce que
-le navigateur reçoit.
+**`CTESTER_PAGE` DÉSIGNE MAINTENANT LE PAQUET CONSTRUIT, PAS LES SOURCES.** Il
+n'y a plus rien de servable dans `frontend/src` : c'est du TypeScript et du
+Svelte. En local, `CTESTER_PAGE=frontend/dist` après un `npm run build` ; sur le
+Dell, le montage doit pointer sur un `dist` — **et c'est la seule chose que cette
+migration demande à `VHome`**, dont le rôle monte encore `src/web`. Un montage
+resté sur l'ancien chemin donne un 404 sur `/`, pas une demi-page.
+
+La page est un paquet Svelte construit par Vite, servi depuis `frontend/dist` :
+un document, une feuille, un morceau d'entrée, et **un morceau par écran qu'on
+ne peut ouvrir qu'avec un compte** — le chat (avec marked et DOMPurify dedans),
+« Mes progrès », le classement, la collection, la Console, l'espace d'équipe
+(avec Yjs dedans). Les trois bibliothèques tierces sont **épinglées à une version
+exacte** dans `package.json` et bundlées dans le morceau qui les charge, jamais
+ailleurs ; `test_forum_bibliotheques_epinglees` monte la garde sur les deux
+moitiés (la version exacte, et qui a le droit de l'importer).
+
+**LES NOMS DE FICHIERS PORTENT UN HACHAGE DE CONTENU**, et c'est ce qui a
+remplacé le jeton `?v=` tenu à la main dans deux fichiers et périmé en silence.
+`app/routers/page.py` garde donc une liste écrite en clair pour la RACINE et un
+**motif fermé** plus un contrôle d'existence pour `assets/` : voir son docstring.
 
 ## Le contenu (architecture v2)
 
@@ -218,13 +258,13 @@ CTESTER_PUBLISHED=/tmp/published CTESTER_KEY=dev CTESTER_PAGE=web python3 app/ma
   un `<details>` de barre : le navigateur sait replier, il n'y a pas
   d'accordéon en JS ni d'état d'ouverture à tenir. `selection` (le noyau)
   remplace `$("ex").value` comme source de l'exercice choisi, et
-  `ctester.exerciceChoisi()` l'expose à `forum.js`.
+  `catalog.selectedId` l'expose au chat.
 - **Le menu porte TOUS les exercices, `ctester.catalogue()` seulement les
   ouverts.** Un exercice verrouillé est au menu, désactivé, avec son cadenas et
   sa date — le faire disparaître ressemblait à une panne la veille du cours.
   Mais il ne doit compter ni dans une progression, ni dans un `main.c` de
   remise, et garder les deux listes séparées évite d'ajouter le même filtre
-  dans `compte.js`, `progres.js` et `exporter.js`, où il serait oublié une fois
+  dans trois écrans, où il serait oublié une fois
   sur trois.
 - **Un exercice peut appartenir à deux collections** (invariant 3) : il
   s'affiche dans les deux, et ne compte qu'une fois. Un exercice sans
@@ -330,16 +370,26 @@ Sur le contrôleur, jamais sur le Dell (les trois derniers ont besoin de gcc) :
 
 ```sh
 pip install -r requirements-dev.txt   # UNE FOIS : fastapi, uvicorn, httpx2
-npm ci                                # UNE FOIS : jsdom, contrôles XSS du forum
+npm ci                                # UNE FOIS : Svelte, Vite, TypeScript, Vitest
 
+npm run check                    # les types, TypeScript ET Svelte -- voir plus bas
+npm run build                    # le paquet, et DEUX suites le lisent
+npm test                         # les suites de la page
 python3 test_ctester.py          # les défenses, la progression, le forum, les équipes
 python3 bot/bridge.py --autotest # le pont Discord, sans réseau (aussi joué par le précédent)
 python3 test_api.py              # l'API : frontière HTTP, bornes, valeurs extrêmes
-node    test_page.js             # le JS de la page, sur un DOM en carton
 python3 verify_content.py   ../unittests/content
 python3 validate_content.py  ../unittests/content   # le schéma seul, sans gcc
 python3 test_sandbox.py  ../unittests/content   # les trois build.sh, vrai gcc
 ```
+
+**`npm run build` VIENT AVANT LES DEUX SUITES QUI LE LISENT**, et l'ordre n'est
+pas décoratif : `frontend/tests/bundle.test.ts` éprouve CE QUE L'ANONYME
+TÉLÉCHARGE sur l'artefact lui-même, et `test_csp_du_document` éprouve la
+politique du document CONSTRUIT. Les deux sautent proprement quand il n'y a pas
+de `dist/` — un dépôt frais ne doit pas exiger un build pour lancer `npm test` —
+donc **les oublier ne fait pas échouer, ça fait passer sans rien prouver**. La CI
+construit d'abord, exprès.
 
 Et avant une cohorte, une fois, avec Docker — pas à chaque modif :
 
@@ -414,24 +464,53 @@ docker stop pg
   seuls GRANT — ce qui prouve du même coup que le GRANT suffit, que Postgres
   refuse bien l'UPDATE sur les trois tables de progression, et que le GRANT DE
   COLONNE du forum laisse passer `masque` en refusant `texte` et `utilisateur`.
-- **`test_page.js`** — exécute le JS contre un DOM en carton et vérifie que la
-  soumission part vraiment. **`node --check` ne suffit pas** : la seule panne que
-  cette page ait connue en production était une `ReferenceError` de zone morte
-  temporelle (une variable redéclarée dans un bloc `try` qui masquait la charge
-  utile utilisée deux lignes plus haut). Le `fetch` ne partait jamais, le `catch`
-  affichait « le serveur ne répond pas », et les logs du conteneur étaient vides.
-  **Il refuse aussi qu'un module déclare deux fois la même fonction** : la
-  dernière gagne, en silence, et l'appelant reçoit l'autre — c'est la panne qui
-  a coûté une session de débogage (`activer` contre `activerModule`), et elle
-  s'est reproduite pendant la refonte (un `exportRow` avait survécu à son
-  remplaçant). Cinq lignes, en tête du fichier.
-  **Il a maintenant UNE dépendance, de test seulement : `jsdom`** (`npm ci`).
-  DOMPurify refuse de travailler sans DOM — `isSupported` passe à faux et
-  `sanitize()` rend alors son entrée **telle quelle**. Un harnais qui l'utilisait
-  dans cet état écrirait « aucune injection ne passe » sans avoir rien assaini,
-  c'est-à-dire le pire des contrôles de sécurité : celui qui rassure. Le fichier
-  refuse donc de démarrer sans jsdom, en le disant. L'APPLICATION, elle, n'a
-  toujours aucune dépendance npm.
+- **`npm run check` (svelte-check) A REMPLACÉ `node --check`, et c'est
+  strictement plus fort.** La seule panne que cette page ait connue en production
+  était une `ReferenceError` de zone morte temporelle — une variable redéclarée
+  dans un bloc `try` qui masquait la charge utile utilisée deux lignes plus haut.
+  Le `fetch` ne partait jamais, le `catch` affichait « le serveur ne répond pas »,
+  et les logs du conteneur étaient vides. Un typage strict attrape cette classe
+  entière, plus tout ce que l'ancien harnais devait éprouver à la main : une
+  propriété qui n'existe pas, une charge d'API mal lue, deux fonctions du même nom
+  (`activer` contre `activerModule` — la panne qui a coûté une session de
+  débogage) sont maintenant des erreurs de compilation. Il tourne avec
+  `--fail-on-warnings` : un avertissement d'accessibilité de Svelte est une
+  erreur, et le taire demande un `svelte-ignore` avec sa raison écrite à côté.
+- **`npm test` (Vitest) éprouve LA LOGIQUE, pas un DOM en carton.** L'ancien
+  harnais pilotait un faux DOM parce que la logique vivait dans les fonctions qui
+  le manipulaient ; elle vit maintenant dans `lib/domain/` et `lib/state/`, donc
+  elle s'éprouve **en l'appelant**. Dix suites, et chacune protège une phrase que
+  quelqu'un lit ou une règle dont l'absence coûte du travail :
+  `catalog` (les deux lectures du catalogue, les cadenas datés, le filtre de
+  l'export), `verdict` (la première erreur de gcc, la restriction d'un quiz),
+  `mainc` (les quatre pièges déjà payés de l'export), `drafts` (un magasin
+  empoisonné qui n'atteint pas l'éditeur), `session` (un seul renouvellement en
+  vol, la rotation suivie, le résultat en retard qui ne ressuscite rien),
+  `submission` (les phases, le quota, et que le raccourci n'affirme RIEN au
+  serveur), `collab` (la diff CRDT et la transformation du curseur, avec un vrai
+  `Y.Doc` et sans réseau), `highlight` (l'échappement, et les trois pièges du
+  lexeur), `markdown` (les charges hostiles), `bundle` (ce que l'anonyme
+  télécharge).
+  **`jsdom` RESTE, ET C'EST NON NÉGOCIABLE POUR UNE SUITE.** DOMPurify refuse de
+  travailler sans DOM — `isSupported` passe à faux et `sanitize()` rend alors son
+  entrée **telle quelle**. Une suite tournant dans cet état écrirait « aucune
+  injection ne passe » sans avoir rien assaini, c'est-à-dire le pire des contrôles
+  de sécurité : celui qui rassure. `markdown.test.ts` commence donc par vérifier
+  que l'assainisseur est vraiment là, et ses assertions portent sur le **DOM**
+  et pas sur le texte : `&lt;script&gt;` en texte échappé est exactement le bon
+  résultat, et une recherche de sous-chaîne le prendrait pour un échec.
+- **`bundle.test.ts` est ce qui remplace « l'anonyme ne télécharge rien ».**
+  C'était une propriété du chargeur `<script>` fait main, vérifiée en regardant
+  quelles URL un faux DOM demandait ; c'est maintenant une propriété du PAQUET,
+  donc elle se vérifie sur l'artefact : ce que contiennent le morceau d'entrée et
+  ses dépendances préchargées EST ce qu'un étudiant sans compte paie. Les marqueurs
+  sont des **littéraux de chaîne et pas des identifiants** — le build minifie, donc
+  un contrôle sur `Y.Doc` ou `DOMPurify` passerait par accident pour toujours,
+  alors qu'une chaîne qu'une bibliothèque porte dans sa propre source survit (et
+  celle de DOMPurify est sa VERSION, ce qui épingle du même coup ce qui est
+  bundlé). La dernière assertion est celle qui tient les autres honnêtes : les
+  morceaux différés doivent EXISTER, sinon tout passerait en ayant mis le monde
+  dans un seul fichier.
 
 Après chaque `ansible-playbook … --tags tests` :
 
@@ -641,7 +720,7 @@ XP. C'est la différence entre ne pas demander et dicter la réponse.
   de deux qui divergeraient.
 - **En mémoire seulement** : un rechargement de page refait juger. C'est un
   raccourci de session, pas un cache — et c'est le bon défaut.
-- Conséquence pour `test_page.js` : **chaque scénario doit soumettre un code
+- Conséquence pour `submission.test.ts` : **chaque scénario doit soumettre un code
   différent** (`codeUnique()`). Un harnais qui rejouerait le même texte en
   changeant la réponse du serveur éprouverait ce raccourci-là, pas le rendu des
   verdicts qu'il vise.
@@ -676,7 +755,8 @@ manquait : un programme C quelconque, lancé, et avec lequel on **dialogue**.
 conteneur gVisor du juge — `build-io.sh` s'ouvre là-dessus, `test_sandbox.py`
 l'éprouve, et la section suivante en parle. Réutiliser le mot ferait ce que ce
 dépôt refuse ailleurs (« un seul mot par état »). Côté code, tout s'appelle
-`scratch` : `web/scratch.js`, `WS /scratch/live`, `app/services/scratch.py`,
+`scratch` : `frontend/src/features/scratch/`, `WS /scratch/live`,
+`app/services/scratch.py`,
 `scratch_draft`. Pas `console` — c'est un global JS.
 
 **UNE SESSION EST UN JOB DE LA FILE EXISTANTE, et c'est ce qui rend la
@@ -1067,14 +1147,14 @@ un compte, et ne porte aucun jeton.
   clignoter le total.
 - **Une panne de `/live` ne se voit pas** : `battement()` avale l'erreur et
   `#live` reste caché. Le compteur ne doit jamais gêner un exercice.
-- `test_page.js` vérifie qu'il s'affiche pour l'anonyme ; `test_ctester.py`
+- `bundle.test.ts` vérifie qu'il reste dans le paquet de l'anonyme ; `test_ctester.py`
   (`test_presence_compteur`) vérifie le dédoublonnage et l'expiration.
 
 ## La progression (phase 1 de la gamification)
 
 Pour les comptes connectés SEULEMENT. L'anonyme ne télécharge rien de tout ça
 et n'émet aucune requête — **à la seule exception du battement `/live`** (voir
-« Le compteur de présence » ci-dessous) : `test_page.js` le vérifie, c'est la
+« Le compteur de présence » ci-dessous) : `bundle.test.ts` le vérifie, c'est la
 raison d'être du découpage.
 
 **Les chiffres sont dans `app/politique.py`, et nulle part ailleurs.** Montants
@@ -1168,7 +1248,7 @@ posé UNE fois, dans `exercices_pratique()` de `app/services/progression.py`.
 Sans lui, elle gonflerait « exercices publiés », les compétences pratiquées, la
 recommandation et le `main.c` de remise — quatre endroits, dont trois où
 personne ne l'aurait vu. Côté page, `exercicesExportables()` porte le même
-filtre : `test_page.js` échoue si on le retire, et le main.c exporté gagne un
+filtre : `catalog.test.ts` échoue si on le retire, et le main.c exporté gagne un
 `#if exercice == N` que l'énoncé ne prévoit pas.
 
 **Un succès ne se retire pas, une bande si.** `verifications_reussies()` compte
@@ -1184,9 +1264,9 @@ d'`etat.py` — le seuil de refonte reste un p95 au-dessus d'une seconde, que
 ## Le forum d'entraide (hors phases, entre 1 et 2)
 
 Pour les comptes connectés SEULEMENT, **et seulement si des modérateurs sont
-configurés**. L'anonyme ne télécharge rien de tout ça — ni `forum.js`, ni les
+configurés**. L'anonyme ne télécharge rien de tout ça — ni l'écran, ni les
 74 Ko de bibliothèques de rendu — et n'émet aucune requête (hormis `/live`,
-comme partout) ; `test_page.js` le vérifie, comme pour la progression.
+comme partout) ; `bundle.test.ts` le vérifie, comme pour la progression.
 
 **Il est ÉTEINT par l'absence d'une variable, pas par un booléen.**
 `CTESTER_FORUM_MODERATORS` vide → `forum_enabled()` est faux → le bouton
@@ -1213,7 +1293,7 @@ ne puisse la reprendre.
 
 **Le formulaire d'identité vit dans le menu Compte, pas dans la vue.**
 `#identitepanneau` est le même encart flottant que la charte et le consentement,
-dessiné par `forum.js` (`ouvrirIdentite()`), chargé au clic comme le reste du
+dessiné par `IdentityPanel.svelte`, chargé au clic comme le reste du
 module. C'est un réglage : dans la colonne du fil, il repoussait la charte et le
 formulaire de publication à chaque visite. Un seul endroit, donc un seul endroit
 où la visibilité peut diverger de ce que la base dit — l'intro de la vue
@@ -1254,7 +1334,7 @@ caché au passage.
 
 **Le rendu est la partie dangereuse, et il a deux barrières.** Les messages sont
 stockés SOUS LEUR FORME SOURCE ; le serveur ne rend rien et n'assainit rien, il
-borne. Dans `forum.js` : (1) `<` est échappé AVANT l'analyse Markdown, donc
+borne. Dans `lib/domain/markdown.ts` : (1) `<` est échappé AVANT l'analyse Markdown, donc
 `marked` ne voit jamais une balise venant d'un étudiant ; (2) sa sortie passe par
 DOMPurify avec une allow-list fermée. **`<` seulement, pas `>`** — échapper `>`
 tuait la citation Markdown, qui est dans l'allow-list, et une balise commence
@@ -1276,10 +1356,20 @@ en-tête. `test_csp_du_document` compare les deux **directive par directive** :
 tenables.** Un `<meta>` ne peut pas porter un hachage calculé sur le corps
 servi ; recopier le hachage à la main le ferait périmer à la première virgule
 changée, en silence, en emportant le thème. Le bootstrap du thème vit donc dans
-`web/config.js`, chargé **en tête de `<head>` sans `defer`** — un `<script src>`
-classique bloque le rendu, donc il tourne avant la première peinture exactement
-comme l'inline qu'il remplace. `script-src 'self'` suffit alors, sans hachage,
-et `csp()` **lève** si un inline réapparaît plutôt que de le hacher en douce.
+`frontend/public/theme.js`, chargé **en tête de `<head>` sans `defer`** — un
+`<script src>` classique bloque le rendu, donc il tourne avant la première
+peinture exactement comme l'inline qu'il remplace. `script-src 'self'` suffit
+alors, sans hachage, et `csp()` **lève** si un inline réapparaît plutôt que de le
+hacher en douce.
+
+**ET IL N'EST PAS DANS LE PAQUET NON PLUS**, ce qui est la moitié qu'un build
+ajoute : un `<script type="module">` est **différé par la spécification**, donc le
+paquet principal tourne toujours APRÈS la première peinture. Y lire le thème
+ramènerait le flash sombre→clair que ce fichier existe pour éviter. Il reste donc
+dans `public/`, que Vite recopie tel quel, sous un nom **stable** — c'est le seul
+script du document qui ne porte pas de hachage, et `page.py` l'autorise par ce
+nom-là. Vite n'émet qu'un seul script inline, son polyfill de `modulepreload`, et
+`build.modulePreload.polyfill: false` l'éteint.
 
 **`frame-ancestors` est la seule perte réelle** : un `<meta>` ne peut pas le
 porter, et le navigateur le signale en console — or une console rouge est une
@@ -1319,7 +1409,7 @@ Elle ne rend pas un message privé *dans* le canal de chat — `est_chat()` forc
 le public et on ne lui demande rien : elle change **la clé de fil envoyée**
 (`tp2-ex3` au lieu de `@chat:tp2-ex3`), que `cleFil()` sait déjà produire. Zéro
 route, zéro schéma, zéro migration, et « dans le chat tout est public » reste
-vrai à la lettre. `test_page.js` refuse qu'on remplace ça un jour par un
+vrai à la lettre. Le composeur refuse qu'on remplace ça un jour par un
 `visibility: "private"` sur une clé `@chat:` — le serveur répondrait 400.
 
 **LE CHAT EST UNE COLONNE, PAS UN CINQUIÈME ÉCRAN.** `#chatdock` est le
@@ -1348,8 +1438,9 @@ sans ça il suivrait le flux et se retrouverait sous l'éditeur, hors de vue.
   seul geste qu'on n'a pas à leur enseigner. Pas dans la vue large : on y
   rédige une question de dix lignes, et une touche qui l'enverrait à moitié
   écrite serait pire que le clic.
-- **La clé `ctester.chat.ouvert` vit dans `app.js`, pas dans `forum.js`** :
-  c'est elle qui décide s'il faut aller CHERCHER `forum.js` au démarrage, donc
+- **La clé `ctester.chat.ouvert` vit dans le NOYAU
+  (`lib/state/dock.svelte.ts`), pas dans le morceau du chat** : c'est elle qui
+  décide s'il faut aller CHERCHER ce morceau au démarrage, donc
   elle doit être lisible avant que le module n'existe. Une constante recopiée
   dans les deux fichiers finirait par diverger, et le symptôme serait un
   panneau qui ne revient jamais.
@@ -1493,14 +1584,14 @@ affiché de tout l'historique — un étudiant qui se sent exposé se détache d
 passé d'un clic. Le formulaire le dit avant le clic.
 
 **LE PSEUDONYME ÉTAIT INATTEIGNABLE, ET C'ÉTAIT LE BLOCAGE.** Le bloc de
-`forum.js` était dessiné sous `if (profil.alias)` alors que la **seule** chose
+Le bloc était dessiné sous `if (profil.alias)` alors que la **seule** chose
 qui écrit un alias est le bouton dedans : il était donc caché exactement pour
 les comptes qui n'en avaient pas. Bénin tant que l'alias n'était qu'une
 décoration de classement, bloquant dès qu'il est la façon d'apparaître. Le
 bloc est désormais inconditionnel, un alias est tiré **à la première
 écriture** (`_assurer_alias`, best effort — vocabulaire épuisé ⇒
-« Participant », **jamais un refus de publier**), et `test_page.js` refuse que
-la garde revienne.
+« Participant », **jamais un refus de publier**), et le panneau le dessine
+inconditionnellement.
 
 **`reply_to` PORTE TOUJOURS LA RACINE.** Répondre à une réponse stocke l'id de
 la racine, et l'aplatissement est `COALESCE(t.reply_to, t.message_id)` **dans
@@ -1606,7 +1697,7 @@ d'affichage prend le même chemin — `preference_affichage`, une ligne par comp
 `GET`/`PUT /preferences`.
 
 **Le stockage local RESTE, et il ne fait pas doublon.** C'est lui que le
-`web/config.js` du `<head>` lit avant le premier rendu ; le serveur,
+`frontend/public/theme.js` du `<head>` lit avant le premier rendu ; le serveur,
 lui, répond toujours après la première peinture. Ce que le compte dit est donc
 recopié dans `localStorage` — pas pour être relu dans la foulée, mais pour que
 la visite SUIVANTE sur cet appareil parte déjà du bon thème, sans le flash
@@ -1625,10 +1716,9 @@ cliqué. Son `GRANT` porte donc `UPDATE`, comme `exercise_draft` — et il vit d
 échoué qu'en production** : c'est l'une des trois fois qui ont motivé le
 déménagement (voir « Les droits du rôle applicatif »).
 
-**Le bouton vit dans le noyau, la synchronisation dans `compte.js`.** L'anonyme
-a le bouton et n'émet aucune requête en le cliquant (`test_page.js` le
-vérifie) : `app.js` n'appelle `ctester.compte.enregistrerTheme()` que si le
-module est là, et le module ne fait rien sans jeton. Rien n'est attendu non
+**Le bouton vit dans le noyau, et il n'écrit sur le compte que s'il y en a un.**
+L'anonyme a le bouton et n'émet aucune requête en le cliquant :
+`theme.toggle(signedIn)` ne part vers `/preferences` que connecté. Rien n'est attendu non
 plus — le thème est déjà à l'écran, et un aller-retour raté ne doit pas donner
 l'impression que le bouton n'a pas marché.
 
@@ -1640,10 +1730,11 @@ N` en tête qui choisit lequel des `main()` est compilé, un `#if exercice == N
 garde un brouillon PAR exercice ; sans ce bouton, l'étudiant recolle huit
 fichiers à la main la veille de la remise, et c'est là qu'il en perd un.
 
-**Tout se passe dans la page, et c'est délibéré.** `exporter.js` lit les
-brouillons et fabrique le texte ; aucune route n'a été ajoutée. La seule chose
-que le serveur a gagnée, c'est `exporter.js` dans la liste blanche des fichiers
-servis (`app/routers/page.py`) — un module absent de cette liste tombe en 404.
+**Tout se passe dans la page, et c'est délibéré.** `lib/domain/mainc.ts`
+fabrique le texte — pur, donc éprouvé en l'appelant — et `lib/state/export.ts`
+fait le reste : rassembler les brouillons, demander un nom, tendre un fichier au
+navigateur. Aucune route n'a été ajoutée, et le serveur n'a rien gagné du tout :
+c'est un morceau du paquet, pas un fichier à déclarer quelque part.
 
 **Seulement les TP « io », et au moins deux exercices.** `#define exercice N` ne
 choisit un `main()` que là où il y en a plusieurs : un exercice « unity » est un
@@ -1664,7 +1755,7 @@ localement sont demandés à `/brouillon?ex=` **un par un** — c'est la connexi
 Postgres unique derrière son verrou global, dix requêtes d'un coup prendraient la
 file à tout le monde.
 
-Quatre détails déjà payés, tous éprouvés dans `test_page.js` :
+Quatre détails déjà payés, tous éprouvés dans `mainc.test.ts` :
 
 - **Les `#include` ne remontent qu'au PREMIER NIVEAU.** Un `#include` déjà pris
   dans un `#if` de l'étudiant est là POUR cette condition ; le remonter le
@@ -1825,7 +1916,8 @@ premier 401 fermait la session — brouillon, fil, salle d'équipe compris. Rien
 à l'écran ne disait pourquoi, puisque l'étudiant n'avait rien fait.
 
 **Le correctif est un `refresh_token`, et il vit ENTIÈREMENT dans
-`web/compte.js`.** Pas de BFF, pas de session serveur, pas de route neuve :
+`frontend/src/lib/auth/`.** Pas de BFF, pas de session serveur, pas de route
+neuve :
 l'API continue de ne voir que des jetons d'accès, `security.current_user()`
 n'a pas bougé d'une ligne, et **rien du backend n'a été touché**.
 
@@ -1874,13 +1966,15 @@ sockets savent en plus répondre au `4401` du serveur : **un** renouvellement,
   tentative et l'XP n'étaient jamais écrits, et l'étudiant lisait un verdict
   parfaitement normal. Un 401 aurait au moins été visible.
 - **Une garde par socket, bornée à un essai**, et ce qui la réarme diffère
-  parce que les trois n'ont pas le même signal de succès : `team.js` sur la
-  trame `ready` (la salle a vraiment accepté), `forum.js` et `scratch.js` sur
+  parce que les trois n'ont pas le même signal de succès : la salle d'équipe sur
+  la trame `ready` (elle a vraiment accepté), le chat et la Console sur
   le prochain geste de l'étudiant (le paramètre `reprise` distingue le clic de
   la reconnexion automatique). Sans ça, un serveur qui refuserait un jeton tout
   neuf ferait tourner la paire renouvellement/reconnexion pour toujours.
-- `test_page.js` balaie les trois fichiers et refuse celui qui ne ferait pas
-  les deux — la quatrième socket qu'on écrira dans six mois tombera dessus.
+- Les trois passent par `ensureValid()` / `renew()` de
+  `lib/auth/session.svelte.ts`, et `session.test.ts` éprouve la paire une fois
+  pour toutes : un seul renouvellement en vol, la rotation suivie, le résultat en
+  retard qui ne ressuscite rien.
 
 **Côté déploiement, une seule chose, et elle est chez Rauthy** : le client
 `ctester` doit **autoriser le scope `offline_access` et le grant
@@ -1891,9 +1985,7 @@ continuent. Aucun changement dans `VHome`, aucune variable, aucune migration,
 et la CSP portait déjà l'origine de l'émetteur dans `connect-src` (la
 découverte et l'échange du code y allaient déjà).
 
-**Éprouvé par `test_page.js`** : l'échange du code range les trois morceaux
-(dans son PROPRE processus, `CTESTER_MODE=retour` — `authCode` est lu une fois,
-au chargement de la page), la marge, l'absence de renouvellement quand le jeton
+**Éprouvé par `session.test.ts`** : la marge, l'absence de renouvellement quand le jeton
 est bon, les cinq appels concurrents qui n'en font qu'un, la rotation, le 401
 qui réessaie une fois, le second 401 qui déconnecte, le renouvellement refusé,
 la déconnexion qui efface tout, le résultat en retard qui ne ressuscite rien,
@@ -1901,7 +1993,8 @@ et les trois comportements de socket.
 
 ## L'adresse de l'API et CORS
 
-**`web/config.js` est le SEUL endroit où vit l'adresse de l'API**, et il décrit
+**`frontend/src/lib/config.ts` est le SEUL endroit où vit l'adresse de l'API**,
+et il décrit
 ce que chaque déploiement est vraiment, pas la cible :
 
 | Hôte | `CTESTER_API` | Pourquoi |
@@ -1910,10 +2003,11 @@ ce que chaque déploiement est vraiment, pas la cible :
 | `*.github.io` | `https://tch099.thevhome.com` | déploiement de préparation, déjà séparé |
 | tout le reste | `""` | `CTESTER_PAGE=web python3 app/main.py` |
 
-`window.API(chemin)` préfixe, et **rien d'autre** : les modules chargés à la
-demande et les deux vendor sont à côté de la page, donc `charger()` ne change
-pas. Les deux `fetch` OIDC de `compte.js` (découverte, token endpoint) portent
-des URL absolues venues de l'émetteur — **ne pas** les préfixer.
+`api(chemin)` préfixe, et **rien d'autre** : les morceaux chargés à la demande
+sont servis par le même hôte que la page, donc leurs URL sont relatives et ne
+passent pas par là. Les trois `fetch` OIDC de `lib/auth/oidc.ts` (découverte,
+échange, renouvellement) portent des URL absolues venues de l'émetteur —
+**ne pas** les préfixer.
 
 `tch099` et pas `api.tch009` : le certificat universel de Cloudflare couvre
 `thevhome.com` et `*.thevhome.com`, **une seule étiquette**. Deux étiquettes
@@ -1933,8 +2027,8 @@ sans quoi CORS disparaîtrait dès la deuxième visite, comme la CSP avant lui.
   certains caches, et un cache qui perd `Origin` sert la réponse d'une origine à
   une autre.
 - Le préflight répond 204 pour toute route, depuis le middleware. **`DELETE` est dans
-  `Allow-Methods` et doit y rester** : `compte.js` supprime un compte,
-  `forum.js` un message. L'oublier ne casse que le cross-origin — donc
+  `Allow-Methods` et doit y rester** : la page supprime un compte
+  (`DELETE /moi`) et un message de forum. L'oublier ne casse que le cross-origin — donc
   seulement la production, et seulement ces deux boutons-là.
 - **Pas de `Allow-Credentials`** : aucun cookie ici, le jeton voyage en en-tête.
 - Le préflight est mis en cache 24 h (`Max-Age`) : sans lui, chaque PUT et
@@ -1943,35 +2037,55 @@ sans quoi CORS disparaîtrait dès la deuxième visite, comme la CSP avant lui.
 Le tout est éprouvé dans `test_api.py` (`test_cors_origine_connue_et_inconnue`,
 `test_un_seul_vary_annoncant_les_deux_axes`,
 `test_preflight_sur_toute_route_meme_inconnue`, `test_304_garde_la_csp_et_le_cache`)
-et les trois branches de `config.js` à la fin de `test_page.js`.
+et les branches d'origine dans `frontend/src/lib/config.ts`.
 
 ## La page — ce qui est fragile
 
-Neuf fichiers (voir « L'API — un seul point d'entrée »), `no-cache` (voir plus
-bas). `index.html` reste mince : le markup et quelques commentaires de
-structure, aucun script. Ce qu'il faut savoir avant d'y toucher :
+Svelte 5 + Vite + TypeScript, construit en un paquet statique (voir « L'API — un
+seul point d'entrée »), `no-cache` (voir plus bas). Ce qu'il faut savoir avant
+d'y toucher :
 
-### index.html
+**PAS DE SVELTEKIT, ET LA RAISON EST DANS LE DÉPÔT** : cette page n'a AUCUNE
+route. Ce qu'elle a, c'est des paramètres de requête (`?tp=`, `?k=`, le `?code=`
+du retour OIDC) et des vues qu'on bascule sur place. Un méta-framework aurait
+apporté un routeur qui ne route rien, un rendu serveur qu'on doit désactiver, et
+un `404.html` pour un problème qu'on n'a pas. Svelte + Vite suffit, et la sortie
+reste du statique — ce qui est une contrainte de déploiement, pas une préférence.
+
+**PAS DE LIBRAIRIE D'ÉTAT NON PLUS.** L'état est une poignée de petits modules à
+runes dans `lib/state/`, un par propriétaire (`session`, `catalog`, `editor`,
+`drafts`, `submission`, `view`, `system`, `statuses`, `presence`,
+`collaborators`). Un magasin global unique aurait rendu « qui écrit ça ? »
+inrépondable, ce qui est exactement la question qu'on se pose à 23 h.
+
+**LA LOGIQUE N'EST PAS DANS LES COMPOSANTS.** `lib/domain/` est pur — aucun DOM,
+aucun `fetch` — et c'est ce qui rend `npm test` court et vrai : le catalogue, le
+verdict, le lexeur C, l'export `main.c` et le rendu Markdown s'éprouvent en les
+appelant. Un composant qui se met à décider quelque chose est un composant dont
+la décision remonte dans `domain/`.
+
+### frontend/index.html
 
 - **L'ordre du `<head>` est : icône, `<meta charset>`, le `<meta
-  http-equiv="Content-Security-Policy">`, viewport, robots, titre, `config.js`,
-  `style.css`.** Le `<meta>` CSP doit rester juste après `<meta charset>` et
+  http-equiv="Content-Security-Policy">`, viewport, robots, titre,
+  `/theme.js`.** Le `<meta>` CSP doit rester juste après `<meta charset>` et
   avant tout ce qu'il gouverne : un navigateur n'applique la politique qu'à
-  partir du moment où il la lit.
-- **`<script src="config.js">` vient avant `<link rel="stylesheet">`, SANS
-  `defer`.** C'est lui qui pose le thème avant le premier rendu depuis qu'il
-  n'y a plus d'inline (voir « La CSP » plus haut) ; un `<script src>`
-  classique bloque le rendu, donc il tourne avant la première peinture. Avec
-  `defer`, ou en fin de `<body>`, le flash sombre→clair serait déjà passé. La
-  feuille, elle, est demandée juste après : plus tôt ne l'afficherait pas plus
-  vite, puisque rien n'est encore peint.
+  partir du moment où il la lit. `bundle.test.ts` le vérifie sur le document
+  CONSTRUIT, où Vite insère ses propres balises.
+- **`<script src="/theme.js">`, SANS `defer` ET SANS `type="module"`.** C'est lui
+  qui pose le thème avant la première peinture (voir « La CSP » plus haut) : un
+  `<script src>` classique bloque le rendu, un module est différé par la
+  spécification. Le mettre dans le paquet ramènerait le flash sombre→clair.
 - **Aucun `<script>` inline, jamais.** `script-src 'self'` du `<meta>` le
-  bloquerait, et `csp()` lève plutôt que de le hacher. `test_page.js` et
-  `test_ctester.py` le vérifient tous les deux.
-- **`<script src="app.js">` reste en FIN de `<body>`**, sans `defer` : le script
-  travaille sur le DOM dès son exécution.
+  bloquerait, et `csp()` lève plutôt que de le hacher. `bundle.test.ts` et
+  `test_ctester.py` le vérifient tous les deux, le second sur le document
+  construit quand il existe.
+- **Le markup de la page n'est PLUS dans ce fichier** : c'est `<div id="app">`
+  plus le paquet. Les identifiants et les classes, eux, n'ont pas bougé — la
+  feuille est reprise telle quelle, et la migration ne devait pas être un
+  redessin.
 
-### style.css
+### frontend/src/app.css
 
 - **L'éditeur coloré = un `<pre>` (`#hl`) derrière un `<textarea>` (`#code`) au
   texte transparent.** `#hl` et `#code` doivent garder des métriques
@@ -1981,14 +2095,14 @@ structure, aucun script. Ce qu'il faut savoir avant d'y toucher :
   superposition, jamais dedans — son contrat est plus court (même `font-size`,
   `line-height`, padding vertical, bordure haute) et tient parce que `#code` est
   en `white-space: pre`.
-### app.js
+### Le noyau
 
-- **Dans le handler de `#go`, la réponse `fetch` est parsée dans un `let out`
-  local.** Ne pas réutiliser un nom déjà pris dans la portée (la payload
-  `body`) : c'est exactement la `ReferenceError` de zone morte temporelle qui a
-  fait la seule panne prod. La réponse n'est pas toujours du JSON (page de
-  blocage Cloudflare, erreur nginx en HTML) — d'où le `try/catch` autour de
-  `r.json()`.
+- **UNE SEULE FONCTION CONSTRUIT UNE REQUÊTE**, `lib/api/client.ts`, et **elle
+  ne lève jamais** : réseau mort, page de blocage Cloudflare, erreur nginx en
+  HTML — tout revient en `{ok, status, body}` avec `body: null`. C'est ce qui
+  remplace le `try/catch` autour de chaque `r.json()`, et c'est aussi ce qui
+  garde le message que l'API a écrit POUR L'ÉTUDIANT : un client qui réduirait un
+  refus à un booléen ferait retenter exactement la même chose.
 - **« Tester l'exercice » restreint la LECTURE, jamais la correction.** Le
   juge reçoit toujours les 40 réponses et note le quiz entier — c'est de ce
   verdict complet que l'API dérive `valide`. `restreindre()` ne fait que
@@ -2022,8 +2136,8 @@ structure, aucun script. Ce qu'il faut savoir avant d'y toucher :
   l'étudiant peut coller son code et soumettre.
 - **`afficherVue()` est le seul arbitre des quatre écrans** (exercice, « Mes
   progrès », « Discussions », « Modération »), et il vit dans le noyau. Les
-  trois vues sont dans deux modules chargés séparément (`progres.js`,
-  `forum.js`) : si chacun masquait les autres de son côté, en ouvrir une
+  vues vivent dans des morceaux chargés séparément : si chacun masquait les
+  autres de son côté, en ouvrir une
   par-dessus l'autre laisserait deux moitiés à l'écran.
   Revenir depuis « Mes progrès » ne repasse PAS par `switchMode()` : c'est ce
   qui garde l'éditeur et le verdict exactement où on les avait laissés.
@@ -2032,45 +2146,51 @@ structure, aucun script. Ce qu'il faut savoir avant d'y toucher :
   poser dans `switchMode()` ferait attribuer le code de l'exercice précédent,
   toujours affiché, à l'identifiant du nouveau dès le prochain `saveDraft()`.
 
-### quiz.js, compte.js, progres.js, forum.js, exporter.js, classement.js
-### et collection.js — à la demande
+### Les écrans chargés à la demande
 
-- **Sens unique, jamais de cycle.** `app.js` détient l'état partagé (jeton,
-  catalogue, brouillons) et l'expose une fois dans `window.ctester` ; les deux
-  modules lisent ce contexte et y déposent leurs entrées. Ils ne sont jamais
-  importés par le noyau. Des modules ES feraient la même chose en liant en
-  **zone morte temporelle** sur un import circulaire — la panne exacte que cette
-  page a déjà connue en production. D'où l'injection de `<script>`, marquée
-  `ponytail:` dans `charger()`.
-- **`activerModule()` et pas `activer()`** : `app.js` a déjà une fonction
-  `activer`, celle qui change d'onglet dans l'éditeur. Deux déclarations de
-  fonction du même nom ne se signalent pas — la dernière gagne, et l'appelant
-  reçoit silencieusement l'autre. Ça a coûté une session de débogage.
-- **Un échec de chargement n'est pas gardé.** `charger()` oublie la promesse
-  rejetée : sans ça, une coupure d'une seconde condamnerait la fonction pour
-  toute la visite, le second clic retombant sur le rejet sans jamais retenter.
-- **Le parcours anonyme ne télécharge rien de `compte.js`, `progres.js`,
-  `forum.js`, `classement.js` ni `collection.js`**, même sur un déploiement où la connexion et le forum sont
-  offerts. `test_page.js` le vérifie ; c'est la raison d'être du découpage.
-  `progres.js` et `forum.js` vont plus loin : leur bouton n'apparaît que
-  connecté, et le fichier ne descend qu'au clic — un étudiant connecté qui
-  n'ouvre jamais ses progrès n'en paie rien, et celui qui n'ouvre jamais les
-  discussions ne paie ni le module ni ses 74 Ko de bibliothèques de rendu.
-- **`progres.js` ne calcule RIEN.** Solde, niveau, compétences, succès et
+- **Sens unique, jamais de cycle, ET C'EST MAINTENANT LE BUNDLER QUI LE TIENT.**
+  Le noyau détient l'état partagé (session, catalogue, brouillons, éditeur) dans
+  `lib/state/` ; les écrans le lisent. Le noyau n'importe AUCUN écran
+  statiquement : il les atteint par `import()`, donc un cycle serait visible à la
+  compilation au lieu de lier en **zone morte temporelle** — la panne exacte que
+  cette page a déjà connue en production, et la raison pour laquelle l'ancien
+  découpage passait par un objet global et des `<script>` injectés. Ce détour
+  n'existe plus : `window.ctester` a disparu.
+- **`App.svelte` EST LE SEUL ENDROIT QUI DÉCIDE CE QUI EST MONTÉ.** Un écran ne
+  se charge pas lui-même et n'en masque pas un autre : si chacun le faisait de son
+  côté, en ouvrir un par-dessus l'autre laisserait deux moitiés à l'écran. Une
+  vue = une valeur (`lib/state/view.svelte.ts`) plus un morceau à faire venir.
+- **Un échec de chargement est DIT, et n'est pas gardé.** `bring()` écrit dans le
+  canal de service ce qui n'est pas arrivé — sans ça le bouton reste inerte sans
+  un mot — et le rejet n'est pas mémorisé : une coupure d'une seconde ne doit pas
+  condamner la fonction pour toute la visite, donc le clic suivant réessaie.
+- **Le parcours anonyme ne télécharge aucun de ces morceaux**, même sur un
+  déploiement où la connexion et le forum sont offerts, et `bundle.test.ts` le
+  vérifie SUR L'ARTEFACT (voir plus haut). Le chat va plus loin : son bouton
+  n'apparaît que connecté ET sur un déploiement qui a des modérateurs, et le
+  morceau ne descend qu'au clic — un étudiant connecté qui n'ouvre jamais les
+  discussions ne paie ni l'écran ni ses 74 Ko de bibliothèques de rendu.
+- **LE QUIZ ET L'EXPORT SONT DANS LE PAQUET PRINCIPAL, et c'est un écart
+  assumé.** Le découpage existe pour que l'ANONYME ne paie rien de ce qui touche
+  au compte ; un quiz et un export `main.c` ne touchent pas au compte — un
+  étudiant sans compte fait les deux. Les différer n'aurait ajouté qu'un état de
+  chargement devant quelque chose dont il a besoin tout de suite, pour quatre
+  kilooctets. Ils n'ont jamais fait partie de la promesse de confidentialité.
+- **« Mes progrès » ne calcule RIEN.** Solde, niveau, compétences, succès et
   recommandation arrivent tout faits de `GET /progres`. Une page qui calculerait
   son propre XP serait une page où l'on se le donne depuis la console — c'est
   l'erreur qu'un verdict déclaré par la page a déjà coûtée, en plus petit.
 - **Une projection absente n'est pas un zéro.** Base en panne, API muette :
   la vue affiche un message et AUCUN chiffre. Annoncer « 0 XP » pendant une
   panne, c'est dire à quelqu'un que son travail a disparu.
-- **Le contexte expose des FONCTIONS (`ctester.token()`, `ctester.oidc()`,
-  `ctester.catalogue()`), jamais des `get`.** `Object.assign` copie la *valeur*
-  d'un getter, pas le getter : `ctester.token` est resté figé à `null` pour
-  toute la visite, et tout ce qui suit un compte — états, pratique,
+- **L'ÉTAT PARTAGÉ EST UN OBJET RÉACTIF, PLUS UNE POIGNÉE DE FONCTIONS, et
+  cette classe de panne a disparu avec lui.** Le contexte global exposait des
+  fonctions (`ctester.token()`) et non des getters, parce que `Object.assign`
+  copie la *valeur* d'un getter : `ctester.token` était resté figé à `null` pour
+  toute une visite, et tout ce qui suit un compte — états, pratique,
   synchronisation des brouillons — tombait en silence. « Mes exercices »
-  annonçait « à faire » sur un exercice réussi. Rien ne le signalait parce que
-  le harnais n'éprouvait que le parcours anonyme ; il couvre maintenant les
-  deux.
+  annonçait « à faire » sur un exercice réussi. Il n'y a plus de copie à figer :
+  un écran lit `session.token` et se redessine quand il change.
 
 ## La refonte (Claude Design « Industry »)
 
@@ -2300,7 +2420,7 @@ règle que le catalogue qui porte un exercice verrouillé avec sa date.
 **ET `/team/available` NE NOMME PERSONNE** : « 3/4 » suffit à choisir, et
 publier les compositions ferait de ce choix un tri social sur une page.
 
-Tout ça s'affiche dans « Mon identité » (`forum.js`) : c'est l'écran « qui je
+Tout ça s'affiche dans « Mon identité » (`IdentityPanel.svelte`) : c'est l'écran « qui je
 suis », « avec qui je remets » en fait partie, et le champ « Groupe » qui
 décide de la liste est juste en dessous.
 
@@ -2361,11 +2481,12 @@ semaine trois.
   mieux » qui pousserait la dernière valeur du `<textarea>` détruirait du
   travail au lieu de dégrader. L'éditeur se verrouille et le dit.
 
-Yjs est **vendorisé** (`web/vendor/yjs-13.6.32.iife.js`, 92 Ko), chargé au clic
+Yjs est une **dépendance npm épinglée** (`yjs` 13.6.32, 92 Ko), bundlée dans le
+morceau de l'espace d'équipe et donc chargée au clic
 comme les deux bibliothèques du forum, et **l'anonyme n'en télécharge pas un
-octet** — `test_page.js` le vérifie. Il est bundlé une fois à la main
-(esbuild) parce qu'il ne publie que de l'ESM ; le `--footer:js` qui pose
-`window.Y` est load-bearing, voir `web/vendor/README.md`.
+octet** — `bundle.test.ts` le vérifie sur l'artefact. Il n'y a plus de bundle à
+faire à la main ni de `window.Y` à poser : Vite le résout comme n'importe quel
+import, et l'épinglage est le lockfile.
 
 ### L'historique : récupérer, jamais noter
 
@@ -2428,14 +2549,15 @@ ajoute est `#teamband` AU-DESSUS — titre, échéance, équipe, présence,
 historique, ZIP, remise —, c'est-à-dire ce qu'un écran d'exercice ne pouvait
 pas porter. Aucune cinquième vue : `afficherVue()` n'a pas bougé.
 
-`web/team.js` est un module à la demande de plus, chargé quand l'exercice
+`frontend/src/lib/collab/room.svelte.ts` et `features/team/` sont un morceau à la
+demande de plus, chargé quand l'exercice
 ouvert porte `assignment` ET qu'il y a un jeton. Le noyau lui expose
 exactement deux portes sur l'éditeur (`ctester.editeur.lire` / `.ecrire`) et
 un point d'accroche (`ctester.brancherSession`) : le module ne touche jamais
 `#code` lui-même, ce qui laisse **un seul endroit où le curseur peut se
 perdre**. Un changement distant qui arrive pendant qu'on tape décale le
 curseur au lieu de le renvoyer à la fin — c'est ce qui rend un éditeur
-partagé utilisable, et `test_page.js` l'éprouve avec un vrai `Y.Doc`.
+partagé utilisable, et `collab.test.ts` l'éprouve avec un vrai `Y.Doc`.
 
 ### Le déploiement
 
@@ -2523,15 +2645,11 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   TOUTE la salle, pas seulement à celui qui l'a demandée. Un CRDT est
   idempotent, donc c'est gratuit en correction et un peu bavard en octets ; un
   routage par destinataire le jour où une équipe dépasse quatre personnes.
-- **`web/team.js`** — les curseurs distants sont positionnés par arithmétique
+- **`lib/collab/carets.ts`** — les curseurs distants sont positionnés par arithmétique
   sur une largeur de caractère mesurée une fois, pas par un second exemplaire
   du document dans le DOM. Ça tient parce que `#hl` et `#code` partagent leurs
   métriques au pixel ; le jour où l'éditeur accepte une police
   proportionnelle, c'est cette fonction qu'il faut reprendre.
-- **`app.js`** — les modules à la demande sont des `<script>` injectés et un
-  objet global `window.ctester`, pas des modules ES : voir la section « La page »
-  ci-dessus pour la raison (TDZ sur import circulaire). À reprendre le jour où
-  l'état partagé est vraiment séparé, pas avant.
 - **`services/leaderboard.py`** — le classement est calculé À LA LECTURE, pas
   de vue matérialisée : un `count(*)` indexé sur quelques centaines de lignes
   pour une cohorte de trente. Une projection rafraîchie le jour où le p95 de
@@ -2546,7 +2664,7 @@ Marqués `ponytail:` dans le code, rappelés ici pour ne pas les redécouvrir :
   où une question devient une entité, cette fonction est le seul endroit à
   reprendre — et les trois compteurs qu'elle rend sont déjà la forme d'une
   liste.
-- **`forum.js`** — un fil se lit en entier (200 messages au plus), sans
+- **le chat** — un fil se lit en entier (200 messages au plus), sans
   pagination ni chargement incrémental. À 80 étudiants et un exercice ouvert à
   la fois, un fil dépasse rarement la dizaine. Paginer le jour où la borne se
   voit. Même remarque pour la file de modération, qui n'a ni filtre ni tri.
