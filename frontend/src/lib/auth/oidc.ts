@@ -23,8 +23,43 @@ import {
   SESSION_MAX_DAYS,
 } from "./keys";
 
-/** Renewed a minute BEFORE it dies, not after a request has already failed. */
-const REFRESH_MARGIN = 60;
+/**
+ * Renewed this many seconds BEFORE the access token dies, not after a request
+ * has already failed.
+ *
+ * THIRTY, AND IT MUST STAY STRICTLY BETWEEN 0 AND 60. This is not a comfort
+ * setting, it is a collision that had to be moved off. Rauthy stamps every
+ * refresh token with `nbf = access_token_lifetime - 60` (`token_set.rs`), so
+ * the window in which a refresh token may be used is exactly the LAST MINUTE
+ * of the access token's life. A margin of 60 -- what this was -- fires at the
+ * very first instant of that window, on its edge, with nothing to spare.
+ *
+ * AND BEING EARLY IS NOT A FAILED REQUEST. Rauthy's own words: using a refresh
+ * token before its `nbf` "will result in invalidation of not only the token
+ * itself, but also all other linked sessions and tokens for this user". One
+ * early refresh signs the student out of everything -- which is exactly the
+ * symptom this whole file exists to remove.
+ *
+ * A CONSTANT CLOCK OFFSET CANCELS OUT, which is why this was survivable at 60:
+ * the expiry is stamped from the browser's own clock when the grant arrives, so
+ * the page measures a DURATION, and it lands one network round trip AFTER
+ * `nbf`. What does not cancel is the clock MOVING during those hours -- an NTP
+ * correction, a laptop resumed, a machine whose time was simply wrong until it
+ * was not. Thirty seconds puts us in the middle of the window instead of on its
+ * lip, so a jump has to be larger than that to do any damage.
+ *
+ * The reactive path (a 401, then one renewal) is never affected: it runs after
+ * the access token has already expired, therefore always after `nbf`.
+ */
+export const REFRESH_MARGIN = 30;
+
+/**
+ * The offset Rauthy stamps into a refresh token's `nbf`, in seconds. Not ours
+ * to choose -- it is `access_token_lifetime - 60` in `token_set.rs` -- and it
+ * is written down here so the test that pins `REFRESH_MARGIN` inside it names
+ * the number it is defending against.
+ */
+export const ISSUER_NBF_OFFSET = 60;
 
 interface Grant {
   access_token?: string;

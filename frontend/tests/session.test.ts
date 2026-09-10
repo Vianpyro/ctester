@@ -99,6 +99,37 @@ describe("where the credentials live", () => {
   });
 });
 
+describe("the renewal window Rauthy actually allows", () => {
+  // RAUTHY STAMPS `nbf = access_token_lifetime - 60` ON EVERY REFRESH TOKEN
+  // (`token_set.rs`), so a refresh token may only be used during the LAST MINUTE of the
+  // access token's life. And being early is not a failed request: Rauthy invalidates "not
+  // only the token itself, but also all other linked sessions and tokens for this user".
+  // One early renewal signs the student out of everything.
+  it("keeps the margin strictly INSIDE that window, not on its edge", async () => {
+    const { REFRESH_MARGIN, ISSUER_NBF_OFFSET } = await import("../src/lib/auth/oidc");
+    expect(ISSUER_NBF_OFFSET).toBe(60);
+    // 60 -- what this used to be -- fires at the very first instant the token becomes
+    // usable, with nothing left for a clock that moves.
+    expect(REFRESH_MARGIN).toBeLessThan(ISSUER_NBF_OFFSET);
+    expect(REFRESH_MARGIN).toBeGreaterThan(0);
+  });
+
+  it("does not renew while the token is younger than that window", async () => {
+    // A minute and one second of life left: Rauthy's `nbf` has not passed, so asking now
+    // would be the catastrophic case above rather than a wasted request.
+    localStorage.setItem(EXPIRY_KEY, String(seconds() + 61));
+    expect(await ensureValid()).toBe(true);
+    expect(tokenCalls()).toHaveLength(0);
+  });
+
+  it("renews inside it, before the token dies", async () => {
+    localStorage.setItem(EXPIRY_KEY, String(seconds() + 20));
+    grants = [{ access_token: "jeton-2", expires_in: 9000 }];
+    expect(await ensureValid()).toBe(true);
+    expect(tokenCalls()).toHaveLength(1);
+  });
+});
+
 describe("ensureValid", () => {
   it("does NOT renew a token that is still good -- a request would be pure load", () => {
     return ensureValid().then((ok) => {
@@ -107,9 +138,10 @@ describe("ensureValid", () => {
     });
   });
 
-  it("renews a MINUTE BEFORE expiry rather than after a 401", async () => {
-    // A 401 costs a round trip and, on a WebSocket, a whole reconnection.
-    localStorage.setItem(EXPIRY_KEY, String(seconds() + 30));
+  it("renews BEFORE expiry rather than after a 401", async () => {
+    // A 401 costs a round trip and, on a WebSocket, a whole reconnection. How far before
+    // is not free to choose -- see "the renewal window Rauthy actually allows" above.
+    localStorage.setItem(EXPIRY_KEY, String(seconds() + 25));
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     expect(await ensureValid()).toBe(true);
     expect(tokenCalls()).toHaveLength(1);

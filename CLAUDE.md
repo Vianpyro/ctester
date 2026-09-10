@@ -2025,6 +2025,33 @@ abandonne le premier, l'étudiant est déconnecté par une requête qui échoue 
 lieu de l'être par l'horloge de la page — c'est-à-dire par un message qui ne
 veut rien dire pour lui.
 
+### `REFRESH_MARGIN` N'EST PAS UN RÉGLAGE DE CONFORT
+
+**Rauthy estampille `nbf = access_token_lifetime - 60` sur chaque refresh
+token** (`token_set.rs`) : la fenêtre où il est utilisable est exactement **la
+dernière minute** de la vie du jeton d'accès. Et s'en servir avant n'est pas une
+requête qui échoue — ce sont ses mots : ça « invalide non seulement le jeton
+lui-même, mais **toutes les autres sessions et jetons liés de cet
+utilisateur** ». Un seul renouvellement trop tôt déconnecte de tout.
+
+**La marge valait 60, c'est-à-dire pile le bord de cette fenêtre**, sans une
+seconde de jeu. Elle vaut **30** : au milieu. Un décalage d'horloge CONSTANT
+s'annule (l'expiration est datée depuis l'horloge du navigateur à la réception,
+donc la page mesure une DURÉE et retombe un aller-retour APRÈS `nbf`) ; ce qui
+ne s'annule pas, c'est une horloge qui BOUGE pendant ces heures — NTP, un
+portable réveillé, une machine qui était simplement à l'heure d'ailleurs.
+`test "keeps the margin strictly INSIDE that window"` refuse qu'on la remette à
+60. Le chemin réactif (401 puis un renouvellement) n'est jamais concerné : il
+tourne après l'expiration, donc toujours après `nbf`.
+
+**`access_token_lifetime` est PAR CLIENT** (UI Admin, 10 à 86400 s) et vaut
+9000 — la durée d'un labo, donc zéro renouvellement pendant la séance. Il ne
+garde personne connecté d'une semaine à l'autre ; c'est le refresh token qui le
+fait. Et **la troisième horloge, `session_lifetime`, ne joue aucun rôle ici** :
+le chemin de refresh de Rauthy ne consulte aucune session (vérifié dans
+`grant_types/refresh_token.rs` et `validation.rs`), donc ses 4 h par défaut ne
+plafonnent pas les dix jours.
+
 Rien d'autre côté déploiement : aucune migration, et la CSP portait déjà
 l'origine de l'émetteur dans `connect-src` (la découverte et l'échange du code y
 allaient déjà).
