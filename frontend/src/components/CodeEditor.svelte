@@ -12,11 +12,16 @@
   // would bring their own line box, their own selection model and their own DOM, and
   // the caret overlay would have to be rewritten against it -- for a page whose
   // editor needs C colouring, a tab key and a gutter.
+  //
+  // WHAT A KEY DOES LIVES IN `domain/keys.ts`, not here: this component only applies
+  // the edit to the element. That is what makes the behaviour testable by calling a
+  // function instead of driving a fake DOM.
 
   import { editor } from "../lib/state/editor.svelte";
   import { drafts } from "../lib/state/drafts.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import { gutterText, highlight } from "../lib/domain/highlight";
+  import { keyEdit, type Edit } from "../lib/domain/keys";
   import RemoteCarets from "./RemoteCarets.svelte";
 
   let zone: HTMLTextAreaElement | undefined = $state();
@@ -64,8 +69,8 @@
   }
 
   /**
-   * TAB INSERTS FOUR SPACES, and Escape-then-Tab escapes the trap: without the
-   * escape hatch a keyboard user could never leave the field. That is the standard
+   * ESCAPE-THEN-TAB ESCAPES THE TRAP: without the escape hatch a keyboard user
+   * could never leave the field, since Tab indents. That is the standard
    * accessible behaviour for a code area, and it is why this is not simply
    * `preventDefault`.
    */
@@ -76,22 +81,53 @@
       escaped = true;
       return;
     }
-    if (event.key !== "Tab" || event.ctrlKey || event.metaKey || event.altKey) {
-      escaped = false;
-      return;
-    }
-    if (escaped) {
-      escaped = false;
-      return;
-    }
+    const leaving = event.key === "Tab" && escaped;
+    escaped = false;
+    if (leaving) return;
+    // Ctrl, Meta and Alt are the browser's and the student's -- Ctrl+Z above all.
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!zone || editor.readOnly) return;
+    const { value, selectionStart, selectionEnd } = zone;
+    const edit = keyEdit(event.key, event.shiftKey, value, selectionStart, selectionEnd);
+    if (!edit) return;
     event.preventDefault();
+    apply(edit);
+  }
+
+  /**
+   * `execCommand` AND NOT `zone.value = …`, AND THAT IS THE WHOLE REASON THIS
+   * FUNCTION EXISTS. Assigning the value **wipes the browser's undo stack**:
+   * tolerable for the single Tab key this used to be, unacceptable once every `(`
+   * goes through here, since Ctrl+Z would stop working while typing. `insertText`
+   * keeps the stack AND fires a real `input` event, so `onInput()` runs exactly as
+   * it does for a keystroke -- meaning the CRDT diff of `lib/collab/room.svelte.ts`
+   * sees a shared edit without one extra `if`.
+   *
+   * ponytail: `execCommand` is deprecated and has no replacement for this; the
+   * fallback below is the pre-existing behaviour, undo stack and all.
+   */
+  function apply(edit: Edit) {
     if (!zone) return;
-    const start = zone.selectionStart;
-    const end = zone.selectionEnd;
-    zone.value = zone.value.slice(0, start) + "    " + zone.value.slice(end);
-    zone.selectionStart = zone.selectionEnd = start + 4;
-    editor.typed(zone.value);
-    exercise.typed();
+    // Stepping over a closing character moves the caret and changes no text.
+    if (edit.insert === "" && edit.from === edit.to) {
+      zone.setSelectionRange(edit.caret, edit.caretEnd ?? edit.caret);
+      return;
+    }
+    zone.setSelectionRange(edit.from, edit.to);
+    let done = false;
+    try {
+      done = edit.insert
+        ? document.execCommand("insertText", false, edit.insert)
+        : document.execCommand("delete");
+    } catch {
+      done = false;
+    }
+    if (!done) {
+      zone.value = zone.value.slice(0, edit.from) + edit.insert + zone.value.slice(edit.to);
+      editor.typed(zone.value);
+      exercise.typed();
+    }
+    zone.setSelectionRange(edit.caret, edit.caretEnd ?? edit.caret);
   }
 
   /** Arrow keys move between tabs, as a tablist is expected to behave. */

@@ -479,7 +479,7 @@ docker stop pg
 - **`npm test` (Vitest) éprouve LA LOGIQUE, pas un DOM en carton.** L'ancien
   harnais pilotait un faux DOM parce que la logique vivait dans les fonctions qui
   le manipulaient ; elle vit maintenant dans `lib/domain/` et `lib/state/`, donc
-  elle s'éprouve **en l'appelant**. Dix suites, et chacune protège une phrase que
+  elle s'éprouve **en l'appelant**. Onze suites, et chacune protège une phrase que
   quelqu'un lit ou une règle dont l'absence coûte du travail :
   `catalog` (les deux lectures du catalogue, les cadenas datés, le filtre de
   l'export), `verdict` (la première erreur de gcc, la restriction d'un quiz),
@@ -489,8 +489,9 @@ docker stop pg
   `submission` (les phases, le quota, et que le raccourci n'affirme RIEN au
   serveur), `collab` (la diff CRDT et la transformation du curseur, avec un vrai
   `Y.Doc` et sans réseau), `highlight` (l'échappement, et les trois pièges du
-  lexeur), `markdown` (les charges hostiles), `bundle` (ce que l'anonyme
-  télécharge).
+  lexeur), `keys` (les touches de l'éditeur, dont le refus de paire sur une
+  apostrophe française), `markdown` (les charges hostiles), `bundle` (ce que
+  l'anonyme télécharge).
   **`jsdom` RESTE, ET C'EST NON NÉGOCIABLE POUR UNE SUITE.** DOMPurify refuse de
   travailler sans DOM — `isSupported` passe à faux et `sanitize()` rend alors son
   entrée **telle quelle**. Une suite tournant dans cet état écrirait « aucune
@@ -2095,6 +2096,48 @@ la décision remonte dans `domain/`.
   superposition, jamais dedans — son contrat est plus court (même `font-size`,
   `line-height`, padding vertical, bordure haute) et tient parce que `#code` est
   en `white-space: pre`.
+
+### Les touches de l'éditeur
+
+Tab, Shift+Tab, Entrée indentée, les paires auto-fermées (`(`, `[`, `{`, `"`,
+`'`), le survol du fermant, le recalage de l'accolade et le Backspace qui efface
+une paire vide ou un niveau d'un coup. **La logique vit dans
+`frontend/src/lib/domain/keys.ts`, pure** — `keyEdit(touche, maj, texte, début,
+fin)` rend une modification ou `null` —, et `CodeEditor.svelte` ne fait que
+l'appliquer à l'élément. `keys.test.ts` l'éprouve en l'appelant.
+
+**`document.execCommand("insertText")`, ET PAS `zone.value = …`.** C'est le seul
+point vraiment fragile, et il a une raison unique : **écrire `value` efface la
+pile d'annulation du navigateur**. C'était tolérable pour la seule touche Tab que
+ce handler était ; ça ne l'est plus dès que chaque `(` y passe, parce que Ctrl+Z
+cesserait de marcher pendant la frappe — dans un éditeur de code, sans un
+message. `insertText` garde la pile **et** émet un vrai `input`, donc `onInput()`
+court exactement comme pour une frappe : `editor.typed()` → `session.onInput()` →
+le diff CRDT de `lib/collab/room.svelte.ts`, **sans un `if` de plus**. L'API est
+dépréciée et n'a aucun remplaçant pour ça ; le repli est l'écriture directe
+d'avant, pile d'annulation comprise.
+
+- **`editor.readOnly` est une garde, et son absence était un bogue** : l'ancien
+  handler écrivait `zone.value` sur un document d'équipe verrouillé, que
+  `readonly` était censé protéger.
+- **Échap-puis-Tab reste l'échappatoire clavier** : Tab indente, donc sans elle
+  un utilisateur au clavier ne pourrait plus quitter le champ. Elle ne se
+  simplifie pas.
+- **Ctrl, Meta et Alt ne nous appartiennent pas** — Ctrl+Z d'abord : le handler
+  sort avant de regarder la touche.
+- **`null` n'est pas un refus, c'est « le navigateur fait mieux »**, et Entrée sur
+  une ligne sans indentation le rend exprès : une frappe native est une entrée de
+  plus dans la pile d'annulation, pas une modification programmée.
+- **Deux refus tiennent les guillemets**, et le second est celui qui compte : pas
+  de paire si le caractère précédent est alphanumérique. Les commentaires du cours
+  sont en français, et sans lui « aujourd'hui » devient « aujourd''hui ». Un test
+  monte la garde.
+- `ponytail:` **des heuristiques de position, pas un lexeur** — `keys.ts` ne sait
+  pas si le curseur est dans une chaîne ou un commentaire et ne compte pas
+  l'équilibre des parenthèses. Le pire qu'il puisse faire est une paire de trop,
+  que Backspace retire du même geste. `domain/highlight.ts` est le lexeur C à
+  brancher ici le jour où un mauvais placement se voit vraiment.
+
 ### Le noyau
 
 - **UNE SEULE FONCTION CONSTRUIT UNE REQUÊTE**, `lib/api/client.ts`, et **elle
