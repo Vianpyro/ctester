@@ -1,27 +1,20 @@
 <script lang="ts">
-  // THE CONSOLE'S SCREEN. Its editor uses the SAME structure and the SAME classes as the
-  // exercise editor -- gutter, then the coloured layer under a transparent textarea --
-  // because the metrics live ONCE in `app.css` (`.hl, .codein`). Restating them here would
-  // drift the two editors by a pixel and the colours would slide off the text with nothing
-  // saying so.
+  // THE CONSOLE'S SCREEN. Its editor IS the exercise editor's -- `CodeSurface`, the same
+  // component -- and that is what it took to stop it falling behind: it used to restate
+  // the three elements itself, so the Tab key, the auto-closing pairs and the syntax
+  // checker were each written next door and never arrived here.
   //
   // `textContent`, NEVER `{@html}`, FOR THE OUTPUT: what arrives is a program written by a
   // student, that is to say an arbitrary string. The colouring layer is the one exception
   // and it receives `highlight()`'s output, which escapes every slice.
 
   import { onDestroy, onMount } from "svelte";
-  import { gutterText, highlight } from "../../lib/domain/highlight";
+  import CodeSurface from "../../components/CodeSurface.svelte";
   import { scratch, TEMPLATE } from "./session.svelte";
 
   let title: HTMLHeadingElement | undefined = $state();
-  let zone: HTMLTextAreaElement | undefined = $state();
-  let overlay: HTMLPreElement | undefined = $state();
-  let gutter: HTMLPreElement | undefined = $state();
   let terminal: HTMLPreElement | undefined = $state();
   let typed = $state("");
-
-  const painted = $derived(highlight(scratch.code));
-  const lines = $derived(gutterText(scratch.code.split("\n").length));
 
   onMount(() => {
     title?.focus();
@@ -39,15 +32,6 @@
     if (terminal) terminal.scrollTop = terminal.scrollHeight;
   });
 
-  function onScroll() {
-    if (!zone) return;
-    if (overlay) {
-      overlay.scrollTop = zone.scrollTop;
-      overlay.scrollLeft = zone.scrollLeft;
-    }
-    if (gutter) gutter.scrollTop = zone.scrollTop;
-  }
-
   function submitInput() {
     scratch.send(typed);
     typed = "";
@@ -59,25 +43,17 @@
 
 <div class="plan scratchpan">
   <div class="phead">Ton programme</div>
-  <div class="edwrap scratchedit">
-    <pre bind:this={gutter} id="scratchgutter" class="gutter" aria-hidden="true">{lines}</pre>
-    <div class="pane">
-      <pre bind:this={overlay} id="scratchhl" class="hl" aria-hidden="true"><code
-          id="scratchhlcode">{@html painted}</code
-        ></pre>
-      <textarea
-        bind:this={zone}
-        bind:value={scratch.code}
-        id="scratchcode"
-        class="codein"
-        spellcheck="false"
-        aria-label="Programme de la Console"
-        placeholder="// Écris ton programme C ici"
-        oninput={() => scratch.scheduleSave()}
-        onscroll={onScroll}
-      ></textarea>
-    </div>
-  </div>
+  <CodeSurface
+    value={scratch.code}
+    onInput={(text) => {
+      scratch.code = text;
+      scratch.scheduleSave();
+    }}
+    label="Programme de la Console"
+    placeholder="// Écris ton programme C ici"
+    idPrefix="scratch"
+    wrapClass="scratchedit"
+  />
 </div>
 
 <div class="scratchbarre">

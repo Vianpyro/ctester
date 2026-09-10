@@ -3,7 +3,7 @@
 // `escapeHtml()` first. The first block below is therefore not a style check.
 
 import { describe, expect, it } from "vitest";
-import { escapeHtml, gutterText, highlight } from "../src/lib/domain/highlight";
+import { escapeHtml, highlight } from "../src/lib/domain/highlight";
 
 describe("escaping", () => {
   it("escapes the three characters that could open a tag or an entity", () => {
@@ -85,12 +85,5 @@ describe("the grammar", () => {
   it("colours a preprocessor line only at the start of a line", () => {
     expect(classes("#include <stdio.h>")).toContain("tp");
     expect(classes("int x = a # b;")).not.toContain("tp");
-  });
-});
-
-describe("gutterText", () => {
-  it("numbers from one, one per line", () => {
-    expect(gutterText(3)).toBe("1\n2\n3\n");
-    expect(gutterText(0)).toBe("");
   });
 });

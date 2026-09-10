@@ -479,7 +479,7 @@ docker stop pg
 - **`npm test` (Vitest) éprouve LA LOGIQUE, pas un DOM en carton.** L'ancien
   harnais pilotait un faux DOM parce que la logique vivait dans les fonctions qui
   le manipulaient ; elle vit maintenant dans `lib/domain/` et `lib/state/`, donc
-  elle s'éprouve **en l'appelant**. Onze suites, et chacune protège une phrase que
+  elle s'éprouve **en l'appelant**. Quinze suites, et chacune protège une phrase que
   quelqu'un lit ou une règle dont l'absence coûte du travail :
   `catalog` (les deux lectures du catalogue, les cadenas datés, le filtre de
   l'export), `verdict` (la première erreur de gcc, la restriction d'un quiz),
@@ -490,8 +490,9 @@ docker stop pg
   serveur), `collab` (la diff CRDT et la transformation du curseur, avec un vrai
   `Y.Doc` et sans réseau), `highlight` (l'échappement, et les trois pièges du
   lexeur), `keys` (les touches de l'éditeur, dont le refus de paire sur une
-  apostrophe française), `markdown` (les charges hostiles), `bundle` (ce que
-  l'anonyme télécharge).
+  apostrophe française), `syntax` (le correcteur, dont la moitié des cas gardent
+  un SILENCE), `surface` (le câblage de l'éditeur partagé), `markdown` (les
+  charges hostiles), `bundle` (ce que l'anonyme télécharge).
   **`jsdom` RESTE, ET C'EST NON NÉGOCIABLE POUR UNE SUITE.** DOMPurify refuse de
   travailler sans DOM — `isSupported` passe à faux et `sanitize()` rend alors son
   entrée **telle quelle**. Une suite tournant dans cet état écrirait « aucune
@@ -2088,6 +2089,17 @@ la décision remonte dans `domain/`.
 
 ### frontend/src/app.css
 
+- **UN SEUL COMPOSANT DESSINE UN ÉDITEUR**, `components/CodeSurface.svelte`, et
+  l'exercice comme la Console le montent. C'était deux copies, et **la seconde
+  prenait du retard en silence** : la touche Tab, les paires auto-fermées et le
+  correcteur syntaxique ont chacun été écrits pour l'exercice et ne sont jamais
+  arrivés à la Console. Ce qui reste dehors est ce qui n'est pas de l'édition —
+  les onglets de fichiers, l'état de sauvegarde et les curseurs des coéquipiers
+  (à l'exercice), le terminal (à la Console).
+- **`idPrefix` EXISTE PARCE QUE LES DEUX SONT DANS LE DOCUMENT EN MÊME TEMPS** :
+  `#travail` est `hidden`, pas démonté. Rien ne sélectionne ces identifiants —
+  ce sont des étiquettes — mais les dupliquer resterait faux. Pour la même
+  raison, la couche de soulignement est `.squiggles` et pas un id.
 - **L'éditeur coloré = un `<pre>` (`#hl`) derrière un `<textarea>` (`#code`) au
   texte transparent.** `#hl` et `#code` doivent garder des métriques
   **identiques** : police, taille, interligne, `padding`, bordure, `tab-size`,
@@ -2103,8 +2115,10 @@ Tab, Shift+Tab, Entrée indentée, les paires auto-fermées (`(`, `[`, `{`, `"`,
 `'`), le survol du fermant, le recalage de l'accolade et le Backspace qui efface
 une paire vide ou un niveau d'un coup. **La logique vit dans
 `frontend/src/lib/domain/keys.ts`, pure** — `keyEdit(touche, maj, texte, début,
-fin)` rend une modification ou `null` —, et `CodeEditor.svelte` ne fait que
-l'appliquer à l'élément. `keys.test.ts` l'éprouve en l'appelant.
+fin)` rend une modification ou `null` —, et `CodeSurface.svelte` ne fait que
+l'appliquer à l'élément. `keys.test.ts` l'éprouve en l'appelant. **Depuis que la
+surface est partagée, la Console a ces touches aussi** — elle ne les avait
+jamais eues.
 
 **`document.execCommand("insertText")`, ET PAS `zone.value = …`.** C'est le seul
 point vraiment fragile, et il a une raison unique : **écrire `value` efface la
@@ -2204,14 +2218,18 @@ microsecondes ; ce que le `setTimeout` achète, c'est de ne pas annoncer
 « parenthèse non fermée » à la frappe même du `(`. Chaque touche repousse
 l'échéance : le correcteur parle quand on s'arrête d'écrire.
 
-**Pas dans la Console** (`features/scratch/Console.svelte`) : même superposition,
-donc c'est une reprise du même bloc, à faire le jour où quelqu'un le demande.
-Et **aucun lien avec le verdict du serveur** — les numéros de ligne de gcc ne
-sont toujours pas analysés côté page.
+**Il est dans la Console AUSSI, et gratuitement** : les deux écrans montent
+`CodeSurface.svelte`. C'est la réponse à la question « pourquoi la Console n'a
+pas la correction ? » — parce que c'étaient deux éditeurs. Il n'y en a plus
+qu'un. **Aucun lien, en revanche, avec le verdict du serveur** : les numéros de
+ligne de gcc ne sont toujours pas analysés côté page.
 
 Éprouvé par `frontend/tests/syntax.test.ts`, où **la moitié des cas gardent un
 silence** : chaque heuristique a son jumeau, la faute qu'elle doit attraper et
-le code juste qu'elle ne doit pas toucher.
+le code juste qu'elle ne doit pas toucher. Et par `surface.test.ts`, qui monte
+la surface et vérifie le CÂBLAGE — que le correcteur atteint la gouttière et la
+liste, qu'il se tait avant la pause, et que deux instances ne portent pas les
+mêmes identifiants.
 
 ### Le noyau
 

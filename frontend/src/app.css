@@ -318,7 +318,9 @@ main {
    `--wait` is a heuristic that says "peut-être" in its own words. Same pair on
    the gutter number, the underline and the list, so one glance sorts them.
 
-   THE UNDERLINE IS ITS OWN LAYER inside `#pane`, like `#carets`: it shares the
+   THE UNDERLINE IS ITS OWN LAYER inside `.pane`, like `#carets`, and it is a
+   CLASS because BOTH editors mount it -- the exercise's and the Console's are
+   in the document at the same time. It shares the
    padding that the arithmetic starts from and NOTHING of the `.hl` / `.codein`
    metrics contract. A wavy CSS GRADIENT and not a `data:` SVG -- `img-src
    'self'` refuses those, and a checker that silently draws nothing would be
@@ -326,33 +328,33 @@ main {
 .gutter .error { color: var(--bad); font-weight: 600; }
 .gutter .hint  { color: var(--wait); font-weight: 600; }
 
-#squiggles {
+.squiggles {
   position: absolute; inset: 0;
   overflow: hidden; pointer-events: none;
 }
-#squiggles .squig {
+.squiggles .squig {
   position: absolute; display: block;
   background-repeat: repeat-x;
   background-position: bottom left;
   background-size: 6px 3px;
 }
-#squiggles .squig.error {
+.squiggles .squig.error {
   background-image: repeating-linear-gradient(
     135deg, var(--bad) 0 1px, transparent 1px 3px);
 }
-#squiggles .squig.hint {
+.squiggles .squig.hint {
   background-image: repeating-linear-gradient(
     135deg, var(--wait) 0 1px, transparent 1px 3px);
 }
 
 /* The list sits between the code and the action bar: it is about the code, and
    reading it should not mean leaving the line it names. */
-#diags {
+.diags {
   flex: 0 0 auto; display: flex; flex-direction: column;
   max-height: 7rem; overflow-y: auto;
   border-top: 1px solid var(--line); background: var(--panel);
 }
-#diags[hidden] { display: none; }
+.diags[hidden] { display: none; }
 .diag {
   display: flex; gap: .6rem; align-items: baseline; text-align: left;
   padding: .3rem .75rem; border: 0; border-left: 3px solid transparent;

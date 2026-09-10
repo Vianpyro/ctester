@@ -46,10 +46,3 @@ export function highlight(src: string): string {
   // last line's colours do not get clipped as one types into it.
   return out + escapeHtml(src.slice(last)) + "\n";
 }
-
-/** The gutter's text for a given line count. */
-export function gutterText(lines: number): string {
-  let s = "";
-  for (let i = 1; i <= lines; i++) s += i + "\n";
-  return s;
-}
