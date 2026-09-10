@@ -26,11 +26,15 @@
 <title>TCH009 — Tester mon code</title>
 <!-- NO `defer`, AND NOT A MODULE: see frontend/public/theme.js. -->
 <script src="/theme.js"></script>
-</head>
-<body>
-<div id="app"></div>
 <!-- The bundle. A module script is deferred by spec, so it runs once the
      document is parsed -- which is what a component tree wants. -->
 <script type="module" src="/src/main.ts"></script>
-</body>
+</head>
+<!-- NO WRAPPER ELEMENT, AND THAT IS LOAD-BEARING. `body` is the page's flex
+     column (`display: flex; height: 100dvh`) and `#top` and `<main>` are its
+     flex children: the bar sizes to content, `main` takes the rest, and
+     `#travail` stretches inside it. A `<div id="app">` between them breaks
+     that chain at the top -- everything collapses to content height and the
+     page stops filling the screen. It shipped that way once. -->
+<body></body>
 </html>

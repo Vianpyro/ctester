@@ -4,10 +4,13 @@
   // `profile.deleteAccount()` and `DELETE /moi`, which erases every table of the
   // schema.
 
+  import { barPanel } from "../lib/barPanel";
   import { profile } from "../lib/state/profile.svelte";
 </script>
 
-<div id="consentement" hidden={!profile.consentOpen}>
+<!-- `use:barPanel` PUTS IT UNDER THE BAR, which is the only ancestor its CSS can
+     anchor to. See `lib/barPanel.ts`. -->
+<div id="consentement" use:barPanel hidden={!profile.consentOpen}>
   <p>
     Te connecter fait conserver, sur le serveur de ce site&nbsp;: un identifiant de
     compte opaque (ni ton nom, ni ton courriel), le code que tu écris pour chaque

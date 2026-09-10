@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import App from "../src/App.svelte";
+import { session } from "../src/lib/auth/session.svelte";
 import { drafts } from "../src/lib/state/drafts.svelte";
 
 const RELEASE = {
@@ -49,6 +50,8 @@ const RELEASE = {
 };
 
 let asked: string[] = [];
+/** What `/oidc.json` answers. `{}` is a deployment with no sign-in at all. */
+let deployment: unknown = {};
 
 function fakeFetch(input: RequestInfo | URL): Promise<Response> {
   const url = String(input);
@@ -68,9 +71,9 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
     );
   }
   if (url === "oidc.json") {
-    // A DEPLOYMENT WITH NO SIGN-IN: the whole account block stays inert, which is the
-    // anonymous path's most important property.
-    return Promise.resolve(new Response("{}", { status: 200 }));
+    // `{}` BY DEFAULT: a deployment with no sign-in, where the whole account block stays
+    // inert -- the anonymous path's most important property.
+    return Promise.resolve(new Response(JSON.stringify(deployment), { status: 200 }));
   }
   if (url.startsWith("live?")) {
     return Promise.resolve(new Response(JSON.stringify({ n: 3 }), { status: 200 }));
@@ -89,16 +92,20 @@ let app: Record<string, unknown> | null = null;
 
 beforeEach(() => {
   asked = [];
+  deployment = {};
   vi.stubGlobal("fetch", fakeFetch);
+  // MOUNTED ONTO THE BODY, exactly as `main.ts` does it. Wrapping the tree in a div here
+  // would be a suite that passes while the page collapses -- see the structural checks below.
   document.body.innerHTML = "";
-  host = document.createElement("div");
-  host.id = "app";
-  document.body.append(host);
+  host = document.body;
   app = null;
-  // A FRESH PAGE LOAD, SEEN FROM OUTSIDE. Without this, `exercise.open()` would first save
-  // what the PREVIOUS mount's editor still held -- which is correct behaviour (leaving an
-  // exercise saves it) and would hand the next test that test's code as a draft.
+  // A FRESH PAGE LOAD, SEEN FROM OUTSIDE. These are per-page-load singletons, which is
+  // right in the application and means one test would otherwise inherit the last one's
+  // state: the drafts (leaving an exercise saves it, so the previous mount's code would
+  // come back as a draft) and what the deployment offers.
   drafts.clearAll();
+  session.deployment = null;
+  session.setToken(null);
 });
 
 afterEach(() => {
@@ -111,6 +118,62 @@ async function render() {
   await settle();
   await settle();
 }
+
+describe("the page's structure, which the stylesheet depends on", () => {
+  // THESE ARE THE CHECKS THAT WERE MISSING, and their absence shipped a page that did not
+  // fill the screen with a sign-in button that looked dead. Asserting that an id EXISTS is
+  // not enough: `app.css` is written against a specific NESTING, and every rule below broke
+  // while every id was still present.
+
+  it("keeps `#top` and `<main>` as children of BODY, which is the flex column", async () => {
+    // `body { display: flex; flex-direction: column; height: 100dvh }` with `#top` at
+    // `flex: 0 0 auto` and `main` at `flex: 1 1 auto`. A wrapper element between them breaks
+    // the chain at the top: everything collapses to content height and the page stops
+    // filling the screen.
+    await render();
+    const bar = document.getElementById("top")!;
+    const main = document.querySelector("main")!;
+    expect(bar.parentElement).toBe(document.body);
+    expect(main.parentElement).toBe(document.body);
+  });
+
+  it("keeps the workbench inside `<main>`, and its three columns inside it", async () => {
+    await render();
+    const travail = document.getElementById("travail")!;
+    expect(travail.parentElement).toBe(document.querySelector("main"));
+    // `#travail` is the grid; these are its columns.
+    for (const id of ["consigne", "droite", "chatdock"]) {
+      expect(document.getElementById(id)!.parentElement, id).toBe(travail);
+    }
+  });
+
+  it("keeps the three floating panels INSIDE `#top`, which is what they anchor to", async () => {
+    // Each is `position: absolute; top: 100%` and `#top` is the only `position: relative`
+    // ancestor. Rendered elsewhere, `top: 100%` resolves against the initial containing
+    // block: the panel lands one full viewport down, off-screen, and the button that opened
+    // it looks dead. That is exactly what shipped.
+    await render();
+    const bar = document.getElementById("top")!;
+    expect(document.getElementById("consentement")!.parentElement).toBe(bar);
+    // The other two live in the chat's lazy chunk, so they are only in the DOM once it is
+    // loaded -- `barPanel` is what puts all three here.
+  });
+
+  it("opens the consent panel where it can be seen, and closes it again", async () => {
+    // A deployment that DOES offer sign-in, which is what puts the button in the bar.
+    deployment = { issuer: "https://auth.exemple.test", client_id: "ctester" };
+    await render();
+    const panel = document.getElementById("consentement")!;
+    expect(panel.hidden).toBe(true);
+    (document.getElementById("connexion") as HTMLButtonElement).click();
+    flushSync();
+    expect(panel.hidden).toBe(false);
+    expect(panel.parentElement).toBe(document.getElementById("top"));
+    (document.getElementById("consentnon") as HTMLButtonElement).click();
+    flushSync();
+    expect(panel.hidden).toBe(true);
+  });
+});
 
 describe("the anonymous page", () => {
   it("mounts, and draws the workbench", async () => {

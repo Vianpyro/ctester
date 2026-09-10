@@ -15,6 +15,7 @@
   // `if (profil.alias)`, which hid the only button that writes one from exactly the
   // accounts that had none.
 
+  import { barPanel } from "../../lib/barPanel";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { profile as bar } from "../../lib/state/profile.svelte";
   import { groupNumber, initialsOf } from "../../lib/domain/labels";
@@ -73,7 +74,8 @@
   const assignments = $derived(catalog.assignments.filter((a) => a && a.team));
 </script>
 
-<div id="identitepanneau" hidden={!bar.identityOpen}>
+<!-- Under the bar, like the consent panel and the charter: see `lib/barPanel.ts`. -->
+<div id="identitepanneau" use:barPanel hidden={!bar.identityOpen}>
   <div>
     <h2>Mon identité</h2>
     {#if identity.said}<p class="annonce">{identity.said}</p>{/if}

@@ -20,6 +20,8 @@
 </script>
 
 <script lang="ts">
+  import { barPanel } from "../../lib/barPanel";
+
   interface Props {
     onAccept: () => void;
     onCancel: () => void;
@@ -28,7 +30,8 @@
   const { onAccept, onCancel }: Props = $props();
 </script>
 
-<div id="charte">
+<!-- Under the bar, like the two other floating panels: see `lib/barPanel.ts`. -->
+<div id="charte" use:barPanel>
   <h2>Avant de publier</h2>
   <ul class="regles">
     {#each CHARTER as rule}<li>{rule}</li>{/each}
