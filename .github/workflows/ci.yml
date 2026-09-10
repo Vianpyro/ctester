@@ -1,7 +1,8 @@
 # CI de ctester. Trois jobs, et rien de plus.
 #
-#   tests   les deux suites qui tournent sans le dépôt privé de corrigés, plus la
-#           page. `test_sandbox.py` et `verify_content.py` exigent `unittests` :
+#   tests   tout ce qui tourne sans le dépôt privé de corrigés : les types, le
+#           build, les suites de la page, `test_ctester.py` et `test_api.py`.
+#           `test_sandbox.py` et `verify_content.py` exigent `unittests` (et gcc) :
 #           ils restent des outils de contrôleur et n'entrent pas ici. Une CI
 #           publique n'a pas à détenir la deploy key des corrigés.
 #   codeql  l'analyse statique. Ce dépôt sert une API exposée à Internet sur
@@ -62,6 +63,18 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      # `requirements-dev.txt` ET PAS `requirements.txt` : le premier tire le
+      # second, et y ajoute `httpx2`, dont `fastapi.testclient` est une façade.
+      # SANS LUI, `test_api.py` SORT EN 1 EN LE DISANT -- et il ne l'avait
+      # jamais eu ici, parce que la CI ne lançait longtemps que `test_ctester.py`,
+      # qui est en pur Python. C'est cette ligne qui manquait le jour où
+      # `test_api.py` est entré dans le fichier.
+      #
+      # `test_api.py` NE DEMANDE RIEN DE PRIVÉ, et c'est ce qui lui permet
+      # d'être ici : il publie son propre contenu dans un répertoire temporaire,
+      # là où `test_sandbox.py` et `verify_content.py` exigent le dépôt de
+      # corrigés (et gcc), et restent donc des outils de contrôleur.
+      - run: pip install -r requirements-dev.txt
       # LE TYPAGE D'ABORD : `svelte-check` voit ce qu'un test ne voit pas -- une
       # propriété qui n'existe pas, une charge d'API mal lue, un `{@const}` mal
       # placé. C'est ce qui a remplacé le `node --check` de l'ancienne page, et
@@ -71,6 +84,8 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: python3 test_ctester.py
+      # LA FRONTIÈRE HTTP, et elle éprouve `routers/page.py` -- dont le motif
+      # d'`assets/` est ce que la construction de la page a coûté au serveur.
       - run: python3 test_api.py
       # L'ARTEFACT PASSE AU JOB `pages` plutôt que d'être reconstruit là-bas :
       # ce qui se déploie est exactement ce que les suites viennent d'éprouver.
