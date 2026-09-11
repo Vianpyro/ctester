@@ -247,9 +247,16 @@ main {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
 }
 /* THE FORMULAS, drawn by the browser -- see `lib/domain/math.ts` for why not KaTeX.
-   A little larger than the prose because a numerator is drawn at script size, and
-   13.5px would put it under 10. */
-#consignetexte.md math { font-size: 1.1em; }
+   TWO THINGS MAKE ONE LEGIBLE, AND THE SECOND IS THE ONE THAT MATTERED. The size is
+   1.4em because a formula is read as a unit and not as a run of prose. But at 1.1em
+   the real culprit was SCRIPT SIZE: a `<mfrac>` shrinks its two halves unless the
+   `<math>` is in display style, so `2·m·g` measured ~10.5px and the `2` of `r²`
+   ~7.5px, and the radical of `tp2-ex5` became impossible to scope by eye. The markup
+   now carries `displaystyle="true"`; `math-style: normal` is its CSS twin, for the
+   engines that honour the property and not the legacy attribute. Together the
+   numerator goes from ~10.5px to ~19px -- the doubling that was asked for -- while a
+   true exponent stays smaller, which is the asymmetry a formula needs. */
+#consignetexte.md math { font-size: 1.4em; math-style: normal; }
 /* THE SCROLL CONTAINER IS THE BLOCK, NEVER THE `<math>`. `overflow-x` on the formula
    itself is INERT -- `<math>` is `display: inline math` -- and forcing it to
    `inline-block` would strip the `math` inner display type and take the whole layout
@@ -257,9 +264,10 @@ main {
    same answer as a code block: `tp2-ex5` is a radical over a four-factor denominator
    and does not fit a 25 rem column, and shrinking the font would make the exponent
    of `r^2` unreadable at the one place it matters. The extra leading is the other
-   half: a fraction is taller than a line of prose, and 1.6 would let its bar touch
-   the line above. Without `:has()` support both simply do not apply -- tight, never
-   broken. */
+   half: a display-style fraction stands about three times a line of prose, and while
+   the line box does grow to hold it -- a `<math>` root is an atomic inline -- 1.6
+   would leave its bar sitting against the line above. Without `:has()` support both
+   simply do not apply: tight, never broken. */
 #consignetexte.md p:has(math),
 #consignetexte.md li:has(math) { line-height: 2.1; overflow-x: auto; }
 

@@ -40,6 +40,15 @@ describe("the six formulas the course actually writes", () => {
     expect(host.textContent).not.toContain("pi");
   });
 
+  it("asks for DISPLAY STYLE, without which a fraction is drawn at script size", () => {
+    // NOT COSMETIC. `<mfrac>` shrinks both halves unless the root is in display
+    // style: at 1.1em that put `2·m·g` at ~10.5px and the `2` of `r²` at ~7.5px, and
+    // the radical of `tp2-ex5` could no longer be scoped by eye. The attribute rides
+    // in the markup so it also holds where the stylesheet does not reach.
+    const root = parsed("V = racine(a / b)").querySelector("math");
+    expect(root?.getAttribute("displaystyle")).toBe("true");
+  });
+
   it("tp2-ex5 -- a radical OVER a fraction, and the redundant parentheses DROP", () => {
     // THE CASE THIS MODULE EXISTS FOR. `racine( 2*m*g / (0,5 * rho * pi * r^2 ))`:
     // the outer parens belong to the call, the inner ones to the denominator -- and
@@ -47,7 +56,13 @@ describe("the six formulas the course actually writes", () => {
     const host = parsed("V = racine( 2*m*g / (0,5 * rho * pi * r^2 ))");
     const sqrt = host.querySelector("msqrt");
     expect(sqrt).not.toBeNull();
-    expect(sqrt!.querySelector("mfrac")).not.toBeNull();
+    // THE RADICAL COVERS THE WHOLE FRACTION, not just the numerator -- the question
+    // the rendering has to answer at a glance. Both halves live INSIDE the `msqrt`,
+    // and nothing of the expression lives outside it but `V =`.
+    const frac = sqrt!.querySelector("mfrac");
+    expect(frac).not.toBeNull();
+    expect(frac!.children[0]!.textContent).toBe("2⋅m⋅g");
+    expect(frac!.children[1]!.textContent).toBe("0,5⋅ρ⋅π⋅r2");
     expect(sqrt!.textContent).not.toContain("(");
     expect(sqrt!.textContent).not.toContain(")");
     // `0,5` is ONE number: the decimal comma is French.

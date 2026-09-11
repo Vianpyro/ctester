@@ -2729,6 +2729,20 @@ fraction à quatre facteurs.
   échappement rate. Chaque feuille (`<mn>`, `<mi>`, `<mo>`) passe par le MÊME
   `escapeHtml()` que `highlight()` — pas une seconde règle à tenir en phase — et
   un test lit le DOM sur `a & b << 2`.
+- **`displaystyle="true"` N'EST PAS COSMÉTIQUE, C'EST CE QUI REND UNE FRACTION
+  LISIBLE.** Un `<mfrac>` dessine ses deux moitiés à la **taille d'indice** tant
+  que la racine `<math>` n'est pas en display style : mesuré dans la colonne de
+  25 rem, `2·m·g` tombait à ~10,5 px et le `2` de `r²` — un indice d'indice — à
+  ~7,5 px, ce qui rendait la portée du radical de `tp2-ex5` impossible à lire à
+  l'œil. En display style, `mfrac` marque toujours ses enfants `compact` mais
+  **n'incrémente plus `math-depth`** : les deux moitiés gardent la taille pleine
+  pendant qu'un vrai exposant reste plus petit — exactement l'asymétrie qu'une
+  formule demande. C'est un ATTRIBUT et pas seulement du CSS, parce que la page
+  part aussi sur GitHub Pages et que `math-style` est plus jeune que `<math>` ;
+  `#consignetexte.md math` porte les deux, plus `font-size: 1.4em`.
+- **LA RACINE COUVRE LE RADICANDE ENTIER**, numérateur ET dénominateur — c'est
+  la question qu'un rendu doit trancher d'un coup d'œil, et le test l'exige en
+  lisant les deux moitiés à l'intérieur du `<msqrt>`.
 - **LE CONTENEUR DE DÉFILEMENT EST LE BLOC, JAMAIS LE `<math>`.** `overflow-x`
   sur la formule est **inerte** (`<math>` est `display: inline math`), et la
   forcer en `inline-block` lui retirerait son type d'affichage interne et

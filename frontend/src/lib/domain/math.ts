@@ -290,5 +290,18 @@ export function renderMath(source: string): string | null {
   const parser = new Parser(tokens);
   const node = parser.equation();
   if (!node || !parser.done()) return null;
-  return '<math xmlns="http://www.w3.org/1998/Math/MathML">' + node.html + "</math>";
+  // `displaystyle="true"` IS WHAT MAKES A FRACTION LEGIBLE, and it is markup rather
+  // than CSS on purpose. Without it a `<mfrac>` draws its numerator and denominator
+  // at SCRIPT size: measured in the 25 rem column, `2·m·g` fell to ~10.5 px and the
+  // `2` of `r²` -- a script of a script -- to ~7.5 px, which is what made the radical
+  // of `tp2-ex5` unreadable and its scope ambiguous. In display style `mfrac` still
+  // marks its children compact but does NOT increment `math-depth`, so they keep the
+  // full size while a real exponent stays smaller, which is the wanted asymmetry.
+  // It rides in the attribute so it survives wherever the stylesheet does not: the
+  // page is also served by GitHub Pages, and `math-style` is younger than `<math>`.
+  return (
+    '<math displaystyle="true" xmlns="http://www.w3.org/1998/Math/MathML">' +
+    node.html +
+    "</math>"
+  );
 }
