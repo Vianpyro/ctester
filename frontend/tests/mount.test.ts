@@ -214,6 +214,27 @@ describe("the anonymous page", () => {
     expect(locked.textContent).toContain("ouvre le");
   });
 
+  it("unlocks that same row for a moderator, lock and date still shown", async () => {
+    // THE WIRING, NOT THE RULE. `catalog.test.ts` proves `normalize(release, true)` keeps
+    // the locked exercise; this proves the component tree actually reads `catalog.staff`
+    // -- the half that, if it were missing, would leave a "not-allowed" cursor on a
+    // moderator's screen with every test still green.
+    await render();
+    const { catalog } = await import("../src/lib/state/catalog.svelte");
+    catalog.setStaff(true);
+    flushSync();
+    const locked = document.querySelector('#exliste [data-id="tp9-ex1"]')!;
+    expect(locked.getAttribute("aria-disabled")).toBeNull();
+    expect(locked.className).not.toContain("verrouille");
+    // The date is the information the instructor came for: it stays.
+    expect(locked.textContent).toContain("ouvre le");
+    catalog.setStaff(false);
+    flushSync();
+    expect(
+      document.querySelector('#exliste [data-id="tp9-ex1"]')!.getAttribute("aria-disabled"),
+    ).toBe("true");
+  });
+
   it("starts on the idle verdict, and NOT on three failed stages", async () => {
     await render();
     const out = document.getElementById("out")!;
