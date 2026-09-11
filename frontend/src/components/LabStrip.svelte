@@ -16,7 +16,7 @@
   import { catalog } from "../lib/state/catalog.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import { statuses } from "../lib/state/statuses.svelte";
-  import { isBonus, lockNote, stripLabel, tileState } from "../lib/domain/catalog";
+  import { lockNote, stripLabel, tileState } from "../lib/domain/catalog";
   import { STATUS_MARK, plural } from "../lib/domain/labels";
 
   interface Props {
@@ -78,15 +78,26 @@
       {@const bloque = !!note && !catalog.staff}
       {@const state = tileState(ex, !!note, statuses.byExercise)}
       {@const current = ex.id === catalog.selectedId}
-      {@const said = (note || state.word) + (current ? ", ouvert dans l'éditeur" : "")}
+      <!-- THE BORDER IS NEVER ALONE: `app.css` holds the tile's word in the `title` and
+           in off-screen text for every state, and a bonus is a state like the others.
+           Dashes that only a legend explains leave a screen reader with nothing. -->
+      {@const said =
+        (note || state.word) +
+        (ex.bonus ? ", bonus facultatif" : "") +
+        (current ? ", ouvert dans l'éditeur" : "")}
       <!-- `aria-disabled` AND NOT `disabled`: a `disabled` button drops out of the
            tab order, and the opening date is the whole reason the tile is still
            displayed. Reachable, announced as unavailable, no listener.
            `aria-current` RATHER THAN A COLOUR: that is what says "you are here" to a
-           screen reader, and `courant` means nothing to anyone else. -->
+           screen reader, and `courant` means nothing to anyone else.
+           THREE AXES, THREE CLASSES, and `bonus` is the catalog's flag -- never a word
+           read off the title. It LAYERS like `courant` instead of replacing the
+           progress class: a solved bonus used to keep its dashes and lose its tinted
+           ground, exactly the fold `tileState` exists to avoid. None of the three sets
+           the same property. -->
       <button
         type="button"
-        class={"tile " + (isBonus(ex) ? "bonus" : state.cls) + (current ? " courant" : "")}
+        class={"tile " + state.cls + (ex.bonus ? " bonus" : "") + (current ? " courant" : "")}
         title={ex.short + " — " + said}
         aria-disabled={bloque ? "true" : undefined}
         aria-current={current ? "true" : undefined}

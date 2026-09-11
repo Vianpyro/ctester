@@ -10,7 +10,6 @@ import {
   exportableExercises,
   fold,
   gridLabel,
-  isBonus,
   isGroupExportable,
   lockNote,
   matchesFilter,
@@ -186,9 +185,25 @@ describe("labels", () => {
     expect(gridLabel(byId("tp2-verif"))).toBe("vérif");
   });
 
-  it("recognizes a bonus from its label, since the catalog has no flag for it", () => {
-    expect(isBonus(byId("tp2-ex1"))).toBe(true);
-    expect(isBonus(byId("tp2-ex0"))).toBe(false);
+  it("takes a bonus from the catalog's flag, and never from a word in a title", () => {
+    // THE TITLE DECIDES NOTHING, and guessing from it failed in BOTH directions: the
+    // course's only bonus is called "Puissance d'un treuil" -- no "bonus" in it, so it
+    // never got the dashes the legend promises -- while this fixture says "bonus" in its
+    // title and is an ordinary exercise that belongs in the one-piece main.c.
+    expect(byId("tp2-ex1").bonus).toBe(false);
+    const flagged = normalize({
+      collections: [{ id: "tp2", title: "TP 2", items: ["bonus-1"], access: "available" }],
+      exercises: [
+        {
+          id: "bonus-1",
+          title: "Puissance d'un treuil",
+          mode: "io",
+          bonus: true,
+          access: "available",
+        },
+      ],
+    } as PublishedRelease);
+    expect(flagged.catalog[0]!.bonus).toBe(true);
   });
 });
 

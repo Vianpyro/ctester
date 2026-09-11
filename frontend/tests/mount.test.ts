@@ -19,7 +19,7 @@ import { drafts } from "../src/lib/state/drafts.svelte";
 
 const RELEASE = {
   collections: [
-    { id: "tp2", title: "TP 2", items: ["tp2-ex1", "tp2-ex2"], access: "available" },
+    { id: "tp2", title: "TP 2", items: ["tp2-ex1", "tp2-ex2", "tp2-ex3"], access: "available" },
     {
       id: "tp9",
       title: "TP 9",
@@ -38,6 +38,9 @@ const RELEASE = {
       access: "available",
     },
     { id: "tp2-ex2", title: "ex.2 boucle", mode: "io", access: "available" },
+    // A BONUS WHOSE TITLE DOES NOT SAY SO -- the real one is "Puissance d'un treuil".
+    // The flag is the only thing that may produce the dashes.
+    { id: "tp2-ex3", title: "ex.3 treuil", mode: "io", bonus: true, access: "available" },
     {
       id: "tp9-ex1",
       title: "ex.1 matrices",
@@ -211,6 +214,25 @@ describe("the anonymous page", () => {
     expect(strip.textContent).toContain("ex.2");
     // The legend is what makes those borders readable without colour.
     expect(document.getElementById("striplegend")!.hidden).toBe(false);
+  });
+
+  it("dashes the bonus tile from the flag, layered over its progress class", async () => {
+    await render();
+    // THE WIRING, WHICH IS WHERE THIS BROKE. `catalog.test.ts` proves the flag survives
+    // `normalize`; only a mounted strip proves it reaches the class that draws the dashes.
+    // It did not: the class was guessed from the title, and the one exercise carrying the
+    // flag is called "Puissance d'un treuil".
+    const tiles = [...document.getElementById("bandelabo")!.querySelectorAll("button")];
+    const bonus = tiles.find((b) => b.title.startsWith("ex.3"))!;
+    expect([...bonus.classList]).toContain("bonus");
+    // LAYERED LIKE `courant`, never instead of: a solved bonus must keep its tinted
+    // ground, which the old exclusive class took away.
+    expect([...bonus.classList]).toContain("afaire");
+    // AND THE WORD TRAVELS WITH THE BORDER. A legend is not read by a screen reader.
+    expect(bonus.title).toContain("bonus facultatif");
+    const ordinary = tiles.find((b) => b.title.startsWith("ex.2"))!;
+    expect([...ordinary.classList]).not.toContain("bonus");
+    expect(ordinary.title).not.toContain("bonus");
   });
 
   it("keeps the menu's locked exercise reachable, with its date", async () => {

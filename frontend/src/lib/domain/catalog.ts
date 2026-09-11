@@ -192,14 +192,6 @@ export function tileState(
 }
 
 /**
- * A BONUS IS RECOGNIZED BY ITS LABEL, not by a catalog field: the content names
- * them "bonus" and there is no flag for it. If one appears, the counters and the
- * export keep treating it as an ordinary exercise -- only the border changes,
- * which is the honest amount of meaning a naming convention deserves.
- */
-export const isBonus = (ex: Exercise): boolean => /bonus/i.test(ex.short || "");
-
-/**
  * A SHORT LABEL, BECAUSE THERE ARE ELEVEN OF THEM. The content itself writes
  * "TP5 : ex.1 celcius_to_fahrenheit"; eleven thirty-character pills fill three
  * lines and steal from the statement the room it needs, when the full name is
