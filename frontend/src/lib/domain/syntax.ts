@@ -365,3 +365,20 @@ export function check(src: string): Issue[] {
   }
   return issues.sort((a, b) => a.from - b.from).slice(0, MAX_ISSUES);
 }
+
+/**
+ * La faute suivante après le curseur, en revenant à la première une fois la
+ * dernière passée.
+ *
+ * SANS ÉTAT, ET C'EST LE POINT. Tenir un index « faute courante » dans le
+ * composant obligerait à le remettre à zéro chaque fois que le contrôle
+ * débouncé remplace la liste -- c'est-à-dire 600 ms après chaque frappe. Un
+ * index périmé fait sauter F2 sur une faute qui n'existe plus, ou en saute une
+ * qui vient d'apparaître. Ici la position du curseur EST l'état, et elle est
+ * toujours à jour parce que c'est le navigateur qui la tient.
+ */
+export function nextIssue(issues: Issue[], caret: number): Issue | null {
+  if (!issues.length) return null;
+  const sorted = [...issues].sort((a, b) => a.from - b.from);
+  return sorted.find((issue) => issue.from > caret) ?? sorted[0]!;
+}

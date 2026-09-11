@@ -90,6 +90,24 @@ const settle = async () => {
   flushSync();
 };
 
+/**
+ * Attend qu'une condition devienne vraie, pour les morceaux chargés à la demande.
+ *
+ * ON ATTEND LA CONDITION, ON NE DEVINE PAS UN NOMBRE DE TOURS : un `import()`
+ * dynamique n'est pas résolu par les micro-tâches, et sous Vitest il faut en
+ * plus que le `.svelte` soit transformé à la volée. Un compteur fixe passerait
+ * sur une machine et échouerait sur une autre -- c'est-à-dire en CI.
+ */
+async function until(what: string, ready: () => boolean): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    flushSync();
+    if (ready()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  flushSync();
+  throw new Error("jamais arrivé : " + what);
+}
+
 let host: HTMLElement;
 let app: Record<string, unknown> | null = null;
 
@@ -349,5 +367,141 @@ describe("the anonymous page", () => {
     expect(dock.hidden).toBe(true);
     expect(dock.textContent).toBe("");
     expect(document.getElementById("travail")!.className).toBe("");
+  });
+});
+
+// --- LES RACCOURCIS DE LA PAGE ---------------------------------------------
+//
+// La table est éprouvée en l'appelant (`shortcuts.test.ts`), les commandes
+// aussi (`keys.test.ts`). Ce qui se vérifie ICI, c'est ce que seule la page
+// montée peut dire : que le gestionnaire de fenêtre existe, qu'il RESPECTE le
+// contrat `defaultPrevented` avec la surface, et qu'il tient la portée de vue
+// qui empêche Ctrl+Entrée de soumettre depuis un écran sans éditeur.
+
+/** Une frappe sur le document, comme le navigateur la fait remonter. */
+function key(
+  k: string,
+  mods: Partial<Record<"ctrlKey" | "shiftKey" | "altKey" | "metaKey", boolean>> = {},
+) {
+  const event = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...mods });
+  (document.activeElement ?? document.body).dispatchEvent(event);
+  flushSync();
+  return event;
+}
+
+describe("les raccourcis de la page", () => {
+  it("ouvre le catalogue et atterrit dans le filtre", async () => {
+    await render();
+    expect(key("k", { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(document.querySelector("#menuex")?.hasAttribute("open")).toBe(true);
+  });
+
+  it("l'ouvre AUSSI avec Verr.Maj -- le bogue que la table répare", async () => {
+    // L'ancienne condition comparait `event.key !== "k"` : Verr.Maj le tuait.
+    await render();
+    expect(key("K", { ctrlKey: true }).defaultPrevented).toBe(true);
+    expect(document.querySelector("#menuex")?.hasAttribute("open")).toBe(true);
+  });
+
+  it("répond à Ctrl+S sans jamais prétendre enregistrer un fichier", async () => {
+    await render();
+    const event = key("s", { ctrlKey: true });
+    expect(event.defaultPrevented, "sinon le navigateur ouvre « Enregistrer la page »").toBe(true);
+    expect(document.querySelector("#systeme")?.textContent).toContain("sauvegardé tout seul");
+  });
+
+  it("le message de Ctrl+S s'efface tout seul, ET REND LE BANDEAU", async () => {
+    // Sur le chemin anonyme le bandeau porte déjà « il manque ta clé d'accès ».
+    // C'est donc le cas réel de l'invariant : le flash EMPRUNTE le bandeau et le
+    // remet tel qu'il l'a trouvé, au lieu d'effacer un message que personne
+    // n'avait lu.
+    await render();
+    const banner = () => document.querySelector("#systeme")?.textContent ?? "";
+    const before = banner();
+    expect(before, "ce cas n'a de sens que si le bandeau parlait déjà").not.toBe("");
+
+    vi.useFakeTimers();
+    try {
+      key("s", { ctrlKey: true });
+      expect(banner()).toContain("sauvegardé tout seul");
+      vi.advanceTimersByTime(3000);
+      flushSync();
+      expect(banner()).not.toContain("sauvegardé tout seul");
+      expect(banner(), "et le message d'avant est revenu").toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("SILENCE : une frappe déjà prévenue par la surface n'est pas rejouée", async () => {
+    // Le contrat entre les deux écouteurs. Sans le `defaultPrevented` en tête,
+    // une frappe traitée dans l'éditeur serait traitée une seconde fois ici.
+    await render();
+    const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true });
+    event.preventDefault();
+    document.body.dispatchEvent(event);
+    flushSync();
+    expect(document.querySelector("#menuex")?.hasAttribute("open")).toBeFalsy();
+  });
+
+  it("SILENCE : rien de ce qui appartient au navigateur n'est prévenu", async () => {
+    await render();
+    for (const k of ["z", "c", "v", "f", "a", "y"]) {
+      expect(key(k, { ctrlKey: true }).defaultPrevented, "Ctrl+" + k).toBe(false);
+    }
+  });
+});
+
+describe("l'aide-mémoire", () => {
+  it("s'ouvre à F1, se ferme à Échap, et arrive en morceau séparé", async () => {
+    await render();
+    expect(document.querySelector("#raccourcis")).toBeNull();
+    expect(key("F1").defaultPrevented).toBe(true);
+    await until("le panneau des raccourcis", () => !!document.querySelector("#raccourcis"));
+    const panel = document.querySelector("#raccourcis");
+    expect(panel?.hasAttribute("hidden")).toBe(false);
+    // ET IL EST BIEN SOUS LA BARRE : `top: 100%` ne se résout que contre `#top`.
+    expect(panel?.parentElement?.id).toBe("top");
+
+    key("Escape");
+    flushSync();
+    expect(document.querySelector("#raccourcis")?.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("dit ce qu'il ne prend PAS au navigateur", async () => {
+    // La première question devant un éditeur dans une page web est « est-ce que
+    // Ctrl+Z marche ici ? », et la seule réponse rassurante est de l'écrire.
+    await render();
+    key("F1");
+    await until("le panneau des raccourcis", () => !!document.querySelector("#raccourcis"));
+    const text = document.querySelector("#raccourcis")?.textContent ?? "";
+    expect(text).toContain("Annuler");
+    expect(text).toContain("Refaire");
+    expect(text).toContain("Ctrl+Maj+K est pris par le navigateur");
+  });
+});
+
+describe("SILENCE : Échap ne casse pas l'échappatoire clavier", () => {
+  it("ne prévient rien quand le curseur est dans le code", async () => {
+    // La non-régression qui compte : `CodeSurface` pose son drapeau `escaped`
+    // pour qu'un Tab suivant SORTE du champ. Si la fenêtre prévenait ici, les
+    // deux se marcheraient dessus et on ne pourrait plus quitter l'éditeur.
+    await render();
+    const zone = document.querySelector<HTMLTextAreaElement>("#code")!;
+    zone.focus();
+    expect(key("Escape").defaultPrevented).toBe(false);
+  });
+
+  it("ne prévient rien quand il n'y a rien d'ouvert et qu'on est déjà dans le code", async () => {
+    await render();
+    document.querySelector<HTMLTextAreaElement>("#code")!.focus();
+    expect(key("Escape").defaultPrevented).toBe(false);
+  });
+
+  it("ramène au code depuis un bouton de la page", async () => {
+    await render();
+    document.querySelector<HTMLButtonElement>("#go")!.focus();
+    expect(key("Escape").defaultPrevented).toBe(true);
+    expect(document.activeElement?.id).toBe("code");
   });
 });

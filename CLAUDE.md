@@ -2300,6 +2300,130 @@ d'avant, pile d'annulation comprise.
   que Backspace retire du même geste. `domain/highlight.ts` est le lexeur C à
   brancher ici le jour où un mauvais placement se voit vraiment.
 
+### Les raccourcis d'un IDE
+
+Les étudiants arrivent de CLion. La page ne connaissait que Tab, Shift+Tab, les
+paires et `Ctrl+K` ; le reste de leurs réflexes tombait dans le vide — ou pire,
+déclenchait le geste du navigateur, `Ctrl+S` ouvrant « Enregistrer la page » sur
+une plateforme qui sauvegarde toute seule.
+
+**AUCUN N'EST NÉCESSAIRE, ET C'EST LA CONTRAINTE DE DESSIN.** Chaque raccourci
+double une action déjà faisable à la souris : un étudiant qui n'en connaît aucun
+ne perd rien, et aucun écran n'en dépend.
+
+**LA TABLE EST LE MATCHER** (`lib/domain/shortcuts.ts`) : une liaison est une
+DONNÉE et `matchShortcut()` est une boucle dessus, donc l'aide-mémoire ne peut
+pas diverger de ce qui est lié. `Ctrl+K` y a déménagé pour cette raison — le
+laisser en condition écrite à la main aurait recréé les deux sources qu'on
+voulait supprimer. Le bogue qui est parti avec : l'ancienne condition comparait
+`event.key !== "k"`, donc **`Ctrl+K` ne marchait pas avec Verr.Maj**.
+
+**⚠ LE CARACTÈRE PRODUIT, JAMAIS `event.code`, ET C'EST LE PIÈGE DE CE LOT.**
+Sur un clavier **canadien-français** — le défaut au Québec — la touche physique
+`Slash` produit **`é`** : `/` s'y tape `Maj+3` et `?` se tape `Maj+6`. Une
+liaison sur `event.code === "Slash"` lierait donc « commenter la ligne » à la
+touche qui imprime un `é` pour une bonne partie de la cohorte. On compare ce que
+la touche ÉCRIT, et les deux commentaires **ignorent Maj** : c'est le caractère
+(`/` contre `?`) qui les sépare, pas le modificateur — ce qui rend la liaison
+identique sur toutes les dispositions au lieu d'en exiger une par clavier.
+Corollaire : `alt` doit être FAUX partout, parce que **AltGr se rapporte
+`ctrlKey && altKey`** sous Windows ; sans cette garde, taper un caractère AltGr
+commenterait la ligne au lieu de l'écrire.
+
+**`Ctrl+Maj+K` ET `Ctrl+Maj+D` FONT TOUS LES DEUX « SUPPRIMER LA LIGNE »**, et
+le doublon est assumé : `Ctrl+Maj+K` ouvre la console web de **Firefox**, au
+niveau du navigateur, donc la page ne peut pas l'intercepter. Le premier est la
+parité VS Code, le second est celui qui marche partout. `Ctrl+Y` n'a **pas** été
+pris : il reste « refaire ».
+
+**`null` A DEUX SENS DANS `keys.ts`, et les deux docstrings le disent.** Pour
+`keyEdit`, `null` veut dire « le navigateur fait mieux » — on le laisse agir,
+pour la pile d'annulation. Pour `commandEdit`, `null` veut dire « rien à faire »,
+et l'appelant `preventDefault()` **quand même** : sinon `Alt+Maj+↑` sur la
+première ligne étendrait la sélection du navigateur par-dessus le bloc qu'on
+essaie de déplacer.
+
+**TOUTE COMMANDE REND UNE SEULE PLAGE CONTIGUË**, appliquée par le `apply()`
+existant. C'est ce qui garde la pile d'annulation (`execCommand`) et le diff
+CRDT : `applyLocal()` dérive un préfixe et un suffixe communs pour émettre UN
+delete et UN insert, donc une commande qui rendrait deux `Edit` ferait deux
+transactions Yjs par frappe et replierait les curseurs des coéquipiers.
+`surface.test.ts` compte les appels à `onInput` pour cette raison.
+
+**LE CONTRAT ENTRE LES DEUX ÉCOUTEURS EST `defaultPrevented`**, et il est
+invisible dans l'un ou l'autre pris seul — d'où un commentaire des deux côtés.
+Un `keydown` remonte jusqu'à `window` que `preventDefault()` ait été appelé ou
+non : la surface ne peut donc pas « consommer » une frappe, et `App.svelte`
+sort sur `event.defaultPrevented`. **Jamais de `stopPropagation`** en face, qui
+rendrait le contrat positionnel au lieu qu'il soit écrit.
+
+**`Ctrl+S` NE PRÉTEND PAS ENREGISTRER UN FICHIER, IL RÉPOND À LA QUESTION.** Il
+vide le débounce (`drafts.cancel()` + `exercise.saveNow()`, le geste que
+l'import de fichier faisait déjà) **et** pose un `system.flash()`. Les deux
+moitiés comptent : `#sauvegarde` donne la réponse durable et datée, le flash
+accuse réception de la frappe.
+
+**`flash()` EMPRUNTE LE BANDEAU, IL NE LE PREND PAS.** Pas de toast, pas de
+`z-index` de plus : `#systeme` est déjà rendu, stylé et annoncé. Trois
+invariants, chacun avec son jumeau dans `system.test.ts` : ce qui était affiché
+est RESTITUÉ à l'expiration (un message de quota n'est jamais effacé par un
+accusé de réception) ; `#held` n'est capturé **que si aucun flash n'est en
+vol**, sinon un second flash restaurerait le premier pour de bon ; et un `say()`
+pendant un flash gagne **définitivement**, parce qu'un jeton incrémenté rend le
+minuteur en vol inopérant.
+
+**`runTest()` A QUITTÉ `ActionBar.svelte` POUR `lib/state/run.ts`**, et ce n'est
+pas un rangement : la barre d'actions est à l'intérieur de `#travail`, qui est
+`hidden` et **non démonté** quand une autre vue est ouverte. Un
+`<svelte:window>` posé là aurait soumis depuis « Mes progrès ». C'est
+`App.svelte` qui garde la portée, parce que c'est `view.svelte.ts` qui sait
+quelle vue est ouverte. `Ctrl+Entrée` et `Ctrl+S` ne marchent donc que dans
+l'atelier, exprès.
+
+**L'ÉCHELLE D'`ÉCHAP` A UNE ASYMÉTRIE VOULUE** : Échap ferme le catalogue
+**même** pendant qu'on tape dans son filtre (un filtre est jetable), et ne
+ferme **jamais** « Mon identité » depuis un champ (un nom à moitié tapé est du
+travail, et rien ne l'annule). Et le dernier cas est ce qui garde
+**Échap-puis-Tab** vivant : le curseur dans le textarea rend `typing` vrai, donc
+on ne prévient jamais, donc le drapeau `escaped` de `CodeSurface` survit pour le
+Tab suivant. Un test de non-régression le tient.
+
+**L'AIDE-MÉMOIRE EST UN MORCEAU À PART, ET SES LIBELLÉS AUSSI.**
+`lib/domain/shortcutHelp.ts` ne descend qu'au premier F1 ; seuls la table et le
+matcher sont dans le paquet de départ, parce qu'ils tournent à chaque frappe.
+La dérive reste impossible **par le type** : `HELP` est un
+`Record<ShortcutId, …>`, donc oublier un raccourci lié est une **erreur de
+compilation**, pas un test qui rougit plus tard. Le panneau dit aussi ce qu'on
+ne prend PAS (`Ctrl+Z`, `Ctrl+F`) — la première question devant un éditeur dans
+une page web est « est-ce que Ctrl+Z marche ici ? », et la seule réponse
+rassurante est de l'écrire.
+
+**`Ctrl+G` EST UN CHAMP, PAS `prompt()`** : `prompt()` bloque la boucle
+d'événements (dans une salle d'équipe la socket continue de tamponner pendant
+que l'UI est gelée), sa chrome est dans la langue du système — donc cette page
+française gagnerait une boîte anglaise — et Chrome le supprime dans une iframe,
+c'est-à-dire dans Moodle.
+
+**CE QUI N'EST PAS PRIS AU NAVIGATEUR** : `Ctrl+Z`, `Ctrl+Maj+Z`, `Ctrl+Y`,
+`Ctrl+C/V/X/A`, `Ctrl+F`, `Ctrl+←/→`. **`Ctrl+F` en particulier reste au
+navigateur** : sa recherche trouve déjà le code, puisqu'il est peint dans la
+couche colorée de `#hl`. Un champ à nous aurait été la plus grosse pièce du lot
+pour reprendre une fonction qui marche.
+
+**`bundle.test.ts` EST PASSÉ DE 130 À 140 Ko, DÉLIBÉRÉMENT, et son commentaire
+dit quoi.** Les raccourcis pèsent ~7,5 Ko et sont **eager** parce qu'un anonyme
+édite du code : les différer voudrait dire qu'ils ne marchent pas tant qu'on n'a
+rien cliqué. Ce qui n'est PAS entré, c'est l'aide-mémoire — et c'est pour ça que
+le nombre est 140 et pas 145. Un saut au-delà reste ce qu'il a toujours été :
+quelque chose tiré par accident.
+
+**La passe qui reste manuelle** : jsdom n'a pas `execCommand`, donc toute la
+suite éprouve le **chemin de repli** de `apply()`. Dans un vrai navigateur, sur
+une disposition canadienne-française, il faut vérifier qu'un `insertText`
+multi-ligne insère de vrais sauts de ligne, que `Ctrl+Z` défait chaque commande
+en **une seule** étape, que `Ctrl+Maj+3` commente, qu'AltGr tape toujours, et
+que la ligne déplacée reste visible.
+
 ### Le correcteur syntaxique
 
 `domain/syntax.ts`, pur : du texte entre, des **offsets** sortent. Il tourne

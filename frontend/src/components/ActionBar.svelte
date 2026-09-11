@@ -10,13 +10,10 @@
   import { drafts } from "../lib/state/drafts.svelte";
   import { editor } from "../lib/state/editor.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
-  import { quiz } from "../lib/state/quiz.svelte";
-  import { statuses } from "../lib/state/statuses.svelte";
   import { submission } from "../lib/state/submission.svelte";
-  import { system } from "../lib/state/system.svelte";
+  import { runTest } from "../lib/state/run";
   import { isGroupExportable } from "../lib/domain/catalog";
   import { exportGroup } from "../lib/state/export";
-  import { MISSING_KEY_MESSAGE, sessionKey } from "../lib/state/accesskey";
 
   const here = $derived(catalog.selected);
   const isQuiz = $derived(here?.mode === "quiz");
@@ -39,50 +36,6 @@
       submission.phase.kind === "queued" ||
       submission.phase.kind === "running",
   );
-
-  /** What has to be re-read once a verdict lands. The page computes none of it. */
-  async function afterVerdict() {
-    await statuses.load();
-    const progress = await import("../features/progres/projection.svelte").catch(() => null);
-    await progress?.projection.refreshIfOpen();
-  }
-
-  async function test(scoped: boolean) {
-    if (!here) {
-      system.say("Choisis un exercice dans le menu pour commencer.");
-      return;
-    }
-    // WE DO NOT SEND A SUBMISSION WE KNOW WILL BE REFUSED: the server's 403 says
-    // "clé de session invalide ou expirée", which helps nobody.
-    if (!sessionKey()) {
-      system.say(MISSING_KEY_MESSAGE);
-      return;
-    }
-    if (isQuiz) {
-      const answers = { ...quiz.answers };
-      // NOTHING TO TEST IS NOT A FAILURE. In red, at 2.1rem, where the verdict goes,
-      // it used to scold somebody who had just opened the exercise and clicked to
-      // see what the button does.
-      if (!Object.values(answers).some((v) => v.trim())) {
-        system.say("Saisis au moins une réponse avant de tester.");
-        return;
-      }
-      await submission.submit(
-        here,
-        sessionKey(),
-        { answers },
-        scoped ? quiz.currentScope() : null,
-        afterVerdict,
-      );
-      return;
-    }
-    const files = { ...editor.sources };
-    if (!Object.values(files).some((v) => v.trim())) {
-      system.say("Il n'y a encore rien à tester : écris ou colle ton code d'abord.");
-      return;
-    }
-    await submission.submit(here, sessionKey(), { files }, null, afterVerdict);
-  }
 
   /**
    * IMPORT USED TO LOSE THE IMPORTED FILE. `input` DOES NOT FIRE when a script writes
@@ -168,7 +121,7 @@
     id="go"
     class={(isQuiz ? "secondaire" : "") + (submission.busy ? " occupe" : "")}
     aria-busy={working ? "true" : "false"}
-    onclick={() => test(false)}
+    onclick={() => runTest(false)}
   >
     {submission.busy ? busyLabel : goLabel}
   </button>
@@ -181,7 +134,7 @@
     hidden={!isQuiz}
     class={submission.busy ? "occupe" : ""}
     aria-busy={working ? "true" : "false"}
-    onclick={() => test(true)}
+    onclick={() => runTest(true)}
   >
     {submission.busy ? busyLabel : "Tester l'exercice"}
   </button>

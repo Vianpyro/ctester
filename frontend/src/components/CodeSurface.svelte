@@ -23,8 +23,10 @@
 
   import type { Snippet } from "svelte";
   import { highlight } from "../lib/domain/highlight";
-  import { keyEdit, type Edit } from "../lib/domain/keys";
-  import { check, type Issue } from "../lib/domain/syntax";
+  import { commandEdit, keyEdit, lineSpan, parseLine, type Edit } from "../lib/domain/keys";
+  import { EDITOR_COMMANDS, TEXT_COMMANDS, matchShortcut, type ShortcutId } from "../lib/domain/shortcuts";
+  import { system } from "../lib/state/system.svelte";
+  import { check, nextIssue, type Issue } from "../lib/domain/syntax";
   import { measure, rowColumn, selectionBands, type Metrics } from "../lib/collab/carets";
 
   interface Scroll {
@@ -136,6 +138,69 @@
 
   const usable = $derived(!!metrics && !!metrics.char && !!metrics.line);
 
+  /**
+   * WHAT A COMMAND DOES, once the table has said which one it is.
+   *
+   * NAVIGATION WORKS ON A LOCKED DOCUMENT, EDITING DOES NOT, and the split is
+   * `TEXT_COMMANDS`. A teammate reading a document somebody else holds must
+   * still be able to jump to a fault or to a line number; what they must not do
+   * is rewrite it. The refusal SAYS so -- a silent no-op on a locked document
+   * reads as a broken page, which is the failure `readOnly` already had once.
+   */
+  function command(id: ShortcutId) {
+    if (!zone) return;
+    if (id === "nextIssue") {
+      const issue = nextIssue(issues, zone.selectionEnd);
+      if (issue) goTo(issue);
+      return;
+    }
+    if (id === "gotoLine") {
+      going = "";
+      return;
+    }
+    if (readOnly && TEXT_COMMANDS.has(id)) {
+      system.flash("Ce document est en lecture seule : c'est un coéquipier qui écrit.");
+      return;
+    }
+    const edit = commandEdit(id, zone.value, zone.selectionStart, zone.selectionEnd);
+    if (edit) apply(edit);
+  }
+
+  // --- ALLER À LA LIGNE ------------------------------------------------------
+  // A FIELD AND NOT `prompt()`, for three measured reasons: `prompt()` blocks the
+  // event loop (in a team room the socket keeps buffering while the UI is frozen),
+  // its chrome is in the OS language so this French page grows an English box, and
+  // Chrome suppresses it inside an iframe -- which is how this page is embedded in
+  // Moodle. It is ONE input, not a dialog: there is no focus trap to build.
+
+  /** `null` when closed. Closed means not rendered, so it is not a tab stop. */
+  let going = $state<string | null>(null);
+  let goField: HTMLInputElement | undefined = $state();
+
+  $effect(() => {
+    // Focused from here and never with `autofocus`, which svelte-check refuses.
+    if (going !== null) goField?.focus();
+  });
+
+  function onGoKeydown(event: KeyboardEvent) {
+    if (event.key !== "Enter" && event.key !== "Escape") return;
+    // PREVENTED SO THE WINDOW DOES NOT ACT TOO: without it, this Escape would
+    // also reach `App.svelte` and close a panel behind the editor.
+    event.preventDefault();
+    if (event.key === "Enter") {
+      const line = parseLine(going ?? "", value.split("\n").length);
+      if (line !== null && zone) {
+        const span = lineSpan(value, line);
+        zone.focus();
+        zone.setSelectionRange(span.from, span.to);
+        onCaret?.();
+      }
+    } else {
+      zone?.focus();
+    }
+    going = null;
+  }
+
   /** Put the caret on a fault. The list is a way IN, not just a report. */
   function goTo(issue: Issue) {
     if (!zone) return;
@@ -175,7 +240,26 @@
     const leaving = event.key === "Tab" && escaped;
     escaped = false;
     if (leaving) return;
+
+    // THE IDE COMMANDS, AND THEY COME BEFORE THE MODIFIER GUARD BELOW -- which is
+    // the whole change: that guard used to be the end of the story, so every
+    // Ctrl chord fell through to the browser. `matchShortcut` claims only what
+    // the table names, and nothing else, so what follows is unchanged.
+    //
+    // WE PREVENT THE DEFAULT EVEN WHEN NOTHING HAPPENS. `commandEdit` returns
+    // `null` for "there is nothing to do" (Alt+Shift+Up on the first line), and
+    // letting the browser act on those would extend a selection over the block
+    // the student is trying to move. It is also what keeps Ctrl+D from opening
+    // Chrome's bookmark dialog on a read-only document.
+    const id = zone ? matchShortcut(event) : null;
+    if (id && EDITOR_COMMANDS.has(id)) {
+      event.preventDefault();
+      command(id);
+      return;
+    }
+
     // Ctrl, Meta and Alt are the browser's and the student's -- Ctrl+Z above all.
+    // Everything the table did not claim still belongs to them.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (!zone || readOnly) return;
     const { value: text, selectionStart, selectionEnd } = zone;
@@ -267,6 +351,26 @@
     </div>
   </div>
 </div>
+{#if going !== null}
+  <!-- RENDERED ONLY WHEN OPEN, so a closed field is not a tab stop for anybody
+       navigating the page with the keyboard. The label is visually hidden and
+       carries the `idPrefix`, because the exercise and the Console are both in
+       the document at once. -->
+  <div class="aller">
+    <label class="horsecran" for={idPrefix + "aller"}>Aller à la ligne</label>
+    <input
+      bind:this={goField}
+      bind:value={going}
+      id={idPrefix + "aller"}
+      type="text"
+      inputmode="numeric"
+      placeholder="Aller à la ligne…"
+      onkeydown={onGoKeydown}
+      onblur={() => (going = null)}
+    />
+    <span class="allerdit">Entrée pour y aller, Échap pour annuler</span>
+  </div>
+{/if}
 <!-- WHAT THE CHECKER FOUND, under the code. Two levels, and the wording already
      says which is which: an "error" is certain, a "hint" is a guess written as
      one. Each row is a button, so the keyboard reaches the fault the same way the

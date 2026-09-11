@@ -26,9 +26,11 @@
     /** Each destination is a lazy chunk; the shell owns the loading. */
     openView: (name: "progres" | "leaderboard" | "collection" | "scratch") => void;
     openChat: () => void;
+    helpOpen: boolean;
+    openHelp: () => void;
   }
 
-  const { menuOpen, focusSearch, onMenu, openView, openChat }: Props = $props();
+  const { menuOpen, focusSearch, onMenu, openView, openChat, helpOpen, openHelp }: Props = $props();
 
   const signedIn = $derived(session.signedIn);
   const plate = $derived(profile.plate);
@@ -109,6 +111,20 @@
   </span>
   <span class="sep"></span>
 
+  <!-- LE SEUL ENDROIT QUI ANNONCE LES RACCOURCIS, avec la touche écrite dessus --
+       le motif de `LabStrip`. Un lot de raccourcis que personne ne découvre est un
+       lot de raccourcis qui n'existe pas. -->
+  <button
+    type="button"
+    id="raccourcisbouton"
+    class="nav"
+    aria-expanded={helpOpen}
+    aria-controls="raccourcis"
+    title="Les raccourcis clavier de la page"
+    onclick={openHelp}
+  >
+    Raccourcis<span class="shortcut">F1</span>
+  </button>
   <button
     type="button"
     id="theme"

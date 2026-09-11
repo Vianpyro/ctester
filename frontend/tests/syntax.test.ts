@@ -7,7 +7,7 @@
 // reason it lives in `domain/`.
 
 import { describe, expect, it } from "vitest";
-import { check } from "../src/lib/domain/syntax";
+import { check, nextIssue, type Issue } from "../src/lib/domain/syntax";
 
 /** The messages, so a test reads like the panel does. */
 const said = (src: string): string[] => check(src).map((i) => i.message);
@@ -230,5 +230,33 @@ describe("the noise rules", () => {
     const issues = check("int main(void) {\n    int a = 1\n    int b = 2\n    return 0;\n}\n");
     expect(issues).toHaveLength(2);
     expect(issues[0]!.from).toBeLessThan(issues[1]!.from);
+  });
+});
+
+describe("la faute suivante (F2)", () => {
+  const at = (from: number): Issue => ({ from, to: from + 1, message: "m", level: "error" });
+
+  it("saute à la première faute qui suit le curseur", () => {
+    expect(nextIssue([at(10), at(30), at(20)], 12)?.from).toBe(20);
+  });
+
+  it("REVIENT à la première une fois la dernière passée", () => {
+    // Sans le bouclage, F2 devient inerte dès qu'on a atteint le bas du
+    // fichier -- et une touche inerte se lit comme une touche cassée.
+    expect(nextIssue([at(10), at(30)], 99)?.from).toBe(10);
+  });
+
+  it("part de la première quand le curseur est avant tout", () => {
+    expect(nextIssue([at(10), at(30)], 0)?.from).toBe(10);
+  });
+
+  it("SILENCE quand il n'y a aucune faute", () => {
+    expect(nextIssue([], 0)).toBeNull();
+  });
+
+  it("SILENCE sur la faute où le curseur est DÉJÀ posé : il faut avancer", () => {
+    // Sinon F2 répété reste collé à la même faute, ce qui ressemble aussi à
+    // une touche cassée.
+    expect(nextIssue([at(10), at(30)], 10)?.from).toBe(30);
   });
 });

@@ -140,18 +140,46 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     }
   });
 
-  it("stays under 130 KB of eager JavaScript", () => {
+  it("stays under 140 KB of eager JavaScript", () => {
     // NOT A BUDGET FOR ITS OWN SAKE. It sits a few percent above what the build currently
-    // produces (~124 KB raw), so a jump past it means something was accidentally pulled
-    // into the entry -- which is the only way this number moves by a lot. For scale: the
-    // page it replaces shipped a 108 KB `app.js` to the same visitor, before its
-    // stylesheet, and rendering the statement with `marked` instead of
+    // produces (~135 KB raw), so a jump past it means something was accidentally pulled
+    // into the entry -- which is the only way this number moves by a lot.
+    //
+    // IT MOVED ONCE, DELIBERATELY, AND HERE IS WHAT MOVED IN: the IDE keyboard
+    // shortcuts (+7.5 KB) -- the chord table and its matcher, the seven text
+    // transforms of `domain/keys.ts`, and the go-to-line field. They are eager
+    // because AN ANONYMOUS STUDENT EDITS CODE: deferring them would mean the
+    // shortcuts do not work until something else has been clicked. What did NOT
+    // move in is the cheat sheet itself -- its French prose is a chunk of its
+    // own, asserted below -- and that split is the reason the number is 140 and
+    // not 145.
+    //
+    // For scale: the page it replaces shipped a 108 KB `app.js` to the same visitor,
+    // before its stylesheet, and rendering the statement with `marked` instead of
     // `lib/domain/statement.ts` would have added 74 KB here on its own.
     const bytes = eagerChunks().reduce(
       (n, name) => n + readFileSync(join(DIST, "assets", name)).byteLength,
       0,
     );
-    expect(bytes).toBeLessThan(130_000);
+    expect(bytes).toBeLessThan(140_000);
+  });
+
+  it("keeps the shortcuts WORKING but the cheat sheet DEFERRED", () => {
+    // The two halves of the same decision, and they pull in opposite directions:
+    // the matcher has to be there before the first keystroke, while the panel that
+    // EXPLAINS the shortcuts is prose nobody reads until they press F1. Asserting
+    // only the first half would let the labels drift back into the entry and cost
+    // every anonymous visitor two kilobytes of French they never see.
+    const source = eagerSource();
+    expect(source, "the matcher runs on every keystroke").toContain("commentBlock");
+    expect(source, "so do the transforms").toContain("completeStatement");
+    for (const prose of ["Dupliquer la ligne", "clavier canadien-français", "Désindenter"]) {
+      expect(source, prose).not.toContain(prose);
+    }
+    // And it really is a chunk, rather than simply absent.
+    const panel = allChunks().find((name) => name.startsWith("ShortcutsPanel"));
+    expect(panel, "the cheat sheet must exist as its own chunk").toBeTruthy();
+    expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("Dupliquer la ligne");
   });
 
   it("really did split: the deferred screens exist as their own chunks", () => {

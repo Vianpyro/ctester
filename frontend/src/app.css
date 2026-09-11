@@ -546,12 +546,22 @@ pre {
 #quiznav[hidden] { display: none; }
 #quiznav .pos { color: var(--muted); font-size: 12.5px; }
 
-#consentement {
+/* LES PANNEAUX SUSPENDUS À LA BARRE, ET LEURS RÈGLES VIVENT ICI UNE SEULE FOIS.
+   C'étaient TROIS blocs identiques recopiés ; le quatrième (`#raccourcis`) a
+   forcé l'extraction, parce qu'une règle en quatre exemplaires est une règle que
+   personne ne tient à jour -- et celui qui dérive est celui qu'on ne regarde pas.
+   Ne restent par identifiant que la LARGEUR et la police. `#top` est
+   `position: relative` : c'est la seule ancre contre laquelle `top: 100%` doit
+   se résoudre, et c'est le travail de `lib/barPanel.ts` de les y amener. */
+:is(#consentement, #charte, #identitepanneau, #raccourcis) {
   position: absolute; z-index: 5; top: 100%; right: .9rem; margin-top: .4rem;
-  width: min(30rem, calc(100vw - 2rem));
   padding: .85rem 1rem; background: var(--panel);
   border: 1px solid var(--line); border-left: 3px solid var(--ink);
   border-radius: var(--coin); box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+}
+
+#consentement {
+  width: min(30rem, calc(100vw - 2rem));
 }
 #consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: 13px; }
 #consentement .row { display: flex; gap: .6rem; margin-top: .7rem; }
@@ -737,11 +747,7 @@ pre {
 }
 
 #charte {
-  position: absolute; z-index: 5; top: 100%; right: .9rem; margin-top: .4rem;
   width: min(32rem, calc(100vw - 2rem));
-  padding: .85rem 1rem; background: var(--panel);
-  border: 1px solid var(--line); border-left: 3px solid var(--ink);
-  border-radius: var(--coin); box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
   font-family: var(--sans);
 }
 #charte[hidden] { display: none; }
@@ -755,11 +761,7 @@ pre {
    from the Compte menu. It is a setting, not a reading step -- it has no
    business in the column where one comes to read a thread. */
 #identitepanneau {
-  position: absolute; z-index: 5; top: 100%; right: .9rem; margin-top: .4rem;
   width: min(26rem, calc(100vw - 2rem));
-  padding: .85rem 1rem; background: var(--panel);
-  border: 1px solid var(--line); border-left: 3px solid var(--ink);
-  border-radius: var(--coin); box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
   font-family: var(--sans);
 }
 /* LE PANNEAU SCROLLE, PARCE QUE SON CONTENU N'A PAS DE HAUTEUR CONNUE.
@@ -796,8 +798,14 @@ pre {
   #droite { display: block; }
   .edwrap { height: clamp(12rem, 45vh, 26rem); }
   #out { max-height: none; overflow: visible; }
-  #consentement { position: static; width: auto; margin: .9rem; box-shadow: none; }
-  #charte { position: static; width: auto; margin: .9rem; box-shadow: none; }
+  /* LES QUATRE, ET PAS DEUX. `#identitepanneau` manquait ici : sur un téléphone
+     il restait `position: absolute`, donc suspendu hors de l'écran. Le bogue
+     existait avant les raccourcis ; il est réparé en même temps que la règle
+     partagée, pour que la liste ne puisse plus être incomplète d'un seul côté. */
+  :is(#consentement, #charte, #identitepanneau, #raccourcis) {
+    position: static; width: auto; margin: .9rem; box-shadow: none;
+    max-height: none; overflow-y: visible;
+  }
 }
 
 /* --- The service channel, and the verdict channel -------------------------
@@ -1611,3 +1619,71 @@ pre {
    navigation. Il n'ouvre rien de CTester, donc il ne se déguise pas en canal. */
 .chatliens { flex: 0 0 auto; padding: .35rem .6rem 0; }
 .discordlien { display: inline-block; text-decoration: none; }
+
+/* ALLER À LA LIGNE -- la rangée sous l'éditeur, qui apparaît au Ctrl+G et
+   disparaît à l'Entrée. Elle vit là où `.diags` vit déjà, donc la grille sait
+   déjà encaisser une rangée qui va et vient. */
+.aller {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-top: .35rem;
+}
+.aller input {
+  width: 11rem;
+  padding: .25rem .45rem;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--coin);
+}
+.allerdit {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* L'AIDE-MÉMOIRE : la quatrième carte suspendue à la barre. Voir l'extraction
+   `:is(...)` plus bas -- il ne porte ici que ce qui lui est propre. */
+#raccourcis {
+  width: min(34rem, calc(100vw - 2rem));
+  font-family: var(--sans);
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+#raccourcis[hidden] { display: none; }
+#raccourcis h2 { font-size: .95rem; margin: 0 0 .35rem; }
+#raccourcis .sous { margin: 0 0 .8rem; font-size: 12px; color: var(--muted); }
+#raccourcis h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  margin: .9rem 0 .35rem;
+  padding-bottom: .2rem;
+  border-bottom: 1px solid var(--line);
+}
+.touches {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .3rem .8rem;
+  margin: 0;
+  font-size: 12px;
+}
+.touches dt { white-space: nowrap; }
+.touches dd { margin: 0; }
+.touches kbd {
+  display: inline-block;
+  padding: .05rem .3rem;
+  margin-right: .15rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--coin);
+}
+.touches .apropos { display: block; color: var(--muted); font-size: 11px; }
+#raccourcis .row { display: flex; justify-content: flex-end; margin-top: .9rem; }

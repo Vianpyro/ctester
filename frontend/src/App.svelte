@@ -19,6 +19,9 @@
   import { system } from "./lib/state/system.svelte";
   import { theme } from "./lib/state/theme.svelte";
   import { view } from "./lib/state/view.svelte";
+  import { runTest } from "./lib/state/run";
+  import { drafts } from "./lib/state/drafts.svelte";
+  import { matchShortcut } from "./lib/domain/shortcuts";
   import { fetchDeployment } from "./lib/api/public";
   import { RETURN_KEY } from "./lib/auth/keys";
   import { ensureValid, session } from "./lib/auth/session.svelte";
@@ -42,6 +45,10 @@
 
   let menuOpen = $state(false);
   let focusSearch = $state(false);
+  /** L'aide-mémoire. Même forme et même propriétaire que `menuOpen` juste
+   *  au-dessus : un module d'état pour un booléen de composant n'en serait
+   *  pas un. */
+  let helpOpen = $state(false);
 
   // --- The lazily loaded destinations ------------------------------------------
   // One holder per chunk. `null` means "not fetched"; a component means "here".
@@ -55,6 +62,9 @@
   let ChatDock = $state<Component | null>(null);
   let IdentityPanel = $state<Component | null>(null);
   let TeamBand = $state<Component | null>(null);
+  /** Typé, contrairement aux autres : c'est le seul morceau à la demande qui
+   *  prenne des props. */
+  let ShortcutsPanel = $state<Component<{ open: boolean; onClose: () => void }> | null>(null);
 
   /**
    * A FAILURE IS SAID, NOT SWALLOWED: a chunk that does not come down would otherwise
@@ -210,13 +220,127 @@
     await chat.restoreDock();
   }
 
-  /** Ctrl+K / ⌘K OPENS THE CATALOG AND LANDS IN THE FILTER. Captured on the document
-   *  rather than on the field, since the point is to reach it from the editor -- which is
-   *  where the student's cursor actually is. */
+  /**
+   * LES RACCOURCIS DE LA PAGE. Captés sur le document et pas sur un champ, parce
+   * que le curseur de l'étudiant est dans l'éditeur -- c'est de là qu'il faut
+   * pouvoir les atteindre.
+   *
+   * ⚠ LE CONTRAT AVEC `CodeSurface`, ET IL EST INVISIBLE DANS L'UN OU L'AUTRE
+   * PRIS SEUL : un `keydown` remonte jusqu'à `window` que `preventDefault()` ait
+   * été appelé ou non, donc la surface ne peut pas « consommer » une frappe en
+   * la prévenant. C'est `defaultPrevented` qui le dit, et c'est la première
+   * ligne ici. Jamais de `stopPropagation` en face -- ça cacherait l'événement à
+   * tout futur écouteur et rendrait le contrat positionnel au lieu qu'il soit
+   * écrit.
+   */
   function onKeydown(event: KeyboardEvent) {
-    if (event.key !== "k" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+    if (event.defaultPrevented) return;
+    const id = matchShortcut(event);
+    if (!id) return;
+
+    if (id === "escape") {
+      onEscape(event);
+      return;
+    }
+    if (id === "catalog") {
+      event.preventDefault();
+      openMenu(true);
+      return;
+    }
+    if (id === "help") {
+      event.preventDefault();
+      void toggleHelp();
+      return;
+    }
+    // LES DEUX SEULS GARDÉS SUR LA VUE. La barre d'actions est `hidden` et non
+    // démontée quand « Mes progrès » est ouvert : sans cette garde, Ctrl+Entrée
+    // soumettrait depuis un écran où il n'y a pas d'éditeur, et Ctrl+S viderait
+    // le débounce d'un brouillon que personne ne regarde.
+    if (view.current !== "") return;
+    if (id === "run") {
+      event.preventDefault();
+      void runTest(false);
+      return;
+    }
+    if (id === "save") {
+      event.preventDefault();
+      saveNow();
+    }
+  }
+
+  /**
+   * Ctrl+S N'ENREGISTRE PAS UN FICHIER, IL RÉPOND À LA QUESTION. Le brouillon
+   * part tout seul 1,5 s après la dernière frappe ; ce que le geste achète, c'est
+   * de ne pas attendre -- et surtout de le DIRE, parce que quelqu'un qui presse
+   * Ctrl+S demande une confirmation, pas un enregistrement.
+   *
+   * Les deux moitiés comptent : `#sauvegarde` affiche « enregistré sur ton
+   * compte · 14:32 », la réponse durable, dans le créneau que l'étudiant regarde
+   * déjà ; le flash, lui, accuse réception de la FRAPPE et s'efface tout seul.
+   */
+  function saveNow() {
+    drafts.cancel();
+    exercise.saveNow();
+    system.flash("Pas besoin d'enregistrer : ton code est sauvegardé tout seul.");
+  }
+
+  async function toggleHelp() {
+    if (helpOpen) {
+      helpOpen = false;
+      return;
+    }
+    ShortcutsPanel ??= await bring(
+      "l'aide-mémoire des raccourcis",
+      async () => (await import("./components/ShortcutsPanel.svelte")).default,
+    );
+    if (ShortcutsPanel) helpOpen = true;
+  }
+
+  /**
+   * ÉCHAP FERME UN PANNEAU, SINON REVIENT AU CODE -- et l'ordre des cas est ce
+   * qui l'empêche de nuire.
+   *
+   * L'ASYMÉTRIE ENTRE LE CATALOGUE ET « MON IDENTITÉ » EST VOULUE : un filtre de
+   * recherche est jetable, et « Échap efface la recherche » est universel ; un
+   * nom d'affichage à moitié tapé est du TRAVAIL, et cette page n'a aucune
+   * annulation pour lui. Échap depuis un champ d'identité ne ferme donc rien --
+   * le panneau a un bouton « Annuler » pour ça.
+   *
+   * ET LE DERNIER CAS EST CE QUI GARDE ÉCHAP-PUIS-TAB VIVANT : le curseur dans
+   * le textarea rend `typing` vrai, donc on n'atteint jamais le retour au code,
+   * donc on ne prévient jamais -- et le drapeau `escaped` de `CodeSurface`
+   * survit pour le Tab suivant.
+   */
+  function onEscape(event: KeyboardEvent) {
+    const active = document.activeElement as HTMLElement | null;
+    const typing =
+      !!active &&
+      (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+
+    // UN SEUL À LA FOIS, pour qu'un second Échap atteigne le suivant. Et le focus
+    // part AVANT le masquage : masquer un élément qui contient le focus le laisse
+    // tomber sur `<body>`, et le Tab d'après repart du haut de la page.
+    if (helpOpen) return close(event, () => (helpOpen = false), "raccourcisbouton");
+    if (profile.identityOpen && !typing) {
+      return close(event, () => (profile.identityOpen = false), "plate");
+    }
+    if (profile.consentOpen) return close(event, () => profile.cancelConsent(), "connexion");
+    if (menuOpen) return close(event, () => ((menuOpen = false), (focusSearch = false)), "excourant");
+    if (profile.menuOpen) return close(event, () => (profile.menuOpen = false), "plate");
+
+    // Rien n'était ouvert : on ramène au code, et SEULEMENT si on n'y est pas
+    // déjà -- depuis un bouton `.diag`, une tuile de la bande, ou le verdict.
+    if (view.current !== "" || typing) return;
+    const zone = document.getElementById("code") as HTMLTextAreaElement | null;
+    if (!zone) return;
     event.preventDefault();
-    openMenu(true);
+    zone.focus();
+  }
+
+  function close(event: KeyboardEvent, shut: () => void, opener: string) {
+    event.preventDefault();
+    document.getElementById(opener)?.focus();
+    shut();
   }
 
   function openMenu(search = false) {
@@ -254,8 +378,13 @@
   }}
   openView={openDestination}
   openChat={toggleChat}
+  {helpOpen}
+  openHelp={() => void toggleHelp()}
 />
 <ConsentPanel />
+{#if ShortcutsPanel}
+  <ShortcutsPanel open={helpOpen} onClose={() => (helpOpen = false)} />
+{/if}
 {#if IdentityPanel}
   <IdentityPanel />
 {/if}
