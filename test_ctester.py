@@ -4572,13 +4572,37 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
         fil = _fils.Thread(target=runner.run_console, args=(job,), daemon=True)
         fil.start()
         # PENDANT que la session tourne, le verrou doit etre TENU.
+        #
+        # UNE ECHEANCE, PAS UN BUDGET DE TOURS, et ce test a couté une heure de
+        # recherche pour ça. `range(200)` avec un sleep de 10 ms, c'est ~2 s SI
+        # le sleep est la seule attente -- sur un runner CI a deux coeurs deja
+        # occupes, demarrer un fil et lui faire atteindre le `flock` peut
+        # prendre plus. L'echec etait alors intermittent, invisible sous
+        # Windows (le test est saute, pas de flock) et invisible en local sous
+        # Linux (20 suites d'affilee vertes, meme sous charge) -- donc un
+        # blocage de la CI que rien ne reproduisait.
+        #
+        # ET LE MESSAGE DIT CE QUI S'EST PASSE. `run_console` a DEUX sorties
+        # avant le verrou -- constructeur introuvable, `alive` relache -- et les
+        # trois cas rendaient la meme phrase, celle qui accuse le verrou. L'etat
+        # final le distingue, et c'est lui qu'on lit le jour ou ca recommence.
+        fin = time.time() + 20
         vu = False
-        for _ in range(200):
+        while time.time() < fin:
             if scratch._verrou_tenu(os.path.join(job, "claim")):
                 vu = True
                 break
+            if not fil.is_alive():
+                break   # sorti sans jamais prendre le verrou : inutile d'attendre
             time.sleep(0.01)
-        assert vu, "le worker ne tient pas `claim` pendant la session"
+        if not vu:
+            try:
+                dit = lire(os.path.join(job, "state.json"))
+            except OSError:
+                dit = "aucun state.json"
+            raise AssertionError(
+                "le worker ne tient pas `claim` pendant la session "
+                "(fil vivant: %s, etat: %s)" % (fil.is_alive(), dit))
         relacher.set()
         os.close(ecriture)
         fil.join(timeout=15)
