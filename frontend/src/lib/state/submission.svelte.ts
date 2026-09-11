@@ -18,6 +18,7 @@
 
 import { poll as pollJob, submit as postSubmission } from "../api/submission";
 import { verdictHeadline, type Scope } from "../domain/verdict";
+import { canonicalizeFiles } from "../domain/source";
 import type { PollResult, SubmissionBody, Verdict } from "../api/types";
 import { session, ensureValid } from "../auth/session.svelte";
 import { system } from "./system.svelte";
@@ -121,7 +122,13 @@ class SubmissionState {
     scope: Scope | null,
     after: () => Promise<void>,
   ): Promise<void> {
-    const payload: SubmissionBody = { key, exercise_id: exercise.id, ...body };
+    // CANONISÉ AVANT LA CLÉ *ET* AVANT L'ENVOI, dans cet ordre-là : la page
+    // compare exactement ce qu'elle enverra. Un espace de fin ajouté puis
+    // retiré cesse ainsi de coûter une place dans la file, pour un verdict
+    // qu'elle tient déjà. Les réponses d'un quiz ne sont pas du code et ne
+    // passent pas par là.
+    const sent = body.files ? { ...body, files: canonicalizeFiles(body.files) } : body;
+    const payload: SubmissionBody = { key, exercise_id: exercise.id, ...sent };
     // THE SAME CODE AS LAST TIME HAS NOTHING TO ASK AGAIN. No request goes out at
     // all, so neither cooldown, nor queue slot, nor wait.
     const submissionKey = JSON.stringify(payload.answers ?? payload.files);

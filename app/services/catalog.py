@@ -16,6 +16,7 @@ import os
 import re
 
 import config
+from services.source import canonicalize
 
 # A release's name IS the hash of its content. Validated before being joined
 # into a path: this file is written by the worker, but nothing that becomes a
@@ -126,6 +127,13 @@ def validate_files(entry, sent):
 
     Emptiness is NOT checked here: an empty submission is an error, an emptied
     draft is a legitimate thing to store. The caller decides.
+
+    WHAT COMES OUT IS THE CANONICAL FORM, and the bound is measured ON IT:
+    this function MEASURES THE BYTES IT RETURNS. Canonicalizing afterwards
+    would have it check one string and hand back another, in the one layer
+    that protects the database and the spool. `canonicalize` can only ever
+    shrink (see `services/source.py`), so putting it first can never turn a
+    submission that used to fit into a 413.
     """
     if not isinstance(sent, dict):
         return None, "fichiers manquants", 400
@@ -133,7 +141,7 @@ def validate_files(entry, sent):
     unknown = sorted(k for k in sent if k not in declared)
     if unknown:
         return None, "fichier inattendu : " + ", ".join(unknown[:3]), 400
-    files = {n: str(sent.get(n, "")) for n in declared}
+    files = {n: canonicalize(str(sent.get(n, ""))) for n in declared}
     if len(json.dumps(files).encode()) > config.MAX_CODE:
         return None, f"soumission > {config.MAX_CODE // 1024} Ko", 413
     return files, None, 200

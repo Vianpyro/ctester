@@ -65,6 +65,7 @@ app/services/     la logique, sans HTTP -- éprouvée par appel direct
 app/services/teams.py   la porte d'un devoir d'équipe, l'identité visible
                         par les coéquipiers, et l'archive de remise
 app/services/collab.py  les salles de collaboration : un relais, PAS un CRDT
+app/services/source.py  la forme canonique d'une source -- AUCUN IMPORT
 app/services/scratch.py la Console : le protocole d'une session interactive
 ```
 
@@ -74,7 +75,8 @@ La page, elle, vit dans `frontend/` — voir « La page » plus bas :
 frontend/index.html            le document, et la copie <meta> de la CSP
 frontend/public/theme.js       le thème AVANT la première peinture
 frontend/src/lib/domain/       la logique PURE : catalogue, verdict, coloration,
-                               export main.c, rendu Markdown (deux : le forum et
+                               export main.c, forme canonique d'une source,
+                               rendu Markdown (deux : le forum et
                                la consigne) -- aucun DOM
 frontend/src/lib/state/        l'état, un petit module par propriétaire
 frontend/src/lib/api/          le client typé et LES TYPES DU FIL
@@ -589,9 +591,12 @@ de cinq minutes corrige un test, l'empreinte change, le verdict est recalculé.
 **`normaliser_c()` ne touche QUE la clé, jamais ce qui est compilé.** C'est un
 lexeur C : commentaires retirés, indentation et lignes vides sans effet, un
 espace gardé seulement là où il sépare deux jetons (`int x` ne doit pas devenir
-`intx`). `_juger()` continue d'écrire les octets exacts de l'étudiant dans
-`src/`. Un bogue du lexeur ne peut donc produire qu'un mauvais hit — jamais une
-compilation faussée ni un code d'étudiant mutilé. Les directives gardent leur fin
+`intx`). `_juger()` continue d'écrire dans `src/` les octets exacts que le
+spool porte — **qui sont depuis la canonicalisation ceux de la FORME CANONIQUE,
+pas ceux du navigateur** : voir « La forme canonique d'une source » plus bas.
+Le worker, lui, n'a pas changé et n'interprète toujours rien. Un bogue du lexeur
+ne peut donc produire qu'un mauvais hit — jamais une compilation faussée ni un
+code d'étudiant mutilé. Les directives gardent leur fin
 de ligne, sans quoi deux `#define` fusionneraient et deux sources distinctes
 partageraient une clé.
 
@@ -748,6 +753,95 @@ guillemet en littéral, une apostrophe française dans un commentaire), le fait
 qu'un cas de test ajouté change la signature, la politique d'exclusion, la purge,
 et surtout `test_run_job_sert_le_cache_sans_recompiler` — deux soumissions du
 même code ne dépensent qu'un conteneur.
+
+## La forme canonique d'une source
+
+Six colonnes Postgres portent du code d'étudiant (`exercise_draft.sources`,
+`exercise_state.sources`, `team_document.sources`, `team_revision.sources`,
+`team_submission.files`, `scratch_draft.code`), et rien n'en retirait un octet
+de blanc. `app/services/source.py` le fait maintenant, à la frontière HTTP.
+
+**Trois règles, et rien d'autre** : la marque d'ordre UTF-8 en tête, les CRLF et
+les CR isolés, les espaces et tabulations en FIN DE LIGNE.
+
+**LE NOMBRE DE LIGNES NE CHANGE JAMAIS, ET C'EST CE QUI REND TOUT CECI
+INVISIBLE.** La gouttière de `CodeSurface.svelte` est
+`value.split("\n").length` : un `\n` de plus ou de moins est un **numéro de
+ligne qui apparaît ou disparaît sous les yeux de l'étudiant**. C'est aussi ce
+qui garde le verdict honnête — gcc nomme une ligne, et ce doit être celle qu'il
+regarde.
+
+**LE CRLF EST LE GROS DU GAIN**, pas les espaces : un octet par ligne, dans les
+six colonnes, dans le spool, et — pour un devoir d'équipe — jusque dans le
+document des trois autres. Un `.c` de CLion ou de Visual Studio en est plein.
+
+**LA LIGNE VIDE FINALE A ÉTÉ RETIRÉE DE LA RÈGLE, APRÈS MESURE.** Elle y était,
+et elle était fausse deux fois : **38 des 89 gabarits non vides du cours se
+terminent par une ligne vide exprès** — c'est la ligne où l'étudiant est censé
+taper (`devoir-ascension/matrac_lib.c` et les autres) —, et l'autre moitié de la
+règle n'achetait rien puisque **aucun** gabarit ne manque de retour final et
+qu'aucun `build-*.sh` ne passe `-pedantic`. Même refus pour les tabulations
+converties, les lignes vides intérieures fusionnées, l'espace insécable (dans un
+littéral c'est la donnée de l'étudiant, et cette fonction ne lexe pas) et
+**tout ce qui touche au forum** : deux espaces en fin de ligne y sont un saut de
+ligne dur en Markdown.
+
+**LA LIGNE QUI FINIT PAR `\` N'EST PAS TOUCHÉE.** `\` suivi d'espaces puis d'un
+retour est un raccord que gcc accepte **en le signalant** ; couper ces espaces
+ferait taire le diagnostic sans rien réparer. Ça couvre gratuitement les
+`#define` multilignes et les littéraux raccordés, où le blanc de fin est *dans*
+la chaîne.
+
+**ELLE NE PEUT QUE RACCOURCIR, et c'est ce qui la place AVANT la borne
+`MAX_CODE`.** `validate_files` **mesure les octets qu'il rend** : canoniser
+après ferait contrôler une chaîne et en rendre une autre, dans la seule couche
+qui protège la base et le spool. Et pour `scratch_draft`, dont le
+`CHECK (length(code) <= 65536)` est en base, un octet gagné entre la mesure et
+l'écriture rendrait « la base ne répond pas » sur un bloc-notes valide.
+
+**AUCUN IMPORT DANS `app/services/source.py`, PAS MÊME `re`** — même raison que
+`app/csp.py`, et poussée d'un cran : un module qui n'importe rien ne peut jamais
+être l'`ImportError` qui bloque le déploiement de cinq minutes sur le Dell.
+C'est aussi ce qui laisse la Console l'appeler sans toucher à
+`services.catalog`, qui lit une release — une console n'a pas d'exercice.
+
+**Un seul appel couvre cinq des six colonnes** : `validate_files`
+(`app/services/catalog.py`) est déjà la porte de la soumission, du brouillon, de
+l'état, du document d'équipe, de la restauration et de l'archive. La sixième est
+la Console, dont la borne était écrite **deux fois** dans `routers/scratch.py` ;
+`scratch.valider_bloc_notes()` est maintenant sa porte unique.
+
+**Côté page, deux points seulement, et ils ne font pas la même chose.**
+`lib/domain/source.ts` porte `decodeImported()` (BOM et fins de ligne, appelé
+par « Importer un fichier ») et `canonicalize()` (la règle entière, appelée par
+`submission.svelte.ts`).
+
+- **L'import est le SEUL endroit où des octets étrangers entrent.** Une fois un
+  CRLF dans le `Y.Doc` d'une équipe, le serveur ne peut plus l'en retirer.
+- **`decodeImported` en fait délibérément MOINS** : couper les espaces morts à
+  l'import modifierait le fichier de l'étudiant à l'instant où il le regarde
+  arriver. Le serveur les coupe à l'écriture, ce qui ne se voit pas.
+- **La soumission canonise la clé ET le corps ensemble**, donc la page compare
+  exactement ce qu'elle enverrait. Elle n'affirme toujours rien au serveur —
+  voir « LA PAGE NE RENVOIE PAS UN CODE IDENTIQUE ».
+- **Ni l'éditeur ni `drafts.put()` ne sont canonisés** : le tampon ferait sauter
+  le curseur, et le magasin `localStorage` est relu au changement d'onglet.
+
+**Rien n'est réécrit en base.** `exercise_state` est un instantané de ce qui a
+été soumis et `team_revision` un historique en ajout seul ; les réécrire
+falsifierait un enregistrement. Chaque ligne se canonise à sa prochaine écriture.
+Conséquence unique : le premier enregistrement d'un `team_document` existant
+écrit une révision de plus, parce que ses octets diffèrent de la dernière.
+
+**Le cache de verdicts n'y gagne rien, et ce n'est pas un oubli** :
+`normaliser_c()` ignore déjà bien plus que ça. Il n'est pas invalidé non plus —
+`empreinte_juge()` hache `runner.py`, qui ne change pas.
+
+**`frontend/tests/fixtures/source.json` est l'unique source des attentes**, lue
+par `test_ctester.py` **et** par `frontend/tests/source.test.ts` : deux
+implémentations dans deux langages ne peuvent pas s'appeler l'une l'autre, mais
+elles peuvent répondre de la même table. Chaque suite refuse un fixture vidé, et
+la moitié des cas y sont des **silences** — ce que la règle ne doit pas toucher.
 
 ## La Console — un terminal C interactif
 

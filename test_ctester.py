@@ -59,6 +59,7 @@ from services import quotas       # noqa: E402
 from services import collab      # noqa: E402
 from services import teams       # noqa: E402
 from services import spool        # noqa: E402
+from services import source       # noqa: E402
 from services import scratch      # noqa: E402
 
 
@@ -3090,6 +3091,148 @@ def test_duree_moyenne_glissante_par_exercice():
     finally:
         runner.SPOOL = garde
         shutil.rmtree(spool, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# La forme canonique d'une source
+# --------------------------------------------------------------------------
+
+def _cas_canoniques():
+    """Le fixture PARTAGÉ avec `frontend/tests/source.test.ts`.
+
+    Les attentes ne sont écrites ni ici ni là-bas : les deux harnais répondent
+    de la même table. C'est ce qui remplace l'appel croisé qu'un jumeau dans le
+    même langage permettrait (cf. `import_teams.team_handle` contre
+    `teams.team_handle`) -- deux implémentations dans deux langages ne peuvent
+    pas s'appeler, mais elles peuvent être confrontées au même fichier.
+    """
+    chemin = os.path.join(HERE, "frontend", "tests", "fixtures", "source.json")
+    with open(chemin, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_le_fixture_de_la_forme_canonique_est_bien_la():
+    """Un fixture renommé ou vidé ferait passer les deux suites en n'éprouvant
+    RIEN, des deux côtés de la frontière à la fois. C'est le même piège que
+    celui gardé par `bundle.test.ts` et par `markdown.test.ts`."""
+    cas = _cas_canoniques()
+    assert len(cas["encodage"]) >= 6, cas
+    assert len(cas["espaces_morts"]) >= 5, cas
+    assert len(cas["silences"]) >= 7, cas
+
+
+def test_la_forme_canonique_retire_ce_qui_ne_se_voit_pas():
+    """Le BOM d'un fichier Windows, ses CRLF, et les espaces morts en fin de
+    ligne. Rien de tout ça n'a de glyphe à l'écran, et le CRLF est le plus
+    coûteux : un octet par ligne, dans SIX colonnes Postgres, dans le spool, et
+    -- pour un devoir d'équipe -- jusque dans le document des trois autres."""
+    cas = _cas_canoniques()
+    for groupe in ("encodage", "espaces_morts"):
+        for c in cas[groupe]:
+            assert source.canonicalize(c["in"]) == c["out"], (groupe, c["why"])
+
+
+def test_la_forme_canonique_se_tait_sur_tout_le_reste():
+    """LA MOITIÉ QUI LA REND INVISIBLE, et elle vaut autant que l'autre.
+
+    La ligne vide FINALE est le cas qui a fait retirer une règle entière : 38
+    des 89 gabarits non vides du cours en portent une exprès -- c'est la ligne
+    où l'étudiant est censé taper (`devoir-ascension/matrac_lib.c` et les
+    autres). La couper déplace son curseur et emporte un numéro dans la
+    gouttière. Et l'autre moitié de cette règle-là n'aurait rien acheté :
+    AUCUN gabarit ne manque de retour final, et aucun `build-*.sh` ne passe
+    `-pedantic`."""
+    cas = _cas_canoniques()
+    for c in cas["silences"]:
+        assert c["out"] == c["in"], ("ce cas doit être un point fixe", c["why"])
+        assert source.canonicalize(c["in"]) == c["in"], c["why"]
+
+
+def test_la_forme_canonique_epargne_un_raccord_de_lignes():
+    """`\` suivi d'espaces puis d'un retour est un raccord que gcc accepte EN LE
+    SIGNALANT (« backslash and newline separated by space »). Couper ces
+    espaces ferait TAIRE le diagnostic sans rien réparer, et l'étudiant perdrait
+    un avertissement au lieu de gagner une correction. Ça couvre du même coup
+    les `#define` multilignes et les littéraux raccordés, où le blanc de fin est
+    DANS la chaîne.
+
+    Le jumeau silencieux est la même ligne sans la contre-oblique."""
+    assert source.canonicalize("#define F(a) \\   \n") == "#define F(a) \\   \n"
+    assert source.canonicalize("#define F(a)     \n") == "#define F(a)\n"
+
+
+def test_la_forme_canonique_ne_change_jamais_le_nombre_de_lignes():
+    """L'INVARIANT QUI REND TOUT CECI INVISIBLE, et il est vérifiable.
+
+    La gouttière de `CodeSurface.svelte` est `value.split("\n").length` : un
+    `\n` de plus ou de moins est un NUMÉRO DE LIGNE qui apparaît ou disparaît
+    sous les yeux de l'étudiant. C'est aussi ce qui garde les numéros de ligne
+    de gcc pointés sur la ligne qu'il regarde -- un verdict nomme une ligne, et
+    ce doit être la sienne.
+
+    Le `\r` isolé est la seule exception, et elle va vers la vérité : il
+    compte pour une ligne chez gcc et pour un saut dans le `<textarea>`."""
+    cas = _cas_canoniques()
+    tous = cas["encodage"] + cas["espaces_morts"] + cas["silences"]
+    for c in tous + [{"in": x, "why": x} for x in
+                     ("", "x", "x\n", "x\n\n\n", "\n\n", "   ", "a\n   ")]:
+        avant = c["in"]
+        apres = source.canonicalize(avant)
+        if "\r" not in avant:
+            assert apres.count("\n") == avant.count("\n"), c["why"]
+        # ELLE NE PEUT QUE RACCOURCIR, et c'est ce qui permet de la poser AVANT
+        # la borne `MAX_CODE` : une soumission qui passait ne peut pas se
+        # mettre à répondre 413.
+        assert len(apres) <= len(avant), c["why"]
+        # Idempotente, sans quoi `job_sources()` -- qui rejoue
+        # `validate_files` sur un `files.json` déjà canonique -- déplacerait
+        # des octets une seconde fois.
+        assert source.canonicalize(apres) == apres, c["why"]
+
+
+def test_la_liste_blanche_rend_une_forme_canonique():
+    """Un seul appel couvre CINQ des six colonnes de code, plus le spool :
+    `validate_files` est la porte de la soumission, du brouillon, de l'état, du
+    document d'équipe, de la restauration et de l'archive de remise."""
+    entree = {"id": "tp2-ex3", "files": [{"name": "submission.c"}]}
+    fichiers, message, code = catalogue.validate_files(
+        entree, {"submission.c": "\ufeffint main(void){\r\n    return 0;   \r\n}\r\n"})
+    assert message is None, message
+    assert fichiers == {"submission.c": "int main(void){\n    return 0;\n}\n"}, fichiers
+    # LA BORNE PORTE SUR CE QUI EST RENDU. Un corps dont la forme BRUTE dépasse
+    # mais dont la forme canonique tient doit passer : sinon la fonction
+    # mesurerait une chaîne et en rendrait une autre.
+    enveloppe = len(json.dumps({"submission.c": ""}).encode())
+    pile = "a" * (config.MAX_CODE - enveloppe - 4) + "\n" + "   "
+    fichiers, message, code = catalogue.validate_files(entree, {"submission.c": pile})
+    assert message is None, (message, code)
+    assert len(json.dumps(fichiers).encode()) <= config.MAX_CODE
+
+
+def test_la_console_canonise_par_la_meme_porte():
+    """UNE SEULE RÈGLE, DEUX PORTES. La borne du bloc-notes était écrite deux
+    fois dans `routers/scratch.py` -- une par `PUT /scratch/draft`, une par la
+    trame `hello` -- et de deux copies d'une borne, c'est celle qu'on oublie de
+    corriger qui devient la borne réelle."""
+    code, message, statut = scratch.valider_bloc_notes("int x;   \r\n")
+    assert (code, message, statut) == ("int x;\n", None, 200)
+    _, message, statut = scratch.valider_bloc_notes("x" * (config.MAX_CODE + 1))
+    assert statut == 413 and message, (statut, message)
+    # La borne porte sur la forme canonique : ces espaces morts ne comptent pas.
+    code, message, _ = scratch.valider_bloc_notes("x" * config.MAX_CODE + "   ")
+    assert message is None and len(code) == config.MAX_CODE, message
+
+
+def test_le_forum_ne_canonise_rien():
+    """LE JUMEAU SILENCIEUX À LA FRONTIÈRE. Deux espaces en fin de ligne sont un
+    SAUT DE LIGNE DUR en Markdown : canoniser un message du forum réécrirait ce
+    que quelqu'un a mis là exprès. Le code de l'étudiant et son texte ne passent
+    pas par la même porte, et ça doit rester vrai."""
+    texte = "regarde ici  \net puis là  \n"
+    assert source.canonicalize(texte) != texte, "le cas ne prouverait rien"
+    with open(os.path.join(HERE, "app", "services", "forum.py"),
+              encoding="utf-8") as fh:
+        assert "canonicalize" not in fh.read()
 
 
 def test_normalisation_ignore_l_habillage_mais_pas_le_code():

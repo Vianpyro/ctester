@@ -64,10 +64,11 @@ def ecrire_bloc_notes(sub: Sub, corps: ScratchIn, request: Request):
     une requête refusée pour un code trop long consommerait le quota de
     quelqu'un qui n'a rien écrit.
     """
-    if len(corps.code.encode("utf-8")) > config.MAX_CODE:
-        return headers.erreur(413, "bloc-notes > %d Ko" % (config.MAX_CODE // 1024))
+    code, message, statut = scratch.valider_bloc_notes(corps.code)
+    if message:
+        return headers.erreur(statut, message)
     freiner_ecriture(request)
-    if not state.write_scratch(sub, corps.code):
+    if not state.write_scratch(sub, code):
         return headers.erreur(503, "la base ne répond pas")
     return {"ok": True}
 
@@ -118,7 +119,10 @@ async def live(socket: WebSocket):
     if not isinstance(jeton, str) or not jeton or not isinstance(code, str):
         await socket.close(code=deps.CLOSE_BAD)
         return
-    if len(code.encode("utf-8")) > config.MAX_CODE:
+    # LA MÊME PORTE QUE LE BLOC-NOTES, et la forme canonique avec : ce qui est
+    # écrit dans `src/main.c` doit être ce qui aurait été enregistré.
+    code, message, _ = scratch.valider_bloc_notes(code)
+    if message:
         await socket.close(code=deps.CLOSE_BAD)
         return
 

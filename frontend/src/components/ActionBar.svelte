@@ -13,6 +13,7 @@
   import { submission } from "../lib/state/submission.svelte";
   import { runTest } from "../lib/state/run";
   import { isGroupExportable } from "../lib/domain/catalog";
+  import { decodeImported } from "../lib/domain/source";
   import { exportGroup } from "../lib/state/export";
 
   const here = $derived(catalog.selected);
@@ -47,7 +48,10 @@
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    const text = await file.text();
+    // LE BOM ET LES CRLF NE PASSENT PAS LA PORTE. C'est le seul endroit du
+    // système où des octets étrangers entrent, et une fois dans le `Y.Doc`
+    // d'une équipe le serveur ne peut plus les reprendre.
+    const text = decodeImported(await file.text());
     // THE FILE GOES INTO THE TAB CARRYING ITS NAME, when there is one. Importing
     // `calendrier.c` over `calendrier.h` just because that is the open tab is a
     // silent overwrite, at the exact moment the student is looking elsewhere.

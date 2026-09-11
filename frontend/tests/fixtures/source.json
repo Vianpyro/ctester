@@ -1,0 +1,30 @@
+{
+  "_": "LU PAR DEUX HARNAIS : frontend/tests/source.test.ts et test_ctester.py. Ni l'un ni l'autre ne garde sa propre copie de ces attentes -- c'est ce qui remplace l'appel croisé qu'un jumeau dans le MÊME langage permettrait (cf. import_teams.team_handle vs teams.team_handle).",
+
+  "encodage": [
+    { "why": "BOM Windows en tête", "in": "﻿int x;\n", "out": "int x;\n" },
+    { "why": "CRLF de CLion et de Visual Studio", "in": "a\r\nb\r\n", "out": "a\nb\n" },
+    { "why": "CR seul, vieux Mac : une ligne pour gcc, un saut pour le textarea", "in": "a\rb", "out": "a\nb" },
+    { "why": "un BOM qui n'est pas en tête n'est pas un BOM", "in": "a﻿b", "out": "a﻿b" },
+    { "why": "rien à faire", "in": "int main(void){\n    return 0;\n}\n", "out": "int main(void){\n    return 0;\n}\n" },
+    { "why": "vide", "in": "", "out": "" }
+  ],
+
+  "espaces_morts": [
+    { "why": "espaces en fin de ligne", "in": "x = 1;   \n", "out": "x = 1;\n" },
+    { "why": "tabulation en fin de ligne", "in": "x = 1;\t\n", "out": "x = 1;\n" },
+    { "why": "ligne blanche remplie d'espaces : la ligne RESTE, son contenu part", "in": "a\n    \n    \nb\n", "out": "a\n\n\nb\n" },
+    { "why": "derniere ligne sans retour", "in": "int x;  ", "out": "int x;" },
+    { "why": "raccord de lignes : gcc l'accepte EN LE SIGNALANT, le couper ferait taire le diagnostic", "in": "#define F(a) \\   \n  (a)\n", "out": "#define F(a) \\   \n  (a)\n" }
+  ],
+
+  "silences": [
+    { "why": "ligne vide finale : 38 des 89 gabarits du cours en portent une exprès, c'est la ligne où l'étudiant tape", "in": "#include <math.h>\n\n", "out": "#include <math.h>\n\n" },
+    { "why": "aucun retour final : et rien ne compile avec -pedantic, donc rien à réparer", "in": "int x;", "out": "int x;" },
+    { "why": "lignes vides intérieures", "in": "a\n\n\nb\n", "out": "a\n\n\nb\n" },
+    { "why": "indentation de tête, tabulations comprises", "in": "\tif (x) {\n        y();\n\t}\n", "out": "\tif (x) {\n        y();\n\t}\n" },
+    { "why": "espace insécable : dans un littéral c'est la donnée de l'étudiant, et on ne lexe pas", "in": "char *s = \"a b\";\n", "out": "char *s = \"a b\";\n" },
+    { "why": "espace de largeur nulle, même raison", "in": "int x​;\n", "out": "int x​;\n" },
+    { "why": "espaces AVANT un caractère : ce n'est pas de l'espace mort", "in": "a   b\n", "out": "a   b\n" }
+  ]
+}

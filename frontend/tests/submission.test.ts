@@ -249,6 +249,34 @@ describe("do not ask again for what was just asked", () => {
     expect(submits()).toHaveLength(2);
   });
 
+  it("UN ESPACE DE FIN N'EST PAS UN AUTRE CODE", async () => {
+    // La clé et le corps envoyé sont canonisés ENSEMBLE : la page compare
+    // exactement ce qu'elle enverrait. Sans ça, l'éditeur -- qui recopie
+    // l'indentation à chaque Entrée -- fabrique tout seul des variantes qui
+    // reprennent une place dans la file pour un verdict déjà tenu.
+    const files = uniqueCode();
+    queue("ws1", { status: 200, body: OK });
+    await submission.submit(EXERCISE, KEY, { files }, null, noop);
+    expect(submits()).toHaveLength(1);
+
+    const espace = { "submission.c": files["submission.c"] + "   " };
+    await submission.submit(EXERCISE, KEY, { files: espace }, null, noop);
+    expect(submits()).toHaveLength(1);
+    expect(system.text).toMatch(/Même code que ta dernière soumission/);
+  });
+
+  it("mais une VRAIE ligne de plus en est un", async () => {
+    // Le jumeau silencieux : la canonisation ne touche pas au nombre de
+    // lignes, donc une ligne vide ajoutée reste une soumission différente.
+    const files = uniqueCode();
+    queue("ws2", { status: 200, body: OK });
+    queue("ws3", { status: 200, body: OK });
+    await submission.submit(EXERCISE, KEY, { files }, null, noop);
+    const ligne = { "submission.c": files["submission.c"] + "\n" };
+    await submission.submit(EXERCISE, KEY, { files: ligne }, null, noop);
+    expect(submits()).toHaveLength(2);
+  });
+
   it("keeps one memo per exercise, not one for the page", async () => {
     const files = uniqueCode();
     queue("q", { status: 200, body: OK });

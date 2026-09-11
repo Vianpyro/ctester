@@ -1653,6 +1653,27 @@ def test_read_draft_refuses_an_unknown_exercise_and_distinguishes_absence():
         assert r.json() == {"sources": {"submission.c": "int x;"}}, r.text
 
 
+def test_le_brouillon_est_range_sous_sa_forme_canonique():
+    """CE QUI TRAVERSE LA FRONTIÈRE EST CE QUI EST STOCKÉ, et l'aller-retour le
+    montre. Le BOM et les CRLF d'un fichier Windows, plus les espaces morts que
+    l'éditeur fabrique tout seul (`keys.ts` recopie l'indentation à chaque
+    Entrée), ne descendent pas en base.
+
+    LE JUMEAU SILENCIEUX EST DANS LA MÊME REQUÊTE : le nombre de lignes ne
+    bouge pas, et la ligne vide finale du gabarit est rendue telle quelle. La
+    gouttière de l'éditeur compte les `\n` -- en perdre un se VERRAIT."""
+    with contexte(jetons={"alice": "sub-alice"}) as (c, _base, _tmp):
+        c.put("/brouillon",
+              json={"exercise_id": "tp2-ex3",
+                    "files": {"submission.c": "\ufeffint main(void){\r\n"
+                                              "    return 0;   \r\n}\r\n\r\n"}},
+              headers=auth("alice"))
+        r = c.get("/brouillon?ex=tp2-ex3", headers=auth("alice"))
+        garde = r.json()["sources"]["submission.c"]
+        assert garde == "int main(void){\n    return 0;\n}\n\n", repr(garde)
+        assert garde.count("\n") == 4, repr(garde)
+
+
 def test_write_draft_refuses_a_file_outside_the_allow_list_before_the_quota():
     """The name allow-list is checked BEFORE the write throttle.
 
@@ -3528,6 +3549,25 @@ def test_le_document_d_equipe_ne_touche_pas_au_brouillon_individuel():
                              "files": {"main.c": "seul\n"}})
         assert r.status_code == 200
         assert faux.brouillons[("sub-bob", "dev-a")] == {"main.c": "seul\n"}
+
+
+def test_le_document_d_equipe_est_canonise_des_deux_cotes():
+    """La même porte à l'écriture ET à la lecture, parce que `/team/document`
+    passe par `validate_files` dans les deux sens. Le sens LECTURE compte : ce
+    document amorce le `Y.Doc` de l'équipe, donc un CRLF laissé là entrerait
+    dans le CRDT des quatre membres -- et le serveur ne peut plus l'en retirer.
+
+    Le jumeau silencieux est la ligne vide finale, que 38 gabarits du cours
+    portent exprès."""
+    with deploiement_devoir() as (client, faux, _):
+        client.put("/team/document", headers=_entetes("t-alice"),
+                   json={"assignment_id": "devoir", "exercise_id": "dev-a",
+                         "files": {"main.c": "int main(void){\r\n}\r\n\r\n"}})
+        assert faux.documents[("e1", "dev-a")] == {
+            "main.c": "int main(void){\n}\n\n"}, faux.documents
+        r = client.get("/team/document?assignment=devoir&ex=dev-a",
+                       headers=_entetes("t-alice"))
+        assert r.json()["sources"] == {"main.c": "int main(void){\n}\n\n"}, r.text
 
 
 def test_le_document_passe_par_la_meme_liste_blanche_que_tout_le_reste():

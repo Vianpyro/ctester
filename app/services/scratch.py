@@ -40,6 +40,7 @@ import os
 import uuid
 
 import config
+from services.source import canonicalize
 
 # ponytail: `flock` est POSIX, et la Console ne tourne QUE sur le Dell -- mais
 # `app/main.py` importe ce module au chargement, donc sans ce garde-fou c'est
@@ -52,6 +53,28 @@ except ImportError:
 
 # Le genre porté par `job.json`. Le worker dispatche dessus AVANT de réclamer.
 KIND = "console"
+
+
+def valider_bloc_notes(code):
+    """(code, message, statut) -- LA MÊME PORTE que `validate_files`, côté Console.
+
+    Elle existe parce que la borne était écrite DEUX FOIS dans
+    `routers/scratch.py` : une pour `PUT /scratch/draft`, une pour la trame
+    `hello` de `WS /scratch/live`. Deux copies d'une borne, c'est celle qu'on
+    oublie de corriger qui devient la borne réelle.
+
+    LA FORME CANONIQUE D'ABORD, LA BORNE ENSUITE, pour la même raison que dans
+    `validate_files` : ce qui est mesuré doit être ce qui est écrit. Ici ça
+    compte pour de bon -- `scratch_draft` porte un `CHECK (length(code) <=
+    65536)` en base, et un octet de plus entre la mesure et l'écriture rendrait
+    « la base ne répond pas » sur un bloc-notes parfaitement valide.
+    """
+    if not isinstance(code, str):
+        return None, "bloc-notes manquant", 400
+    code = canonicalize(code)
+    if len(code.encode("utf-8")) > config.MAX_CODE:
+        return None, "bloc-notes > %d Ko" % (config.MAX_CODE // 1024), 413
+    return code, None, 200
 
 
 class Session:
