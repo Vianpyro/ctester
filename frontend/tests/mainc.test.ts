@@ -23,6 +23,7 @@ const exercise = (id: string, short: string, files = ["submission.c"]): Exercise
   group: "TP 2",
   label: "TP2 : " + short,
   verification: false,
+  bonus: false,
   assignment: "",
   files: files.map((name) => ({ name })),
   learning: {},

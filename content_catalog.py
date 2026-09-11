@@ -281,6 +281,14 @@ def _exercise(root, dirname, known_skills, errors):
     if not isinstance(verification, bool):
         errors.append("%s: verification must be a boolean" % where)
         verification = False
+    # A BONUS IS AN ORDINARY EXERCISE TOO, and the flag is narrower than the
+    # one above: it earns XP, it counts toward practice, it has its tile and
+    # its lock. All it changes is the one-piece main.c -- the handout does not
+    # number a bonus, so there is no `#if exercice == N` to attach it to.
+    bonus = data.get("bonus", False)
+    if not isinstance(bonus, bool):
+        errors.append("%s: bonus must be a boolean" % where)
+        bonus = False
     contexts = data.get("contexts", [])
     if not isinstance(contexts, list) or any(not isinstance(context, str) or not context
                                               for context in contexts):
@@ -299,7 +307,7 @@ def _exercise(root, dirname, known_skills, errors):
         "id": exercise_id, "path": path, "title": title, "summary": data.get("summary", ""),
         "statement": statement, "mode": mode, "release": _release(data.get("release"), where, errors),
         "skills": skills, "difficulty": difficulty, "contexts": contexts,
-        "verification": verification,
+        "verification": verification, "bonus": bonus,
         "prerequisites": prerequisites, "files": _public_files(path, where, errors, mode),
         # THE GRADING CONFIGURATION STAYS IN THE PRIVATE MODEL: the worker and
         # the publisher read it here rather than rebuilding a path. None of
@@ -566,6 +574,8 @@ def public_catalogue(model, now=None):
         # key per exercise that says nothing is 73 keys saying nothing.
         if entry.get("verification"):
             public["verification"] = True
+        if entry.get("bonus"):
+            public["bonus"] = True
         # WHICH ASSIGNMENT THIS EXERCISE BELONGS TO, or nothing at all. The
         # page reads it to know it must open the assignment workspace instead
         # of the individual editor, and `_record()` reads it to keep team work

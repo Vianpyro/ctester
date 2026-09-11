@@ -224,9 +224,12 @@ describe("what the one-piece main.c may bundle", () => {
     { ...byId("tp2-verif"), group: "TP 2" },
     { ...byId("tp2-ex1"), id: "devoir-a", group: "TP 2", assignment: "devoir" },
     { ...byId("tp2-ex1"), id: "tp2-mod", group: "TP 2", mode: "unity" },
+    // A BONUS: io, open, in the lab -- and still out. The handout numbers no
+    // bonus, so it has no `#if exercice == N` to be given.
+    { ...byId("tp2-ex1"), id: "tp2-bonus", group: "TP 2", bonus: true },
   ];
 
-  it("takes io exercises only, and neither a verification nor an assignment's", () => {
+  it("takes io exercises only, and neither a verification, a bonus nor an assignment's", () => {
     expect(exportableExercises(catalog, "TP 2").map((e) => e.id)).toEqual([
       "tp2-ex0",
       "tp2-ex1",
@@ -236,6 +239,8 @@ describe("what the one-piece main.c may bundle", () => {
   it("needs two: a file bundling one bundles nothing the student cannot already see", () => {
     expect(isGroupExportable(catalog, "TP 2")).toBe(true);
     expect(isGroupExportable([catalog[0]!], "TP 2")).toBe(false);
+    // A bonus does not make up the second one.
+    expect(isGroupExportable([catalog[0]!, catalog[catalog.length - 1]!], "TP 2")).toBe(false);
     expect(isGroupExportable(catalog, "TP 10")).toBe(false);
   });
 });

@@ -171,15 +171,15 @@ def test_content_v2_discovery_and_public_projection():
         shutil.rmtree(root)
 
 
-def _contenu_avec_verification(root, valeur):
-    """Un contenu minimal d'un exercice, dont le drapeau `verification` varie."""
+def _contenu_avec_drapeau(root, valeur, drapeau="verification"):
+    """Un contenu minimal d'un exercice, dont un drapeau booleen varie."""
     _write_json(os.path.join(root, "catalog.json"),
                 {"schema_version": 1, "skills": ["variables"]})
     exercise = os.path.join(root, "exercises", "verif-tp2")
     donnees = {"schema_version": 1, "id": "verif-tp2", "title": "Vérification",
                "skills": ["variables"], "release": {"state": "available"}}
     if valeur is not None:
-        donnees["verification"] = valeur
+        donnees[drapeau] = valeur
     _write_json(os.path.join(exercise, "exercise.json"), donnees)
     with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
         fh.write("Lis ce code.")
@@ -198,7 +198,7 @@ def test_content_v2_marque_une_verification():
     for valeur, attendu in ((True, True), (False, None), (None, None)):
         root = tempfile.mkdtemp(prefix="ctester-content-")
         try:
-            _contenu_avec_verification(root, valeur)
+            _contenu_avec_drapeau(root, valeur)
             public = content_catalogue.public_catalogue(content_catalogue.discover(root))
             assert public["exercises"][0].get("verification") is attendu, valeur
             # La ceinture ne bronche pas : rien de assessment ne sort.
@@ -209,11 +209,41 @@ def test_content_v2_marque_une_verification():
     # interprete : « verification: "oui" » serait vrai en Python et faux ici.
     root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
-        _contenu_avec_verification(root, "oui")
+        _contenu_avec_drapeau(root, "oui")
         try:
             content_catalogue.discover(root)
         except content_catalogue.ContentValidationError as exc:
             assert "verification" in str(exc), exc
+        else:
+            raise AssertionError("drapeau non booleen accepte")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_content_v2_marque_un_bonus():
+    """Meme chemin que `verification`, et meme absence quand c'est faux.
+
+    CE QUI EST VERIFIE ICI : que `bonus` traverse la publication comme son
+    jumeau -- absent quand faux, refuse quand ce n'est pas un booleen. Ce qu'il
+    change vit cote page (`exportableExercises`) : un bonus reste un exercice
+    ordinaire partout ailleurs.
+    """
+    for valeur, attendu in ((True, True), (False, None), (None, None)):
+        root = tempfile.mkdtemp(prefix="ctester-content-")
+        try:
+            _contenu_avec_drapeau(root, valeur, "bonus")
+            public = content_catalogue.public_catalogue(content_catalogue.discover(root))
+            assert public["exercises"][0].get("bonus") is attendu, valeur
+            assert "answer" not in json.dumps(public)
+        finally:
+            shutil.rmtree(root)
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _contenu_avec_drapeau(root, "oui", "bonus")
+        try:
+            content_catalogue.discover(root)
+        except content_catalogue.ContentValidationError as exc:
+            assert "bonus" in str(exc), exc
         else:
             raise AssertionError("drapeau non booleen accepte")
     finally:

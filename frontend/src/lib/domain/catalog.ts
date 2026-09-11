@@ -33,6 +33,8 @@ export interface Exercise {
   /** Qualified: "TP2 : ex.1". What "Mes progrès" and the export show. */
   label: string;
   verification: boolean;
+  /** A bonus: ordinary in every way except that it stays out of the main.c. */
+  bonus: boolean;
   /** Which assignment this exercise belongs to, or "". */
   assignment: string;
   files: { name: string }[];
@@ -74,6 +76,7 @@ function catalogEntry(ex: PublishedExercise, group: string): Exercise {
     // the ten labs, and "Mes progrès" has no collection column to disambiguate.
     label: group ? group.replace(/\s+/g, "") + " : " + title : title,
     verification: !!ex.verification,
+    bonus: !!ex.bonus,
     assignment: ex.assignment ?? "",
     // NAMES ONLY. The server path never crosses the publication.
     files: (ex.files ?? []).map((f) => ({ name: f.name })),
@@ -266,13 +269,20 @@ export function stripNeighbors(collections: Collection[], group: string): Exerci
 // six shared modules into somebody's personal main.c would hand in the wrong
 // artifact under the wrong name.
 //
+// NEITHER IS A BONUS: the handout does not number it, so there is no
+// `#if exercice == N` to attach it to. It stays in the lab's list, its tile and
+// its XP -- the flag buys this one exclusion and nothing else.
+//
 // TWO EXERCISES AT LEAST, because a file that bundles one bundles nothing: the
 // student already has that code in front of them in the editor.
 
 const EXPORT_MINIMUM = 2;
 
 export const exportableExercises = (catalog: Exercise[], group: string): Exercise[] =>
-  catalog.filter((t) => t.group === group && t.mode === "io" && !t.verification && !t.assignment);
+  catalog.filter(
+    (t) =>
+      t.group === group && t.mode === "io" && !t.verification && !t.bonus && !t.assignment,
+  );
 
 export const isGroupExportable = (catalog: Exercise[], group: string): boolean =>
   exportableExercises(catalog, group).length >= EXPORT_MINIMUM;

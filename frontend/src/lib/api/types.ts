@@ -50,6 +50,8 @@ export interface PublishedExercise {
   difficulty?: string;
   /** Absent from the published catalog when false -- hence every double bang. */
   verification?: boolean;
+  /** Same: absent when false. Keeps the exercise out of the one-piece main.c. */
+  bonus?: boolean;
   /** Which assignment this exercise belongs to, or absent. */
   assignment?: string;
   access?: Access;
