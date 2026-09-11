@@ -45,24 +45,57 @@ describe("nothing a statement carries can become a tag", () => {
   });
 });
 
-describe("the asterisks survive -- there is no emphasis, and that is the point", () => {
+describe("emphasis is flanked, so C's asterisks survive it", () => {
+  // HALF OF THIS BLOCK IS SILENCE, and it is the half that matters: every case that
+  // renders an `<em>` has a twin that must NOT, taken from the real content.
+  it("italicises a flanked span", () => {
+    expect(parsed("du *texte en italique* ici").querySelector("em")?.textContent).toBe(
+      "texte en italique",
+    );
+  });
+
+  it("opens after a `(` and closes before a `)`", () => {
+    expect(parsed("(*entre parentheses*)").querySelector("em")?.textContent).toBe(
+      "entre parentheses",
+    );
+  });
+
   it("leaves a dereference pair alone where `marked` would eat both", () => {
-    expect(text("si diviseur vaut 0, mets *quotient et *reste a 0")).toContain(
-      "mets *quotient et *reste a 0",
-    );
-  });
-
-  it("leaves the multiplications of a formula alone", () => {
-    expect(text("mois >= 3 : (23*m/9 + d + 4) % 7 et (23*m/9 + d)")).toContain(
-      "(23*m/9 + d + 4) % 7 et (23*m/9 + d)",
-    );
-  });
-
-  it("renders no `em` or `strong`, however the source is written", () => {
-    const host = parsed("du *texte* et du **gras** et du _souligne_");
+    const host = parsed("si diviseur vaut 0, mets *quotient et *reste a 0");
     expect(host.querySelector("em")).toBeNull();
+    expect(host.textContent).toContain("mets *quotient et *reste a 0");
+  });
+
+  it("leaves an INTRAWORD multiplication alone, which CommonMark would not", () => {
+    // `(23*m/9 + d + 4) % 7 ... (23*m/9` is one line of `tp3-ex8`, and the flanking
+    // rule of CommonMark allows an intraword `*` -- so `marked` eats these two.
+    const host = parsed("mois >= 3 : (23*m/9 + d + 4) % 7 mois < 3 : (23*m/9 + d)");
+    expect(host.querySelector("em")).toBeNull();
+    expect(host.textContent).toContain("(23*m/9 + d + 4) % 7 mois < 3 : (23*m/9 + d)");
+  });
+
+  it("leaves a SPACED multiplication alone: an asterisk before a space never opens", () => {
+    const host = parsed("V = racine( 2mg / (0,5 * rho * pi * r^2) )");
+    expect(host.querySelector("em")).toBeNull();
+    expect(host.textContent).toContain("0,5 * rho * pi * r^2");
+  });
+
+  it("leaves a trailing pointer star alone: `double* maximum` opens nothing", () => {
+    expect(parsed("et fixe alors double* maximum a 0").querySelector("em")).toBeNull();
+  });
+
+  it("never reads emphasis INSIDE a code span", () => {
+    // `bonus-1` writes exactly this line.
+    const host = parsed("* *Rappel* : `P = F * v`");
+    expect(host.querySelector("li em")?.textContent).toBe("Rappel");
+    expect(host.querySelector("li code")?.textContent).toBe("P = F * v");
+  });
+
+  it("renders no `strong` and no `_underscore_`: a literal `**gras**` is visible", () => {
+    const host = parsed("du **gras** et du _souligne_");
     expect(host.querySelector("strong")).toBeNull();
-    expect(host.textContent).toContain("*texte*");
+    expect(host.querySelector("em")).toBeNull();
+    expect(host.textContent).toContain("**gras**");
   });
 });
 

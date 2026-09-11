@@ -2334,12 +2334,24 @@ mêmes identifiants.
   code inline, liste, titre — et `marked` + DOMPurify pèsent **74 Ko** pour ça,
   sur le chemin ANONYME. `highlight()` est déjà dans le paquet eager et ses
   classes sont globales, donc un bloc colorié coûte **1,6 Ko** en tout.
-- **IL N'Y A PAS D'EMPHASE DANS UNE CONSIGNE, ET C'EST UNE PROPRIÉTÉ.** `*` est
+- **L'EMPHASE EST FLANQUÉE, ET C'EST CE QUI LA REND POSSIBLE.** `*` est
   l'opérateur de déréférencement et de multiplication : `marked` transforme
   `mets *quotient et *reste a 0` en italique et **mange les deux astérisques**,
-  et fait pareil à `(23*m/9 + d)`. Ne pas l'implémenter rend le dégât
-  inexprimable au lieu d'en faire une correction de contenu à refaire sur chaque
-  consigne future. Ajouter `*italique*` un jour, c'est le ramener.
+  et fait pareil à `(23*m/9 + d + 4) % 7 … (23*m/9`. Un `*` n'ouvre donc ici que
+  s'il SUIT un début de ligne, une espace ou une `(` **et** précède un
+  non-espace ; il ne ferme que devant une espace, une ponctuation fermante ou
+  une fin de ligne. **C'est plus strict que CommonMark**, qui autorise le `*`
+  intramot et mange encore `23*m/9`. Sur les 77 consignes, l'emphase se
+  déclenche **une seule fois** — c'est la mesure qui dit que la règle est bien
+  posée, et le test porte un jumeau silencieux par cas. Pas de `**gras**` ni de
+  `_souligné_` : rien ne les utilise, et un `**gras**` resté littéral est une
+  panne VISIBLE plutôt que silencieuse.
+- **UNE TABULATION OU QUATRE ESPACES FONT UN BLOC DE CODE**, et c'est la règle
+  de Markdown, pas une invention d'ici : 56 des 77 consignes en dépendent pour
+  afficher leurs prototypes. La conséquence surprend quand le texte indenté
+  n'est PAS du code — une note mise en retrait devient une boîte monospace. Le
+  correctif est dans le contenu, pas ici : une puce, une clôture ` ``` ` si
+  c'est vraiment du code, ou rien du tout.
 - **Une LISTE est reconnue AVANT un bloc indenté**, parce que `tp9-ex6` indente
   ses puces de quatre espaces et `tp2-ex0` ses numéros d'une tabulation — que
   Markdown lirait comme du code, donc que `highlight()` colorierait, et deux

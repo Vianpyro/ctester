@@ -9,11 +9,16 @@
 // keep. `highlight()` is already in the eager chunk (it colours the editor), and
 // its classes are global, so a code block here costs nothing at all.
 //
-// NO EMPHASIS, AND THAT IS A PROPERTY RATHER THAN A GAP. `*` is C's dereference
-// and multiplication operator: `marked` turns `mets *quotient et *reste a 0` into
-// italics and EATS both asterisks, and does the same to `(23*m/9 + d)`. Not
-// implementing emphasis makes that damage inexpressible instead of making it a
-// content fix to remember on every future statement.
+// EMPHASIS IS FLANKED, AND THAT IS THE WHOLE OF THE RULE. `*` is C's dereference
+// and multiplication operator, and `marked` EATS the asterisks out of
+// `mets *quotient et *reste a 0` and out of `(23*m/9 + d + 4) % 7 ... (23*m/9`. So
+// a `*` opens emphasis only when it FOLLOWS the start of the line, a space or a
+// `(` AND is followed by a non-space; it closes only before a space, a closing
+// punctuation mark or the end of the line. That is stricter than CommonMark, which
+// allows an intraword `*` and therefore still eats `23*m/9`.
+//
+// No `**bold**` and no `_underscore_`: nothing in the content uses either, and a
+// literal `**gras**` left on screen is a VISIBLE failure rather than a silent one.
 //
 // NO SANITIZER BECAUSE THERE IS NOTHING TO SANITIZE. Every slice of the source
 // goes through `escapeHtml()` before it is placed between tags THIS file writes.
@@ -34,14 +39,25 @@ const ATX = /^(#{1,6}) +(.*)$/;
 const SETEXT = /^(-{3,}|={3,})\s*$/;
 
 /**
- * INLINE CODE, AND THAT IS THE WHOLE OF THE INLINE GRAMMAR. `split` with a capture
- * group puts the captures at the odd indices; both halves are escaped, so a
- * backtick-less source is simply escaped text.
+ * `*italique*`, and only where BOTH asterisks are flanked -- see the header. The
+ * content may not itself hold a `*`, which is what also spares `A = pi * r^2` and
+ * `0,5 * rho * pi`: every asterisk there is followed by a space, so none opens.
+ */
+const emphasis = (s: string): string =>
+  s.replace(/(^|[\s(])\*([^\s*][^*\n]*[^\s*]|[^\s*])\*(?=$|[\s).,;:!?])/g, "$1<em>$2</em>");
+
+/**
+ * INLINE CODE FIRST, EMPHASIS SECOND, AND NEVER INSIDE A CODE SPAN. `split` with a
+ * capture group puts the captures at the odd indices, so only the halves BETWEEN
+ * the backticks are read for emphasis -- which is why `` `P = F * v` `` keeps its
+ * asterisk. Both halves are escaped, so a backtick-less source is escaped text.
  */
 const inline = (s: string): string =>
   s
     .split(/`([^`\n]+)`/)
-    .map((part, i) => (i % 2 ? "<code>" + escapeHtml(part) + "</code>" : escapeHtml(part)))
+    .map((part, i) =>
+      i % 2 ? "<code>" + escapeHtml(part) + "</code>" : emphasis(escapeHtml(part)),
+    )
     .join("");
 
 /**
