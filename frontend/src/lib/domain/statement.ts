@@ -1,10 +1,10 @@
 // THE STATEMENT'S MARKDOWN, AND IT IS DELIBERATELY NOT `marked`.
 //
-// The 77 statements of the course use FIVE constructs: an indented code block (56
-// files), inline code (8), emphasis (26 runs, 16 of them bold), a bullet list (5), a
-// heading (1). Nothing else -- no link, no blockquote, no table, no image and no
-// `_underscore_` (see below). `marked` + DOMPurify weigh 74 KB and live in the forum
-// chunk, fetched on a click; the statement sits on the ANONYMOUS
+// The 77 statements of the course use SIX constructs: an indented code block (56
+// files), inline code (8), emphasis (26 runs, 16 of them bold), a formula (6), a
+// bullet list (5), a heading (1). Nothing else -- no link, no blockquote, no table,
+// no image and no `_underscore_` (see below). `marked` + DOMPurify weigh 74 KB and
+// live in the forum chunk, fetched on a click; the statement sits on the ANONYMOUS
 // path, so wiring them here would hand 74 KB to a student with no account the
 // moment they open an exercise -- exactly the promise `bundle.test.ts` exists to
 // keep. `highlight()` is already in the eager chunk (it colours the editor), and
@@ -31,6 +31,15 @@
 // no statement asks for it, and Markdown's `_` means ITALIC anyway -- there is no
 // underline to render, so it would buy a second spelling of `*`. A literal `_x_`
 // left on screen is a VISIBLE failure; an identifier silently cut in half is not.
+// (Inside `$...$` a `_` IS a subscript: there an identifier is a symbol, not a C
+// variable name -- which is why a snake_case name has no business between two `$`.)
+//
+// `$...$` IS A FORMULA, AND IT IS OPT-IN FOR ONE REASON: C'S INTEGER DIVISION. The
+// `z/4` of Zeller in `tp3-ex8` and `tp6-ex3` is a TRUNCATION -- it is the subject of
+// the exercise -- and `tp5-ex7` forbids the division operator outright. Drawing
+// either as a fraction bar would teach the opposite of the exercise, so the teacher
+// marks a formula and the renderer never guesses one. See `domain/math.ts` for what
+// the grammar covers and why KaTeX is refused.
 //
 // NO SANITIZER BECAUSE THERE IS NOTHING TO SANITIZE. Every slice of the source
 // goes through `escapeHtml()` before it is placed between tags THIS file writes.
@@ -38,6 +47,7 @@
 // is allowed near `innerHTML`.
 
 import { escapeHtml, highlight } from "./highlight";
+import { renderMath } from "./math";
 
 const FENCE = /^\s*```/;
 /** A tab or four spaces: Markdown's indented code block. */
@@ -72,17 +82,28 @@ const emphasis = (s: string): string =>
     .replace(EM, "$1<em>$2</em>");
 
 /**
- * INLINE CODE FIRST, EMPHASIS SECOND, AND NEVER INSIDE A CODE SPAN. `split` with a
- * capture group puts the captures at the odd indices, so only the halves BETWEEN
- * the backticks are read for emphasis -- which is why `` `P = F * v` `` keeps its
- * asterisk. Both halves are escaped, so a backtick-less source is escaped text.
+ * A CODE SPAN OR A FORMULA FIRST, EMPHASIS LAST, AND NEVER INSIDE EITHER. `split`
+ * with ONE alternation puts the tokens at the odd indices, so the precedence is
+ * whichever opener comes first in the line rather than an order of calls to keep in
+ * mind. Only the halves BETWEEN the tokens are read for emphasis -- which is why
+ * `` `P = F * v` `` keeps its asterisk, and why `$2*m*g$` is never italicised.
+ *
+ * A LONE `$` STAYS LITERAL for want of a closer, the same way an unflanked `*` does.
+ * A `$` inside a code span stays literal, and so does a backtick inside a formula.
  */
+const TOKEN = /(`[^`\n]+`|\$[^$\n]+\$)/;
+
 const inline = (s: string): string =>
   s
-    .split(/`([^`\n]+)`/)
-    .map((part, i) =>
-      i % 2 ? "<code>" + escapeHtml(part) + "</code>" : emphasis(escapeHtml(part)),
-    )
+    .split(TOKEN)
+    .map((part, i) => {
+      if (i % 2 === 0) return emphasis(escapeHtml(part));
+      const body = part.slice(1, -1);
+      // A FORMULA THE GRAMMAR DOES NOT KNOW FALLS BACK TO A CODE SPAN, which is
+      // exactly what the statement shows today: the degradation is the status quo.
+      if (part[0] === "$") return renderMath(body) ?? "<code>" + escapeHtml(body) + "</code>";
+      return "<code>" + escapeHtml(body) + "</code>";
+    })
     .join("");
 
 /**

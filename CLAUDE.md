@@ -2652,7 +2652,9 @@ mêmes identifiants.
   seconde orthographe de `*` — et **114 lignes du contenu portent un
   identifiant snake_case** (`nb_elements`, `taille_max`,
   `_CRT_SECURE_NO_WARNINGS`). Un `_x_` resté littéral est une panne VISIBLE ;
-  un identifiant coupé en deux ne l'est pas.
+  un identifiant coupé en deux ne l'est pas. **Dans `$…$`, en revanche, `_` EST
+  un indice** : un identifiant y est un symbole et pas un nom de variable C —
+  d'où le corollaire, un nom snake_case n'a rien à faire entre deux `$`.
 - **UNE TABULATION OU QUATRE ESPACES FONT UN BLOC DE CODE**, et c'est la règle
   de Markdown, pas une invention d'ici : 56 des 77 consignes en dépendent pour
   afficher leurs prototypes. La conséquence surprend quand le texte indenté
@@ -2672,6 +2674,75 @@ mêmes identifiants.
   les consignes sont coupées à la main vers soixante colonnes, plus large que la
   colonne où on les lit, donc honorer ces retours couperait chaque ligne deux
   fois au milieu d'une phrase.
+
+#### Les formules — `$…$`, en MathML, et surtout pas KaTeX
+
+`lib/domain/math.ts`, pur comme le reste de `domain/`, rend `$R = V * L / v$` en
+une vraie fraction. Six consignes en portent (`tp2-ex3`, `tp2-ex4`, `tp2-ex5`,
+`tp2-ex8`, `tp3-ex3`, `bonus-1`) ; `tp2-ex5` est le cas dur, une racine sur une
+fraction à quatre facteurs.
+
+- **KaTeX EST REFUSÉ POUR TROIS RAISONS INDÉPENDANTES**, chacune suffisante : la
+  CSP est `default-src 'none'` **sans `font-src`**, donc ses `woff2` sont
+  bloquées ; cette politique existe en DEUX copies dont un `<meta>` servi par
+  GitHub Pages où aucun en-tête n'est possible, et `test_csp_du_document` les
+  compare directive par directive ; et ses 280 Ko tomberaient sur le chemin
+  ANONYME, là où `marked` a déjà été refusé à 74 Ko. MathML est dessiné par le
+  navigateur : **aucune bibliothèque, aucune fonte, aucune directive**.
+- **`$` EST OPT-IN, ET C'EST CE QUI PROTÈGE LA DIVISION ENTIÈRE DE C.** Le
+  `z/4` du Zeller (`tp3-ex8`, `tp6-ex3`) est une TRONCATURE — c'est le sujet de
+  l'exercice — et `tp5-ex7` interdit l'opérateur de division. Une barre de
+  fraction y enseignerait le contraire. L'enseignant marque une formule ;
+  l'analyseur n'en devine jamais une. C'est aussi pourquoi les unités
+  (`m/s^2`, `kg/m^3`) restent des code spans.
+- **`$…$` CHANGE LA MISE EN PAGE, PAS LE VOCABULAIRE.** Chaque opérateur garde
+  l'orthographe que l'étudiant TAPE en C — `%`, `&`, `|`, `&&`, `<<`, `!=` — et
+  seules changent de forme les constructions que C ne sait pas écrire sur une
+  ligne : la barre de fraction, l'exposant, le radical, les fenêtres de partie
+  entière. Un `&&` rendu `∧` serait une seconde notation à apprendre pour rien.
+  **Une seule exception, `*` → `·`** : dans un cours de C, un astérisque à
+  hauteur de texte se lit comme une étoile de pointeur.
+- **`^` EST LA PUISSANCE, LE OU EXCLUSIF S'ÉCRIT `xor`.** C'est la seule
+  ambiguïté que la notation porte, tranchée ainsi parce que le contenu écrit
+  déjà `pi * r^2`, `m/s^2`, `kg/m^3` — cent pour cent d'exposants, zéro XOR. Qui
+  écrirait `$a ^ b$` en pensant au OU exclusif obtient un exposant : une panne
+  **VISIBLE**. Même mécanique pour `|`, qui est le OU binaire **infixe**, la
+  valeur absolue passant par `abs(x)` — un délimiteur qui est aussi un opérateur
+  ne se désambiguïse pas sans deviner.
+- **`floor()` ET `ceil()` SONT LE VRAI GAIN.** `$floor(23*m/9)$` rend une
+  fraction sous des crochets de partie entière, c'est-à-dire exactement ce que
+  le Zeller signifie et que sa forme actuelle ne montre pas. Ne pas y toucher
+  est désormais un choix, pas une impossibilité.
+- **LES PARENTHÈSES REDONDANTES TOMBENT**, et ce n'est pas une coquetterie :
+  `mfrac` et `msqrt` groupent déjà, donc un groupe qui devient un numérateur, un
+  dénominateur ou un radicande entier n'a plus besoin d'elles. Sans cette règle,
+  `racine( 2*m*g / (0,5 * rho * pi * r^2 ))` rendrait une racine sur une
+  fraction *entre parenthèses* — une translittération, pas une formule.
+- **UN ÉCHEC REND `null`, ET LE REPLI EST L'ÉTAT ACTUEL.** Caractère inconnu,
+  fonction hors de la liste FERMÉE (`racine`/`sqrt`, `floor`, `ceil`, `abs`,
+  `pow`, `min`, `max`, `log`, `ln`, `exp`, `sin`, `cos`, `tan`, `mod`),
+  parenthèse non fermée : `inline()` retombe sur un `<code>`, c'est-à-dire
+  exactement ce que la consigne affichait avant. Jamais une exception, jamais un
+  demi-document — la consigne est rendue sur le chemin anonyme.
+- **L'ÉCHAPPEMENT N'EST PLUS THÉORIQUE**, et c'est ce que les opérateurs
+  binaires ont ajouté : `&`, `<` et `>` sont précisément les caractères qu'un
+  échappement rate. Chaque feuille (`<mn>`, `<mi>`, `<mo>`) passe par le MÊME
+  `escapeHtml()` que `highlight()` — pas une seconde règle à tenir en phase — et
+  un test lit le DOM sur `a & b << 2`.
+- **LE CONTENEUR DE DÉFILEMENT EST LE BLOC, JAMAIS LE `<math>`.** `overflow-x`
+  sur la formule est **inerte** (`<math>` est `display: inline math`), et la
+  forcer en `inline-block` lui retirerait son type d'affichage interne et
+  emporterait toute la mise en page. C'est donc `p:has(math)` / `li:has(math)`
+  qui défile et qui porte l'interligne — un `:has()` non supporté rend l'affichage
+  serré, jamais cassé.
+- `bundle.test.ts` : l'analyseur pèse ~3,5 Ko et il est **eager**, parce qu'un
+  anonyme lit les consignes — le différer ferait clignoter une formule non
+  rendue à chaque ouverture d'exercice. Le plafond de 140 Ko n'a pas bougé.
+- `ponytail:` **pas de math en bloc (`$$`), ni somme, ni intégrale, ni matrice**,
+  et **pas de math dans le forum** : son allow-list DOMPurify refuse MathML, et
+  le texte y est saisi par des étudiants — ici la consigne vient du dépôt privé
+  de contenu, relu.
+
 - **Le catalogue vient de `/catalog.json`, et il n'y a plus de repli.**
   `normaliser()` en tire DEUX listes : `collections` (l'arbre du menu, tous les
   exercices avec `access` et `available_from`) et `catalogue` (les exercices

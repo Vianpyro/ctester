@@ -127,6 +127,58 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
   });
 });
 
+describe("`$...$` is a formula, and it is OPT-IN", () => {
+  // THE SILENT HALF IS THE POINT HERE TOO. What `$` buys is not the fraction bar --
+  // `domain/math.ts` is tested on its own -- it is that a slash the teacher did NOT
+  // mark stays a slash. C's integer division is the subject of three exercises.
+  it("draws a fraction where the statement asks for one", () => {
+    const host = parsed("* *Rappel* : $R = V * L / v$");
+    expect(host.querySelector("li math mfrac")).not.toBeNull();
+    // The emphasis of the same line still works, and the formula was not italicised.
+    expect(host.querySelector("li em")?.textContent).toBe("Rappel");
+  });
+
+  it("leaves ZELLER alone: an unmarked `/` is C's integer division", () => {
+    // `tp3-ex8` and `tp6-ex3` write this, and the TRUNCATION is what they teach.
+    const host = parsed("mois >= 3 : (23*m/9 + d + 4 + z/4 - z/100) % 7");
+    expect(host.querySelector("math")).toBeNull();
+    expect(host.textContent).toContain("(23*m/9 + d + 4 + z/4 - z/100) % 7");
+  });
+
+  it("leaves `n/m` alone: tp5-ex7 forbids the division operator", () => {
+    const host = parsed("affiche le quotient n/m PUIS le reste n%m.");
+    expect(host.querySelector("math")).toBeNull();
+    expect(host.textContent).toContain("n/m");
+  });
+
+  it("keeps a LONE `$` literal, for want of a closer", () => {
+    const host = parsed("le prix est de 5 $ par personne");
+    expect(host.querySelector("math")).toBeNull();
+    expect(host.textContent).toContain("5 $ par personne");
+  });
+
+  it("never reads a formula INSIDE a code span, nor a code span inside a formula", () => {
+    expect(parsed("`$a/b$`").querySelector("math")).toBeNull();
+    expect(parsed("`$a/b$`").querySelector("code")?.textContent).toBe("$a/b$");
+    expect(parsed("$a/b$").querySelector("code")).toBeNull();
+  });
+
+  it("falls back to a code span when the grammar does not know the formula", () => {
+    // The degradation IS the status quo: this is what the statement showed before
+    // `math.ts` existed, so a formula nobody can parse is never a blank.
+    const host = parsed("essaie $a @ b$ ici");
+    expect(host.querySelector("math")).toBeNull();
+    expect(host.querySelector("code")?.textContent).toBe("a @ b");
+  });
+
+  it("escapes a formula's `&` and `<` rather than letting them become markup", () => {
+    const host = parsed("$a & b << 2$");
+    expect(host.querySelector("math")).not.toBeNull();
+    expect(host.textContent).toContain("&");
+    expect(host.innerHTML).not.toContain("<mo>&<");
+  });
+});
+
 describe("code blocks", () => {
   const C = "int main(void) { return 0; }";
 

@@ -154,9 +154,15 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     // own, asserted below -- and that split is the reason the number is 140 and
     // not 145.
     //
+    // WHAT WENT IN SINCE, AND WHY IT DID NOT MOVE THE NUMBER: `domain/math.ts`, the
+    // MathML renderer for a statement's `$...$`, costs ~3.5 KB and is EAGER because
+    // an anonymous student reads statements -- deferring it would flash an unrendered
+    // formula at every exercise. It fits in the headroom, so the ceiling stays 140.
+    //
     // For scale: the page it replaces shipped a 108 KB `app.js` to the same visitor,
-    // before its stylesheet, and rendering the statement with `marked` instead of
-    // `lib/domain/statement.ts` would have added 74 KB here on its own.
+    // before its stylesheet; rendering the statement with `marked` instead of
+    // `lib/domain/statement.ts` would have added 74 KB here on its own, and drawing
+    // its formulas with KaTeX another 280 KB plus a `font-src` in two CSP copies.
     const bytes = eagerChunks().reduce(
       (n, name) => n + readFileSync(join(DIST, "assets", name)).byteLength,
       0,

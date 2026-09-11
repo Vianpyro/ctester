@@ -246,6 +246,22 @@ main {
   font-family: var(--mono); font-size: 12.5px; padding: 0 .25rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
 }
+/* THE FORMULAS, drawn by the browser -- see `lib/domain/math.ts` for why not KaTeX.
+   A little larger than the prose because a numerator is drawn at script size, and
+   13.5px would put it under 10. */
+#consignetexte.md math { font-size: 1.1em; }
+/* THE SCROLL CONTAINER IS THE BLOCK, NEVER THE `<math>`. `overflow-x` on the formula
+   itself is INERT -- `<math>` is `display: inline math` -- and forcing it to
+   `inline-block` would strip the `math` inner display type and take the whole layout
+   with it. So the paragraph or the bullet that holds a formula is what scrolls, the
+   same answer as a code block: `tp2-ex5` is a radical over a four-factor denominator
+   and does not fit a 25 rem column, and shrinking the font would make the exponent
+   of `r^2` unreadable at the one place it matters. The extra leading is the other
+   half: a fraction is taller than a line of prose, and 1.6 would let its bar touch
+   the line above. Without `:has()` support both simply do not apply -- tight, never
+   broken. */
+#consignetexte.md p:has(math),
+#consignetexte.md li:has(math) { line-height: 2.1; overflow-x: auto; }
 
 /* A FLEX COLUMN, AND ESPECIALLY NOT A ROW TEMPLATE. This used to be
    `grid-template-rows: auto minmax(0, 1fr) auto auto`, so one size per
