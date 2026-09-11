@@ -3,10 +3,11 @@
 // reason: `&lt;script&gt;` as escaped TEXT is the right outcome, and a substring search
 // would read it as a failure.
 //
-// HALF THE CASES KEEP A SILENCE, and they are the ones that matter. `renderStatement`
-// implements no emphasis on purpose: `*` is C's dereference and multiplication
-// operator, and `marked` would eat the asterisks out of `mets *quotient et *reste a 0`.
-// A twin test sits next to every construct that could swallow one.
+// HALF THE CASES KEEP A SILENCE, and they are the ones that matter. `*` is C's
+// dereference and multiplication operator, and `marked` would eat the asterisks out
+// of `mets *quotient et *reste a 0`; `renderStatement` only emphasises a FLANKED run.
+// A twin test sits next to every construct that could swallow one -- including the
+// `**` pair of a double pointer, and the `_` of every snake_case identifier.
 
 import { describe, expect, it } from "vitest";
 import { renderStatement } from "../src/lib/domain/statement";
@@ -91,11 +92,38 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
     expect(host.querySelector("li code")?.textContent).toBe("P = F * v");
   });
 
-  it("renders no `strong` and no `_underscore_`: a literal `**gras**` is visible", () => {
-    const host = parsed("du **gras** et du _souligne_");
+  it("reads `***les deux***` as both, which is the run the content actually writes", () => {
+    // THE 16 EMPHASES IN BOLD OF THE COURSE ARE ALL `***`, in 11 files -- `tp5-ex7`
+    // writes `le reste n%m, ***dans cet ordre***.` and `tp2-ex6` three of them. Not
+    // one statement writes a plain `**`; they were all rendering their asterisks.
+    const host = parsed("affiche le reste n%m, ***dans cet ordre***.");
+    expect(host.querySelector("strong > em")?.textContent).toBe("dans cet ordre");
+    expect(host.textContent).not.toContain("*");
+  });
+
+  it("boldens a flanked `**gras**` too, which is what `***` decomposes into", () => {
+    // No statement writes this today. It is here because `***` is `**` plus `*`, and
+    // a teacher who types two will expect bold rather than two asterisks on screen.
+    const host = parsed("Saisit DEUX entiers **dans cet ordre**, puis affiche.");
+    expect(host.querySelector("strong")?.textContent).toBe("dans cet ordre");
+    expect(host.querySelector("em")).toBeNull();
+  });
+
+  it("leaves a DOUBLE POINTER alone, which is what flanking the closer buys", () => {
+    // Two runs on one line, and neither `**` is followed by a space: no closer.
+    const host = parsed("la fonction prend char **argv et double **tab en parametres");
     expect(host.querySelector("strong")).toBeNull();
     expect(host.querySelector("em")).toBeNull();
-    expect(host.textContent).toContain("**gras**");
+    expect(host.textContent).toContain("char **argv et double **tab");
+  });
+
+  it("renders no `_souligne_`: 114 lines of the content carry a snake_case name", () => {
+    const host = parsed("fixe _souligne_ et nb_elements et _CRT_SECURE_NO_WARNINGS");
+    expect(host.querySelector("em")).toBeNull();
+    expect(host.querySelector("strong")).toBeNull();
+    expect(host.textContent).toContain("_souligne_");
+    expect(host.textContent).toContain("nb_elements");
+    expect(host.textContent).toContain("_CRT_SECURE_NO_WARNINGS");
   });
 });
 

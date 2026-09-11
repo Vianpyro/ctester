@@ -1,9 +1,10 @@
 // THE STATEMENT'S MARKDOWN, AND IT IS DELIBERATELY NOT `marked`.
 //
-// The 77 statements of the course use FOUR constructs: an indented code block (56
-// files), inline code (8), a bullet list (5), a heading (1). Nothing else -- no
-// bold, no link, no blockquote, no table. `marked` + DOMPurify weigh 74 KB and
-// live in the forum chunk, fetched on a click; the statement sits on the ANONYMOUS
+// The 77 statements of the course use FIVE constructs: an indented code block (56
+// files), inline code (8), emphasis (26 runs, 16 of them bold), a bullet list (5), a
+// heading (1). Nothing else -- no link, no blockquote, no table, no image and no
+// `_underscore_` (see below). `marked` + DOMPurify weigh 74 KB and live in the forum
+// chunk, fetched on a click; the statement sits on the ANONYMOUS
 // path, so wiring them here would hand 74 KB to a student with no account the
 // moment they open an exercise -- exactly the promise `bundle.test.ts` exists to
 // keep. `highlight()` is already in the eager chunk (it colours the editor), and
@@ -17,8 +18,19 @@
 // punctuation mark or the end of the line. That is stricter than CommonMark, which
 // allows an intraword `*` and therefore still eats `23*m/9`.
 //
-// No `**bold**` and no `_underscore_`: nothing in the content uses either, and a
-// literal `**gras**` left on screen is a VISIBLE failure rather than a silent one.
+// `***les deux***` AND `**gras**` RIDE THAT SAME RULE, because 11 statements write
+// the first already -- `Saisit DEUX entiers m et n, ***dans cet ordre***` -- and it
+// was rendering its asterisks on screen. Measured: 16 such runs over 15 lines, all
+// of them `***`; not one statement writes a plain `**`, which is supported anyway
+// because `***` IS `**` plus `*`. Asking BOTH runs to be flanked is also what spares
+// C's double pointer: `char **argv et double **tab` opens on the first run and then
+// finds no closer, a `**` followed by a letter not being one.
+//
+// NO `_souligne_`, AND THAT ONE STAYS REFUSED. 114 lines of the content carry a
+// snake_case identifier (`nb_elements`, `taille_max`, `_CRT_SECURE_NO_WARNINGS`),
+// no statement asks for it, and Markdown's `_` means ITALIC anyway -- there is no
+// underline to render, so it would buy a second spelling of `*`. A literal `_x_`
+// left on screen is a VISIBLE failure; an identifier silently cut in half is not.
 //
 // NO SANITIZER BECAUSE THERE IS NOTHING TO SANITIZE. Every slice of the source
 // goes through `escapeHtml()` before it is placed between tags THIS file writes.
@@ -39,12 +51,25 @@ const ATX = /^(#{1,6}) +(.*)$/;
 const SETEXT = /^(-{3,}|={3,})\s*$/;
 
 /**
- * `*italique*`, and only where BOTH asterisks are flanked -- see the header. The
+ * ONE run of asterisks, and only where BOTH ends are flanked -- see the header. The
  * content may not itself hold a `*`, which is what also spares `A = pi * r^2` and
  * `0,5 * rho * pi`: every asterisk there is followed by a space, so none opens.
  */
+const flanked = (run: string): RegExp =>
+  new RegExp(`(^|[\\s(])${run}([^\\s*][^*\\n]*[^\\s*]|[^\\s*])${run}(?=$|[\\s).,;:!?])`, "g");
+
+/** LONGEST RUN FIRST: `***x***` must not be read as a `**` next to a stray `*`. Each
+ *  pass leaves no asterisk behind it, so no pass can ever see the previous one's
+ *  output -- which is why three plain `replace` calls are enough here. */
+const STRONG_EM = flanked("\\*\\*\\*");
+const STRONG = flanked("\\*\\*");
+const EM = flanked("\\*");
+
 const emphasis = (s: string): string =>
-  s.replace(/(^|[\s(])\*([^\s*][^*\n]*[^\s*]|[^\s*])\*(?=$|[\s).,;:!?])/g, "$1<em>$2</em>");
+  s
+    .replace(STRONG_EM, "$1<strong><em>$2</em></strong>")
+    .replace(STRONG, "$1<strong>$2</strong>")
+    .replace(EM, "$1<em>$2</em>");
 
 /**
  * INLINE CODE FIRST, EMPHASIS SECOND, AND NEVER INSIDE A CODE SPAN. `split` with a

@@ -2633,11 +2633,26 @@ mêmes identifiants.
   s'il SUIT un début de ligne, une espace ou une `(` **et** précède un
   non-espace ; il ne ferme que devant une espace, une ponctuation fermante ou
   une fin de ligne. **C'est plus strict que CommonMark**, qui autorise le `*`
-  intramot et mange encore `23*m/9`. Sur les 77 consignes, l'emphase se
-  déclenche **une seule fois** — c'est la mesure qui dit que la règle est bien
-  posée, et le test porte un jumeau silencieux par cas. Pas de `**gras**` ni de
-  `_souligné_` : rien ne les utilise, et un `**gras**` resté littéral est une
-  panne VISIBLE plutôt que silencieuse.
+  intramot et mange encore `23*m/9`. Sur les 77 consignes, l'emphase simple se
+  déclenche **dix fois** — c'est la mesure qui dit que la règle est bien posée,
+  et le test porte un jumeau silencieux par cas.
+- **`***les deux***` ET `**gras**` PRENNENT LA MÊME RÈGLE, et l'affirmation
+  « rien ne les utilise » était FAUSSE.** Onze consignes en écrivent — 16
+  séries sur 15 lignes, `Saisit DEUX entiers m et n, ***dans cet ordre***` —
+  et elles affichaient leurs astérisques à l'écran, sur la contrainte que les
+  étudiants ratent le plus. `flanked(serie)` fabrique la même règle pour trois
+  longueurs, appliquées **de la plus longue à la plus courte** : chaque passe
+  ne laisse aucun astérisque derrière elle, donc aucune ne voit la sortie de la
+  précédente. **Toutes les 16 sont des `***`** ; le `**` seul est rendu quand
+  même, parce que `***` EST `**` plus `*`. Flanquer aussi le FERMANT est ce qui
+  épargne le double pointeur : dans `char **argv et double **tab`, aucun `**`
+  n'est suivi d'une espace, donc aucun ne ferme, donc rien ne s'ouvre.
+- **`_souligné_` RESTE REFUSÉ, et ce n'est pas une symétrie oubliée.** `_` ne
+  veut pas dire « souligné » en Markdown — il veut dire *italique*, donc une
+  seconde orthographe de `*` — et **114 lignes du contenu portent un
+  identifiant snake_case** (`nb_elements`, `taille_max`,
+  `_CRT_SECURE_NO_WARNINGS`). Un `_x_` resté littéral est une panne VISIBLE ;
+  un identifiant coupé en deux ne l'est pas.
 - **UNE TABULATION OU QUATRE ESPACES FONT UN BLOC DE CODE**, et c'est la règle
   de Markdown, pas une invention d'ici : 56 des 77 consignes en dépendent pour
   afficher leurs prototypes. La conséquence surprend quand le texte indenté
