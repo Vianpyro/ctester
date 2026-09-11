@@ -5,9 +5,15 @@
   // been enough. The retry is a BUTTON and not an invitation to reload the page:
   // reloading would lose the not-yet-saved code of somebody who just pasted a file.
   //
-  // `textContent`, always: a statement is full of asterisks and angle brackets.
+  // THE TEXT IS MARKDOWN, AND IT IS RENDERED. The files are called `statement.md` and
+  // 56 of the 77 carry an indented C block; they used to be shown raw, backticks and
+  // setext underlines included. `renderStatement` escapes every slice before placing
+  // it between tags it writes itself, so this `{@html}` is safe for the same reason
+  // `highlight()`'s output is -- see `lib/domain/statement.ts`. No `marked`, no
+  // DOMPurify: those two are 74 KB and the statement is on the ANONYMOUS path.
 
   import { exercise } from "../lib/state/exercise.svelte";
+  import { renderStatement } from "../lib/domain/statement";
 
   const state = $derived(exercise.statement);
 </script>
@@ -17,7 +23,7 @@
   {#if state.kind === "loading"}
     <pre id="consignetexte" class="vide">Chargement…</pre>
   {:else if state.kind === "text"}
-    <pre id="consignetexte">{state.text}</pre>
+    <div id="consignetexte" class="md">{@html renderStatement(state.text)}</div>
   {:else if state.kind === "none"}
     <pre id="consignetexte" class="vide">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.</pre>
   {:else}

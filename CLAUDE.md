@@ -74,7 +74,8 @@ La page, elle, vit dans `frontend/` — voir « La page » plus bas :
 frontend/index.html            le document, et la copie <meta> de la CSP
 frontend/public/theme.js       le thème AVANT la première peinture
 frontend/src/lib/domain/       la logique PURE : catalogue, verdict, coloration,
-                               export main.c, rendu Markdown -- aucun DOM
+                               export main.c, rendu Markdown (deux : le forum et
+                               la consigne) -- aucun DOM
 frontend/src/lib/state/        l'état, un petit module par propriétaire
 frontend/src/lib/api/          le client typé et LES TYPES DU FIL
 frontend/src/lib/auth/         la session OIDC, coupée en deux (noyau / à la demande)
@@ -479,7 +480,7 @@ docker stop pg
 - **`npm test` (Vitest) éprouve LA LOGIQUE, pas un DOM en carton.** L'ancien
   harnais pilotait un faux DOM parce que la logique vivait dans les fonctions qui
   le manipulaient ; elle vit maintenant dans `lib/domain/` et `lib/state/`, donc
-  elle s'éprouve **en l'appelant**. Quinze suites, et chacune protège une phrase que
+  elle s'éprouve **en l'appelant**. Seize suites, et chacune protège une phrase que
   quelqu'un lit ou une règle dont l'absence coûte du travail :
   `catalog` (les deux lectures du catalogue, les cadenas datés, le filtre de
   l'export), `verdict` (la première erreur de gcc, la restriction d'un quiz),
@@ -492,7 +493,9 @@ docker stop pg
   lexeur), `keys` (les touches de l'éditeur, dont le refus de paire sur une
   apostrophe française), `syntax` (le correcteur, dont la moitié des cas gardent
   un SILENCE), `surface` (le câblage de l'éditeur partagé), `markdown` (les
-  charges hostiles), `bundle` (ce que l'anonyme télécharge).
+  charges hostiles), `statement` (la consigne, dont la moitié des cas gardent un
+  SILENCE eux aussi — les astérisques de C), `bundle` (ce que l'anonyme
+  télécharge).
   **`jsdom` RESTE, ET C'EST NON NÉGOCIABLE POUR UNE SUITE.** DOMPurify refuse de
   travailler sans DOM — `isSupported` passe à faux et `sanitize()` rend alors son
   entrée **telle quelle**. Une suite tournant dans cet état écrirait « aucune
@@ -1342,9 +1345,11 @@ DOMPurify avec une allow-list fermée. **`<` seulement, pas `>`** — échapper 
 tuait la citation Markdown, qui est dans l'allow-list, et une balise commence
 toujours par `<`. L'assainissement se fait **à chaque affichage** (le fil,
 l'aperçu, la vue de modération) et pas à l'écriture : une règle resserrée plus
-tard doit s'appliquer aux messages déjà en base. `rendreMarkdown()` porte le
-SEUL `innerHTML` du client, et il reçoit la sortie de l'assainisseur à l'instant
-même. Si une bibliothèque manque ou si `DOMPurify.isSupported` est faux, tout
+tard doit s'appliquer aux messages déjà en base. `rendreMarkdown()` reçoit la
+sortie de l'assainisseur à l'instant même. Il est l'une des **trois** sorties du
+client qui touchent `innerHTML`, et les trois échappent avant d'écrire :
+`rendreMarkdown()` (assaini), `highlight()` et `renderStatement()` (qui ne posent
+que leurs propres balises autour de tranches déjà passées par `escapeHtml()`). Si une bibliothèque manque ou si `DOMPurify.isSupported` est faux, tout
 retombe sur `textContent` — du texte brut, jamais du HTML non filtré.
 
 **La CSP n'est pas la défense principale**, et le commentaire de `csp()` le dit.
@@ -2318,10 +2323,36 @@ mêmes identifiants.
   contrôle `state` au retour d'OIDC est un anti-CSRF, pas une décoration : sans
   lui, un lien portant le `code` de quelqu'un d'autre ferait finir la connexion
   sous ce compte.
-- **`textContent`, jamais `innerHTML`, pour tout ce qui vient du juge ou du dépôt
-  de tests** (consignes pleines de `*` et de chevrons, sortie de programme
-  étudiant). La coloration syntaxique échappe **après** le découpage, jamais
-  avant.
+- **`textContent`, jamais `innerHTML`, pour tout ce qui vient du juge** (sortie
+  de programme étudiant). La coloration syntaxique échappe **après** le
+  découpage, jamais avant. **La consigne est l'exception, et elle est écrite** :
+  voir « La consigne » ci-dessous.
+- **LA CONSIGNE EST DU MARKDOWN, RENDU PAR `lib/domain/statement.ts`, ET SANS
+  `marked`.** Les fichiers s'appellent `statement.md` et 56 des 77 portent un
+  bloc de C indenté ; ils s'affichaient bruts, backticks et soulignements
+  compris. Quatre constructions suffisent à tout le contenu — bloc de code,
+  code inline, liste, titre — et `marked` + DOMPurify pèsent **74 Ko** pour ça,
+  sur le chemin ANONYME. `highlight()` est déjà dans le paquet eager et ses
+  classes sont globales, donc un bloc colorié coûte **1,6 Ko** en tout.
+- **IL N'Y A PAS D'EMPHASE DANS UNE CONSIGNE, ET C'EST UNE PROPRIÉTÉ.** `*` est
+  l'opérateur de déréférencement et de multiplication : `marked` transforme
+  `mets *quotient et *reste a 0` en italique et **mange les deux astérisques**,
+  et fait pareil à `(23*m/9 + d)`. Ne pas l'implémenter rend le dégât
+  inexprimable au lieu d'en faire une correction de contenu à refaire sur chaque
+  consigne future. Ajouter `*italique*` un jour, c'est le ramener.
+- **Une LISTE est reconnue AVANT un bloc indenté**, parce que `tp9-ex6` indente
+  ses puces de quatre espaces et `tp2-ex0` ses numéros d'une tabulation — que
+  Markdown lirait comme du code, donc que `highlight()` colorierait, et deux
+  apostrophes françaises sur une ligne (« l'année … de l'usager ») y deviennent
+  un littéral de caractère. Il en reste **trois** dans tout le cours, dans des
+  blocs de prose alignée qui sont de vrais `<pre>` (`tp7-ex3`, `tp7-ex4`,
+  `devoir-pente`) : cosmétique, et le jour où ça gêne, une clôture ` ``` ` sur
+  ces fichiers-là suffit.
+- **Un paragraphe REFLOWE : ses lignes sont jointes par une ESPACE, pas par un
+  `<br>`.** C'est là que le `breaks: true` du forum aurait été exactement faux —
+  les consignes sont coupées à la main vers soixante colonnes, plus large que la
+  colonne où on les lit, donc honorer ces retours couperait chaque ligne deux
+  fois au milieu d'une phrase.
 - **Le catalogue vient de `/catalog.json`, et il n'y a plus de repli.**
   `normaliser()` en tire DEUX listes : `collections` (l'arbre du menu, tous les
   exercices avec `access` et `available_from`) et `catalogue` (les exercices

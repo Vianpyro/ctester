@@ -214,6 +214,39 @@ main {
 }
 #consignetexte.vide { font-family: var(--sans); color: var(--muted); }
 
+/* THE RENDERED STATEMENT. The `<pre>` above stays for the three EMPTY states, which
+   are one sentence of our own; this is the Markdown of `lib/domain/statement.ts`.
+   Prose REFLOWS here -- the statements are hard-wrapped at about sixty columns,
+   wider than this column, so honouring their newlines would break every line twice.
+   The syntax colours cost nothing: `.tc`..`.tu` are global (see line 372). */
+#consignetexte.md {
+  margin: 0; padding: .85rem .9rem;
+  white-space: normal; font-family: var(--sans);
+  font-size: 13.5px; line-height: 1.6;
+}
+#consignetexte.md > :first-child { margin-top: 0; }
+#consignetexte.md > :last-child { margin-bottom: 0; }
+#consignetexte.md p { margin: 0 0 .7rem; }
+/* Sub-headings in a 25 rem column, not page titles: barely above the body size. */
+#consignetexte.md :is(h1, h2, h3, h4) {
+  margin: 1.1rem 0 .45rem; font-size: 13.5px; font-weight: 600;
+  letter-spacing: .02em; text-transform: uppercase; color: var(--muted);
+}
+#consignetexte.md ul, #consignetexte.md ol { margin: 0 0 .7rem; padding-left: 1.3rem; }
+#consignetexte.md li { margin-bottom: .2rem; }
+/* NOT `pre-wrap`: C does not fold, and `tp2-ex8` lines its arrows up with tabs.
+   The parent `#consigne` scrolls vertically, so the horizontal scroll lives here. */
+#consignetexte.md pre {
+  margin: 0 0 .7rem; padding: .55rem .65rem; overflow-x: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.5; tab-size: 4;
+}
+#consignetexte.md pre code { padding: 0; background: none; border: 0; font-size: inherit; }
+#consignetexte.md code {
+  font-family: var(--mono); font-size: 12.5px; padding: 0 .25rem;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
+}
+
 /* A FLEX COLUMN, AND ESPECIALLY NOT A ROW TEMPLATE. This used to be
    `grid-template-rows: auto minmax(0, 1fr) auto auto`, so one size per
    POSITION -- and two things break that. `#bandelabo`, added afterward as

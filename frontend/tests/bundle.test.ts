@@ -92,7 +92,9 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
    * VERSION -- so this pins the bundled version as well.
    */
   const DEFERRED = [
-    // The two rendering libraries: 74 KB, and only the chat needs them.
+    // The two rendering libraries: 74 KB, and only the chat needs them. The STATEMENT is
+    // Markdown too, and deliberately does NOT use them -- `lib/domain/statement.ts` renders
+    // it in the eager chunk for 1.6 KB, which is why this assertion still holds.
     "DOMPurify",
     "3.4.14",
     "marked(): input",
@@ -139,11 +141,12 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
   });
 
   it("stays under 130 KB of eager JavaScript", () => {
-    // NOT A BUDGET FOR ITS OWN SAKE. It sits about ten percent above what the build
-    // currently produces (~116 KB raw, ~45 KB gzipped), so a jump past it means something
-    // was accidentally pulled into the entry -- which is the only way this number moves by
-    // a lot. For scale: the page it replaces shipped a 108 KB `app.js` to the same visitor,
-    // before its stylesheet.
+    // NOT A BUDGET FOR ITS OWN SAKE. It sits a few percent above what the build currently
+    // produces (~124 KB raw), so a jump past it means something was accidentally pulled
+    // into the entry -- which is the only way this number moves by a lot. For scale: the
+    // page it replaces shipped a 108 KB `app.js` to the same visitor, before its
+    // stylesheet, and rendering the statement with `marked` instead of
+    // `lib/domain/statement.ts` would have added 74 KB here on its own.
     const bytes = eagerChunks().reduce(
       (n, name) => n + readFileSync(join(DIST, "assets", name)).byteLength,
       0,
