@@ -167,6 +167,25 @@ LOCK_RETRIES = int(os.environ.get("CTESTER_LOCK_RETRIES", "1"))
 # inherited it by accident would open the whole term at once.
 PREVIEW = os.environ.get("CTESTER_PREVIEW", "") not in ("", "0")
 
+# WHO MAY RUN A NOT-YET-OPEN EXERCISE, and it is not a process-wide flag but a
+# LIST OF ACCOUNTS -- the same one the API reads, from the same variable. Dates
+# are for students: the instructor has to be able to submit against the real
+# tests before the class does, and CTESTER_PREVIEW would open the whole term to
+# everybody to get it.
+#
+# READ HERE, NOT TAKEN FROM `job.json`. This process is root and trusts nobody,
+# including our own web container: `job.json` already carries the `owner` the
+# API validated, and the ROLE is recomputed from it here. A compromised web
+# tier can lie about who submitted, which it could already do; it cannot hand
+# itself a "run this anyway" flag.
+#
+# EMPTY MEANS THE FEATURE DOES NOT EXIST, exactly like the forum. Missing on
+# the systemd unit while the API has it = statements visible, every verdict
+# "Exercice inconnu."
+MODERATEURS = frozenset(
+    s for s in re.split(r"[,\s]+",
+                        os.environ.get("CTESTER_FORUM_MODERATORS", "")) if s)
+
 # Compilation settings, RELAYED and not interpreted: their meaning lives in
 # build-unity.sh / build-io.sh, which also carry their own defaults. What is
 # passed here takes precedence, and `docker run` propagates nothing on its
@@ -359,19 +378,25 @@ def publish_catalogue():
     return list(model["exercises"].values())
 
 
-def tp_path(exercise_id):
+def tp_path(exercise_id, owner=None):
     """An exercise's assessment directory. None if it does not exist.
 
     THE ONLY WAY TO GO FROM AN ID TO A PATH, and it re-applies the release:
     the web tier already did it, this process is root and trusts nobody,
     including our own web container.
 
+    `owner` IS AN ACCOUNT, NOT A PERMISSION. It is the `sub` the API wrote into
+    `job.json`; whether it opens a not-yet-published exercise is decided HERE,
+    against `MODERATEURS`. A job with no owner -- every anonymous submission,
+    and every Console session -- behaves exactly as before.
+
     The directory returned is `exercises/<id>/assessment`: the same shape as
     a historical exercise directory -- configuration, `test_*.c` and
     `allowed_includes.txt` side by side -- so `detect_mode`, `read_allowed`,
     `docker_argv` and the sandbox never had to change.
     """
-    entry = content_catalog.load_exercise(CONTENT, exercise_id, tout=PREVIEW)
+    tout = PREVIEW or (bool(owner) and owner in MODERATEURS)
+    entry = content_catalog.load_exercise(CONTENT, exercise_id, tout=tout)
     return entry["path"] if entry else None
 
 
@@ -1318,7 +1343,13 @@ def servir_les_connus():
 def _contexte(exercise_id):
     """(tp_dir, mode, conf, fingerprint) for this exercise, or False if there
     is nothing to serve from the cache -- closed exercise, no mode, or a
-    quiz, which spends no container and therefore has nothing to save."""
+    quiz, which spends no container and therefore has nothing to save.
+
+    ponytail: NO OWNER HERE, so a moderator's preview job on a closed exercise
+    is never pre-served by the priority pass -- it falls through to ordinary
+    judging, which is the right degradation. Threading the owner down into
+    `servir_les_connus()` would cost a `job.json` read per queued job to save
+    one instructor one compilation."""
     tp_dir = tp_path(exercise_id)
     if tp_dir is None:
         return False
@@ -1714,6 +1745,21 @@ def job_exercice(job_dir):
         return ""
 
 
+def job_owner(job_dir):
+    """The account that submitted, or "" -- the only other field `job.json` has.
+
+    READ FOR ONE DECISION AND ONE ONLY: is this a moderator, who may run an
+    exercise that is not open yet (`tp_path`). Nothing this worker WRITES is
+    specific to an account, and that stays true -- the verdict is shared, the
+    attribution is not.
+    """
+    try:
+        with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
+            return str(json.load(fh).get("owner", ""))
+    except (OSError, ValueError):
+        return ""
+
+
 def run_job(job_dir):
     """A job's verdict. Serves the cache when it has one, judges otherwise.
 
@@ -1724,8 +1770,9 @@ def run_job(job_dir):
     # RE-VALIDATED HERE, even though the web tier already did. This process
     # is root and builds a path from this value: it trusts nobody, including
     # our own web container. `load_exercise` bounds the id (EXERCISE_RE)
-    # before joining it, and re-applies the release.
-    tp_dir = tp_path(exercise_id)
+    # before joining it, and re-applies the release -- against the OWNER, so
+    # a moderator's preview submission runs and everybody else's does not.
+    tp_dir = tp_path(exercise_id, job_owner(job_dir))
     if tp_dir is None:
         return {"status": "error", "message": "Exercice inconnu."}
     mode = detect_mode(tp_dir)

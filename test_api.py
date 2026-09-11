@@ -803,6 +803,76 @@ def test_release_pilote_le_catalogue_et_ferme_le_reste():
         assert c.post("/submit", json=dict(corps, exercise_id="ouvert")).status_code == 400
 
 
+def test_les_dates_sont_pour_les_etudiants_et_l_enseignant_voit_quand_meme():
+    """Un modérateur ouvre un exercice PROGRAMMÉ ; personne d'autre ne le peut.
+
+    C'EST LA MOITIÉ « ÉTUDIANT » QUI COMPTE LE PLUS. Un jeton VALIDE mais qui
+    n'est pas sur la liste doit obtenir exactement ce qu'obtient l'anonyme :
+    n'éprouver que le succès du prof laisserait passer une porte ouverte à tout
+    compte connecté.
+
+    ET LE `no-store` EST UNE ASSERTION, PAS UN DÉTAIL. La consigne staff est
+    servie sur la même URL que la consigne publique ; avec le `no-cache` + ETag
+    des fichiers, Cloudflare pourrait la garder et la revalider sur la requête
+    d'un étudiant. `Vary` n'annonce pas `Authorization` et n'a pas à le faire :
+    on ne stocke rien.
+    """
+    import content_catalog as content_catalogue
+    import publish_content
+
+    with contexte(jetons={"alice": "sub-alice", "prof": "sub-prof"},
+                  moderateurs=["sub-prof"]) as (c, base, tmp):
+        racine, publie = os.path.join(tmp, "v2"), os.path.join(tmp, "releases")
+        _contenu_v2(racine)
+        publish_content.publish(content_catalogue.discover(racine), publie)
+        config.PUBLISHED = publie
+
+        # La consigne : 404 pour l'anonyme ET pour un étudiant connecté.
+        assert c.get("/tp/ferme.json").status_code == 404
+        assert c.get("/tp/ferme.json", headers=auth("alice")).status_code == 404
+        r = c.get("/tp/ferme.json", headers=auth("prof"))
+        assert r.status_code == 200 and r.json()["statement"] == "Consigne.", r.text
+        assert r.headers["cache-control"] == "no-store", dict(r.headers)
+        assert "etag" not in r.headers, dict(r.headers)
+
+        # ET L'OUVERT RESTE UN FICHIER, pour tout le monde : la copie staff ne
+        # doit pas coûter la revalidation de ce que 80 étudiants rechargent.
+        ouvert = c.get("/tp/ouvert.json", headers=auth("prof"))
+        assert ouvert.headers["cache-control"] == "no-cache", dict(ouvert.headers)
+        assert ouvert.headers["etag"], dict(ouvert.headers)
+
+        # La soumission, aux mêmes trois personnes.
+        corps = {"key": config.KEY, "files": {"submission.c": "int main(void){}"},
+                 "exercise_id": "ferme"}
+        assert c.post("/submit", json=corps).status_code == 400
+        assert c.post("/submit", json=corps, headers=auth("alice")).status_code == 400
+        r = c.post("/submit", json=corps, headers=auth("prof"))
+        assert r.status_code == 200, r.text
+        job = r.json()["id"]
+        with open(os.path.join(config.SPOOL, job, "job.json"), encoding="utf-8") as fh:
+            # `owner` EST LA SEULE CHOSE QUI TRAVERSE : le worker recalcule le
+            # rôle lui-même, il ne reçoit pas un « exécute quand même ».
+            assert json.load(fh) == {"exercise_id": "ferme", "owner": "sub-prof"}
+
+        # LE VERDICT COMPTE COMME CELUI D'UN ÉTUDIANT : état, tentative, XP.
+        with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+                 encoding="utf-8") as fh:
+            json.dump({"status": "ok", "passed": 1, "total": 1}, fh)
+        assert c.get("/r/" + job).json()["status"] == "ok"
+        assert base.etats[("sub-prof", "ferme")] == "solved", base.etats
+
+        # Le brouillon suit la même porte : le corrigé collé survit à un F5.
+        brouillon = {"exercise_id": "ferme", "files": {"submission.c": "int main(void){}"}}
+        assert c.put("/brouillon", json=brouillon,
+                     headers=auth("alice")).status_code == 400
+        assert c.put("/brouillon", json=brouillon,
+                     headers=auth("prof")).status_code == 200
+
+        # ET LE DRAPEAU D'AFFICHAGE, qui est ce qui permet au menu de le savoir.
+        assert c.get("/etats", headers=auth("prof")).json()["moderator"] is True
+        assert c.get("/etats", headers=auth("alice")).json()["moderator"] is False
+
+
 def auth(nom):
     return {"Authorization": "Bearer " + nom}
 
@@ -1552,11 +1622,13 @@ def test_detail_and_quiz_survive_a_rollback_mid_request():
 def test_etats_and_pratique_during_a_database_outage():
     """Two screens forgotten by the outage check: never a 200 on a mute database."""
     with contexte(jetons={"alice": "sub-alice"}) as (c, base, _tmp):
-        assert c.get("/etats", headers=auth("alice")).json() == {"states": []}
+        assert c.get("/etats", headers=auth("alice")).json() == {
+            "states": [], "moderator": False}
         assert c.get("/pratique", headers=auth("alice")).json() == {"practice": []}
         base.etats[("sub-alice", "tp2-ex3")] = "solved"
         r = c.get("/etats", headers=auth("alice"))
-        assert r.json() == {"states": [{"exercise_id": "tp2-ex3", "status": "solved"}]}, r.text
+        assert r.json() == {"states": [{"exercise_id": "tp2-ex3", "status": "solved"}],
+                            "moderator": False}, r.text
 
     base = BaseSimulee()
     base.read_states = lambda user: None
@@ -1619,7 +1691,8 @@ def test_deleting_the_account_fails_without_leaving_the_illusion_of_success():
         base.etats[("sub-alice", "tp2-ex3")] = "solved"
         r = c.delete("/moi", headers=auth("alice"))
         assert r.status_code == 200 and r.json() == {"ok": True}, r.text
-        assert c.get("/etats", headers=auth("alice")).json() == {"states": []}
+        assert c.get("/etats", headers=auth("alice")).json() == {
+            "states": [], "moderator": False}
 
     base = BaseSimulee()
     base.forget = lambda user: False

@@ -1,10 +1,11 @@
 """Dependencies shared by the routers: who is calling, and how fast.
 
-THREE GATES, AND NONE READS AN ID FROM THE REQUEST:
+FOUR GATES, AND NONE READS AN ID FROM THE REQUEST:
 
     Sub            an authenticated account
     SubForum       same, and the forum is enabled on this deployment
     SubModerateur  same, and this `sub` is on the moderation list
+    Apercu         a BOOLEAN, never raises: is the caller a moderator?
 
 `security.current_user()` is the only source of identity in the whole
 application. A route that accepted an `account` in its body would let anyone
@@ -135,9 +136,27 @@ def moderateur(request: Request) -> str:
     return sub
 
 
+def apercu(request: Request) -> bool:
+    """True if this request carries a MODERATOR's valid token.
+
+    THE ONLY ONE OF THE FOUR THAT NEVER RAISES, and that is the point: it
+    hangs off routes that are anonymous, so a student's request -- token or
+    none -- must keep behaving exactly as it did. What it decides is whether
+    the catalog gate opens on an exercise that is not yet open (dates are for
+    students: the instructor checks a statement and a verdict before class).
+
+    THE ROLE IS RECOMPUTED HERE, from the validated `sub`, exactly like
+    `moderateur()`. The page's `moderator` flag decides what to draw, never
+    what gets served. Free for the anonymous visitor: `current_user` returns
+    on the missing `Bearer` header before doing any work.
+    """
+    return security.is_moderator(security.current_user(request.headers))
+
+
 Sub = Annotated[str, Depends(utilisateur)]
 SubForum = Annotated[str, Depends(utilisateur_forum)]
 SubModerateur = Annotated[str, Depends(moderateur)]
+Apercu = Annotated[bool, Depends(apercu)]
 
 
 def freiner_ecriture(request: Request) -> None:

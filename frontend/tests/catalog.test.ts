@@ -83,6 +83,21 @@ describe("normalize", () => {
     expect(model.catalog.map((e) => e.id)).not.toContain("tp10-ex1");
   });
 
+  it("hands the instructor the locked ones too, and only when told to", () => {
+    // DATES ARE FOR STUDENTS. A moderator has to be able to open a locked exercise to
+    // check it renders and grades as intended -- so the flat list keeps it, and every
+    // screen downstream (`selected`, the strip, the editor, the submission) works with
+    // no branch of its own. The DEFAULT is the student's view, which is what makes a
+    // forgotten call site safe.
+    const staff = normalize(release, true);
+    expect(staff.catalog.map((e) => e.id)).toContain("tp10-ex1");
+    // The menu tree does not change: it already carried everything.
+    expect(staff.collections.map((c) => c.titre)).toEqual(model.collections.map((c) => c.titre));
+    // AND THE LOCK IS STILL SAID. Opening it is not pretending it is open -- the
+    // instructor needs to read the date telling them the class cannot see this.
+    expect(lockNote(staff.catalog.find((e) => e.id === "tp10-ex1")!)).toMatch(/^ouvre le /);
+  });
+
   it("drops a collection whose items were never published rather than showing an empty one", () => {
     expect(model.collections.map((c) => c.titre)).not.toContain("Vide");
   });

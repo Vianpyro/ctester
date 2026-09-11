@@ -13,10 +13,21 @@
   // DOMPurify: those two are 74 KB and the statement is on the ANONYMOUS path.
 
   import { exercise } from "../lib/state/exercise.svelte";
+  import { catalog } from "../lib/state/catalog.svelte";
+  import { lockNote } from "../lib/domain/catalog";
   import { renderStatement } from "../lib/domain/statement";
 
   const state = $derived(exercise.statement);
+  // ONLY A MODERATOR CAN REACH THIS STATE, so there is no role to test here:
+  // `catalog.selected` reads the flat list, and a locked exercise is only in it
+  // when the server said this account is staff. Said HERE, above the statement,
+  // because that is where the instructor is looking when they check the render.
+  const ferme = $derived(lockNote(catalog.selected));
 </script>
+
+{#if ferme}
+  <p class="apercu">🔒 Invisible pour les étudiants — {ferme}.</p>
+{/if}
 
 <details id="consigne" open>
   <summary class="phead">Consigne</summary>
@@ -34,3 +45,17 @@
       ></pre>
   {/if}
 </details>
+
+<style>
+  /* Not a warning and not an error: a statement of fact about who can see this.
+     `--wait` is already the page's "not yet" colour (the syntax checker's hints,
+     the queued verdict), so it costs no new token. */
+  .apercu {
+    margin: 0 0 0.6rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--wait);
+    border-radius: var(--coin);
+    color: var(--wait);
+    font-size: 0.9em;
+  }
+</style>

@@ -62,21 +62,45 @@ def _cles(value):
                 yield found
 
 
+# THE INSTRUCTOR'S PREVIEW IS A DATE, NOT A SECOND FILTER -- the same idiom as
+# `CTESTER_PREVIEW` in runner.py, and for the same reason: `access()` stays the
+# ONLY read of a release. Setting the clock to the year 9999 opens everything
+# that is dated without touching what is archived, so an archived exercise stays
+# invisible to everybody, staff included.
+APERCU = dt.datetime(9999, 1, 1, tzinfo=dt.timezone.utc)
+
+
 def projection(model, now=None):
     """{relative path: JSON object} -- exactly what the browser can see.
 
     The catalog carries EVERY exercise, open or not (a lock and a date). The
     detail and the quiz are only written for what is open: `find_exercise`
     is the gate, here as in the API and the worker.
+
+    WHAT IS NOT OPEN YET IS WRITTEN UNDER `staff/`, AND DATES ARE FOR STUDENTS.
+    The instructor must be able to see a statement render and submit against
+    the real tests before the class does; the API tier does not mount
+    `CTESTER_CONTENT`, so if the release does not carry that detail, nobody can
+    serve it. The prefix is what an authenticated moderator's request reads
+    (`services.catalog.source_publiee`), and nothing else resolves to it --
+    which is why this is not `CTESTER_PREVIEW`, a process-wide flag that would
+    open the whole term to everyone.
+
+    UNDER `CTESTER_PREVIEW` THIS BRANCH IS DEAD: `now` is already the year 9999,
+    so everything is open and `staff/` stays empty. The two never stack.
     """
     files = {"catalog.json": content_catalog.public_catalogue(model, now)}
     for exercise_id, entry in model["exercises"].items():
         detail = content_catalog.public_detail(model, exercise_id, now)
+        prefixe = ""
         if detail is None:
-            continue
-        files["exercises/%s.json" % exercise_id] = detail
+            detail = content_catalog.public_detail(model, exercise_id, APERCU)
+            if detail is None:
+                continue  # archived: there is nothing to show anybody
+            prefixe = "staff/"
+        files["%sexercises/%s.json" % (prefixe, exercise_id)] = detail
         if entry["mode"] == "quiz":
-            files["quiz/%s.json" % exercise_id] = public_quiz(entry["config"])
+            files["%squiz/%s.json" % (prefixe, exercise_id)] = public_quiz(entry["config"])
     fuites = sorted({key for value in files.values() for key in _cles(value)}
                     & INTERDIT)
     if fuites:

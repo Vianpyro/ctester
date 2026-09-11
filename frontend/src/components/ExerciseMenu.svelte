@@ -81,17 +81,22 @@
             </summary>
             {#each items as ex (ex.id)}
               {@const note = lockNote(ex)}
+              <!-- THE LOCK IS SHOWN TO EVERYONE, IT ONLY BLOCKS STUDENTS. Dates are
+                   for students: a moderator opens the row to check that the exercise
+                   renders and grades as intended, and still reads the date telling
+                   them the class cannot. `catalog.staff` is said by the server. -->
+              {@const bloque = !!note && !catalog.staff}
               {@const done = statuses.of(ex.id)}
               <!-- `aria-disabled` AND NOT `disabled`. A `disabled` button drops out of
                    the tab order: opening dates used to exist for the mouse only, when
                    they are the whole reason to keep the exercise displayed. -->
               <button
                 type="button"
-                class={"exline" + (ex.id === catalog.selectedId ? " on" : "") + (note ? " verrouille" : "")}
+                class={"exline" + (ex.id === catalog.selectedId ? " on" : "") + (bloque ? " verrouille" : "")}
                 data-id={ex.id}
-                aria-disabled={note ? "true" : undefined}
+                aria-disabled={bloque ? "true" : undefined}
                 onclick={() => {
-                  if (note) return;
+                  if (bloque) return;
                   onOpenChange(false);
                   exercise.open(ex.id);
                 }}

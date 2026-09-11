@@ -51,7 +51,8 @@ export interface Collection {
 export interface CatalogModel {
   /** The menu tree: everything, open or not. */
   collections: Collection[];
-  /** Open exercises only, deduplicated, in collection order. */
+  /** Open exercises only (a moderator also gets the locked ones), deduplicated,
+   * in collection order. */
   catalog: Exercise[];
   assignments: PublishedAssignment[];
 }
@@ -82,8 +83,18 @@ function catalogEntry(ex: PublishedExercise, group: string): Exercise {
   };
 }
 
-/** The published release, turned into the two lists above. */
-export function normalize(release: PublishedRelease): CatalogModel {
+/**
+ * The published release, turned into the two lists above.
+ *
+ * `staff` IS THE INSTRUCTOR'S VIEW, AND THE DEFAULT IS THE STUDENT'S. Dates are
+ * for students: a moderator must be able to open a locked exercise to check
+ * that it renders and grades as intended. It changes exactly one thing -- the
+ * flat list keeps what is not open yet -- so everything downstream (`selected`,
+ * the lab strip, the editor, the submission) works with no branch of its own.
+ * `lockNote()` is untouched: the lock and the date stay on screen, because that
+ * is precisely the information the instructor came for.
+ */
+export function normalize(release: PublishedRelease, staff = false): CatalogModel {
   // ASSIGNMENTS ARE NOT COLLECTIONS, and they are kept in their own list for
   // that reason. A collection is the menu's path through the catalog; an
   // assignment is assessed work with a deadline, a team and a hand-in. Folding
@@ -129,7 +140,7 @@ export function normalize(release: PublishedRelease): CatalogModel {
   const catalog: Exercise[] = [];
   for (const col of collections) {
     for (const ex of col.items) {
-      if (ex.access !== "available" || seen.has(ex.id)) continue;
+      if ((!staff && ex.access !== "available") || seen.has(ex.id)) continue;
       seen.add(ex.id);
       catalog.push(ex);
     }

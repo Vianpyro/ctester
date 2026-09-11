@@ -18,3 +18,4 @@
       course's classic traps, gutter + squiggle + list. No dependency, no wasm.
 - [x] Add tabulations and "autocomplete" for `(` -> `)`, `"` -> `"`, `[` -> `]`, etc...
 - [ ] Add GIFs? (Klipy? + GIPHY?)
+- [ ] Don't save an exercice as draft unless it's different from the template

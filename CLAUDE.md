@@ -340,7 +340,9 @@ que rien de local n'ait changé.
   lignes. `publish_catalogue()` ne publie plus qu'une release, et **lève** si
   les deux variables manquent — un worker mal configuré doit s'arrêter en le
   disant, pas servir un menu vide à tout le monde.
-- **La porte de l'API s'appelle `find_exercise()`**, comme celle du worker, et
+- **La porte de l'API s'appelle `find_exercise()`**, comme celle du worker (et
+  depuis l'aperçu enseignant, elle prend le même second argument — voir
+  « L'aperçu enseignant » plus bas), et
   elle n'a plus besoin de `TP_RE` : elle COMPARE à l'identifiant du catalogue au
   lieu de le concaténer, et c'est `source_publiee()` qui reconstruit le chemin
   depuis l'entrée trouvée. Un `..` ne matche aucune entrée ; il n'y a rien à
@@ -1056,6 +1058,78 @@ Pour de vrais verdicts il faut en plus un worker (Docker + gVisor) ; sans eux,
 **pas** un réglage de production : le déploiement ne le définit pas, et
 `publish_catalogue()` l'annonce dans le journal quand il est actif. Republier
 sans la variable remet le semestre en ordre.
+
+### L'aperçu enseignant — les dates sont pour les étudiants
+
+**`CTESTER_PREVIEW` OUVRE LE SEMESTRE À TOUT LE MONDE ; CECI OUVRE UN EXERCICE À
+UNE PERSONNE.** Les deux coexistent et ne se ressemblent pas : le premier est un
+drapeau de machine (la sienne, avant de pousser), le second est une propriété du
+`sub` validé, en production. Un modérateur ouvre un exercice encore `scheduled`
+depuis le menu, lit sa consigne, soumet, et reçoit un vrai verdict — avec à
+l'écran « 🔒 Invisible pour les étudiants — ouvre le 18 novembre ». Pour tous les
+autres, cadenas, date et 404 sont **exactement** ce qu'ils étaient.
+
+**AUCUN NOUVEAU DRAPEAU.** Ça s'éteint par l'absence de
+`CTESTER_FORUM_MODERATORS`, comme le forum, parce que c'est la même liste.
+
+- **`publish_content.projection()` écrit une copie `staff/`** de ce qui n'est pas
+  encore ouvert (`staff/exercises/<id>.json`, `staff/quiz/<id>.json`). L'API ne
+  monte pas `CTESTER_CONTENT` : si la release ne porte pas ce détail, personne ne
+  peut le servir. **C'est la même DATE que l'aperçu du worker** (l'an 9999) —
+  `access()` reste la seule lecture d'une release, donc un `archived` n'est écrit
+  nulle part et reste invisible pour tout le monde, enseignant compris. Sous
+  `CTESTER_PREVIEW`, `staff/` est vide : tout est déjà ouvert, les deux ne
+  s'empilent pas.
+- **La ceinture d'`INTERDIT` couvre `staff/` gratuitement** : elle balaie
+  `files.values()`, pas la moitié publique. Le `grep -rl answer` du runbook aussi.
+- **`find_exercise(exercise_id, apercu=False)` — LE DÉFAUT EST FERMÉ.** Les onze
+  appels existants n'ont pas bougé ; seuls `/tp/`, `/quiz/`, `/submit`,
+  `/brouillon` et `_enregistrer()` passent `security.is_moderator(sub)`. Un
+  appel qui oublie l'argument garde l'ancien comportement, qui est le sûr.
+  `source_publiee()` dérive le préfixe `staff/` de l'entrée elle-même : une
+  entrée non ouverte n'existe QUE là, et seule une recherche `apercu` a pu la
+  rendre.
+- **`headers.fichier_du_disque(..., prive=True)` REND UN `Response` NU, et c'est
+  la ligne de sécurité.** `fichier()` pose `no-cache` + ETag, c'est-à-dire
+  « garde-le et revalide » : une consigne staff servie ainsi pourrait être
+  gardée par Cloudflare puis revalidée par la requête d'un étudiant. Le
+  middleware pose alors son `no-store` par défaut — réponse complète, sans
+  `Vary: Authorization` à se rappeler. Un test l'exige, et exige aussi que
+  l'exercice OUVERT reste un fichier cacheable pour tout le monde.
+- **`deps.Apercu` est la seule des quatre portes qui NE LÈVE PAS.** Elle pend
+  sur des routes anonymes : un étudiant, avec ou sans jeton, doit obtenir ce
+  qu'il obtenait. Gratuit pour l'anonyme, `current_user` sortant sur l'absence
+  de `Bearer`.
+- **Le worker recalcule le rôle, il ne le reçoit pas.** `runner.MODERATEURS` lit
+  la même variable que l'API et la compare à l'`owner` que `job.json` porte
+  déjà ; `tp_path(exercise_id, owner)`. Pas de drapeau « exécute quand même »
+  dans `job.json` : « ce processus est root et ne fait confiance à personne »
+  reste vrai à la lettre. Un conteneur web compromis peut mentir sur QUI a
+  soumis — ce qu'il pouvait déjà faire — pas s'accorder une exécution.
+- **Un job d'aperçu n'est jamais pré-servi par le cache** (`_contexte()` n'a pas
+  d'owner) : il tombe dans le jugement normal. La bonne dégradation, et ça évite
+  une lecture de `job.json` par job en attente pour épargner une compilation à
+  une personne.
+- **Une soumission d'enseignant compte comme celle d'un étudiant** — état,
+  tentative, XP —, parce que `_enregistrer()` passe la même porte. C'est un
+  choix : il est de toute façon exclu du classement par le `WHERE` du SQL, et un
+  verdict qui ne laisse aucune trace ressemble à un verdict perdu.
+- **Côté page : `catalog.staff`, dit par le serveur.** `/etats` porte
+  `moderator` — c'est la première requête authentifiée, et le catalogue est
+  chargé AVANT qu'il y ait une session, d'où `setStaff()` qui re-normalise la
+  charge gardée au lieu de refetcher. `normalize(release, staff)` ne change
+  qu'une ligne : la liste plate garde ce qui n'est pas ouvert, donc `selected`,
+  `#bandelabo`, l'éditeur et la soumission marchent **sans un `if` de plus**.
+  `lockNote()` n'a pas bougé : le cadenas et la date restent affichés, c'est
+  précisément l'information que l'enseignant vient chercher.
+
+**⚠ CE QUE ÇA DEMANDE À `VHome`, ET C'EST UNE LIGNE.**
+`CTESTER_FORUM_MODERATORS` doit être posée **sur l'unité `ctester-runner@`**,
+où elle n'est pas aujourd'hui. Sans elle, l'enseignant voit la consigne et peut
+soumettre, mais chaque verdict est **« Exercice inconnu. »** — l'API a ouvert la
+porte, le worker l'a refermée. Rien d'autre : aucune table, aucun GRANT, aucun
+volume, aucun `ReadWritePaths` ; `staff/` est écrit dans `published/`, déjà
+monté en entier.
 
 ## Écrire un test Unity
 

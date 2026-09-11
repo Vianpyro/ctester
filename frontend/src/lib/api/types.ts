@@ -151,6 +151,10 @@ export type ExerciseStatus = "solved" | "attempted";
 
 export interface StatesPayload {
   states: { exercise_id: string; status: ExerciseStatus }[];
+  /** A DISPLAY FLAG, said by the server. It decides that the menu lets this
+   * account open a not-yet-published exercise; every route recomputes the role
+   * from the validated `sub` and takes none of this at face value. */
+  moderator?: boolean;
 }
 
 export interface PracticeRow {

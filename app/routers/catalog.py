@@ -1,7 +1,11 @@
 """The public catalog: the list of exercises, a statement, a quiz.
 
-THESE THREE ROUTES ARE ANONYMOUS, and that is ctester's core: a student pastes
-their code and submits with no account. Nothing here reads a token.
+THE CATALOG IS ANONYMOUS, and that is ctester's core: a student pastes their
+code and submits with no account. The two others read a token for ONE decision
+and only that one -- whether the caller is a moderator, who may open an exercise
+that is not yet open (dates are for students; the instructor checks the
+statement and the verdict before class). With no token, or a student's token,
+these routes answer exactly what they always answered.
 
 NO REFERENCE SOLUTION EVER PASSES THROUGH HERE. The served release has already
 been rebuilt field by field by `publish_content.py`, which reads its own
@@ -10,6 +14,7 @@ the runbook replays a `grep` after every deploy.
 """
 
 import headers
+from deps import Apercu
 from fastapi import APIRouter, Request
 from services.catalog import find_exercise, release_dir, source_publiee
 
@@ -33,40 +38,44 @@ def catalog(request: Request):
 
 
 @router.get("/tp/{exercise_id}.json")
-def detail(exercise_id: str, request: Request):
+def detail(exercise_id: str, request: Request, apercu: Apercu):
     """An exercise's statement and templates.
 
     `find_exercise` is the ONLY gate: it refuses anything that is not an open
     catalog exercise, so `/tp/../catalog.json` is not a path to traverse but
-    an id that does not exist.
+    an id that does not exist. For a moderator it also opens on what is not
+    yet published to students -- which is a body that must never be kept by a
+    cache, hence `prive`.
 
     ponytail: the URL keeps its historical `/tp/`. It lives in students'
     caches and costs nothing; renaming it will happen alongside
     `/exercises/<id>`, when the page moves to deep links `/exercise/<id>`.
     """
-    entry = find_exercise(exercise_id)
+    entry = find_exercise(exercise_id, apercu)
     if entry is None:
         return headers.erreur(404, "inconnu")
     base, nom = source_publiee(entry, "detail")
     if base is None:
         return headers.erreur(404, "inconnu")
     return headers.fichier_du_disque(request, base, nom,
-                                     "application/json; charset=utf-8")
+                                     "application/json; charset=utf-8",
+                                     prive=entry.get("access") != "available")
 
 
 @router.get("/quiz/{exercise_id}.json")
-def quiz(exercise_id: str, request: Request):
+def quiz(exercise_id: str, request: Request, apercu: Apercu):
     """A quiz's questions, exactly as the worker published them.
 
     The path is rebuilt from the catalog, never concatenated from the URL.
     The mode is checked in addition to existence: a code exercise does not
-    expose a quiz file.
+    expose a quiz file. Same moderator door and same `no-store` as `detail`.
     """
-    entry = find_exercise(exercise_id)
+    entry = find_exercise(exercise_id, apercu)
     if entry is None or entry.get("mode") != "quiz":
         return headers.erreur(404, "pas un quiz")
     base, nom = source_publiee(entry, "quiz")
     if base is None:
         return headers.erreur(404, "pas un quiz")
     return headers.fichier_du_disque(request, base, nom,
-                                     "application/json; charset=utf-8")
+                                     "application/json; charset=utf-8",
+                                     prive=entry.get("access") != "available")

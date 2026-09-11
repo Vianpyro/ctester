@@ -62,12 +62,25 @@ def source_publiee(entry, quoi):
     therefore no path to traverse. `None` when the pointer disappeared
     between resolution and reading -- a rollback mid-request is a 404, not a
     stack trace.
+
+    A NOT-YET-OPEN EXERCISE ONLY EXISTS UNDER `staff/`, so the prefix is
+    derived from the entry rather than passed in: `publish_content.projection`
+    writes it there and nowhere else, and only an `apercu` lookup can have
+    returned such an entry in the first place. One fact, read once.
     """
     release = release_dir()
     if release is None:
         return None, None
     dossier = "exercises" if quoi == "detail" else "quiz"
+    if entry.get("access") != "available":
+        dossier = os.path.join("staff", dossier)
     return release, os.path.join(dossier, entry["id"] + ".json")
+
+
+def _publies():
+    """Every exercise of the published catalog, open or not, in publication order."""
+    return [entry for entry in (load_catalog() or {}).get("exercises") or ()
+            if isinstance(entry, dict) and isinstance(entry.get("id"), str)]
 
 
 def exercices_ouverts():
@@ -78,12 +91,10 @@ def exercices_ouverts():
     the same list `find_exercise` queries one entry at a time -- a single
     definition of "published and open".
     """
-    return [entry for entry in (load_catalog() or {}).get("exercises") or ()
-            if isinstance(entry, dict) and entry.get("access") == "available"
-            and isinstance(entry.get("id"), str)]
+    return [entry for entry in _publies() if entry.get("access") == "available"]
 
 
-def find_exercise(exercise_id):
+def find_exercise(exercise_id, apercu=False):
     """This OPEN exercise's catalog entry, or None. The only gate.
 
     Everything that follows -- the mode, the file name written into the
@@ -91,8 +102,15 @@ def find_exercise(exercise_id):
     appear in the catalog (with its lock and its date), but does not resolve:
     a deep link shared early does not bypass anything, it just does not
     resolve.
+
+    `apercu=True` IS THE INSTRUCTOR'S DOOR, AND THE DEFAULT IS CLOSED. Dates
+    are for students: a moderator must be able to check that an exercise
+    renders and grades as intended before the class sees it. The caller passes
+    `security.is_moderator(sub)` recomputed from a VALIDATED `sub` -- never a
+    flag read off a request. A call site that forgets the argument keeps the
+    old behavior, which is the safe one.
     """
-    for entry in exercices_ouverts():
+    for entry in (_publies() if apercu else exercices_ouverts()):
         if entry["id"] == exercise_id:
             return entry
     return None

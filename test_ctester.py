@@ -286,10 +286,17 @@ def test_content_v2_publication_verrouille_et_bascule():
             for nom in noms:
                 chemin = os.path.join(dossier, nom)
                 publie[os.path.relpath(chemin, release).replace(os.sep, "/")] = lire(chemin)
+        # UN EXERCICE PAS ENCORE OUVERT N'A PAS DE DÉTAIL PUBLIC, il a une COPIE
+        # `staff/` -- les dates sont pour les étudiants, et l'enseignant doit
+        # pouvoir vérifier l'affichage et le verdict avant le cours. Seule une
+        # requête portant le jeton d'un modérateur atteint ce préfixe
+        # (`services.catalog.source_publiee`).
         assert sorted(publie) == ["catalog.json", "exercises/surface.json",
-                                  "manifest.json"], sorted(publie)
-        # LE POINT DE TOUT LE FICHIER : rien du corrigé ne franchit la frontière,
-        # et un exercice pas encore ouvert n'a ni détail ni quiz publiés.
+                                  "manifest.json", "staff/exercises/nombres.json",
+                                  "staff/quiz/nombres.json"], sorted(publie)
+        # LE POINT DE TOUT LE FICHIER : rien du corrigé ne franchit la frontière
+        # -- `staff/` compris, puisque la ceinture d'INTERDIT balaie la
+        # projection entière et pas seulement sa moitié publique.
         assert "answer" not in "".join(publie.values()), publie
         assert "00010111" not in "".join(publie.values()), publie
         catalogue_publie = json.loads(publie["catalog.json"])
@@ -446,6 +453,63 @@ def test_worker_v2_resout_un_exercice_et_refuse_ce_qui_est_ferme():
     finally:
         runner.CONTENT = garde
         shutil.rmtree(root)
+
+
+def test_le_worker_ouvre_un_exercice_ferme_au_SEUL_moderateur():
+    """Les dates sont pour les étudiants, et c'est le WORKER qui recalcule le rôle.
+
+    Il ne prend pas un drapeau dans `job.json` : ce processus est root et ne
+    fait confiance à personne, y compris à notre conteneur web. Il lit
+    `CTESTER_FORUM_MODERATORS` -- la même variable que l'API -- et la compare à
+    l'`owner` que `job.json` porte déjà. Un conteneur web compromis peut mentir
+    sur QUI a soumis, ce qu'il pouvait déjà faire ; il ne peut pas s'accorder un
+    « exécute quand même ».
+
+    LES TROIS CAS COMPTENT : sans owner (tout l'anonyme, et la Console) rien ne
+    change, un étudiant connecté non plus, et seul le modérateur passe. N'en
+    éprouver que le dernier laisserait passer un `tout=True` inconditionnel.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    garde = (runner.CONTENT, runner.MODERATEURS)
+    try:
+        _contenu_v2(root, {"state": "scheduled",
+                           "available_from": "2099-01-01T00:00:00-05:00"})
+        runner.CONTENT = root
+        runner.MODERATEURS = frozenset(["sub-prof"])
+        assessment = os.path.join(root, "exercises", "nombres", "assessment")
+        assert runner.tp_path("nombres") is None
+        assert runner.tp_path("nombres", "") is None
+        assert runner.tp_path("nombres", "sub-alice") is None
+        assert runner.tp_path("nombres", "sub-prof") == assessment
+        # L'identifiant reste borné par `EXERCISE_RE` : le rôle ouvre une DATE,
+        # jamais un chemin.
+        assert runner.tp_path("../../etc/passwd", "sub-prof") is None
+        # Liste vide = la fonctionnalité n'existe pas, comme le forum.
+        runner.MODERATEURS = frozenset()
+        assert runner.tp_path("nombres", "sub-prof") is None
+    finally:
+        runner.CONTENT, runner.MODERATEURS = garde
+        shutil.rmtree(root)
+
+
+def test_le_worker_lit_l_owner_du_job_et_rien_d_autre():
+    """`job_owner()` est le jumeau de `job_exercice()` : un champ, aucune décision.
+
+    Un `job.json` sans `owner` -- l'anonyme, et la Console qui ne porte QUE
+    `kind` -- rend "" plutôt que de lever : c'est ce qui garde `tp_path` inerte
+    pour tout ce qui n'est pas un compte.
+    """
+    tmp = tempfile.mkdtemp(prefix="ctester-job-")
+    try:
+        _write_json(os.path.join(tmp, "job.json"),
+                    {"exercise_id": "surface", "owner": "sub-prof"})
+        assert runner.job_owner(tmp) == "sub-prof"
+        _write_json(os.path.join(tmp, "job.json"), {"kind": "console"})
+        assert runner.job_owner(tmp) == ""
+        os.remove(os.path.join(tmp, "job.json"))
+        assert runner.job_owner(tmp) == ""
+    finally:
+        shutil.rmtree(tmp)
 
 
 def test_publication_refuse_un_worker_sans_contenu():
@@ -3204,7 +3268,7 @@ def test_une_rafale_du_meme_code_ne_paie_qu_une_compilation():
         os.makedirs(tp_dir)
         with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
             json.dump({"cases": [{"stdin": "", "expect": [1]}]}, fh)
-        runner.tp_path = lambda exercise_id: tp_dir
+        runner.tp_path = lambda exercise_id, owner=None: tp_dir
 
         appels = []
 
@@ -3322,7 +3386,7 @@ def test_run_job_sert_le_cache_sans_recompiler():
         os.makedirs(tp_dir)
         with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
             json.dump({"cases": [{"stdin": "", "expect": [1]}]}, fh)
-        runner.tp_path = lambda exercise_id: tp_dir
+        runner.tp_path = lambda exercise_id, owner=None: tp_dir
 
         appels = []
 

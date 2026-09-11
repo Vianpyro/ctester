@@ -44,7 +44,12 @@ def submit(corps: SoumissionIn, request: Request):
     if not config.KEY or not hmac.compare_digest(corps.key, config.KEY):
         return headers.erreur(403, "clé de session invalide ou expirée")
 
-    entree = find_exercise(corps.exercise_id)
+    # READ BEFORE THE GATE, because the gate depends on it: a moderator may
+    # submit against an exercise that is not open yet -- dates are for
+    # students, and checking a verdict before class is the whole point. The
+    # role is recomputed from the VALIDATED `sub`, never taken from the body.
+    sub = security.current_user(request.headers)
+    entree = find_exercise(corps.exercise_id, security.is_moderator(sub))
     if entree is None:
         return headers.erreur(400, "TP inconnu")
 
@@ -77,7 +82,6 @@ def submit(corps: SoumissionIn, request: Request):
     # `poste` is a browser-issued token, NOT an identity: it only separates
     # two anonymous visitors behind the same NATed IP. Truncated, never
     # refused -- an odd token should cost its own counter, not a 400.
-    sub = security.current_user(request.headers)
     qui = security.client_id(request.headers, deps.pair_tcp(request),
                              station=request.query_params.get("poste", "")[:64])
     with deps.verrou:
@@ -154,7 +158,11 @@ def resultat(job_id: str):
 def _enregistrer(owner, exercise_id, job_id, resultat):
     """What the server keeps from a verdict, for a signed-in account."""
     state.write_practice_attempt(owner, job_id, exercise_id, resultat)
-    entree = find_exercise(exercise_id)
+    # THE SAME DOOR AS `/submit`, so a moderator's preview submission is
+    # recorded like anybody else's -- state, attempt and XP. `owner` comes
+    # from `job.json`, i.e. from a `sub` the API validated at submit time; the
+    # role is recomputed HERE rather than carried alongside it.
+    entree = find_exercise(exercise_id, security.is_moderator(owner))
     if entree is None:
         return
     reussi = (resultat.get("status") == "ok"

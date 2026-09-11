@@ -10,6 +10,7 @@
 
 import { fetchPractice, fetchStates } from "../api/account";
 import { session, whenSignedOut } from "../auth/session.svelte";
+import { catalog } from "./catalog.svelte";
 import type { ExerciseStatus, PracticeRow } from "../api/types";
 
 class Statuses {
@@ -27,6 +28,10 @@ class Statuses {
       if (row && typeof row.exercise_id === "string") map[row.exercise_id] = row.status;
     }
     this.byExercise = map;
+    // THE EARLIEST THE PAGE CAN LEARN THE ROLE. The catalog is loaded before
+    // there is a session at all, so the menu is told afterwards that dates do
+    // not close anything for this account.
+    catalog.setStaff(!!answer?.moderator);
   }
 
   async loadPractice(): Promise<void> {
@@ -54,6 +59,7 @@ class Statuses {
   forget(): void {
     this.byExercise = {};
     this.practice = {};
+    catalog.setStaff(false);
   }
 }
 

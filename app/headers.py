@@ -210,7 +210,7 @@ def fichier(request, body, ctype, issuer=""):
     return Response(body, media_type=ctype, headers=entetes)
 
 
-def fichier_du_disque(request, base, nom, ctype, issuer=""):
+def fichier_du_disque(request, base, nom, ctype, issuer="", prive=False):
     """A file from disk, and `base` SAYS WHICH OF THE TWO DIRECTORIES.
 
     No default, on purpose: the page (`config.PAGE`) and the release the
@@ -225,10 +225,20 @@ def fichier_du_disque(request, base, nom, ctype, issuer=""):
     from a closed PATTERN with no path separator in it, checked against a file
     the build actually wrote. There is therefore no path to traverse, and no
     `..` to filter: filtering would mean accepting an input, which we do not.
+
+    `prive=True` MEANS "NOT A FILE", AND IT IS A SECURITY LINE. `fichier()`
+    sets `no-cache` + ETag, which tells Cloudflare and the browser to KEEP the
+    body and revalidate it -- correct for the page and the open catalog, wrong
+    for a body only a moderator may see: a student's request could revalidate
+    into a kept staff statement. Returning a bare `Response` lets the
+    middleware's default `no-store` stand, which is the complete answer -- no
+    `Vary: Authorization` to remember, and nothing stored anywhere to leak.
     """
     try:
         with open(os.path.join(base, nom), "rb") as fh:
             corps = fh.read()
     except OSError:
         return erreur(500, "fichier manquant")
+    if prive:
+        return Response(corps, media_type=ctype)
     return fichier(request, corps, ctype, issuer)

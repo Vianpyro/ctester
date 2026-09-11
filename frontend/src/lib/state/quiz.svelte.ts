@@ -10,6 +10,7 @@
 // same store, so "Effacer mes brouillons" erases the answers too.
 
 import { fetchQuiz } from "../api/public";
+import { catalog } from "./catalog.svelte";
 import { drafts } from "./drafts.svelte";
 import type { Scope } from "../domain/verdict";
 
@@ -39,7 +40,7 @@ class QuizState {
     this.exerciseId = id;
     this.pages = [];
     this.page = 0;
-    const data = await fetchQuiz(id);
+    const data = await fetchQuiz(id, catalog.staff);
     this.loading = false;
     if (!data || !Array.isArray(data.questions)) return;
     const held = drafts.get(id) ?? {};

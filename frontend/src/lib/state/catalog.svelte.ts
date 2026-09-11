@@ -15,7 +15,7 @@ import {
   type CatalogModel,
   type Exercise,
 } from "../domain/catalog";
-import type { ExerciseDetail, PublishedAssignment } from "../api/types";
+import type { ExerciseDetail, PublishedAssignment, PublishedRelease } from "../api/types";
 import { system } from "./system.svelte";
 
 class CatalogState {
@@ -29,6 +29,13 @@ class CatalogState {
   filter = $state("");
   /** True once `/catalog.json` has answered, whatever it said. */
   loaded = $state(false);
+  /** THE INSTRUCTOR'S VIEW: locked exercises are openable. Said by the SERVER
+   * (`moderator` in `/etats`), never guessed -- and it arrives AFTER the
+   * catalog, which is loaded before there is a session at all. Hence the raw
+   * payload kept below: `setStaff` re-normalizes instead of refetching. */
+  staff = $state(false);
+  /** What `/catalog.json` answered, kept only so `setStaff` can re-read it. */
+  #published: PublishedRelease | null = null;
 
   get collections() {
     return this.model.collections;
@@ -61,6 +68,14 @@ class CatalogState {
     this.filter = fold(text);
   }
 
+  /** Switch between the student's catalog and the instructor's. Idempotent, and
+   * a no-op before the release has arrived -- `load()` reads `staff` itself. */
+  setStaff(value: boolean): void {
+    if (value === this.staff) return;
+    this.staff = value;
+    if (this.#published) this.model = normalize(this.#published, value);
+  }
+
   /** The next OPEN exercise, for the action following a success. */
   nextOpen(): Exercise | null {
     const i = this.catalog.findIndex((t) => t.id === this.selectedId);
@@ -81,7 +96,7 @@ class CatalogState {
   async detail(id: string): Promise<ExerciseDetail> {
     const held = this.#details.get(id);
     if (held) return held;
-    const fresh = await fetchDetail(id);
+    const fresh = await fetchDetail(id, this.staff);
     // THE FALLBACK IS NOT CACHED: a network that comes back must be able to retry.
     if (!fresh.offline) this.#details.set(id, fresh);
     return fresh;
@@ -102,7 +117,8 @@ class CatalogState {
       );
       return "";
     }
-    this.model = normalize(published);
+    this.#published = published;
+    this.model = normalize(published, this.staff);
     if (!this.collections.length) {
       system.say("Aucun exercice n'est publié pour l'instant.");
       return "";

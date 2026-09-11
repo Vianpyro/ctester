@@ -11,6 +11,7 @@ their work is safe.
 
 import state
 import headers
+import security
 from deps import Sub, freiner_ecriture
 from fastapi import APIRouter, Query, Request
 from schemas import BrouillonIn, PreferencesIn
@@ -21,11 +22,18 @@ router = APIRouter(tags=["compte"])
 
 @router.get("/etats")
 def etats(sub: Sub):
-    """The exercises this account has attempted or solved."""
+    """The exercises this account has attempted or solved.
+
+    IT ALSO CARRIES THE MODERATOR FLAG, and this is the earliest authenticated
+    call the page makes -- the catalog is loaded before the session exists, so
+    the menu has to be told afterwards that locked exercises are openable for
+    this account. A DISPLAY FLAG, like the forum's: every route recomputes the
+    role from the validated `sub`, and none takes this boolean at face value.
+    """
     valeurs = state.read_states(sub)
     if valeurs is None:
         return headers.erreur(503, "la base ne répond pas")
-    return {"states": valeurs}
+    return {"states": valeurs, "moderator": security.is_moderator(sub)}
 
 
 @router.get("/pratique")
@@ -44,7 +52,7 @@ def lire_brouillon(sub: Sub, ex: str = Query("")):
     A MISSING DRAFT IS NOT AN ERROR: it is a student opening an exercise for
     the first time. `sources: null` says so plainly.
     """
-    if find_exercise(ex) is None:
+    if find_exercise(ex, security.is_moderator(sub)) is None:
         return headers.erreur(400, "TP inconnu")
     return {"sources": state.read_resume(sub, ex)}
 
@@ -57,7 +65,9 @@ def ecrire_brouillon(sub: Sub, corps: BrouillonIn, request: Request):
     dependency runs before the body, so a request refused for an unknown
     exercise would consume the quota of someone who wrote nothing.
     """
-    entree = find_exercise(corps.exercise_id)
+    # A moderator drafts against a not-yet-open exercise too: pasting the
+    # reference solution in to check the verdict must survive a reload.
+    entree = find_exercise(corps.exercise_id, security.is_moderator(sub))
     if entree is None:
         return headers.erreur(400, "TP inconnu")
     fichiers, message, code = validate_files(entree, corps.files)

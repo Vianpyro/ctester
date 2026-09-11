@@ -72,6 +72,10 @@
   {#if shown}
     {#each neighbors as ex (ex.id)}
       {@const note = lockNote(ex)}
+      <!-- SAME RULE AS THE MENU: the lock and its date are shown to everyone, they
+           only BLOCK a student. A moderator navigates the whole lab, locked
+           exercises included, which is how one checks a lab before the class. -->
+      {@const bloque = !!note && !catalog.staff}
       {@const state = tileState(ex, !!note, statuses.byExercise)}
       {@const current = ex.id === catalog.selectedId}
       {@const said = (note || state.word) + (current ? ", ouvert dans l'éditeur" : "")}
@@ -84,10 +88,10 @@
         type="button"
         class={"tile " + (isBonus(ex) ? "bonus" : state.cls) + (current ? " courant" : "")}
         title={ex.short + " — " + said}
-        aria-disabled={note ? "true" : undefined}
+        aria-disabled={bloque ? "true" : undefined}
         aria-current={current ? "true" : undefined}
         onclick={() => {
-          if (!note && !current) exercise.open(ex.id);
+          if (!bloque && !current) exercise.open(ex.id);
         }}
       >
         {stripLabel(ex)}
