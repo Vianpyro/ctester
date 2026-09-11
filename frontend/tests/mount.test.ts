@@ -145,6 +145,17 @@ describe("the page's structure, which the stylesheet depends on", () => {
     for (const id of ["consigne", "droite", "chatdock"]) {
       expect(document.getElementById(id)!.parentElement, id).toBe(travail);
     }
+    // AND THERE ARE EXACTLY THREE OF THEM, IN THIS ORDER. Parenthood alone is not
+    // enough and that gap shipped a broken screen: a banner added as a second ROOT
+    // of `Statement.svelte` was still leaving `#consigne` a child of `#travail`,
+    // but it took the first grid column and pushed every other column one across.
+    // `grid-template-columns` is written against these three children and nothing
+    // else, so the count is the invariant, not the nesting.
+    expect([...travail.children].map((el) => el.id)).toEqual([
+      "consigne",
+      "droite",
+      "chatdock",
+    ]);
   });
 
   it("keeps the three floating panels INSIDE `#top`, which is what they anchor to", async () => {

@@ -133,6 +133,9 @@ describe("lockNote", () => {
     const note = lockNote({ access: "scheduled", available_from: SCHEDULED });
     expect(note).toMatch(/^ouvre le /);
     expect(note).toMatch(/18/);
+    // EN FRANÇAIS, QUELLE QUE SOIT LA LOCALE DU POSTE. « ouvre le » est écrit en
+    // dur ; une date suivant le navigateur donnait « ouvre le September 25 ».
+    expect(note).toBe("ouvre le 18 novembre");
   });
 
   it("falls back to a word rather than an Invalid Date", () => {

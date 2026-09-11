@@ -158,7 +158,11 @@ export function lockNote(entry: { access?: Access; available_from?: string } | n
   const when = new Date(entry.available_from ?? "");
   return isNaN(when.getTime())
     ? "à venir"
-    : "ouvre le " + when.toLocaleDateString(undefined, { day: "numeric", month: "long" });
+    : // "fr-CA" ET PAS `undefined`. La locale du navigateur rendait « September 25 »
+      // au milieu de « ouvre le … » : la moitié de la phrase est écrite en dur en
+      // français, donc laisser l'autre moitié suivre le poste donne un mélange,
+      // jamais une traduction. Toute la page est en français, la date aussi.
+      "ouvre le " + when.toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
 }
 
 /**

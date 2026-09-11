@@ -25,12 +25,14 @@
   const ferme = $derived(lockNote(catalog.selected));
 </script>
 
-{#if ferme}
-  <p class="apercu">🔒 Invisible pour les étudiants — {ferme}.</p>
-{/if}
-
 <details id="consigne" open>
   <summary class="phead">Consigne</summary>
+  <!-- DEDANS, PAS À CÔTÉ. `#travail` est une grille dont les enfants DIRECTS sont
+       les colonnes : un second élément racine ici prend la première colonne et
+       pousse tout le reste d'un cran. Même piège que `#chatdock`. -->
+  {#if ferme}
+    <p class="apercu">🔒 Invisible pour les étudiants — {ferme}.</p>
+  {/if}
   {#if state.kind === "loading"}
     <pre id="consignetexte" class="vide">Chargement…</pre>
   {:else if state.kind === "text"}
@@ -51,7 +53,7 @@
      `--wait` is already the page's "not yet" colour (the syntax checker's hints,
      the queued verdict), so it costs no new token. */
   .apercu {
-    margin: 0 0 0.6rem;
+    margin: 0.6rem 0.6rem 0;
     padding: 0.35rem 0.6rem;
     border: 1px solid var(--wait);
     border-radius: var(--coin);
