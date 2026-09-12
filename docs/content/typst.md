@@ -280,6 +280,7 @@ journalctl -u ctester-tests -n 30
   `@preview/merman` sont disponibles, tous deux vendorés dans le dépôt de
   l'application. Le build n'a pas de réseau. Pour en ajouter un, il faut le
   vendorer — parlez-en plutôt que de l'importer.
-- **Pas de police autre** que celles embarquées dans typst (Libertinus Serif
-  pour le texte, DejaVu Sans Mono pour le code) : c'est ce qui rend le rendu
-  identique sur toutes les machines.
+- **Pas de police autre** que DejaVu Sans (le texte, vendorée dans
+  `typst/fonts/`, même famille que le site) et DejaVu Sans Mono (le code,
+  embarquée dans typst) : c'est ce qui rend le rendu identique sur toutes les
+  machines, `--font-path` compris.

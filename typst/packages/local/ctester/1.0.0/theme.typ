@@ -47,11 +47,19 @@
 // d'autre des 13,5 px du Markdown, qui est la référence.
 #let page-width = 220pt
 
-// Le corps en Libertinus Serif et le code en DejaVu Sans Mono : ce sont DEUX DES
-// QUATRE FAMILLES EMBARQUÉES dans le binaire typst. Avec `--ignore-system-fonts`
-// (voir typst_build.py) le rendu ne dépend donc d'aucune fonte installée, et il
-// n'y a pas une seule fonte à vendorer.
-#let body-font = "Libertinus Serif"
+// LE CORPS EN DEJAVU SANS, POUR RESTER DANS LA MÊME FAMILLE QUE LE SITE.
+// `app.css` pose `--sans: system-ui, ...` -- une pile de polices SYSTÈME, sans
+// fichier fixe, exprès pour éviter tout webfont (voir « La CSP » dans
+// CLAUDE.md). Un SVG Typst n'a pas ce problème : ses glyphes sont vectorisés
+// au build (zéro `<text>`), donc rien n'est téléchargé par le navigateur --
+// seul le CONTENEUR de rendu a besoin de la police. DejaVu Sans est donc
+// VENDORÉE dans `typst/fonts/` (licence Bitstream Vera, à côté), comme un
+// paquet Typst vendoré ailleurs dans ce dépôt : `--font-path` la rend
+// disponible malgré `--ignore-system-fonts` (voir typst_build.py), et le
+// rendu ne dépend toujours d'aucune fonte installée sur l'hôte. Elle rejoint
+// DejaVu Sans Mono, déjà utilisée pour le code -- même famille, un seul nom à
+// retenir.
+#let body-font = "DejaVu Sans"
 #let mono-font = "DejaVu Sans Mono"
 #let body-size = 11.5pt
 #let mono-size = 9.5pt

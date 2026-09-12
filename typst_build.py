@@ -44,6 +44,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PACKAGES = os.path.join(HERE, "typst", "packages")
 LIB = os.path.join(PACKAGES, "local", "ctester", "1.0.0")
 
+# LA POLICE DU CORPS, VENDORÉE POUR LA MÊME RAISON QUE `merman` : DejaVu Sans
+# n'est pas parmi les quatre polices embarquées dans le binaire typst (voir
+# `theme.typ`), et `--ignore-system-fonts` la rend introuvable sans ça. Elle
+# rejoint DejaVu Sans Mono, déjà utilisée pour le code -- même famille, sans
+# police système à espérer sur le Dell. `LICENSE` est la licence Bitstream
+# Vera, qui autorise la redistribution.
+FONTS = os.path.join(HERE, "typst", "fonts")
+
 # L'IMAGE EST ÉPINGLÉE PAR VERSION, jamais `latest` : un énoncé pédagogique doit
 # se rendre pareil dans six mois. Le rôle Ansible pose la même valeur sur le
 # tick (`ctester_typst_image`).
@@ -171,8 +179,8 @@ def fingerprint(exercise_dir, version=None):
 
     CE QUI ENTRE : la version de typst, la bibliothèque `@local/ctester` (donc
     le gabarit, la palette ET les deux `.tmTheme`), les paquets vendorés (donc
-    merman et son WebAssembly), et l'arbre de l'exercice sans `assessment/`
-    (donc le `statement.typ` et ses images).
+    merman et son WebAssembly), la police vendorée (DejaVu Sans), et l'arbre de
+    l'exercice sans `assessment/` (donc le `statement.typ` et ses images).
 
     Un `.tmTheme` retouché, une macro corrigée, une image remplacée, une montée
     de typst ou de merman : la clé change et tout se recalcule. Il n'y a donc
@@ -185,6 +193,8 @@ def fingerprint(exercise_dir, version=None):
     h.update((version or _version()).encode())
     h.update(b"\0")
     _hacher_arbre(h, PACKAGES)
+    h.update(b"\0")
+    _hacher_arbre(h, FONTS)
     h.update(b"\0")
     _hacher_arbre(h, exercise_dir, EXCLUS)
     return h.hexdigest()[:16]
@@ -246,14 +256,17 @@ def _argv(travail, theme):
     commun = ["compile", "--ignore-system-fonts", "--root", ".",
               "--input", "theme=" + theme, "--format", "svg"]
     if BIN:
-        return [BIN] + commun + ["main.typ", theme + "-{p}.svg"], dict(
+        return [BIN] + commun + ["--font-path", FONTS,
+                                 "main.typ", theme + "-{p}.svg"], dict(
             os.environ, TYPST_PACKAGE_PATH=PACKAGES), travail
     return ["docker", "run", "--rm", "--network=none", "--read-only",
             "--user", "%d:%d" % (os.getuid(), os.getgid()),
             "-e", "TYPST_PACKAGE_PATH=/pkg",
             "-v", PACKAGES + ":/pkg:ro",
+            "-v", FONTS + ":/fonts:ro",
             "-v", travail + ":/work",
-            "-w", "/work", IMAGE] + commun + ["main.typ", theme + "-{p}.svg"], \
+            "-w", "/work", IMAGE] + commun + ["--font-path", "/fonts",
+                                              "main.typ", theme + "-{p}.svg"], \
         dict(os.environ), None
 
 
