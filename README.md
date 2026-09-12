@@ -1,111 +1,486 @@
 # CTester
 
-**ctester** is a self-hosted C code judge built for **[TCH009](https://www.etsmtl.ca/etudes/cours/TCH009)**, a C programming course at ÉTS.
+**CTester** is a self-hosted C programming platform built for **[TCH009](https://www.etsmtl.ca/etudes/cours/TCH009)** at ÉTS.
 
-Students write their code in the browser, submit it, and get immediate feedback from a set of hidden tests — without exposing the tests themselves.
+Students write C code in the browser, run it in an isolated environment, submit it, and receive immediate feedback from private tests.
 
-## What it does
+## Features
 
-* Compile and test C programs directly from the browser
-* Support **unit tests**, **stdin/stdout tests**, and **quizzes**
-* Keep test cases and expected outputs private
-* Run untrusted native code inside isolated, disposable sandboxes
-* Offer a **Console**: an interactive C scratchpad where a signed-in student
-  runs an arbitrary program and answers it while it runs
-* Provide optional student accounts, progress tracking, and an assistance forum
-* Host **team assignments**: students pick a team from a numbered list, then
-  share a live-collaborative workspace with revision history and a single ZIP
-  hand-in per team
-* Publish course content independently from the application
-
-The service is designed primarily as a **practice and feedback tool**, not as a grading or anti-cheating system.
+* Browser-based C editor and multi-file workspaces
+* Automatic compilation and testing
+* Unit tests, stdin/stdout tests, and quizzes
+* Private test suites and expected outputs
+* Isolated execution of untrusted native code
+* Interactive **Console** for running arbitrary C programs
+* Draft saving and submission history
+* Student progress tracking
+* Assistance forum
+* Team assignments with live collaboration
+* Revision history and ZIP hand-in
+* Independently published course content
 
 ## Architecture
 
 ```text
-Browser
-   │
-   ▼
-FastAPI ──► submission spool ──► worker
+                           ┌──────────────────────┐
+                           │      Student         │
+                           │  Browser / Editor    │
+                           └──────────┬───────────┘
+                                      │
+                           HTTP / WebSocket
+                                      │
+                                      ▼
+                    ┌─────────────────────────────────┐
+                    │             API                 │
+                    │          FastAPI                │
+                    │                                 │
+                    │  Auth · Catalog · Drafts        │
+                    │  Submissions · Progress         │
+                    │  Forum · Teams · Console       │
+                    └──────────────┬──────────────────┘
+                                   │
+                            submission spool
                                    │
                                    ▼
-                              gVisor sandbox
+                    ┌─────────────────────────────────┐
+                    │          Host worker             │
+                    │                                 │
+                    │  reads submissions              │
+                    │  reads private tests             │
+                    │  launches sandbox                │
+                    └──────────────┬──────────────────┘
+                                   │
+                              Docker + gVisor
                                    │
                                    ▼
-                            C compiler + tests
+                    ┌─────────────────────────────────┐
+                    │        Disposable sandbox        │
+                    │                                 │
+                    │       C compiler + tests         │
+                    └─────────────────────────────────┘
 ```
 
-The web-facing API never compiles or executes student code and never has access to the private test suite. A separate host worker handles execution and creates a fresh sandbox for each submission.
+### Security boundary
 
-The application is intentionally small: a FastAPI backend, a static Svelte frontend, and a small set of Python scripts handling content publication and test execution.
+The web application **cannot compile or execute student code** and does not have access to the private grading suite.
 
-The frontend is a **static bundle**: it is built once and served by GitHub Pages, with no server-side rendering and no Node process in production. It reaches the API over HTTP and WebSocket only, so the backend stays independent of the frontend's technology. Screens a student can only open with an account — the chat, progress, the leaderboard, the collection, the Console, a team workspace — are separate chunks fetched on the click that needs them, which is why a visitor with no account downloads none of them.
+```text
+┌─────────────────────────────── Web tier ───────────────────────────────┐
+│                                                                         │
+│  Browser ──► FastAPI ──► spool                                         │
+│                 │                                                       │
+│                 └── no Docker socket                                   │
+│                 └── no private tests                                   │
+│                 └── no code execution                                  │
+│                                                                         │
+└──────────────────────────────────┬──────────────────────────────────────┘
+                                   │
+                         filesystem / job queue
+                                   │
+┌─────────────────────────────── Worker host ─────────────────────────────┐
+│                                   │                                     │
+│                         private content                                 │
+│                                   │                                     │
+│                                   ▼                                     │
+│                         Docker + gVisor                                 │
+│                                   │                                     │
+│                                   ▼                                     │
+│                            student code                                 │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-Team assignments add one WebSocket endpoint, which relays [Yjs](https://github.com/yjs/yjs) updates between the members of one team without interpreting them. The server holds the authorization and the durable plain-text copy; the CRDT holds the merge.
+Each submission gets a fresh sandbox with bounded resources.
 
-Students pick their own team from a numbered list, the way they already do in Moodle — and the numbers match, which is the point. Teams are numbered per course group, and the lists freeze when the assignment opens: the very date that opens the shared document is the one that closes the lists, so there is never a moment when a student can both join a team and read its work. The instructor never sees an account identifier, which is exactly why he cannot write the roster himself.
+## Submission flow
 
-## Tech stack
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as FastAPI
+    participant S as Submission spool
+    participant W as Worker
+    participant G as gVisor
+    participant T as Private tests
 
-* **Python 3.13**
-* **FastAPI / Uvicorn**
-* **Svelte 5 + Vite + TypeScript**, built to a static bundle
-* **PostgreSQL** for optional persistence
-* **Docker + gVisor** for code execution
-* **Ansible** for deployment and infrastructure
+    B->>A: Submit source code
+    A->>A: Validate request
+    A->>S: Write job
+    A-->>B: Submission queued
 
-Python dependencies are pinned, and so are the frontend's three runtime dependencies — [marked](https://github.com/markedjs/marked) and [DOMPurify](https://github.com/cure53/DOMPurify) for rendering forum messages, [Yjs](https://github.com/yjs/yjs) for the shared editor. Each is bundled into the chunk that needs it and nowhere else.
+    W->>S: Claim job
+    W->>T: Load exercise + tests
+    W->>G: Create disposable sandbox
+    G->>G: Compile
+    G->>G: Execute
+    G-->>W: Output / exit status
+    W->>W: Build verdict
+    W->>S: Write result
+
+    B->>A: Poll result
+    A-->>B: Verdict
+```
+
+The API never waits for compilation or execution.
+
+## Exercise model
+
+Course content is declarative: an exercise is defined by its content and grading configuration rather than by application code.
+
+```text
+Exercise
+│
+├── metadata
+│   ├── id
+│   ├── title
+│   ├── summary
+│   ├── difficulty
+│   ├── skills
+│   ├── contexts
+│   └── prerequisites
+│
+├── statement
+│   ├── Markdown
+│   └── or Typst
+│
+├── release
+│   ├── available
+│   ├── scheduled
+│   └── archived
+│
+├── files
+│   └── student-visible source files
+│
+└── grading mode
+    ├── quiz
+    ├── stdin/stdout
+    └── Unity unit tests
+```
+
+The same catalogue rules are used when publishing content, serving it to students, and loading it for execution.
+
+```mermaid
+flowchart LR
+    C[Course content] --> V[Catalogue validation]
+    V --> P[Published release]
+
+    P --> S[Student catalogue]
+    P --> D[Exercise detail]
+
+    P --> W[Worker]
+    W --> G[Private grading configuration]
+
+    S -. public fields only .-> C
+    D -. public fields only .-> C
+```
+
+Private grading configuration is never exposed through the public catalogue.
+
+## Exercise modes
+
+### Quiz
+
+```text
+quiz.json
+    │
+    └──► Questions
+          │
+          └──► Answer
+```
+
+No compilation or sandbox is required.
+
+### stdin/stdout
+
+```text
+student program
+      │
+      ▼
+   compile
+      │
+      ▼
+ sandbox
+      │
+      ▼
+ input ──► program ──► stdout
+                       │
+                       ▼
+                 expected output
+```
+
+### Unity
+
+```text
+Student source
+      │
+      ├── student functions
+      │
+      ▼
+┌───────────────┐
+│ Unity tests   │
+└───────┬───────┘
+        │
+        ▼
+   compile + run
+        │
+        ▼
+     verdict
+```
+
+## Verdicts
+
+A submission is reduced to a structured verdict rather than exposing the private test suite.
+
+```text
+Submission
+    │
+    ▼
+Compilation
+    ├── failed ───────────────► Compilation error
+    │
+    ▼
+Execution
+    ├── timeout ──────────────► Timeout
+    ├── runtime failure ──────► Runtime error
+    │
+    ▼
+Tests
+    ├── passed ───────────────► Accepted
+    └── failed ───────────────► Wrong answer / test failure
+```
+
+The worker also limits compiler output, test output, failed-test details and execution resources.
+
+## Interactive Console
+
+The **Console** is a separate interactive execution path using the same worker infrastructure.
+
+```text
+Student
+   │
+   ▼
+Console session
+   │
+   ▼
+submission spool
+   │
+   ▼
+worker
+   │
+   ▼
+interactive sandbox
+   │
+   ├── stdin  ◄──────── Student
+   └── stdout ────────► Student
+```
+
+Console sessions are resource-limited and do not use the normal exercise verdict path.
+
+## Team collaboration
+
+Team assignments use **Yjs** for conflict-free collaborative editing.
+
+```mermaid
+flowchart LR
+    A[Student A] --> Y[Yjs document]
+    B[Student B] --> Y
+    C[Student C] --> Y
+
+    Y --> R[WebSocket relay]
+    R --> Y2[Other team members]
+
+    R -. authorization .-> API[Application]
+    API --> DB[(Persistent copy)]
+```
+
+The server does not interpret the CRDT. It handles authentication, authorization and persistence; Yjs handles document merging.
+
+Teams also provide:
+
+* live cursors
+* revision history
+* restore
+* one team hand-in
+* ZIP export
+
+## Content publication
+
+Course content is maintained separately from the application.
+
+```text
+Course content repository
+          │
+          ▼
+   content validation
+          │
+          ▼
+      publication
+          │
+          ▼
+   versioned release
+          │
+          ├────────► Web application
+          │
+          └────────► Execution worker
+```
+
+A release is selected through a `current.json` pointer, making rollback a publication operation rather than an application-state change.
+
+## Frontend
+
+The frontend is a static Svelte application.
+
+```text
+                    ┌─────────────────┐
+                    │   Git repository │
+                    └────────┬────────┘
+                             │
+                         Vite build
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │  Static bundle  │
+                    └────────┬────────┘
+                             │
+                             ▼
+                       GitHub Pages
+                             │
+                     HTTP / WebSocket
+                             │
+                             ▼
+                          FastAPI
+```
+
+There is no frontend server or Node.js process in production.
+
+Authenticated features are split into separately loaded chunks so they are not downloaded by unauthenticated visitors.
 
 ## Project structure
 
 ```text
-app/                  FastAPI application
+app/
+  FastAPI application
+
 frontend/
-  index.html          the document, and where its CSP lives
-  public/             copied verbatim: the pre-paint theme script, CNAME, icon
+  index.html
+  public/
   src/
-    components/       the workbench: editor, verdict, bar, action bar
-    features/         the screens fetched on demand, one directory each
+    components/
+      editor / verdict / workbench / action bar
+    features/
+      student-facing screens
     lib/
-      api/            the typed client and the wire types
-      auth/           the OIDC session
-      collab/         the shared document and the caret geometry
-      domain/         pure logic: catalog, verdict, highlighter, main.c export
-      state/          domain state, one small module per owner
-  tests/              Vitest suites, run against the modules and the built bundle
-content_catalog.py    Course content validation and lookup
-publish_content.py    Content publication and releases
-runner.py             Host-side execution worker
-import_teams.py       Instructor-side roster tool (corrections)
-build-unity.sh        Unit-test execution
-build-io.sh           stdin/stdout execution
-test_*.py             Application and integration tests
+      api/
+      auth/
+      collab/
+      domain/
+      state/
+  tests/
+
+content_catalog.py
+  Content validation, discovery and access rules
+
+publish_content.py
+  Content publication and release management
+
+runner.py
+  Host-side execution worker
+
+import_teams.py
+  Team roster import / corrections
+
+build-unity.sh
+  Unity unit-test execution
+
+build-io.sh
+  stdin/stdout execution
+
+test_*.py
+  Backend and integration tests
+
 ```
 
-Course tests and solutions live in a separate private repository. Deployment and infrastructure are maintained separately.
+Course tests and reference solutions are stored separately from the public application.
+
+## Tech stack
+
+| Layer            | Technology                    |
+| ---------------- | ----------------------------- |
+| Backend          | Python 3.13, FastAPI, Uvicorn |
+| Frontend         | Svelte 5, TypeScript, Vite    |
+| Database         | PostgreSQL                    |
+| Execution        | Docker + gVisor               |
+| Collaboration    | Yjs + WebSocket               |
+| Deployment       | Ansible                       |
+| Frontend hosting | Static bundle / GitHub Pages  |
 
 ## Development
 
+### Backend
+
 ```sh
-pip install -r requirements-dev.txt   # once
-npm ci                                # once
-
-npm run dev                           # the page, on Vite's dev server
-npm run build                         # the static bundle, into frontend/dist
-
-# The page and the API on one origin, which is what the local mode is for:
-CTESTER_KEY=dev CTESTER_PUBLISHED=/tmp/published CTESTER_PAGE=frontend/dist   python3 app/main.py
+pip install -r requirements-dev.txt
 ```
 
-The project includes tests for the API, the content catalogue, the frontend and PostgreSQL integration:
+### Frontend
 
 ```sh
-npm run check     # types, across TypeScript and Svelte
-npm test          # the frontend suites
+npm ci
+
+npm run dev
+npm run build
+npm run check
+npm test
+```
+
+### Local application
+
+```sh
+CTESTER_KEY=dev \
+CTESTER_PUBLISHED=/tmp/published \
+CTESTER_PAGE=frontend/dist \
+python3 app/main.py
+```
+
+### Tests
+
+```sh
 python3 test_ctester.py
 python3 test_api.py
 ```
 
+The test suite covers the application, content catalogue, frontend and PostgreSQL integration.
+
+## Design principles
+
+```text
+Private by default
+      │
+      ▼
+Explicit publication
+      │
+      ▼
+Independent execution
+      │
+      ▼
+Isolated untrusted code
+      │
+      ▼
+Structured feedback
+```
+
+CTester deliberately keeps the web tier, course content and code execution separate:
+
+```text
+Application
+    ≠
+Course content
+    ≠
+Grading environment
+```
+
+That separation is the core of the system.
+
 ---
 
-Built for teaching C at **École de technologie supérieure (ÉTS)**.
+Built for teaching C at **[École de technologie supérieure (ÉTS)](https://www.etsmtl.ca/)**.
