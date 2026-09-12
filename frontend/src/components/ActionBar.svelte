@@ -112,7 +112,10 @@
     title="Assemble tous les exercices de ce TP dans un seul main.c"
     onclick={doExport}
   >
-    Exporter le TP en main.c
+    <!-- UN VERBE, ET IL DIT CE QUI SE PASSE. « Exporter … en main.c » nomme un
+         format ; « Réunir » nomme le geste, qui est ce que l'étudiant cherche la
+         veille de la remise -- il a huit brouillons et le cours attend un fichier. -->
+    Réunir le TP dans un seul main.c
   </button>
   <span class="grow"></span>
   <!-- NOT `disabled`, AND THAT IS DELIBERATE. Disabling the focused button drops
@@ -128,6 +131,12 @@
     onclick={() => runTest(false)}
   >
     {submission.busy ? busyLabel : goLabel}
+    <!-- L'INDICE EST CONDITIONNEL, et c'est la moitié qu'on n'aurait vue qu'en
+         production : pendant un cooldown le libellé devient « Nouveau test dans
+         7 s », et un raccourci collé derrière donnerait « Nouveau test dans 7 s
+         Ctrl+↵ » -- c'est-à-dire un raccourci annoncé au moment précis où il ne
+         marche pas. -->
+    {#if !submission.busy}<span class="shortcut">Ctrl+↵</span>{/if}
   </button>
   <!-- Outside a quiz there is one button and it is primary. In a quiz, the current
        action is the DISPLAYED exercise: testing all 40 questions stays possible but

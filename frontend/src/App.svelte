@@ -26,13 +26,7 @@
   import { RETURN_KEY } from "./lib/auth/keys";
   import { ensureValid, session } from "./lib/auth/session.svelte";
   import { sessionGet } from "./lib/storage";
-  import {
-    CONTEXT_LABELS,
-    DIFFICULTY_LABELS,
-    EXPECTED,
-    skillLabel,
-  } from "./lib/domain/labels";
-  import type { Exercise } from "./lib/domain/catalog";
+  import { EXPECTED } from "./lib/domain/labels";
 
   import ActionBar from "./components/ActionBar.svelte";
   import CodeEditor from "./components/CodeEditor.svelte";
@@ -348,19 +342,6 @@
     focusSearch = search;
   }
 
-  /** The learning objective line, from the catalog's own fields. */
-  function objective(ex: Exercise): string {
-    const details: string[] = [];
-    if (ex.learning.skills?.length) {
-      details.push("objectif : " + ex.learning.skills.map(skillLabel).join(", "));
-    }
-    const context = ex.learning.context;
-    if (context && CONTEXT_LABELS[context]) details.push(CONTEXT_LABELS[context]);
-    const difficulty = ex.learning.difficulty;
-    if (difficulty && DIFFICULTY_LABELS[difficulty]) details.push(DIFFICULTY_LABELS[difficulty]);
-    return details.join(" — ");
-  }
-
   const here = $derived(catalog.selected);
   const isQuiz = $derived(here?.mode === "quiz");
   const showWorkbench = $derived(view.current === "");
@@ -408,9 +389,14 @@
           {#if here.verification}
             <span class="badge verif">vérification — sans XP</span>
           {/if}
-          {#if objective(here)}
-            <span class="learning">{objective(here)}</span>
-          {/if}
+          <!-- LA LIGNE D'OBJECTIF EST PARTIE D'ICI, ET ELLE EST L'ACCESSOIRE RETIRÉ.
+               Elle écrivait « objectif : variables, types, opérateurs, scanf —
+               mécanique — fondations » : l'information la moins consultée de la page,
+               sur la bande la plus chargée, dans la forme la plus générique qui soit
+               (une chaîne de tirets cadratins). Les compétences restent lisibles dans
+               « Mes progrès », qui existe pour ça et les relie à ce qu'on a pratiqué.
+               Le badge de remise attendue reste, lui : il dit ce qu'il faut ÉCRIRE,
+               c'est-à-dire ce qu'on est venu faire. -->
         {/if}
       </div>
 

@@ -93,15 +93,14 @@
             : "Chat"}
         </button>
       {/if}
-      <!-- THE LEADERBOARD AND THE COLLECTION ARE OPT-IN AND PRIVATE, but their BUTTONS
-           only need an account: hiding the leaderboard until somebody opted in would
-           hide the very screen that explains what opting in means. -->
-      <button type="button" id="leaderboard" class="nav" onclick={() => openView("leaderboard")}>
-        {view.label("leaderboard", "Classement")}
-      </button>
-      <button type="button" id="collection" class="nav" onclick={() => openView("collection")}>
-        {view.label("collection", "Collection")}
-      </button>
+      <!-- « CLASSEMENT » ET « COLLECTION » SONT DESCENDUS DANS LE MENU COMPTE, et
+           c'est la moitié la plus visible de l'allègement de cette barre. Les deux
+           sont facultatives, privées, et leur nom ne dit rien à quelqu'un de
+           première session -- elles prenaient deux des cinq mots d'une barre où
+           « Mes progrès », « Chat » et « Console » sont ce qu'on vient faire. Leurs
+           BOUTONS n'ont jamais eu besoin que d'un compte, ce qui reste vrai : le
+           menu Compte est lui aussi derrière `signedIn`, et l'écran du classement
+           reste celui qui explique ce que s'y inscrire veut dire. -->
       {#if session.scratchOffered}
         <button type="button" id="scratch" class="nav" onclick={() => openView("scratch")}>
           {view.label("scratch", "Console")}
@@ -161,7 +160,7 @@
       </summary>
       <div class="menupanneau">
         <span id="moi">connecté</span>
-        <AccountMenu />
+        <AccountMenu {openView} />
       </div>
     </details>
   {/if}

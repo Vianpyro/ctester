@@ -46,7 +46,16 @@
 </script>
 
 <details class="menu" id="menuex" {open} ontoggle={(e) => onOpenChange((e.currentTarget as HTMLDetailsElement).open)}>
-  <summary class="nav" id="excourant">{catalog.selected?.short ?? "Exercices"}</summary>
+  <!-- DEUX ÉLÉMENTS ET PAS UN TEXTE NU, pour deux raisons qui tombent ensemble.
+       « Exercice » NOMME le contrôle : un résumé qui affichait « ex.1 » tout seul
+       laissait deviner à quoi il sert, et c'est le contrôle dont tout le reste de
+       la navigation dépend. Et `.titre` porte la coupure, que `text-overflow` ne
+       peut pas appliquer au texte anonyme d'un conteneur flex -- or le résumé est
+       devenu flex pour centrer son libellé dans ses 36 px. -->
+  <summary class="nav" id="excourant">
+    <span class="quoi">Exercice</span>
+    <span class="titre">{catalog.selected?.short ?? "à choisir"}</span>
+  </summary>
   <div class="menupanneau">
     <!-- THE SEARCH FIELD IS PART OF THE MENU, not a separate palette. The menu is
          already the list of everything; a palette would be a second list of the same

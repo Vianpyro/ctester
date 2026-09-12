@@ -13,7 +13,7 @@
 :root {
   color-scheme: dark;
   --bg: #14171d; --panel: #1a1e26; --card: #21262f;
-  --line: #2c323d; --line-2: #3a424f;
+  --line: #333a46; --line-2: #7a8291;
   --fg: #dfe3ea; --muted: #8b94a3;
   /* THE STEEL ACCENT, derived from the Industry ramp (#597ea3) and lifted
      for a dark ground: the same hue, enough luminance to clear 4.5:1 on
@@ -33,11 +33,43 @@
   /* SQUARE, AND IT IS ONE VARIABLE so the decision is reversible in one
      line rather than in ninety selectors. */
   --coin: 0;
+  /* --- L'ÉCHELLE DE TYPE, ET ELLE EXISTE PARCE QUE LA SALLE EST MAL ÉCLAIRÉE ---
+     Il y avait 113 `font-size` littéraux pour 16 tailles distinctes, et 11,5 px
+     portait TOUTES les étiquettes. Le matériel réel est un 13" sous reflet, pour
+     des lecteurs dont une partie découvre la programmation et cette interface en
+     même temps : le plancher est 12 px, et « peut-on grossir ? » se répond
+     désormais en une ligne au lieu de cent treize.
+
+     ⚠ LA POLICE DE L'ÉDITEUR N'EST PAS ICI, et ce n'est pas un oubli : ses deux
+     déclarations restent des raccourcis `font` littéraux, pour les trois raisons
+     qu'énumère `frontend/tests/editorMetrics.test.ts`. */
+  --fs-label: 12px;   /* étiquettes, légendes -- remplace 11,5 / 11 / 10,5 / 10 */
+  --fs-ui: 13px;      /* boutons, lignes de liste -- remplace 12,5 */
+  --fs-body: 14px;    /* la prose, et la consigne */
+  --fs-lead: 15px;    /* l'action principale, les titres de consigne */
+  --fs-code: 14px;    /* le code HORS éditeur : verdict, blocs de la consigne */
+  /* --- LA CIBLE TACTILE. Aucun contrôle n'en avait, et les tuiles de la bande --
+     la navigation faite vingt fois par séance -- mesuraient 24 px de haut. 36 px
+     au trackpad, 44 px au pouce (voir le bloc 900 px). */
+  --tap: 2.25rem;
+  --tap-lg: 2.75rem;
+  /* Le bord gauche de la page, UNE fois : les bandes empilées utilisaient .75,
+     .9 et .95 rem, ce qui se voit comme un bord gauche en dents de scie. */
+  --gut: .9rem;
+  /* LA FRONTIÈRE D'UN CONTRÔLE, DISTINCTE DU FILET DÉCORATIF, et c'est tout le
+     sujet du contraste ici. `--line` mesurait 1,28:1 sur `--panel` : invisible
+     sur un écran brillant dans une salle éclairée -- or la bordure d'une tuile
+     « à faire » EST son seul indicateur. WCAG 1.4.11 demande 3:1, mais seulement
+     pour les frontières de COMPOSANTS et les graphiques porteurs de sens, pas
+     pour un filet entre deux panneaux. D'où deux tokens au lieu d'un relevé :
+     remonter `--line` seul aurait rendu chaque cheveu de la page criard. */
+  --edge: #6a7280;
 }
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #f2f2f3; --panel: #f5f5f8; --card: #fff;
-  --line: #d4d4d7; --line-2: #b7b7ba;
+  --line: #d0d0d5; --line-2: #74747a;
+  --edge: #8a8a8e;
   --fg: #1d1f20; --muted: #5d5d60;
   --ink: #416180; --ink-fg: #f5f5f8;
   --ink-fill: #597ea3; --ink-wash: #eef6ff;
@@ -47,8 +79,41 @@
   --syn-const: #8a3d9b;
 }
 
+/* SUIVRE LE RÉGLAGE DU SYSTÈME, ET C'EST LA TROISIÈME COPIE DE CETTE PALETTE.
+   Sombre était le défaut ABSOLU : le réglage du système d'exploitation n'était lu
+   nulle part, donc un étudiant dont le portable est en clair recevait quand même du
+   sombre. Sans choix enregistré, c'est maintenant le système qui décide.
+
+   `:not([data-theme="dark"])` EST CE QUI GARDE LE BOUTON SOUVERAIN dans les deux
+   sens : `theme.js` ne pose l'attribut que si quelqu'un a cliqué, et un « sombre »
+   explicite doit pouvoir contredire un système en clair.
+
+   LA DUPLICATION EST ASSUMÉE, ET ELLE N'EST PAS ÉVITABLE ICI. L'indirection qui
+   l'éviterait (`--fg: var(--l-fg)`) casserait `test_ctester.py`, qui découpe ce
+   fichier à la chaîne et exige des hex LITTÉRAUX de six chiffres dans `:root {` et
+   dans `:root[data-theme="light"] {` pour les comparer aux deux `.tmTheme` des
+   consignes Typst. Deux blocs lus par un parseur valent mieux qu'un token de plus. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+  color-scheme: light;
+  --bg: #f2f2f3; --panel: #f5f5f8; --card: #fff;
+  --line: #d0d0d5; --line-2: #74747a;
+  --edge: #8a8a8e;
+  --fg: #1d1f20; --muted: #5d5d60;
+  --ink: #416180; --ink-fg: #f5f5f8;
+  --ink-fill: #597ea3; --ink-wash: #eef6ff;
+  --ok: #1f7a3d; --bad: #b3261e; --wait: #8a6d1f;
+  --syn-comment: #7d8a7d; --syn-string: #1f7a3d; --syn-pre: #9b2f8f;
+  --syn-key: #1d4ed8; --syn-num: #a55200; --syn-fn: #7a5c00;
+  --syn-const: #8a3d9b;
+}
+}
+
 * { box-sizing: border-box; }
-:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* 3 PX ET PAS 2, pour la même raison que tout le reste de cette passe : un anneau
+   de deux pixels dans une salle éclairée sur un écran brillant, c'est un anneau
+   qu'on cherche. C'est le seul repère de qui navigue au clavier. */
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
 
 html, body { height: 100%; }
 /* SANS-SERIF FOR THE INTERFACE, MONOSPACE FOR THE CODE. The whole page used
@@ -71,14 +136,14 @@ body {
 #top {
   position: relative;
   flex: 0 0 auto; display: flex; align-items: center; gap: .7rem;
-  flex-wrap: wrap; padding: .5rem .9rem;
+  flex-wrap: wrap; padding: .5rem var(--gut);
   background: var(--panel); border-bottom: 1px solid var(--line);
 }
 h1 {
   font-size: .95rem; font-weight: 700; letter-spacing: .02em;
   margin: 0; white-space: nowrap;
 }
-.tagline { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.tagline { color: var(--muted); font-size: var(--fs-label); white-space: nowrap; }
 #live[hidden] { display: none; }
 #live::before {
   content: ""; display: inline-block; width: .4rem; height: .4rem;
@@ -91,23 +156,49 @@ h1 {
    .09em of letter-spacing is the worst-case readability for a label: word
    shape disappears, and the spacing breaks whole-word recognition. */
 .field label, .phead {
-  color: var(--muted); font-size: 11.5px; letter-spacing: .04em;
+  color: var(--muted); font-size: var(--fs-label);
   font-weight: 600;
 }
 .grow { flex: 1 1 auto; }
-#moi { color: var(--muted); font-size: 12.5px; }
+#moi { color: var(--muted); font-size: var(--fs-ui); }
 
 select, button, textarea, input {
   font: inherit; color: inherit; background: var(--card);
-  border: 1px solid var(--line); border-radius: var(--coin); padding: .35rem .55rem;
+  border: 1px solid var(--edge); border-radius: var(--coin); padding: .35rem .55rem;
 }
 button { cursor: pointer; font-weight: 600; }
+/* ===========================================================================
+   LA CIBLE TACTILE, ET C'EST UNE RÈGLE PARTAGÉE PARCE QUE L'OUBLI ÉTAIT
+   GÉNÉRAL : aucun contrôle de cette page n'avait de `min-height`. Mesuré avant
+   cette ligne : `.tile` 24 px, `.tab` 24 px, `.nav` 27 px, `.btn` 30 px. Le
+   plancher WCAG 2.5.8 est 24 px -- on y était PILE, sur la navigation qu'un
+   étudiant fait vingt fois par séance, au trackpad, sur un 13".
+
+   `align-items: center` VA AVEC le `min-height` : sans lui le texte reste collé
+   en haut de la boîte agrandie, ce qui est pire que la petite boîte.
+
+   UNE EXCLUSION, plus bas : les pastilles de test (`.ticks i`), qui ne sont pas
+   des contrôles. Et la grille de « Mes progrès », qui prend 32 px -- soixante-treize
+   tuiles à 36 px font un mur (voir `#vueprogres .labo .tiles`).
+   =========================================================================== */
+:is(.nav, .btn, .tile, .tab, .menu > summary, #exliste .exline, #exliste .col > summary, .diag) {
+  min-height: var(--tap);
+}
+:is(.nav, .btn, .tile, .tab, .menu > summary) {
+  display: inline-flex; align-items: center; justify-content: center;
+}
+#go, #goex { min-height: var(--tap-lg); }
 button:hover:not(:disabled) { border-color: var(--line-2); }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .nav { padding: .3rem .6rem; line-height: 1.2; font-weight: 400;
-       font-size: 12.5px; color: var(--muted); }
+       font-size: var(--fs-ui); color: var(--muted); }
 .nav:hover:not(:disabled) { color: var(--fg); }
-#theme { width: 2rem; text-align: center; padding: .3rem 0; }
+/* CARRÉ, ET À LA MÊME TAILLE QUE ‹ ET › : trois boutons d'une icône chacun dans
+   la même barre, dont un plus petit, se lit comme un défaut d'alignement. */
+#theme, #prev, #next {
+  width: var(--tap); min-width: var(--tap); padding: 0;
+  text-align: center; justify-content: center;
+}
 
 /* The account menu: a native <details>, zero JS to open it. Rare settings
    (aside from the theme) live inside it so the bar keeps only the actions
@@ -116,9 +207,15 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .menu { position: relative; }
 .menu[hidden] { display: none; }
 .menu > summary {
-  display: inline-block; list-style: none; cursor: pointer;
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--coin);
-  padding: .3rem .6rem; line-height: 1.2; font-size: 12.5px; color: var(--muted);
+  /* `inline-flex` ET PAS `inline-block` : c'est ce qui centre le libellé dans la
+     boîte de 36 px que la règle de cible tactile impose. Conséquence à ne pas
+     découvrir plus tard : `text-overflow: ellipsis` ne s'applique PAS au texte
+     anonyme d'un conteneur flex, donc le libellé de `#excourant` est enveloppé
+     dans un `<span class="titre">` qui porte la coupure -- voir ExerciseMenu. */
+  display: inline-flex; align-items: center; gap: .15rem;
+  list-style: none; cursor: pointer;
+  background: var(--card); border: 1px solid var(--edge); border-radius: var(--coin);
+  padding: .3rem .6rem; line-height: 1.2; font-size: var(--fs-ui); color: var(--muted);
 }
 .menu > summary::-webkit-details-marker { display: none; }
 .menu > summary::after { content: " ▾"; }
@@ -130,7 +227,17 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--coin); box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
 }
-.menupanneau button { text-align: left; }
+.menupanneau button { text-align: left; justify-content: flex-start; }
+/* UN INTERTITRE DANS LE MENU COMPTE. Il est arrivé avec « Classement » et
+   « Collection » : le résumé de ce menu est le nom d'affichage de l'étudiant, donc
+   rien n'y annonce que des ÉCRANS vivent dedans à côté des réglages. Deux mots
+   séparent les deux natures, et le filet fait le reste. */
+.menutitre {
+  padding: .45rem .2rem .15rem;
+  font-size: var(--fs-label); color: var(--muted); font-weight: 600;
+  border-top: 1px solid var(--line);
+}
+.menupanneau > .menutitre:first-child { border-top: 0; padding-top: .2rem; }
 .menupanneau #moi { padding: 0 .2rem .2rem; }
 
 /* THE CATALOG: one <details> per collection inside the menu's <details>.
@@ -142,8 +249,11 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 }
 #exliste .col > summary {
   cursor: pointer; list-style: none; user-select: none;
-  display: flex; align-items: baseline; gap: .5rem; padding: .35rem .2rem;
-  color: var(--muted); font-size: 11.5px; letter-spacing: .04em;
+  /* `center` ET PAS `baseline` depuis que la règle de cible tactile impose 36 px :
+     une ligne de base dans une boîte plus haute que son texte colle le titre en
+     haut, et la collection paraît décrochée de ses exercices. */
+  display: flex; align-items: center; gap: .5rem; padding: .35rem .2rem;
+  color: var(--muted); font-size: var(--fs-label);
   font-weight: 600;
 }
 #exliste .col > summary::-webkit-details-marker { display: none; }
@@ -152,7 +262,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 #exliste .col > summary:hover { color: var(--fg); }
 #exliste .exline {
   display: flex; align-items: center; gap: .6rem; width: 100%;
-  padding: .3rem .55rem; font-weight: 400; font-size: 12.5px;
+  padding: .3rem .55rem; font-weight: 400; font-size: var(--fs-ui);
   border-color: transparent;
 }
 #exliste .exline:hover:not(:disabled) { border-color: var(--line-2); }
@@ -166,19 +276,34 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 #exliste .exline.on { border-color: var(--ink); color: var(--fg); font-weight: 600; }
 /* The lock and its date. An exercise not yet open STAYS in the menu: making
    it disappear looked like an outage the night before class. */
-#exliste .cadenas { flex: 0 0 auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+#exliste .cadenas { flex: 0 0 auto; color: var(--muted); font-size: var(--fs-label); white-space: nowrap; }
 /* A verification's label. SPELLED OUT, like the lock: color alone does not
    tell someone colorblind that this is not a practice exercise. */
 #exliste .verif {
-  flex: 0 0 auto; font-size: 11px; letter-spacing: .02em; white-space: nowrap;
-  padding: .05rem .35rem; border: 1px solid var(--line); border-radius: var(--coin);
+  flex: 0 0 auto; font-size: var(--fs-label); letter-spacing: .02em; white-space: nowrap;
+  padding: .05rem .35rem; border: 1px solid var(--edge); border-radius: var(--coin);
   color: var(--muted);
 }
-#excourant { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* LE CONTRÔLE DOMINANT DE LA BARRE, et c'est délibéré : toute la navigation de
+   cette page est « quel exercice ». Il était au même gris de 12,5 px que les cinq
+   destinations, donc indistinguable de réglages qu'on ouvre une fois par session.
+   `max-width` est ce qui rend la coupure possible -- sans borne, rien ne déborde
+   jamais et l'ellipse ne se déclenche pas. */
+#excourant {
+  max-width: 20rem;
+  font-size: var(--fs-body); color: var(--fg);
+}
+#excourant .quoi { flex: 0 0 auto; color: var(--muted); font-size: var(--fs-label); }
+/* `min-width: 0` EST CE QUI AUTORISE LA COUPURE dans un flex : sans lui un enfant
+   refuse de passer sous sa largeur de contenu, et le texte pousse la barre. */
+#excourant .titre {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 .phead {
   flex: 0 0 auto; display: flex; align-items: center; gap: .6rem;
-  padding: .45rem .75rem; border-bottom: 1px solid var(--line);
+  padding: .45rem var(--gut); border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
 main {
@@ -202,14 +327,34 @@ main {
   min-height: 0; overflow-y: auto;
   border-right: 1px solid var(--line); background: var(--bg);
 }
+/* REPLIABLE SUR UN GRAND ÉCRAN AUSSI, et c'était `cursor: default` ici qui
+   l'interdisait. Sous 900 px la consigne se repliait déjà ; au-dessus, les 25 rem
+   de cette colonne étaient irrécupérables -- or un étudiant qui a lu son énoncé
+   veut son code en grand, et sur un 13" c'est un tiers de l'écran.
+
+   C'EST LE MODE « UNE SEULE COLONNE DE TRAVAIL », et il ne coûte pas un bouton de
+   plus : le triangle d'un `<details>` est déjà là, tout le monde sait ce qu'il
+   fait, et l'état survit à un changement d'exercice. */
 #consigne summary {
-  cursor: default; list-style: none;
+  cursor: pointer; list-style: none;
   position: sticky; top: 0; z-index: 1;
 }
+#consigne summary::before { content: "\25BE"; margin-right: .35rem; color: var(--muted); }
+#consigne:not([open]) summary::before { content: "\25B8"; }
+/* REPLIÉE, LA COLONNE SE RETIRE AU LIEU DE RESTER VIDE. Sans ça `#travail` garde
+   sa piste de 19 rem au minimum et on a replié un panneau pour regarder son fond.
+   Le titre reste lisible à la verticale... non : il reste en haut, et la piste se
+   réduit à sa largeur de contenu -- le nom « Consigne » reste cliquable pour
+   rouvrir, ce qui est la seule chose dont on a besoin dans cet état. */
+#travail:has(#consigne:not([open])) { grid-template-columns: auto minmax(0, 1fr); }
+#travail.avecchat:has(#consigne:not([open])) {
+  grid-template-columns: auto minmax(0, 1fr) minmax(17rem, 22rem);
+}
+#consigne:not([open]) { overflow: visible; }
 #consigne summary::-webkit-details-marker { display: none; }
 #consignetexte {
-  margin: 0; padding: .85rem .9rem; border: 0; background: none;
-  white-space: pre-wrap; font-size: 13.5px; line-height: 1.6;
+  margin: 0; padding: .85rem var(--gut); border: 0; background: none;
+  white-space: pre-wrap; font-size: var(--fs-body); line-height: 1.6;
   font-family: var(--mono);
 }
 #consignetexte.vide { font-family: var(--sans); color: var(--muted); }
@@ -232,17 +377,20 @@ main {
    wider than this column, so honouring their newlines would break every line twice.
    The syntax colours cost nothing: `.tc`..`.tu` are global (see line 372). */
 #consignetexte.md {
-  margin: 0; padding: .85rem .9rem;
+  margin: 0; padding: .85rem var(--gut);
   white-space: normal; font-family: var(--sans);
-  font-size: 13.5px; line-height: 1.6;
+  /* 1,65 ET PAS 1,6 : c'est le texte le plus LU de la page, dans une colonne de
+     25 rem au plus, donc ~45 caractères par ligne. Une mesure courte veut un peu
+     plus d'interligne, pas moins. */
+  font-size: var(--fs-body); line-height: 1.65;
 }
 #consignetexte.md > :first-child { margin-top: 0; }
 #consignetexte.md > :last-child { margin-bottom: 0; }
 #consignetexte.md p { margin: 0 0 .7rem; }
 /* Sub-headings in a 25 rem column, not page titles: barely above the body size. */
 #consignetexte.md :is(h1, h2, h3, h4) {
-  margin: 1.1rem 0 .45rem; font-size: 13.5px; font-weight: 600;
-  letter-spacing: .02em; text-transform: uppercase; color: var(--muted);
+  margin: 1.1rem 0 .45rem; font-size: var(--fs-lead); font-weight: 600;
+  color: var(--fg);
 }
 #consignetexte.md ul, #consignetexte.md ol { margin: 0 0 .7rem; padding-left: 1.3rem; }
 #consignetexte.md li { margin-bottom: .2rem; }
@@ -251,11 +399,11 @@ main {
 #consignetexte.md pre {
   margin: 0 0 .7rem; padding: .55rem .65rem; overflow-x: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
-  font-family: var(--mono); font-size: 12.5px; line-height: 1.5; tab-size: 4;
+  font-family: var(--mono); font-size: var(--fs-ui); line-height: 1.5; tab-size: 4;
 }
 #consignetexte.md pre code { padding: 0; background: none; border: 0; font-size: inherit; }
 #consignetexte.md code {
-  font-family: var(--mono); font-size: 12.5px; padding: 0 .25rem;
+  font-family: var(--mono); font-size: var(--fs-ui); padding: 0 .25rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
 }
 /* THE FORMULAS, drawn by the browser -- see `lib/domain/math.ts` for why not KaTeX.
@@ -299,14 +447,14 @@ main {
   min-height: 0; display: flex; flex-direction: column;
 }
 #now { flex-wrap: wrap; }
-#now b { color: var(--fg); font-size: 12.5px; font-weight: 700;
+#now b { color: var(--fg); font-size: var(--fs-ui); font-weight: 700;
          text-transform: none; letter-spacing: 0; }
 #now .badge {
-  font-size: 11.5px; letter-spacing: .02em;
+  font-size: var(--fs-label); letter-spacing: .02em;
   color: var(--muted);
   border: 1px solid var(--line); border-radius: var(--coin); padding: .05rem .5rem;
 }
-#now .learning { color: var(--muted); font-size: 11.5px; letter-spacing: .02em;
+#now .learning { color: var(--muted); font-size: var(--fs-label); letter-spacing: .02em;
                  text-transform: none; }
 /* THE TWO THAT GROW, and only these two. They exclude each other: whichever
    stays takes the room, with nobody having to count rows. */
@@ -320,23 +468,33 @@ main {
    with #edtitle. Same trap as #travail. */
 #tabs[hidden] { display: none; }
 .tab {
-  font: inherit; font-size: 12.5px; cursor: pointer;
+  font: inherit; font-size: var(--fs-ui); cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   background: transparent; color: var(--muted);
   border: 1px solid transparent; border-radius: var(--coin); padding: .2rem .6rem;
 }
 .tab:hover { color: var(--fg); }
-.tab.on { background: var(--card); color: var(--fg); border-color: var(--line); }
-.tab:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
-#edtitle { font-size: 12.5px; color: var(--fg); text-transform: none;
+.tab.on { background: var(--card); color: var(--fg); border-color: var(--edge); }
+.tab:focus-visible { outline: 3px solid var(--ink); outline-offset: -3px; }
+#edtitle { font-size: var(--fs-ui); color: var(--fg); text-transform: none;
            letter-spacing: 0; }
 
 .edwrap { flex: 1 1 auto; min-height: 0; display: flex; background: var(--card); }
+/* UN PLANCHER POUR L'ÉDITEUR, ET IL EST SCOPÉ À `#editor` EXPRÈS. `.edwrap` est
+   partagée avec la Console, qui passe `wrapClass="scratchedit"` et se dimensionne
+   par `height` -- or `min-height` bat `height`. Une règle nue relèverait donc son
+   plancher de 12 à 14 rem et neutraliserait le bas de son `resize: vertical`.
+
+   POURQUOI UN PLANCHER DU TOUT : l'éditeur est le seul enfant de `#droite` en
+   `flex: 1 1 auto`, donc c'est lui qui paie pour tout le reste. Avec six bandes
+   au-dessus et un verdict à 45 vh en dessous, il tombait à ~185 px sur un 13" --
+   dix lignes de code. */
+#editor .edwrap { min-height: 14rem; }
 .gutter {
   flex: 0 0 auto; margin: 0; height: 100%; overflow: hidden;
   padding: .5rem .55rem .5rem .7rem;
   border: 1px solid transparent; border-right-color: var(--line);
-  font: 400 13.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font: 400 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
   white-space: pre;
   text-align: right; color: var(--muted); background: var(--panel);
   user-select: none;
@@ -362,7 +520,7 @@ main {
   margin: 0; box-sizing: border-box;
   padding: .5rem .7rem;
   border: 1px solid transparent;
-  font: 400 13.5px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font: 400 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
   tab-size: 4;
   white-space: pre;
 }
@@ -420,21 +578,25 @@ main {
    reading it should not mean leaving the line it names. */
 .diags {
   flex: 0 0 auto; display: flex; flex-direction: column;
-  max-height: 7rem; overflow-y: auto;
+  max-height: 9rem; overflow-y: auto;
   border-top: 1px solid var(--line); background: var(--panel);
 }
 .diags[hidden] { display: none; }
 .diag {
-  display: flex; gap: .6rem; align-items: baseline; text-align: left;
+  /* `center` ET PAS `baseline` : la règle de cible tactile porte cette ligne à
+     36 px, et une ligne de base laisserait « ligne 7 » et son message collés en
+     haut d'une boîte plus haute qu'eux. Même correction que pour les collections
+     du menu -- c'est le piège que `min-height` tend à tout `display: flex`. */
+  display: flex; gap: .6rem; align-items: center; text-align: left;
   padding: .3rem .75rem; border: 0; border-left: 3px solid transparent;
-  background: none; color: var(--fg); font-size: 12.5px; cursor: pointer;
+  background: none; color: var(--fg); font-size: var(--fs-ui); cursor: pointer;
 }
 .diag:hover { background: var(--card); }
-.diag:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.diag:focus-visible { outline: 3px solid var(--ink); outline-offset: -3px; }
 .diag.error { border-left-color: var(--bad); }
 .diag.hint  { border-left-color: var(--wait); }
 .diag .diagline {
-  flex: 0 0 auto; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  flex: 0 0 auto; font-family: var(--mono); font-size: var(--fs-label); color: var(--muted);
 }
 .diag .diagtexte { flex: 1 1 auto; }
 
@@ -448,41 +610,62 @@ main {
 
 #actions {
   flex: 0 0 auto; display: flex; align-items: center; gap: .7rem;
-  flex-wrap: wrap; padding: .5rem .75rem;
+  flex-wrap: wrap; padding: .5rem var(--gut);
   border-top: 1px solid var(--line); background: var(--panel);
 }
 #file { position: absolute; width: 1px; height: 1px; opacity: 0;
         pointer-events: none; }
 .btn {
-  display: inline-block; cursor: pointer; font-size: 12.5px;
-  padding: .35rem .6rem; border: 1px solid var(--line);
+  display: inline-block; cursor: pointer; font-size: var(--fs-ui);
+  padding: .35rem .6rem; border: 1px solid var(--edge);
   border-radius: var(--coin); background: var(--card); color: var(--muted);
 }
 .btn:hover { color: var(--fg); border-color: var(--line-2); }
-#file:focus-visible + .btn { outline: 2px solid var(--ink); outline-offset: 2px; }
+#file:focus-visible + .btn { outline: 3px solid var(--ink); outline-offset: 2px; }
+/* L'ACTION PRINCIPALE, ET ELLE EST LA SEULE CHOSE REMPLIE DE LA PAGE. C'est ce
+   qui remplace une instruction écrite : s'il n'y a qu'un bouton plein, il n'y a
+   rien à expliquer. D'où les trois écarts avec tout le reste -- 44 px de haut,
+   une largeur minimale, et le seul `--fs-lead` de l'atelier.
+
+   PLUS DE CAPITALES NI D'ESPACEMENT : « TESTER » espacé de .04em en 14 px, c'est
+   la forme du mot qui disparaît, au seul endroit où elle doit être reconnue d'un
+   coup d'œil. */
 #go, #goex {
   background: var(--ink); color: var(--ink-fg); border-color: var(--ink);
-  font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  font-weight: 700; font-size: var(--fs-lead);
+  gap: .5rem; min-width: 11rem;
   padding: .4rem 1.1rem;
 }
+/* L'indice de raccourci SUR le bouton, comme `LabStrip` le fait pour Ctrl+K : un
+   raccourci que personne ne découvre est un raccourci qui n'existe pas. Il emprunte
+   la couleur du texte du bouton, pas `--muted`, qui disparaîtrait sur l'accent. */
+#go .shortcut, #goex .shortcut { color: var(--ink-fg); opacity: .72; margin-left: 0; }
 #go:hover:not(:disabled), #goex:hover:not(:disabled) {
   filter: brightness(1.12); border-color: var(--ink);
 }
 /* In quiz mode, the current action is "test the exercise": the button that
    re-runs all 40 questions steps back rather than disappearing. */
+/* EN MODE QUIZ le bouton principal recule d'un cran : il faut donc défaire AUSSI
+   la hauteur et la largeur minimales, sinon le bouton « dégradé » garde les 44 px
+   et les 11 rem de celui qu'il cède. */
 #go.secondaire {
-  background: var(--card); color: var(--muted); border-color: var(--line);
-  font-weight: 400; letter-spacing: 0; text-transform: none;
-  padding: .35rem .6rem; font-size: 12.5px;
+  background: var(--card); color: var(--muted); border-color: var(--edge);
+  font-weight: 400; letter-spacing: 0;
+  padding: .35rem .6rem; font-size: var(--fs-ui);
+  min-height: var(--tap); min-width: 0;
 }
 #go.secondaire:hover:not(:disabled) { color: var(--fg); border-color: var(--line-2); filter: none; }
-#brouillon { color: var(--muted); font-size: 12.5px; }
+#brouillon { color: var(--muted); font-size: var(--fs-ui); }
 #brouillon.rate { color: var(--bad); font-weight: 600; }
-#purger { font-size: 12px; }
+#purger { font-size: var(--fs-label); }
 
 #out {
-  flex: 0 1 auto; min-height: 0; max-height: 45vh; overflow-y: auto;
-  padding: .85rem .95rem;
+  /* 22 REM EN PLUS DE 45 VH : sur un écran haut, 45 vh laissait le verdict prendre
+     plus de place qu'il n'en a besoin au détriment du code. Le gain sur la cible
+     réelle (13" 1080p à 125 %, ~864 px) n'est que de 37 px -- l'espace, c'est la
+     fonte des bandes qui le rend, pas ce plafond. */
+  flex: 0 1 auto; min-height: 0; max-height: min(45vh, 22rem); overflow-y: auto;
+  padding: .85rem var(--gut) .85rem calc(var(--gut) - 3px);
   border-top: 1px solid var(--line);
   border-left: 3px solid var(--muted);
   background: var(--panel);
@@ -505,7 +688,7 @@ main {
 }
 .verdict.idle { color: var(--muted); }
 .ok { color: var(--ok); } .bad { color: var(--bad); } .wait { color: var(--wait); }
-.aide { font-family: var(--sans); color: var(--muted); font-size: 12.5px;
+.aide { font-family: var(--sans); color: var(--muted); font-size: var(--fs-ui);
         margin: .5rem 0 0; }
 .aide + .aide { margin-top: .35rem; }
 
@@ -536,32 +719,32 @@ main {
 .case > summary {
   display: flex; align-items: center; gap: .5rem;
   cursor: pointer; user-select: none; list-style: none;
-  padding: .4rem .6rem; font-size: 12.5px; color: var(--bad);
+  padding: .4rem .6rem; font-size: var(--fs-ui); color: var(--bad);
 }
 .case > summary::-webkit-details-marker { display: none; }
 .case > summary::before { content: "\25B8"; color: var(--muted); }
 .case[open] > summary::before { content: "\25BE"; }
 .case > summary:hover { background: var(--card); }
 .case .corps { padding: 0 .6rem .5rem; }
-.case .vu { color: var(--muted); font-size: 12px; margin-top: .35rem; }
+.case .vu { color: var(--muted); font-size: var(--fs-label); margin-top: .35rem; }
 
 .avert {
   margin-top: .8rem; padding: .55rem .7rem;
   border: 1px solid var(--line); border-left: 3px solid var(--wait);
   border-radius: var(--coin); background: var(--bg);
 }
-.avert .titre { color: var(--wait); font-weight: 600; font-size: 12.5px; }
+.avert .titre { color: var(--wait); font-weight: 600; font-size: var(--fs-ui); }
 .avert .quoi { font-family: var(--sans); color: var(--muted);
-               font-size: 12px; margin: .2rem 0 .4rem; }
+               font-size: var(--fs-label); margin: .2rem 0 .4rem; }
 
 #out ul { margin: .5rem 0 0; padding-left: 1.2rem; }
-#out li { font-size: 13px; margin-bottom: .2rem; }
+#out li { font-size: var(--fs-body); margin-bottom: .2rem; }
 /* Not answered is not wrong: neutral, so red keeps its meaning. */
 #out li.rien { color: var(--muted); }
 pre {
   margin: .4rem 0 0; padding: .6rem; overflow-x: auto;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--coin);
-  font-size: 12.5px; white-space: pre-wrap; word-break: break-word;
+  font-size: var(--fs-ui); white-space: pre-wrap; word-break: break-word;
 }
 
 #quiz .qgroup {
@@ -580,7 +763,7 @@ pre {
   padding-top: .8rem; border-top: 1px solid var(--line);
 }
 #quiznav[hidden] { display: none; }
-#quiznav .pos { color: var(--muted); font-size: 12.5px; }
+#quiznav .pos { color: var(--muted); font-size: var(--fs-ui); }
 
 /* LES PANNEAUX SUSPENDUS À LA BARRE, ET LEURS RÈGLES VIVENT ICI UNE SEULE FOIS.
    C'étaient TROIS blocs identiques recopiés ; le quatrième (`#raccourcis`) a
@@ -599,7 +782,7 @@ pre {
 #consentement {
   width: min(30rem, calc(100vw - 2rem));
 }
-#consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: 13px; }
+#consentement p { font-family: var(--sans); margin: 0 0 .5rem; font-size: var(--fs-body); }
 #consentement .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
 /* THE FLAT EXERCISE LIST IS GONE, replaced by the per-lab tile grid of the
@@ -614,7 +797,7 @@ pre {
 .exportligne {
   display: inline-flex; align-items: center; gap: .4rem;
 }
-.exportetat { font-size: 12px; color: var(--muted); }
+.exportetat { font-size: var(--fs-label); color: var(--muted); }
 .exportetat.rate { color: var(--bad); font-weight: 600; }
 
 /* "Mes progrès": the same spot as the list view, the same components.
@@ -634,10 +817,10 @@ pre {
    background, after what has been practiced and what is left to do. */
 #vueprogres .bloc.second { background: none; border-style: dashed; }
 #vueprogres .soustitre {
-  margin: 0 0 .45rem; font-size: 11.5px; letter-spacing: .04em;
+  margin: 0 0 .45rem; font-size: var(--fs-label);
   color: var(--muted); font-weight: 600;
 }
-#vueprogres p { margin: 0 0 .5rem; font-size: 13.5px; }
+#vueprogres p { margin: 0 0 .5rem; font-size: var(--fs-body); }
 #vueprogres p:last-child { margin-bottom: 0; }
 #vueprogres .rate { color: var(--bad); font-weight: 600; }
 #vueprogres .jauge {
@@ -647,23 +830,23 @@ pre {
 #vueprogres .jauge i { display: block; height: 100%; background: var(--ok); }
 #vueprogres .competences { list-style: none; margin: 0 0 .6rem; padding: 0; }
 #vueprogres .competences li { margin-bottom: .55rem; }
-#vueprogres .nom { display: block; font-size: 13.5px; font-weight: 600; }
+#vueprogres .nom { display: block; font-size: var(--fs-body); font-weight: 600; }
 #vueprogres .chiffres {
-  display: block; color: var(--muted); font-size: 12.5px;
+  display: block; color: var(--muted); font-size: var(--fs-ui);
   font-variant-numeric: tabular-nums;
 }
 /* A skill's band: A WORD, not a color. All four share the same shape --
    what tells them apart is legible text, and it reads aloud. */
 #vueprogres .bande {
-  display: inline-block; font-size: 11.5px; letter-spacing: .02em;
+  display: inline-block; font-size: var(--fs-label); letter-spacing: .02em;
   padding: .05rem .4rem; border: 1px solid var(--line); border-radius: var(--coin);
   color: var(--muted);
 }
 #vueprogres .bande.verifie { color: var(--ok); border-color: var(--ok); }
 #vueprogres .succes, #vueprogres .bandes { margin: 0; }
-#vueprogres .bandes dt, #vueprogres .succes dt { font-size: 13.5px; font-weight: 600; margin-top: .6rem; }
+#vueprogres .bandes dt, #vueprogres .succes dt { font-size: var(--fs-body); font-weight: 600; margin-top: .6rem; }
 #vueprogres .bandes dt:first-child, #vueprogres .succes dt:first-child { margin-top: 0; }
-#vueprogres .bandes dd, #vueprogres .succes dd { margin: 0; font-size: 12.5px; color: var(--muted); }
+#vueprogres .bandes dd, #vueprogres .succes dd { margin: 0; font-size: var(--fs-ui); color: var(--muted); }
 #vueprogres .quand { display: block; }
 #vueprogres .aide { font-family: var(--sans); }
 
@@ -700,10 +883,10 @@ pre {
 }
 :is(#vueforum, #vuemoderation) .bloc.second { background: none; border-style: dashed; }
 :is(#vueforum, #vuemoderation) .soustitre {
-  margin: 0 0 .45rem; font-size: 11.5px; letter-spacing: .04em;
+  margin: 0 0 .45rem; font-size: var(--fs-label);
   color: var(--muted); font-weight: 600;
 }
-:is(#vueforum, #vuemoderation) p { margin: 0 0 .5rem; font-size: 13.5px; }
+:is(#vueforum, #vuemoderation) p { margin: 0 0 .5rem; font-size: var(--fs-body); }
 /* A message's body, though, takes its whole column: it is the content one
    comes to read, and it is already bounded by the column's width. */
 :is(#vueforum, #vuemoderation) .texte p, :is(#vueforum, #vuemoderation) .texte li, :is(#vueforum, #vuemoderation) .texte blockquote
@@ -711,12 +894,12 @@ pre {
 :is(#vueforum, #vuemoderation) p:last-child { margin-bottom: 0; }
 :is(#vueforum, #vuemoderation) .rate { color: var(--bad); font-weight: 600; }
 :is(#vueforum, #vuemoderation) .annonce:empty { display: none; }
-:is(#vueforum, #vuemoderation) .annonce { margin: .3rem 0 0; font-size: 13px; color: var(--ink); }
-:is(#vueforum, #vuemoderation) label { display: block; font-size: 12.5px; color: var(--muted);
+:is(#vueforum, #vuemoderation) .annonce { margin: .3rem 0 0; font-size: var(--fs-body); color: var(--ink); }
+:is(#vueforum, #vuemoderation) label { display: block; font-size: var(--fs-ui); color: var(--muted);
                   margin-bottom: .3rem; }
 :is(#vueforum, #vuemoderation) select, :is(#vueforum, #vuemoderation) textarea, :is(#vueforum, #vuemoderation) input[type="text"],
 :is(#vueforum, #vuemoderation) input[type="number"] {
-  width: 100%; font-family: var(--sans); font-size: 13.5px;
+  width: 100%; font-family: var(--sans); font-size: var(--fs-body);
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
   border: 1px solid var(--line-2); border-radius: var(--coin);
 }
@@ -725,17 +908,17 @@ pre {
    break the line between the box and its text. */
 .coche {
   display: flex; align-items: center; gap: .45rem; margin: .5rem 0 0;
-  color: var(--fg); font-size: 13px; cursor: pointer;
+  color: var(--fg); font-size: var(--fs-body); cursor: pointer;
 }
 .coche input { width: auto; margin: 0; }
 /* The group number: a pill, next to the name and never in its place. */
 :is(#vueforum, #vuemoderation) .groupe {
-  font-size: 12px; color: var(--muted); padding: 0 .4rem;
+  font-size: var(--fs-label); color: var(--muted); padding: 0 .4rem;
   border: 1px solid var(--line-2); border-radius: var(--coin);
 }
 :is(#vueforum, #vuemoderation) button { margin-top: .5rem; }
 :is(#vueforum, #vuemoderation) .regles { margin: 0 0 .5rem; padding-left: 1.1rem; }
-:is(#vueforum, #vuemoderation) .regles li { font-size: 13px; margin-bottom: .25rem; }
+:is(#vueforum, #vuemoderation) .regles li { font-size: var(--fs-body); margin-bottom: .25rem; }
 :is(#vueforum, #vuemoderation) .fil { list-style: none; margin: 0; padding: 0; }
 :is(#vueforum, #vuemoderation) .message {
   padding: .55rem .6rem; margin-bottom: .5rem; background: var(--card);
@@ -743,13 +926,13 @@ pre {
 }
 :is(#vueforum, #vuemoderation) .qui { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline;
                  margin: 0 0 .3rem; }
-:is(#vueforum, #vuemoderation) .auteur { font-weight: 600; font-size: 13px; }
-:is(#vueforum, #vuemoderation) .quand { color: var(--muted); font-size: 12px;
+:is(#vueforum, #vuemoderation) .auteur { font-weight: 600; font-size: var(--fs-body); }
+:is(#vueforum, #vuemoderation) .quand { color: var(--muted); font-size: var(--fs-label);
                    font-variant-numeric: tabular-nums; }
 /* The outline, not just the color: a state visible only through a tint
    disappears in black and white as under color blindness. */
 :is(#vueforum, #vuemoderation) .etat {
-  font-size: 12px; color: var(--wait); border: 1px solid var(--wait);
+  font-size: var(--fs-label); color: var(--wait); border: 1px solid var(--wait);
   border-radius: var(--coin); padding: 0 .4rem;
 }
 /* `pre-wrap`: when Markdown rendering could not be loaded, the message
@@ -766,20 +949,20 @@ pre {
 :is(#vueforum, #vuemoderation) .md p { margin: 0 0 .4rem; }
 :is(#vueforum, #vuemoderation) .md p:last-child { margin-bottom: 0; }
 :is(#vueforum, #vuemoderation) .md ul, :is(#vueforum, #vuemoderation) .md ol { margin: 0 0 .4rem; padding-left: 1.2rem; }
-:is(#vueforum, #vuemoderation) .md li { font-size: 13.5px; margin-bottom: .15rem; }
+:is(#vueforum, #vuemoderation) .md li { font-size: var(--fs-body); margin-bottom: .15rem; }
 :is(#vueforum, #vuemoderation) .md blockquote {
   margin: 0 0 .4rem; padding-left: .6rem; color: var(--muted);
   border-left: 2px solid var(--line-2);
 }
 :is(#vueforum, #vuemoderation) .md code {
-  font-family: var(--mono); font-size: 12.5px; padding: 0 .25rem;
+  font-family: var(--mono); font-size: var(--fs-ui); padding: 0 .25rem;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--coin);
 }
 :is(#vueforum, #vuemoderation) .md a { color: var(--ink); overflow-wrap: anywhere; }
 :is(#vueforum, #vuemoderation) .apercu {
   margin: 0; padding: .5rem .6rem; min-height: 2.2rem;
   background: var(--card); border: 1px dashed var(--line-2); border-radius: var(--coin);
-  font-size: 13.5px;
+  font-size: var(--fs-body);
 }
 
 #charte {
@@ -788,9 +971,9 @@ pre {
 }
 #charte[hidden] { display: none; }
 #charte h2 { font-size: .95rem; margin: 0 0 .5rem; }
-#charte p { margin: .5rem 0 0; font-size: 13px; }
+#charte p { margin: .5rem 0 0; font-size: var(--fs-body); }
 #charte .regles { margin: 0; padding-left: 1.1rem; }
-#charte .regles li { font-size: 13px; margin-bottom: .25rem; }
+#charte .regles li { font-size: var(--fs-body); margin-bottom: .25rem; }
 #charte .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
 /* "Mon identité": the SAME panel as the charter, in the same spot, opened
@@ -809,30 +992,42 @@ pre {
 }
 #identitepanneau[hidden] { display: none; }
 #identitepanneau h2 { font-size: .95rem; margin: 0 0 .5rem; }
-#identitepanneau p { margin: .5rem 0 0; font-size: 13px; color: var(--muted); }
+#identitepanneau p { margin: .5rem 0 0; font-size: var(--fs-body); color: var(--muted); }
 #identitepanneau .annonce { color: var(--ink); }
 #identitepanneau .rate { color: var(--bad); font-weight: 600; }
-#identitepanneau label { display: block; font-size: 12.5px; color: var(--muted);
+#identitepanneau label { display: block; font-size: var(--fs-ui); color: var(--muted);
                          margin: .6rem 0 .3rem; }
 #identitepanneau input[type="text"], #identitepanneau input[type="number"] {
-  width: 100%; font-family: var(--sans); font-size: 13.5px;
+  width: 100%; font-family: var(--sans); font-size: var(--fs-body);
   padding: .4rem .5rem; color: var(--fg); background: var(--card);
   border: 1px solid var(--line-2); border-radius: var(--coin);
 }
 #identitepanneau .row { display: flex; gap: .6rem; margin-top: .7rem; }
 
 @media (max-width: 900px) {
+  /* 44 PX AU POUCE. C'est la cible de WCAG 2.5.5, et sous 900 px le pointeur est
+     un doigt : il n'a pas la précision d'un curseur et il cache ce qu'il vise.
+     Un seul token relevé ici porte toute la page -- la règle partagée plus haut
+     lit `var(--tap)`. */
+  :root { --tap: 2.75rem; }
   html, body { height: auto; }
   main { display: block; }
   body { display: block; height: auto; overflow: auto; }
   #travail { display: block; }
   #consigne { overflow: visible; border-right: 0;
               border-bottom: 1px solid var(--line); }
-  #consigne summary { cursor: pointer; position: static; }
-  #consigne summary::before { content: "\25B8"; }
-  #consigne[open] summary::before { content: "\25BE"; }
+  /* Le triangle et le `cursor` vivent maintenant dans la règle de bureau -- la
+     consigne se replie PARTOUT, pas seulement ici. Les garder en double poserait
+     deux flèches en désaccord : celle-ci teste `[open]`, celle de là-haut teste
+     `:not([open])`. Ne reste que ce qui est propre au téléphone : l'en-tête ne
+     colle plus, parce que c'est la page entière qui défile. */
+  #consigne summary { position: static; }
   #droite { display: block; }
+  /* `min-height` AUSSI, et pas seulement `height` : la règle de bureau pose un
+     plancher de 14 rem sur `#editor .edwrap`, qui battrait le bas de ce clamp et
+     empêcherait l'éditeur de se faire petit sur un écran de téléphone. */
   .edwrap { height: clamp(12rem, 45vh, 26rem); }
+  #editor .edwrap { min-height: 0; }
   #out { max-height: none; overflow: visible; }
   /* LES QUATRE, ET PAS DEUX. `#identitepanneau` manquait ici : sur un téléphone
      il restait `position: absolute`, donc suspendu hors de l'écran. Le bogue
@@ -851,8 +1046,8 @@ pre {
    the same spot -- and a beginner concluded they had broken something. */
 #systeme {
   flex: 0 0 auto;
-  padding: .55rem .95rem;
-  font-family: var(--sans); font-size: 13px;
+  padding: .55rem var(--gut) .55rem calc(var(--gut) - 3px);
+  font-family: var(--sans); font-size: var(--fs-body);
   color: var(--fg); background: var(--panel);
   border-bottom: 1px solid var(--line);
   border-left: 3px solid var(--wait);
@@ -883,12 +1078,12 @@ pre {
 .etapes .pas {
   display: flex; flex-direction: column; gap: .1rem;
   padding: .3rem .6rem;
-  border: 1px solid var(--line); border-radius: var(--coin);
+  border: 1px solid var(--edge); border-radius: var(--coin);
   border-left-width: 3px; border-left-color: var(--line-2);
 }
-.etapes b { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.etapes b { font-size: var(--fs-ui); font-weight: 600; color: var(--muted); }
 .etapes i {
-  font-style: normal; font-size: 11.5px; color: var(--muted);
+  font-style: normal; font-size: var(--fs-label); color: var(--muted);
   font-family: var(--sans);
 }
 /* THE WORD AND THE SIGN, never color alone: the state survives black and
@@ -905,7 +1100,7 @@ pre {
    memory_error messages run two hundred characters, and in title
    typography they used to crush the whole area. */
 .explique {
-  font-family: var(--sans); font-size: 13.5px; line-height: 1.55;
+  font-family: var(--sans); font-size: var(--fs-body); line-height: 1.55;
   color: var(--fg); margin: .1rem 0 .6rem;
 }
 
@@ -914,7 +1109,7 @@ pre {
 .suite {
   display: flex; flex-wrap: wrap; align-items: center; gap: .6rem;
   margin: 1rem 0 0; padding: .55rem .7rem;
-  font-family: var(--sans); font-size: 13px;
+  font-family: var(--sans); font-size: var(--fs-body);
   background: var(--card); border: 1px solid var(--line);
   border-left: 3px solid var(--ink); border-radius: var(--coin);
 }
@@ -928,7 +1123,7 @@ pre {
 /* The save status, on the tab row: the question "am I going to lose
    this?" comes up while looking at one's code, not the buttons. */
 #sauvegarde {
-  flex: 0 0 auto; font-family: var(--sans); font-size: 12px;
+  flex: 0 0 auto; font-family: var(--sans); font-size: var(--fs-label);
   color: var(--muted); text-transform: none; letter-spacing: 0;
   white-space: nowrap;
 }
@@ -945,30 +1140,30 @@ pre {
    is the block's single most actionable piece of information. */
 .case .champ { margin: 0 0 .45rem; }
 .case .champ .quoi {
-  display: block; font-family: var(--sans); font-size: 12px;
+  display: block; font-family: var(--sans); font-size: var(--fs-label);
   color: var(--muted); margin-bottom: .15rem;
 }
 .case .champ .valeur { margin: 0; }
 /* Inputs and the numbers read are VALUES, not text to read: they are
    spaced out so they can be counted at a glance. */
 .case .champ:first-child .valeur, .case .champ:nth-child(3) .valeur {
-  font-size: 13.5px; letter-spacing: .02em;
+  font-size: var(--fs-body); letter-spacing: .02em;
 }
 /* The reason the server wrote: it carries the diagnostics that are
    actually useful ("inf ou nan", "aucun nombre"). */
 .case .pourquoi {
-  font-family: var(--sans); font-size: 13px; color: var(--fg);
+  font-family: var(--sans); font-size: var(--fs-body); color: var(--fg);
   margin: .6rem 0 0;
 }
 /* The grading contract. Discreet but always there: it says HOW the
    comparison works, never WHAT it compares against -- no answer shows
    through it. */
 .case .contrat, .rates .contrat {
-  font-family: var(--sans); font-size: 12px; color: var(--muted);
+  font-family: var(--sans); font-size: var(--fs-label); color: var(--muted);
   margin: .3rem 0 0; padding-left: .6rem;
   border-left: 2px solid var(--line-2);
 }
-.rates .quoi { font-family: var(--sans); font-size: 13px; margin: .5rem 0 .2rem; }
+.rates .quoi { font-family: var(--sans); font-size: var(--fs-body); margin: .5rem 0 .2rem; }
 
 /* The compiler's first error, isolated from the rest. In C, errors
    cascade: the last one -- the one read, because it is at the bottom --
@@ -982,7 +1177,7 @@ pre {
    The global menu stays for switching between collections, which is rare. */
 #bandelabo {
   flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: .3rem;
-  padding: .4rem .75rem;
+  padding: .4rem var(--gut);
   border-bottom: 1px solid var(--line); background: var(--bg);
 }
 #bandelabo[hidden] { display: none; }
@@ -992,7 +1187,7 @@ pre {
 
 /* The status, where one chooses. */
 #exliste .exline .etat {
-  flex: 0 0 auto; font-size: 11.5px; white-space: nowrap;
+  flex: 0 0 auto; font-size: var(--fs-label); white-space: nowrap;
   font-family: var(--sans);
 }
 #exliste .exline .etat.valide { color: var(--ok); }
@@ -1003,7 +1198,7 @@ pre {
    visible. */
 :is(#vueforum, #vuemoderation) .rappel {
   grid-column: 1 / -1; margin: 0 0 .3rem;
-  font-size: 13px; color: var(--fg);
+  font-size: var(--fs-body); color: var(--fg);
 }
 :is(#vueforum, #vuemoderation) .rappel .quoi { color: var(--muted); }
 /* The help button, in the next-action bar: discreet, it must not compete
@@ -1063,8 +1258,8 @@ pre {
    them is a color carrying information on its own. */
 .tag {
   display: inline-flex; align-items: center; gap: .25rem;
-  font-size: 11.5px; line-height: 1.4; padding: .1rem .45rem;
-  border: 1px solid var(--line); border-radius: var(--coin);
+  font-size: var(--fs-label); line-height: 1.4; padding: .1rem .45rem;
+  border: 1px solid var(--edge); border-radius: var(--coin);
   color: var(--muted); white-space: nowrap;
 }
 .tag.accent { border-color: var(--ink); color: var(--ink); background: var(--ink-wash); }
@@ -1084,8 +1279,8 @@ pre {
 .tile {
   display: inline-flex; align-items: center; gap: .3rem;
   min-width: 2.4rem; justify-content: center;
-  padding: .2rem .45rem; font-size: 12px; line-height: 1.4;
-  border: 1px solid var(--line); border-radius: var(--coin);
+  padding: .2rem .45rem; font-size: var(--fs-label); line-height: 1.4;
+  border: 1px solid var(--edge); border-radius: var(--coin);
   background: none; color: var(--muted); cursor: pointer;
 }
 .tile:hover:not([aria-disabled="true"]) { border-color: var(--line-2); color: var(--fg); }
@@ -1094,11 +1289,11 @@ pre {
    the border, so a solved-and-open tile keeps its tinted ground and gains the
    thick edge. One class per axis is what lets them coexist. */
 .tile.courant { border-width: 2px; border-color: var(--fg); color: var(--fg); font-weight: 600; }
-.tile.afaire { border-color: var(--line); }
+.tile.afaire { border-color: var(--edge); }
 .tile.bonus { border-style: dashed; }
 .tile.verif { border-color: var(--ink); color: var(--ink); font-weight: 600; }
 .tile[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
-.tile .marque { font-style: normal; font-size: 11px; color: var(--ink); }
+.tile .marque { font-style: normal; font-size: var(--fs-label); color: var(--ink); }
 
 /* THE PRACTICE CALENDAR (design 1b). Thirteen columns of squares, and it
    REPLACES A STREAK on purpose: a gap takes nothing away, so there is no
@@ -1132,15 +1327,15 @@ pre {
 }
 .card.held { border-color: var(--ink); }
 .card.locked { opacity: .68; }
-.card .code { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.card .code { font-family: var(--mono); font-size: var(--fs-label); color: var(--muted); }
 .card .header { display: flex; justify-content: space-between; gap: .4rem; }
 .card .drawing {
   height: 4rem; display: grid; place-items: center;
   color: var(--muted); margin: .2rem 0;
 }
 .card.held .drawing { color: var(--ink); }
-.card .name { font-size: 13.5px; font-weight: 600; color: var(--fg); }
-.card .quoi { font-size: 11.5px; color: var(--muted); }
+.card .name { font-size: var(--fs-body); font-weight: 600; color: var(--fg); }
+.card .quoi { font-size: var(--fs-label); color: var(--muted); }
 
 /* --- The bar: the plate, the filter (design 1a/1d) ------------------------- */
 
@@ -1151,50 +1346,37 @@ pre {
 .initials {
   width: 1.4rem; height: 1.4rem; display: inline-grid; place-items: center;
   border: 1px solid var(--ink); color: var(--ink);
-  font-size: 10px; font-weight: 700; letter-spacing: .02em;
+  font-size: var(--fs-label); font-weight: 700; letter-spacing: .02em;
 }
 .initials:empty { display: none; }
-#menucompte .groupe { color: var(--muted); font-size: 11px; }
+#menucompte .groupe { color: var(--muted); font-size: var(--fs-label); }
 
 #recherche {
   width: 100%; margin-bottom: .4rem;
-  background: var(--bg); font-size: 12.5px;
+  background: var(--bg); font-size: var(--fs-ui);
 }
 
-/* --- The lab context row and the strip's legend (design 1a) ---------------- */
+/* --- La bande du labo : ce qui reste de trois bandes ----------------------- */
 
-/* `flex: 0 0 auto` LIKE EVERY OTHER CHILD OF #droite: that column hands its
-   growth to the editor and the quiz alone, and a child that forgets to say so
-   takes room from whichever of the two is on screen. */
-#labcontext {
-  flex: 0 0 auto;
-  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
-  padding: .35rem .9rem; border-bottom: 1px solid var(--line);
-}
-#labcontext[hidden] { display: none; }
-#labcontext .labo {
-  font-size: 11.5px; font-weight: 700; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--muted);
-}
-/* The shortcut, on the button that opens the filter. Discreet: it is a
-   convenience, not the way in -- the button next to it is. */
+/* `.shortcut` SURVIT À LA SUPPRESSION DE `#labcontext`, et c'est à vérifier avant
+   de couper : elle sert aussi à « Raccourcis F1 » dans la barre et à « Tester »
+   dans la barre d'actions. Discrète -- c'est une commodité, pas le chemin d'entrée :
+   le bouton à côté d'elle l'est. */
 .shortcut {
-  font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+  font-family: var(--mono); font-size: var(--fs-label); color: var(--muted);
   margin-left: .3rem;
 }
 
-#striplegend {
-  flex: 0 0 auto;
-  display: flex; flex-wrap: wrap; gap: .3rem .9rem; align-items: center;
-  padding: .25rem .9rem .4rem; font-size: 11px; color: var(--muted);
+/* LES DEUX CATÉGORIES QUI PORTAIENT UNE LÉGENDE, ÉCRITES SUR LA TUILE. C'est ce
+   qui a permis de supprimer `#striplegend` sans rien perdre : un style de bordure
+   demande une clé, un mot ne demande rien. Elles restent discrètes parce qu'elles
+   sont rares -- un labo ordinaire n'en porte aucune, et celui qui en porte une la
+   montre là où on la cherche, sur la tuile. */
+.tile .quoi {
+  font-style: normal; font-size: var(--fs-label);
+  color: var(--muted); font-weight: 400;
 }
-#striplegend[hidden] { display: none; }
-#striplegend .item { display: inline-flex; align-items: center; gap: .3rem; }
-/* The legend's swatches are the real tiles, emptied: a legend drawn with
-   different boxes than the thing it explains explains the wrong thing. */
-#striplegend .tile {
-  width: 1.1rem; height: .8rem; min-width: 0; padding: 0; cursor: default;
-}
+.tile.verif .quoi { color: var(--ink); }
 
 /* --- "Mes progrès": the cards and the lab grid (design 1b) ----------------- */
 
@@ -1204,13 +1386,13 @@ pre {
   gap: .7rem; margin-bottom: .7rem;
 }
 #vueprogres .kicker {
-  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+  font-size: var(--fs-label); font-weight: 600;
   color: var(--ink); margin-bottom: .3rem;
 }
 #vueprogres .gros { font-size: 1.05rem; font-weight: 600; color: var(--fg); }
 #vueprogres .bandeligne {
   display: flex; gap: .4rem; align-items: baseline; flex-wrap: wrap;
-  font-size: 12.5px;
+  font-size: var(--fs-ui);
 }
 
 /* ONE ROW PER LAB: name and theme, then the tiles, then how far along. Three
@@ -1226,12 +1408,18 @@ pre {
     grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr) auto;
   }
 }
-#vueprogres .labo .name { display: block; font-size: 13.5px; font-weight: 600; }
-#vueprogres .labo .theme { font-size: 11.5px; color: var(--muted); }
+#vueprogres .labo .name { display: block; font-size: var(--fs-body); font-weight: 600; }
+#vueprogres .labo .theme { font-size: var(--fs-label); color: var(--muted); }
 #vueprogres .labo .tiles { display: flex; flex-wrap: wrap; gap: .25rem; }
+/* 32 PX ICI ET 36 DANS LA BANDE, et l'écart est voulu. `.tile` est partagée par
+   les deux écrans : à 36 px, les soixante-treize tuiles de cette grille font un
+   mur qu'on ne survole plus du regard. Celle-ci est une VUE D'ENSEMBLE qu'on
+   parcourt, la bande est une NAVIGATION qu'on vise -- et 32 px reste au-dessus
+   du plancher de 24. */
+#vueprogres .labo .tiles .tile { min-height: 2rem; }
 #vueprogres .labo .compte {
   display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
-  font-size: 12.5px; color: var(--muted);
+  font-size: var(--fs-ui); color: var(--muted);
 }
 #vueprogres .labo .exportligne { display: inline-flex; align-items: center; gap: .4rem; }
 
@@ -1246,15 +1434,15 @@ pre {
   background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--coin); padding: .7rem; margin-bottom: .7rem;
 }
-#viewleaderboard p, #viewcollection p { margin: 0 0 .5rem; font-size: 13.5px; }
+#viewleaderboard p, #viewcollection p { margin: 0 0 .5rem; font-size: var(--fs-body); }
 #viewleaderboard p:last-child, #viewcollection p:last-child { margin-bottom: 0; }
 #viewleaderboard .rate, #viewcollection .rate { color: var(--bad); font-weight: 600; }
 #viewleaderboard .aide, #viewcollection .aide {
-  font-family: var(--sans); color: var(--muted); font-size: 12.5px;
+  font-family: var(--sans); color: var(--muted); font-size: var(--fs-ui);
 }
 #viewleaderboard .annonce { color: var(--ink); }
 #viewleaderboard .soustitre, #viewcollection .soustitre {
-  font-size: 12px; letter-spacing: .04em; color: var(--muted);
+  font-size: var(--fs-label); color: var(--muted);
   font-weight: 600; margin: 0 0 .4rem;
 }
 
@@ -1277,9 +1465,9 @@ pre {
   font-weight: 600;
 }
 
-.rank-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rank-table { width: 100%; border-collapse: collapse; font-size: var(--fs-body); }
 .rank-table th {
-  text-align: left; font-size: 11px; letter-spacing: .04em; font-weight: 600;
+  text-align: left; font-size: var(--fs-label); font-weight: 600;
   color: var(--muted); padding: .3rem .4rem;
   border-bottom: 1px solid var(--line);
 }
@@ -1300,8 +1488,8 @@ pre {
   border: 1px solid var(--line); border-radius: var(--coin);
 }
 .division.on { border: 2px solid var(--ink); background: var(--ink-wash); }
-.division .name { display: block; font-size: 13px; font-weight: 600; }
-.division .quoi { font-size: 11.5px; color: var(--muted); }
+.division .name { display: block; font-size: var(--fs-body); font-weight: 600; }
+.division .quoi { font-size: var(--fs-label); color: var(--muted); }
 
 /* --- The identity preview and the forum's new states (1d/1f/1g) ------------ */
 
@@ -1311,7 +1499,7 @@ pre {
   padding: .5rem .6rem; background: var(--card);
 }
 .previewplate .row { display: flex; align-items: center; gap: .4rem; }
-.previewplate .name { font-size: 13px; font-weight: 600; }
+.previewplate .name { font-size: var(--fs-body); font-weight: 600; }
 .previewplate .tags { display: flex; gap: .25rem; flex-wrap: wrap; }
 /* The unlocked frames, as the design draws them: a line, a cut line, a
    tolerance callout. Decoration only -- no advantage, no access. */
@@ -1322,10 +1510,10 @@ pre {
    radio row is the same object with a different input. */
 .choix { margin: .4rem 0 .6rem; }
 .choix > label:first-child {
-  display: block; font-size: 12.5px; color: var(--muted); margin-bottom: .2rem;
+  display: block; font-size: var(--fs-ui); color: var(--muted); margin-bottom: .2rem;
 }
 .choix .coche { margin: .15rem 0; }
-.choix .coche .aide { color: var(--muted); font-size: 11.5px; }
+.choix .coche .aide { color: var(--muted); font-size: var(--fs-label); }
 
 /* The thread's state, above the messages. */
 .etatfil { display: flex; gap: .3rem; flex-wrap: wrap; margin-bottom: .5rem; }
@@ -1370,7 +1558,7 @@ pre {
 #teamband {
   flex: 0 0 auto;
   display: flex; flex-direction: column; gap: .35rem;
-  padding: .45rem .9rem;
+  padding: .45rem var(--gut);
   border-bottom: 1px solid var(--line);
   background: var(--ink-wash);
 }
@@ -1380,17 +1568,17 @@ pre {
 #teamband .teamactions {
   display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
 }
-#teamband .teamtitle { font-size: 13px; color: var(--fg); }
+#teamband .teamtitle { font-size: var(--fs-body); color: var(--fg); }
 #teamband .tag {
-  font-size: 11.5px; color: var(--muted);
+  font-size: var(--fs-label); color: var(--muted);
   border: 1px solid var(--line); border-radius: var(--coin);
   padding: .05rem .5rem;
 }
 #teamband .tag.ok { color: var(--ok); border-color: var(--ok); }
 #teamband .tag.rate { color: var(--bad); border-color: var(--bad); }
-#teamband .etat { font-size: 11.5px; color: var(--muted); }
+#teamband .etat { font-size: var(--fs-label); color: var(--muted); }
 #teamband .etat.rate { color: var(--bad); font-weight: 600; }
-#teamband .aide { font-size: 11.5px; margin: 0; }
+#teamband .aide { font-size: var(--fs-label); margin: 0; }
 
 /* A TEAMMATE'S CHIP CARRIES THEIR CARET'S COLOUR, and that is the whole
    reason it exists: "the orange cursor is Coéquipier 2" has to be readable
@@ -1398,7 +1586,7 @@ pre {
    disappearance -- a teammate who steps out is still on the team. */
 #teamband .mate {
   display: inline-flex; align-items: center; gap: .3rem;
-  font-size: 11.5px; color: var(--muted);
+  font-size: var(--fs-label); color: var(--muted);
   border: 1px solid var(--line); border-radius: var(--coin);
   padding: .05rem .45rem;
   opacity: .55;
@@ -1411,12 +1599,12 @@ pre {
   border-top: 1px solid var(--line); padding-top: .4rem;
 }
 #teamband .teamhistory h3 {
-  margin: 0 0 .3rem; font-size: 11.5px; font-weight: 700;
-  letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  margin: 0 0 .3rem; font-size: var(--fs-label); font-weight: 700;
+  color: var(--muted);
 }
 #teamband .revline {
   display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
-  font-size: 11.5px; padding: .15rem 0;
+  font-size: var(--fs-label); padding: .15rem 0;
 }
 #teamband .revline .who { color: var(--fg); font-weight: 600; }
 #teamband .revline .quand { color: var(--muted); font-family: var(--mono); }
@@ -1436,9 +1624,14 @@ pre {
 /* The name rides on the caret so two carets a line apart are not two
    identical slivers. Above the line rather than below: below, it would cover
    the line the person is about to type on. */
+/* 12 px ET PAS 10 : c'est le NOM D'UNE PERSONNE posé au-dessus du code qu'on est
+   en train de lire, donc le dernier endroit où économiser deux pixels. Le `1.1`
+   d'interligne tient l'étiquette dans le `top: -1.05em` au-dessus, qui est
+   relatif à CE corps -- les deux montent ensemble, et l'étiquette dégage encore
+   la ligne précédente. */
 #carets .caretname {
   position: absolute; top: -1.05em; left: -1px;
-  font: 400 10px/1.1 var(--sans);
+  font: 400 var(--fs-label)/1.1 var(--sans);
   color: #fff; padding: .1rem .25rem; border-radius: var(--coin);
   white-space: nowrap;
 }
@@ -1464,9 +1657,9 @@ pre {
   display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
 }
 .mesequipes .equipegens { margin-top: .35rem; }
-.mesequipes .equipetitre b { font-size: 12.5px; }
+.mesequipes .equipetitre b { font-size: var(--fs-ui); }
 .mesequipes .tag {
-  font-size: 11px; color: var(--muted);
+  font-size: var(--fs-label); color: var(--muted);
   border: 1px solid var(--line); border-radius: var(--coin);
   padding: .05rem .4rem;
 }
@@ -1477,13 +1670,13 @@ pre {
 .mesequipes .equipecode {
   display: flex; align-items: baseline; gap: .5rem; margin: .35rem 0;
 }
-.mesequipes .equipecode .quoi { font-size: 11px; color: var(--muted); }
+.mesequipes .equipecode .quoi { font-size: var(--fs-label); color: var(--muted); }
 .mesequipes .equipecode .code {
-  font-family: var(--mono); font-size: 15px; letter-spacing: .12em;
+  font-family: var(--mono); font-size: var(--fs-lead); letter-spacing: .12em;
   color: var(--ink); user-select: all;
 }
 .mesequipes label {
-  display: block; font-size: 11.5px; color: var(--muted); margin-top: .5rem;
+  display: block; font-size: var(--fs-label); color: var(--muted); margin-top: .5rem;
 }
 .mesequipes input, .mesequipes select { margin-top: .2rem; }
 .mesequipes .row { display: flex; gap: .4rem; align-items: center;
@@ -1491,7 +1684,7 @@ pre {
 /* LA CONFIRMATION SE LIT AUSSI SANS LA COULEUR : `.on` allume la puce, et le
    signe la nomme. Une opacité seule ne survit ni au noir et blanc, ni à
    quelqu'un qui distingue mal les gris. */
-.mesequipes .mate .marque { font-style: normal; font-size: 11px; }
+.mesequipes .mate .marque { font-style: normal; font-size: var(--fs-label); }
 
 /* LA LISTE DES ÉQUIPES : un numéro, un remplissage, un bouton. La même forme
    que sur Moodle, parce que c'est le même geste et les mêmes numéros. */
@@ -1502,14 +1695,14 @@ pre {
 .mesequipes .equipeligne {
   display: flex; align-items: center; gap: .5rem;
   padding: .3rem .5rem; border: 1px solid var(--line);
-  border-radius: var(--coin); margin-bottom: .25rem; font-size: 12px;
+  border-radius: var(--coin); margin-bottom: .25rem; font-size: var(--fs-label);
 }
 .mesequipes .equipeligne.on {
   border-color: var(--ink); background: var(--ink-wash);
 }
-.mesequipes .equipeligne .nom { font-size: 12.5px; }
+.mesequipes .equipeligne .nom { font-size: var(--fs-ui); }
 .mesequipes .equipeligne .places {
-  font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  font-family: var(--mono); font-size: var(--fs-label); color: var(--muted);
 }
 
 /* --- La Console ---------------------------------------------------------------
@@ -1536,7 +1729,7 @@ pre {
   display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
   padding: .5rem 0;
 }
-.scratchetat { font-size: 12.5px; color: var(--muted); }
+.scratchetat { font-size: var(--fs-ui); color: var(--muted); }
 .scratchetat.rate { color: var(--bad); }
 
 /* LE TERMINAL. `pre-wrap` et pas `pre` : la sortie d'un programme d'étudiant
@@ -1547,7 +1740,7 @@ pre {
   min-height: 9rem; max-height: 40vh; overflow-y: auto;
   border: 0; border-left: 3px solid var(--ink); border-radius: 0;
   background: var(--card); color: var(--fg);
-  font-size: 12.5px; line-height: 1.5;
+  font-size: var(--fs-ui); line-height: 1.5;
   white-space: pre-wrap; word-break: break-word;
 }
 /* Les diagnostics de gcc, distingués de la sortie du programme -- c'est
@@ -1564,7 +1757,7 @@ pre {
 }
 #scratchsaisie {
   flex: 1 1 auto; min-width: 0;
-  padding: .35rem .5rem; font-size: 12.5px;
+  padding: .35rem .5rem; font-size: var(--fs-ui);
 }
 #scratchsaisie:disabled, .scratchsaisiebarre button:disabled {
   opacity: .5; cursor: not-allowed;
@@ -1590,7 +1783,7 @@ pre {
   background: var(--ink-wash);
 }
 .chathead .chattitre {
-  font-size: 12.5px; font-weight: 600; min-width: 0;
+  font-size: var(--fs-ui); font-weight: 600; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -1601,7 +1794,7 @@ pre {
 .canaux li { min-width: 0; }
 .canaux button {
   display: block; width: 100%; text-align: left;
-  font-family: var(--mono); font-size: 12px;
+  font-family: var(--mono); font-size: var(--fs-label);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 /* L'ÉTAT ACTIF EST DIT À LA MACHINE AUSSI. Les trois onglets d'avant ne
@@ -1622,9 +1815,9 @@ pre {
 .chatflux { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 .6rem; }
 .chatflux .fil { margin: .4rem 0; }
 /* Serré : une colonne de 22 rem n'a pas la place d'un message aéré. */
-.chatflux .message { padding: .35rem 0; font-size: 12.5px; }
-.chatflux .message .row { gap: .3rem; font-size: 11px; }
-.chatflux .texte { font-size: 12.5px; }
+.chatflux .message { padding: .35rem 0; font-size: var(--fs-ui); }
+.chatflux .message .row { gap: .3rem; font-size: var(--fs-label); }
+.chatflux .texte { font-size: var(--fs-ui); }
 
 /* LE CHAMP EST SOUS LE FLUX, ET C'EST LE DÉFAUT QU'ON RÉPARE. Il vivait au
    bas de la colonne de gauche, sous toute la charte : à huit cents pixels du
@@ -1635,7 +1828,7 @@ pre {
 }
 .chatsaisie textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 .chatsaisie .row { margin-top: .4rem; align-items: center; }
-.chatsaisie .aide { margin: .3rem 0 0; font-size: 11px; }
+.chatsaisie .aide { margin: .3rem 0 0; font-size: var(--fs-label); }
 /* La case « en privé » et l'étape qu'elle déplie. */
 .chatprive { margin-top: .4rem; }
 .chatprive .choix { margin: .35rem 0 0; }
@@ -1669,14 +1862,14 @@ pre {
   width: 11rem;
   padding: .25rem .45rem;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--fg);
   background: var(--card);
   border: 1px solid var(--line-2);
   border-radius: var(--coin);
 }
 .allerdit {
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--muted);
 }
 
@@ -1691,11 +1884,10 @@ pre {
 }
 #raccourcis[hidden] { display: none; }
 #raccourcis h2 { font-size: .95rem; margin: 0 0 .35rem; }
-#raccourcis .sous { margin: 0 0 .8rem; font-size: 12px; color: var(--muted); }
+#raccourcis .sous { margin: 0 0 .8rem; font-size: var(--fs-label); color: var(--muted); }
 #raccourcis h3 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .06em;
+  font-size: var(--fs-label);
+  font-weight: 700;
   color: var(--muted);
   margin: .9rem 0 .35rem;
   padding-bottom: .2rem;
@@ -1706,7 +1898,7 @@ pre {
   grid-template-columns: auto 1fr;
   gap: .3rem .8rem;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .touches dt { white-space: nowrap; }
 .touches dd { margin: 0; }
@@ -1715,11 +1907,11 @@ pre {
   padding: .05rem .3rem;
   margin-right: .15rem;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--fg);
   background: var(--card);
   border: 1px solid var(--line-2);
   border-radius: var(--coin);
 }
-.touches .apropos { display: block; color: var(--muted); font-size: 11px; }
+.touches .apropos { display: block; color: var(--muted); font-size: var(--fs-label); }
 #raccourcis .row { display: flex; justify-content: flex-end; margin-top: .9rem; }

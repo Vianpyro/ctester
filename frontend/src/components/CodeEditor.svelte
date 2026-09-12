@@ -82,6 +82,11 @@
   <!-- `wrapRole` IS THE PANEL THE TABS GOVERN. `role="tab"` used to be set with
        neither `aria-controls` nor a `tabpanel`: a screen reader announced a tab
        whose panel it could not find, and partial ARIA is worse than none. -->
+  <!-- « Écris » ET PAS « Colle » dans le placeholder. C'est le premier texte lu à
+       l'intérieur de l'éditeur, et il demandait le mauvais geste : coller suppose un
+       fichier déjà écrit ailleurs, alors que l'éditeur est fait pour y travailler --
+       il enregistre tout seul, colore, vérifie la syntaxe et suit l'équipe. Coller
+       reste possible, et « Importer un fichier » est juste en dessous. -->
   <CodeSurface
     bind:element={zone}
     value={editor.text}
@@ -90,7 +95,7 @@
     onScrolled={() => editor.notify("onScroll")}
     readOnly={editor.readOnly}
     label={"Code de " + (editor.activeFile ?? "")}
-    placeholder="// Colle ici le contenu de ton fichier"
+    placeholder="// Écris ton code ici"
     wrapRole="tabpanel"
   >
     <!-- TEAMMATES' CARETS, on their own layer and AFTER the textarea so they draw

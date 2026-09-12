@@ -21,13 +21,30 @@ export type Theme = "light" | "dark";
 
 const THEME_KEY = "ctester.theme";
 
+/**
+ * LE THÈME RÉELLEMENT À L'ÉCRAN, ET IL Y A TROIS CAS, PAS DEUX.
+ *
+ * `public/theme.js` ne pose l'attribut QUE si un choix a été enregistré. Sans
+ * attribut, c'est désormais `prefers-color-scheme` qui peint -- donc lire l'attribut
+ * seul rendait « dark » pendant que la page était claire. Le bouton annonçait alors
+ * « Passer au thème clair » sur une page déjà claire, et le premier clic ne faisait
+ * rien de visible : il écrivait le thème qu'on regardait déjà.
+ *
+ * L'ordre compte : un choix explicite bat le système, dans les deux sens.
+ */
 function fromDocument(): Theme {
   if (typeof document === "undefined") return "dark";
-  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  const chosen = document.documentElement.dataset.theme;
+  if (chosen === "light" || chosen === "dark") return chosen;
+  // Aucun choix enregistré : c'est le système qui décide, comme le CSS.
+  if (typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches) {
+    return "light";
+  }
+  return "dark";
 }
 
 class ThemeState {
-  /** The theme actually on screen. Dark is the default, deliberately. */
+  /** Le thème réellement à l'écran : un choix enregistré, sinon celui du système. */
   current = $state<Theme>(fromDocument());
 
   apply(name: Theme): void {

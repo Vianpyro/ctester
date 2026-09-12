@@ -230,8 +230,29 @@ describe("the anonymous page", () => {
     expect(strip.hidden).toBe(false);
     expect(strip.textContent).toContain("ex.1");
     expect(strip.textContent).toContain("ex.2");
-    // The legend is what makes those borders readable without colour.
-    expect(document.getElementById("striplegend")!.hidden).toBe(false);
+    // LA LÉGENDE A DISPARU, ET C'EST CE QUI EST ÉPROUVÉ MAINTENANT. Elle expliquait
+    // cinq styles de bordure en permanence à l'écran ; une interface qui a besoin
+    // d'une clé pour lire une rangée de boutons est une interface ratée. Ce qui la
+    // remplace se lit sans clé -- `✓` et fond teinté, `🔒` et sa date, bordure épaisse
+    // pour « ouvert ici » -- et les deux CATÉGORIES qu'aucun symbole ne dit portent
+    // leur mot SUR la tuile, ce qui est la moitié qui rend la suppression gratuite.
+    expect(document.getElementById("striplegend")).toBeNull();
+    // `#labcontext` a fondu dans la bande pour la même raison : son nom de labo était
+    // déjà dans `#now`, et ses deux boutons ouvraient le même menu.
+    expect(document.getElementById("labcontext")).toBeNull();
+    expect(strip.textContent).toContain("Tous les exercices");
+  });
+
+  it("porte le mot des deux catégories sur la tuile, puisqu'il n'y a plus de légende", async () => {
+    await render();
+    // LE CONTRÔLE QUI REMPLACE LA LÉGENDE. Sans ce mot, supprimer `#striplegend` était
+    // une perte : les tirets d'un bonus ne se devinent pas. Avec lui, ils sont une
+    // redondance utile plutôt que le seul porteur de l'information.
+    const strip = document.getElementById("bandelabo")!;
+    const bonus = [...strip.querySelectorAll<HTMLElement>(".tile")].find((b) =>
+      b.title.startsWith("ex.3"),
+    )!;
+    expect(bonus.textContent).toContain("bonus");
   });
 
   it("dashes the bonus tile from the flag, layered over its progress class", async () => {
@@ -240,7 +261,11 @@ describe("the anonymous page", () => {
     // `normalize`; only a mounted strip proves it reaches the class that draws the dashes.
     // It did not: the class was guessed from the title, and the one exercise carrying the
     // flag is called "Puissance d'un treuil".
-    const tiles = [...document.getElementById("bandelabo")!.querySelectorAll("button")];
+    // `.tile` ET PAS `button` : la bande porte aussi le bouton « Tous les exercices »
+    // depuis que `#labcontext` a fondu dedans. Un sélecteur sur `button` le ramasserait,
+    // et les deux `find` ci-dessous ne tiendraient plus que par le fait que son `title`
+    // ne commence pas par « ex. » -- c'est-à-dire par chance.
+    const tiles = [...document.getElementById("bandelabo")!.querySelectorAll<HTMLElement>(".tile")];
     const bonus = tiles.find((b) => b.title.startsWith("ex.3"))!;
     expect([...bonus.classList]).toContain("bonus");
     // LAYERED LIKE `courant`, never instead of: a solved bonus must keep its tinted
