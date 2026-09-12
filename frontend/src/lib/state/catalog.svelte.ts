@@ -106,7 +106,7 @@ class CatalogState {
    * Load the release. Returns the id to open, or "" -- the caller decides what to
    * do with a locked deep link, because it is the one that can open the menu.
    */
-  async load(deepLink: string): Promise<string> {
+  async load(deepLink: string, remembered = ""): Promise<string> {
     const published = await fetchCatalog();
     this.loaded = true;
     if (!published || !Array.isArray(published.exercises)) {
@@ -134,7 +134,14 @@ class CatalogState {
     ) {
       this.spotlighted = deepLink;
     }
-    return openable ? deepLink : (this.catalog[0]?.id ?? "");
+    if (openable) return deepLink;
+    // LE DERNIER EXERCICE OUVERT SUR CET APPAREIL, s'il est ENCORE OUVRABLE. La
+    // condition est `this.catalog` -- la liste des exercices ouverts -- et pas le
+    // menu : un exercice archivé, ou dont la date est passée dans l'autre sens,
+    // ne doit pas rouvrir sur un 404. Il retombe alors sur le premier, ce que
+    // faisait déjà tout rechargement avant qu'on retienne quoi que ce soit.
+    if (remembered && this.catalog.some((t) => t.id === remembered)) return remembered;
+    return this.catalog[0]?.id ?? "";
   }
 }
 

@@ -143,6 +143,22 @@ h1 {
   font-size: .95rem; font-weight: 700; letter-spacing: .02em;
   margin: 0; white-space: nowrap;
 }
+/* LE TITRE EST UN BOUTON, ET IL NE DOIT PAS EN AVOIR L'AIR. La règle générique donne
+   à tout `button` un fond, une bordure et un padding : ici ça ferait une pastille là
+   où on attend le nom du site. On défait les trois et on garde ce qui compte -- une
+   cible de 36 px, un curseur, et un survol qui répond.
+   `:focus-visible` marche tel quel : c'est la règle globale, en 3 px. */
+#accueil {
+  display: inline-flex; align-items: baseline; gap: .55rem;
+  min-height: var(--tap); padding: 0 .2rem;
+  background: none; border: 0; color: inherit;
+  font: inherit; cursor: pointer;
+}
+/* LE SURVOL EST CE QUI DIT QUE C'EST CLIQUABLE, puisque rien d'autre ne le dit : pas
+   de bordure, pas de fond. L'accent sur le mot-symbole et le texte plein sur la
+   baseline -- deux changements minuscules, mais c'est le geste qui les déclenche. */
+#accueil:hover { color: var(--ink); }
+#accueil:hover .tagline { color: var(--fg); }
 .tagline { color: var(--muted); font-size: var(--fs-label); white-space: nowrap; }
 #live[hidden] { display: none; }
 #live::before {

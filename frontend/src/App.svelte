@@ -12,7 +12,7 @@
   import { MISSING_KEY_MESSAGE, captureAccessKey, sessionKey } from "./lib/state/accesskey";
   import { catalog } from "./lib/state/catalog.svelte";
   import { dock } from "./lib/state/dock.svelte";
-  import { exercise } from "./lib/state/exercise.svelte";
+  import { dernierExercice, exercise } from "./lib/state/exercise.svelte";
   import { presence } from "./lib/state/presence.svelte";
   import { profile } from "./lib/state/profile.svelte";
   import { statuses } from "./lib/state/statuses.svelte";
@@ -169,7 +169,11 @@
 
   async function start(deepLink: string, authCode: string | null, authState: string | null) {
     // THE CATALOG FIRST: it is what the anonymous path needs, and that is the default path.
-    const toOpen = await catalog.load(deepLink);
+    // ET LE LIEN PROFOND BAT LA MÉMOIRE, jamais l'inverse : `?tp=` est une intention
+    // écrite à l'instant -- un lien partagé, celui de Moodle -- alors que la mémoire
+    // est ce que cet appareil faisait la dernière fois. Les confondre ferait qu'un
+    // lien envoyé par l'enseignant ouvre l'exercice de la semaine dernière.
+    const toOpen = await catalog.load(deepLink, dernierExercice());
     if (catalog.spotlighted) menuOpen = true;
     if (toOpen) await exercise.open(toOpen);
     // EVERYTHING PUBLISHED, NOTHING OPEN YET: the normal state at the start of a term, not

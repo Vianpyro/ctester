@@ -15,8 +15,28 @@ import { editor, type EditorFile } from "./editor.svelte";
 import { quiz } from "./quiz.svelte";
 import { submission } from "./submission.svelte";
 import { session } from "../auth/session.svelte";
+import { localGet, localSet } from "../storage";
 import type { Exercise } from "../domain/catalog";
 import type { ExerciseDetail } from "../api/types";
+
+/**
+ * LE DERNIER EXERCICE OUVERT SUR CET APPAREIL.
+ *
+ * `localStorage` et pas le compte : c'est une commodité par APPAREIL, de la même
+ * famille que le thème lu avant la première peinture ou que le dock du chat -- pas
+ * un fait à conserver. Quelqu'un qui laisse son laboratoire en plan sur le poste du
+ * labo et rouvre son portable le soir reprend là où IL en est sur CE portable, ce
+ * qui est ce qu'on veut : c'est l'exercice qu'il regardait, pas une progression.
+ *
+ * ET C'EST UN IDENTIFIANT, RIEN D'AUTRE. Le brouillon vit déjà à côté, sous sa
+ * propre clé ; celle-ci ne fait que dire lequel rouvrir.
+ */
+const DERNIER = "ctester.exercice";
+
+/** L'exercice à rouvrir au chargement, ou "" -- lu par la coquille au démarrage. */
+export function dernierExercice(): string {
+  return localGet(DERNIER);
+}
 
 /** The statement's states. Four of them are about fetching; one is a format. */
 export type StatementState =
@@ -110,6 +130,13 @@ class ExerciseState {
       this.statement = { kind: "none" };
       return;
     }
+    // ON NE RETIENT QUE CE QUI A RÉSOLU. Écrire l'identifiant plus haut, à côté de
+    // `catalog.selectedId`, retiendrait aussi celui qui ne désigne rien -- et le
+    // rechargement suivant repartirait sur un exercice introuvable, donc sur le
+    // repli, en ayant l'air d'avoir oublié. L'échec d'écriture est muet exprès :
+    // `localSet` rend `false` en navigation privée, et une commodité qui ne peut
+    // pas être retenue ne vaut pas un message.
+    localSet(DERNIER, ex.id);
     if (ex.mode === "quiz") quiz.clear();
     const detail = await catalog.detail(ex.id);
     if (thisLoad !== this.#load) return;

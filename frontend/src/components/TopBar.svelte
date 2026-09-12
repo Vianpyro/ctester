@@ -44,8 +44,24 @@
 </script>
 
 <div id="top">
-  <h1>TCH009</h1>
-  <span class="tagline">Tester mon code</span>
+  <!-- LE TITRE RAMÈNE À L'EXERCICE, et c'est le geste que tout le monde essaie déjà :
+       cliquer le nom du site pour rentrer. Il n'y avait aucun retour depuis « Mes
+       progrès » ou le classement sauf recliquer le bouton par lequel on était venu --
+       c'est-à-dire se souvenir d'où on venait, ce qui est exactement ce qu'on ne fait
+       pas quand on s'est perdu.
+       LE COMPTEUR DE PRÉSENCE RESTE DEHORS : c'est une information qui change toute
+       seule, pas une commande, et l'avaler dans la cible de clic ferait un bouton dont
+       le libellé bouge. -->
+  <h1>
+    <button
+      type="button"
+      id="accueil"
+      title="Revenir à l'exercice"
+      onclick={() => view.show("")}
+    >
+      TCH009<span class="tagline">Tester mon code</span>
+    </button>
+  </h1>
   <!-- A FAILURE OF THE COUNTER IS INVISIBLE: it stays hidden. It must never get in
        the way of an exercise. -->
   <span id="live" class="tagline" aria-live="polite" hidden={presence.count === null}>

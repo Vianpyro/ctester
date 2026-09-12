@@ -127,6 +127,10 @@ beforeEach(() => {
   drafts.clearAll();
   session.deployment = null;
   session.setToken(null);
+  // LE DERNIER EXERCICE OUVERT SURVIT À UN DÉMONTAGE, puisqu'il vit dans
+  // `localStorage` : sans cette ligne, le premier test qui ouvre un exercice
+  // choisirait celui du suivant, et l'ordre des tests deviendrait une donnée.
+  localStorage.removeItem("ctester.exercice");
 });
 
 afterEach(() => {
@@ -276,6 +280,53 @@ describe("the anonymous page", () => {
     const ordinary = tiles.find((b) => b.title.startsWith("ex.2"))!;
     expect([...ordinary.classList]).not.toContain("bonus");
     expect(ordinary.title).not.toContain("bonus");
+  });
+
+  it("ramene a l'exercice quand on clique le titre, depuis n'importe quel ecran", async () => {
+    await render();
+    const { view } = await import("../src/lib/state/view.svelte");
+    view.show("progres");
+    flushSync();
+    expect(document.getElementById("travail")!.hidden).toBe(true);
+    // LE GESTE QUE TOUT LE MONDE ESSAIE DEJA : cliquer le nom du site pour rentrer.
+    // Avant, le seul retour etait de recliquer le bouton par lequel on etait venu --
+    // c'est-a-dire de se souvenir d'ou on venait, ce qu'on ne fait pas quand on
+    // s'est perdu.
+    (document.getElementById("accueil") as HTMLButtonElement).click();
+    flushSync();
+    expect(document.getElementById("travail")!.hidden).toBe(false);
+    expect(view.current).toBe("");
+  });
+
+  it("rouvre le dernier exercice au rechargement, et le lien profond le bat", async () => {
+    // CE QUE ÇA RÉPARE : `catalog.load` retombait sur `catalog[0]`, donc un
+    // rechargement ramenait TOUJOURS au premier exercice publié -- même après une
+    // heure passée sur ex.3. Un rechargement est fréquent (une connexion qui revient,
+    // un onglet rouvert le mardi suivant), et repartir de zéro à chaque fois est la
+    // définition d'un travail perdu de vue.
+    localStorage.setItem("ctester.exercice", "tp2-ex3");
+    await render();
+    expect(document.getElementById("now")!.textContent).toContain("ex.3");
+
+    // ET LA PRÉCÉDENCE, qui est la moitié qu'on casserait sans s'en apercevoir : un
+    // `?tp=` est une intention écrite À L'INSTANT -- un lien de Moodle, un lien
+    // partagé -- et doit battre ce que cet appareil faisait la dernière fois.
+    unmount(app!);
+    app = null;
+    document.body.innerHTML = "";
+    host = document.body;
+    history.replaceState({}, "", "/?tp=tp2-ex2");
+    await render();
+    expect(document.getElementById("now")!.textContent).toContain("ex.2");
+    history.replaceState({}, "", "/");
+  });
+
+  it("retombe sur le premier exercice quand le dernier n'est plus ouvrable", async () => {
+    // UN EXERCICE QUI S'EST REFERMÉ NE DOIT PAS ROUVRIR SUR UN 404 : la condition est
+    // la liste des exercices OUVERTS, pas le menu, qui porte aussi les verrouillés.
+    localStorage.setItem("ctester.exercice", "tp9-ex1");
+    await render();
+    expect(document.getElementById("now")!.textContent).toContain("ex.1 conversion");
   });
 
   it("keeps the menu's locked exercise reachable, with its date", async () => {
