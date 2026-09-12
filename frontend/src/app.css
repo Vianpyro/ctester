@@ -215,7 +215,7 @@ main {
 #consignetexte.vide { font-family: var(--sans); color: var(--muted); }
 /* UNE CONSIGNE TYPST : DES PAGES DÉJÀ PEINTES, donc aucun padding et aucune
    police ici -- la marge, le corps et la palette sont DANS le SVG, rendus à la
-   largeur de cette colonne (320 pt, voir typst/.../theme.typ). Poser un padding
+   largeur de cette colonne (160 pt, voir typst/.../theme.typ). Poser un padding
    en plus ajouterait une gouttière autour d'une image qui porte déjà la sienne.
    Le fond est celui du panneau parce que le SVG le peint aussi : les deux se
    rejoignent exactement, et un thème qui changerait avant que l'autre image

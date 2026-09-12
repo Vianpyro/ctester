@@ -812,11 +812,11 @@ def test_typst_la_cle_de_cache_porte_tout_ce_dont_le_rendu_depend():
         theme = os.path.join(typst_build.LIB, "themes", "ctester-dark.tmTheme")
         garde = lire(theme)
         try:
-            with open(theme, "a", encoding="utf-8") as fh:
+            with open(theme, "a", encoding="utf-8", newline="") as fh:
                 fh.write("\n<!-- x -->\n")
             assert typst_build.fingerprint(exercise, version="0.15.1") != apres_image
         finally:
-            with open(theme, "w", encoding="utf-8") as fh:
+            with open(theme, "w", encoding="utf-8", newline="") as fh:
                 fh.write(garde)
         assert typst_build.fingerprint(exercise, version="0.15.1") == apres_image
     finally:
