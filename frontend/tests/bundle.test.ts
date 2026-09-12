@@ -140,7 +140,7 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     }
   });
 
-  it("stays under 140 KB of eager JavaScript", () => {
+  it("stays under 144 KB of eager JavaScript", () => {
     // NOT A BUDGET FOR ITS OWN SAKE. It sits a few percent above what the build currently
     // produces (~135 KB raw), so a jump past it means something was accidentally pulled
     // into the entry -- which is the only way this number moves by a lot.
@@ -154,6 +154,17 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     // own, asserted below -- and that split is the reason the number is 140 and
     // not 145.
     //
+    // IT MOVED A SECOND TIME, 140 -> 144, AND HERE IS WHAT MOVED IN: the Typst
+    // statement path (+2,055 bytes measured -- 138,957 before, 141,012 after).
+    // That is `components/TypstStatement.svelte`, the fifth statement state and
+    // the two wire fields `fetchDetail` now reads. It is EAGER for the same
+    // reason `math.ts` is: an anonymous student reads statements, and deferring
+    // it would mean a blank panel plus one HTTP round trip for a kilobyte.
+    // What did NOT move in is Typst itself -- there is none in the browser, and
+    // there never will be: the pages are SVG files rendered at publish time
+    // (see typst_build.py), so this component only picks a theme and writes
+    // `<img>` tags.
+    //
     // WHAT WENT IN SINCE, AND WHY IT DID NOT MOVE THE NUMBER: `domain/math.ts`, the
     // MathML renderer for a statement's `$...$`, costs ~3.5 KB and is EAGER because
     // an anonymous student reads statements -- deferring it would flash an unrendered
@@ -163,11 +174,14 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     // before its stylesheet; rendering the statement with `marked` instead of
     // `lib/domain/statement.ts` would have added 74 KB here on its own, and drawing
     // its formulas with KaTeX another 280 KB plus a `font-src` in two CSP copies.
+    // For the same scale: `merman`, the Mermaid renderer a Typst statement can
+    // use, is 7.6 MB of WebAssembly -- and it weighs exactly zero here, because
+    // it runs on the build machine and the student receives a picture.
     const bytes = eagerChunks().reduce(
       (n, name) => n + readFileSync(join(DIST, "assets", name)).byteLength,
       0,
     );
-    expect(bytes).toBeLessThan(140_000);
+    expect(bytes).toBeLessThan(144_000);
   });
 
   it("keeps the shortcuts WORKING but the cheat sheet DEFERRED", () => {

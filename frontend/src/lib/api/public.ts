@@ -25,6 +25,14 @@ import type {
 export const fetchCatalog = (): Promise<PublishedRelease | null> =>
   getPublic<PublishedRelease>("catalog.json");
 
+/** Ce que `/tp/<id>.json` peut porter, avant vérification. */
+type Wire = {
+  statement?: unknown;
+  statement_format?: unknown;
+  statement_pages?: unknown;
+  files?: unknown;
+};
+
 /**
  * An exercise's statement and templates, fetched when it is OPENED. They would
  * make up three quarters of the catalog for 73 exercises of which one is
@@ -35,9 +43,7 @@ export const fetchCatalog = (): Promise<PublishedRelease | null> =>
  */
 export async function fetchDetail(id: string, staff = false): Promise<ExerciseDetail> {
   const path = "tp/" + encodeURIComponent(id) + ".json";
-  const answer = staff
-    ? await authRequest<{ statement?: unknown; files?: unknown }>(path)
-    : await request<{ statement?: unknown; files?: unknown }>(path);
+  const answer = staff ? await authRequest<Wire>(path) : await request<Wire>(path);
   if (!answer.ok || !answer.body) {
     // Network down, missing detail: the page is NOT blocked. The statement falls
     // back to its default message and the editor to empty templates -- file NAMES
@@ -47,10 +53,24 @@ export async function fetchDetail(id: string, staff = false): Promise<ExerciseDe
     return { statement: "", files: [], offline: true };
   }
   const d = answer.body;
-  return {
+  const detail: ExerciseDetail = {
     statement: typeof d.statement === "string" ? d.statement : "",
     files: Array.isArray(d.files) ? (d.files as ExerciseDetail["files"]) : [],
   };
+  // LE FORMAT ET LE NOMBRE DE PAGES SONT LUS AVEC LA MÊME DÉFIANCE QUE LE RESTE.
+  // Un `statement_pages` qui ne serait pas un entier positif ferait dessiner
+  // zéro image sous un panneau vide ; on retombe alors sur le Markdown, qui dit
+  // « pas de consigne en ligne » et propose de réessayer.
+  if (
+    d.statement_format === "typst" &&
+    typeof d.statement_pages === "number" &&
+    Number.isInteger(d.statement_pages) &&
+    d.statement_pages > 0
+  ) {
+    detail.statement_format = "typst";
+    detail.statement_pages = d.statement_pages;
+  }
+  return detail;
 }
 
 export async function fetchQuiz(id: string, staff = false): Promise<QuizPayload | null> {

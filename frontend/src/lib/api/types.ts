@@ -77,7 +77,16 @@ export interface PublishedAssignment {
 
 /** `/tp/<id>.json`: the statement and the templates, fetched when opened. */
 export interface ExerciseDetail {
+  /** THE MARKDOWN, AND IT STAYS A STRING. A Typst statement answers `""` here
+   *  and carries the two fields below instead -- so a page still sitting in a
+   *  student's cache reads an empty statement and says "no statement online",
+   *  rather than throwing on an object where it expected text. */
   statement: string;
+  /** Absent for Markdown. `"typst"` means the statement is N rendered pages. */
+  statement_format?: "typst";
+  /** A COUNT, never a path: the page rebuilds
+   *  `/statement/<id>/<theme>-<n>.svg` from the id it already holds. */
+  statement_pages?: number;
   files: { name: string; template?: string }[];
   /** Set by the client when the fetch failed: NOT a property of the exercise. */
   offline?: boolean;

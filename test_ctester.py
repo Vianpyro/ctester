@@ -44,6 +44,7 @@ sys.path[:0] = [HERE, os.path.join(HERE, "app")]
 
 import content_catalog as content_catalogue  # noqa: E402
 import publish_content  # noqa: E402
+import typst_build  # noqa: E402
 import config     # noqa: E402
 import csp        # noqa: E402
 import state      # noqa: E402
@@ -618,6 +619,450 @@ def test_content_v2_projection_refuse_une_cle_privee():
         content_catalogue.public_detail = original
 
 
+# --- Les énoncés Typst ---------------------------------------------------------
+# Le rendu lui-même demande typst (`CTESTER_TYPST_BIN`, ou Docker). Ce qui ne
+# dépend PAS de typst -- la collision de formats, la forme de la projection, les
+# ceintures, la clé de cache -- est éprouvé sans lui, parce que cette suite
+# tourne sur le Dell avec le python de l'hôte.
+
+
+def _contenu_typst(root, statement=None, ouvert=True):
+    """Une racine v2 d'un seul exercice, dont l'énoncé est du Typst."""
+    _write_json(os.path.join(root, "catalog.json"), {"schema_version": 1, "skills": []})
+    exercise = os.path.join(root, "exercises", "demo")
+    _write_json(os.path.join(exercise, "exercise.json"), {
+        "schema_version": 1, "id": "demo", "title": "Démo",
+        "release": {"state": "available"} if ouvert else
+                   {"state": "scheduled", "available_from": "2099-01-01T00:00:00-05:00"}})
+    _write_json(os.path.join(exercise, "assessment", "io.json"),
+                {"cases": [{"stdin": "1\n", "expect": [1]}]})
+    _write_json(os.path.join(exercise, "public", "files.json"),
+                {"files": [{"name": "submission.c", "template": ""}]})
+    with open(os.path.join(exercise, "statement.typ"), "w", encoding="utf-8") as fh:
+        fh.write(statement if statement is not None else "= Titre\n\nDu texte.\n")
+    return exercise
+
+
+def _typst_dispo():
+    """Un moteur typst est-il joignable ? Sinon le contrôle de rendu saute.
+
+    MÊME DESSIN QUE `bundle.test.ts` SANS `dist/` : un dépôt frais ne doit pas
+    exiger Docker pour lancer la suite, et la CI, elle, pose
+    `CTESTER_TYPST_BIN` -- donc ces contrôles-là y tournent vraiment.
+    """
+    try:
+        typst_build._version()
+        return True
+    except typst_build.TypstError:
+        return False
+
+
+def test_typst_un_seul_format_de_statement_a_la_fois():
+    """statement.md ET statement.typ : une erreur nommée, jamais un choix muet.
+
+    Choisir en silence voudrait dire qu'un auteur qui migre un énoncé et oublie
+    d'effacer l'ancien corrige un fichier que personne ne lit -- et ne comprend
+    pas pourquoi sa correction n'arrive jamais à l'écran.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        exercise = _contenu_typst(root)
+        # Typst seul : le modèle est valide et porte le format.
+        modele = content_catalogue.discover(root)
+        assert modele["exercises"]["demo"]["statement_format"] == "typ"
+        assert modele["exercises"]["demo"]["statement"] == "", modele["exercises"]["demo"]
+
+        # Markdown seul : RIEN NE CHANGE, et c'est la moitié qui compte.
+        os.remove(os.path.join(exercise, "statement.typ"))
+        with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("Consigne.")
+        modele = content_catalogue.discover(root)
+        assert modele["exercises"]["demo"]["statement_format"] == "md"
+        assert modele["exercises"]["demo"]["statement"] == "Consigne."
+        assert content_catalogue.public_detail(modele, "demo") == {
+            "statement": "Consigne.",
+            "files": [{"name": "submission.c", "template": ""}]}, "le Markdown a bougé"
+
+        # Les deux : refusé, en nommant les deux fichiers.
+        with open(os.path.join(exercise, "statement.typ"), "w", encoding="utf-8") as fh:
+            fh.write("= x\n")
+        try:
+            content_catalogue.discover(root)
+        except content_catalogue.ContentValidationError as exc:
+            assert "statement.md ET statement.typ" in str(exc), exc
+        else:
+            raise AssertionError("les deux formats ont été acceptés")
+
+        # Aucun des deux : refusé aussi.
+        os.remove(os.path.join(exercise, "statement.md"))
+        os.remove(os.path.join(exercise, "statement.typ"))
+        try:
+            content_catalogue.discover(root)
+        except content_catalogue.ContentValidationError as exc:
+            assert "il manque statement.md ou statement.typ" in str(exc), exc
+        else:
+            raise AssertionError("un exercice sans consigne a été accepté")
+    finally:
+        shutil.rmtree(root)
+
+
+def test_typst_le_detail_public_porte_un_compte_et_aucun_chemin():
+    """`statement` reste une CHAÎNE, et rien du serveur ne dicte une URL.
+
+    La page reconstruit `/statement/<id>/<theme>-<n>.svg` depuis l'identifiant
+    qu'elle a déjà -- même règle que `source_publiee()`, qui reconstruit son
+    chemin depuis l'entrée trouvée au lieu d'en concaténer un qu'on lui tend.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _contenu_typst(root)
+        modele = content_catalogue.discover(root)
+        detail = content_catalogue.public_detail(modele, "demo", pages=3)
+        assert detail["statement"] == "", detail
+        assert detail["statement_format"] == "typst", detail
+        assert detail["statement_pages"] == 3, detail
+        blob = json.dumps(detail)
+        for interdit in ("statements/", ".svg", "/", "typ\""):
+            assert interdit not in blob.replace("\"statement_format\"", ""), (interdit, blob)
+    finally:
+        shutil.rmtree(root)
+
+
+def test_typst_la_projection_refuse_une_source_et_un_actif_inattendu():
+    """Les deux ceintures : aucune source ne sort, et rien d'autre qu'une page.
+
+    `INTERDIT` attrape la clé d'un corrigé ; celles-ci attrapent le FICHIER
+    qu'on ajouterait demain à la projection. Un `statement.typ` est du contenu
+    privé -- l'étudiant reçoit ce qui en a été rendu, pas de quoi le recompiler.
+    """
+    modele = {"schema_version": 1, "skills": [], "collections": {}, "assignments": {},
+              "exercises": {"x": {"id": "x", "title": "X", "release": {"state": "available"},
+                                  "skills": [], "mode": "io", "summary": "",
+                                  "difficulty": None, "contexts": [], "statement": "",
+                                  "statement_format": "md", "files": [], "config": {}}}}
+    original = content_catalogue.public_detail
+    try:
+        for faux, attendu in (
+                ({"x/statement.typ": {"a": 1}}, "Typst source reached"),
+                ({"statements/x/dark-99.svg": b"<svg/>"}, "unexpected binary artefact"),
+                ({"autre/chose.bin": b"\0\0"}, "unexpected binary artefact"),
+                ({"staff/statements/x/dark-1.svg": b"<svg/>"}, None),
+                ({"statements/x/light-16.svg": b"<svg/>"}, None)):
+            content_catalogue.public_detail = lambda *a, **k: {"statement": ""}
+            fichiers = publish_content.projection(modele)
+            fichiers.update(faux)
+            # On rejoue la ceinture telle qu'elle est écrite, sur la projection.
+            mauvais = [c for c, v in fichiers.items()
+                       if c.endswith(".typ")
+                       or (isinstance(v, bytes) and not publish_content.ACTIF_RE.match(c))]
+            if attendu is None:
+                assert not mauvais, (faux, mauvais)
+            else:
+                assert mauvais == list(faux), (faux, mauvais)
+    finally:
+        content_catalogue.public_detail = original
+
+
+def test_typst_la_revision_bouge_quand_un_rendu_bouge():
+    """Sans ça, un `.tmTheme` corrigé ne serait jamais servi.
+
+    Un rendu modifié ne change AUCUN JSON : si seule la part JSON était hachée,
+    la révision resterait la même, le répertoire existerait déjà, et `publish()`
+    n'écrirait rien. La correction ne serait donc jamais visible -- et le
+    rollback ne pourrait pas revenir dessus non plus.
+    """
+    base = {"catalog.json": {"schema_version": 1},
+            "statements/x/dark-1.svg": b"<svg>A</svg>"}
+    autre = dict(base, **{"statements/x/dark-1.svg": b"<svg>B</svg>"})
+    assert publish_content.revision(base) != publish_content.revision(autre)
+    assert publish_content.revision(base) == publish_content.revision(dict(base))
+
+
+def test_typst_la_cle_de_cache_porte_tout_ce_dont_le_rendu_depend():
+    """Un thème, une macro, une image, une version : la clé change.
+
+    Il n'y a donc AUCUN numéro de version de cache à incrémenter à la main --
+    celui-là serait oublié exactement le jour où il compte, comme
+    `empreinte_juge()` le dit déjà du cache de verdicts.
+    """
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        exercise = _contenu_typst(root)
+        depart = typst_build.fingerprint(exercise, version="0.15.1")
+        assert depart == typst_build.fingerprint(exercise, version="0.15.1")
+        # La version de typst.
+        assert typst_build.fingerprint(exercise, version="0.99.0") != depart
+        # Le statement lui-même.
+        with open(os.path.join(exercise, "statement.typ"), "a", encoding="utf-8") as fh:
+            fh.write("Une ligne de plus.\n")
+        apres_texte = typst_build.fingerprint(exercise, version="0.15.1")
+        assert apres_texte != depart
+        # Une image de l'exercice.
+        os.makedirs(os.path.join(exercise, "images"), exist_ok=True)
+        with open(os.path.join(exercise, "images", "x.svg"), "w", encoding="utf-8") as fh:
+            fh.write("<svg/>")
+        apres_image = typst_build.fingerprint(exercise, version="0.15.1")
+        assert apres_image != apres_texte
+        # `assessment/` N'Y ENTRE PAS : un cas de test corrigé ne doit pas
+        # recompiler tous les énoncés du semestre, et il ne change pas le rendu.
+        _write_json(os.path.join(exercise, "assessment", "io.json"),
+                    {"cases": [{"stdin": "9\n", "expect": [9]}]})
+        assert typst_build.fingerprint(exercise, version="0.15.1") == apres_image
+        # La bibliothèque partagée : le gabarit, la palette, les deux .tmTheme.
+        theme = os.path.join(typst_build.LIB, "themes", "ctester-dark.tmTheme")
+        garde = lire(theme)
+        try:
+            with open(theme, "a", encoding="utf-8") as fh:
+                fh.write("\n<!-- x -->\n")
+            assert typst_build.fingerprint(exercise, version="0.15.1") != apres_image
+        finally:
+            with open(theme, "w", encoding="utf-8") as fh:
+                fh.write(garde)
+        assert typst_build.fingerprint(exercise, version="0.15.1") == apres_image
+    finally:
+        shutil.rmtree(root)
+
+
+def test_typst_le_cache_ne_vit_jamais_sous_published():
+    """`_elaguer()` efface tout répertoire de `published/` qui n'est pas une
+    révision gardée : un cache posé là serait effacé à la publication suivante,
+    et chaque tick recompilerait tout le semestre."""
+    garde = dict(os.environ)
+    try:
+        os.environ.pop("CTESTER_TYPST_CACHE", None)
+        os.environ["CTESTER_PUBLISHED"] = "/opt/ctester/published"
+        chemin = typst_build.cache_dir()
+        assert not chemin.startswith("/opt/ctester/published/"), chemin
+        assert chemin == "/opt/ctester/typst-cache", chemin
+        os.environ["CTESTER_TYPST_CACHE"] = "/ailleurs"
+        assert typst_build.cache_dir() == "/ailleurs"
+    finally:
+        os.environ.clear()
+        os.environ.update(garde)
+
+
+def test_typst_mermaid_n_a_qu_une_seule_porte():
+    """`merman` n'est importé que par `mermaid.typ`, et sa version est exacte.
+
+    Même dessin que `test_forum_bibliotheques_epinglees` : une bibliothèque
+    tierce a UN point d'entrée nommé, sinon sa mise à jour se fait à six
+    endroits dont un qu'on oublie. Ici elle pèse 7,6 Mo de WebAssembly, et elle
+    ne descend chez personne -- elle tourne sur la machine de build.
+    """
+    porte = os.path.join(typst_build.LIB, "mermaid.typ")
+    assert '@preview/merman:0.3.0' in lire(porte), porte
+    for racine, _, fichiers in os.walk(typst_build.LIB):
+        for nom in fichiers:
+            chemin = os.path.join(racine, nom)
+            if chemin == porte or not nom.endswith(".typ"):
+                continue
+            assert "merman" not in lire(chemin), chemin
+    # Et le paquet vendoré porte bien cette version-là.
+    manifeste = os.path.join(typst_build.PACKAGES, "preview", "merman", "0.3.0",
+                             "typst.toml")
+    assert 'version = "0.3.0"' in lire(manifeste), manifeste
+
+
+def test_le_theme_typst_porte_les_couleurs_de_la_page():
+    """Les deux `.tmTheme` et `app.css` disent la MÊME chose, teinte par teinte.
+
+    Deux colorations pour un seul langage doivent s'accorder : sinon l'étudiant
+    lit un `int` bleu dans son éditeur et vert dans sa consigne. Même dessin que
+    `test_csp_du_document`, qui compare les deux copies de la CSP -- éditer
+    l'une sans l'autre échoue ici.
+    """
+    css = lire(os.path.join(HERE, "frontend", "src", "app.css"))
+    # Les sept classes de `lib/domain/highlight.ts`, dans l'ordre du CLASS.
+    classes = ("comment", "string", "pre", "key", "num", "fn", "const")
+    for theme, bloc in (("dark", css.split(":root {")[1].split("}")[0]),
+                        ("light", css.split(':root[data-theme="light"] {')[1].split("}")[0])):
+        attendues = {}
+        for classe in classes:
+            trouve = re.search(r"--syn-%s:\s*(#[0-9a-fA-F]{6})" % classe, bloc)
+            assert trouve, (theme, classe)
+            attendues[classe] = trouve.group(1).lower()
+        tm = lire(os.path.join(typst_build.LIB, "themes", "ctester-%s.tmTheme" % theme))
+        for classe, couleur in attendues.items():
+            assert couleur in tm.lower(), (
+                "la couleur --syn-%s du theme %s (%s) manque dans le .tmTheme : "
+                "l'editeur et la consigne coloreraient le meme C differemment"
+                % (classe, theme, couleur))
+        # Le corps et le fond du bloc, eux aussi.
+        for variable in ("--fg", "--panel"):
+            trouve = re.search(r"%s:\s*(#[0-9a-fA-F]{3,6})" % variable, bloc)
+            assert trouve and trouve.group(1).lower() in tm.lower(), (theme, variable)
+
+
+def test_typst_root_refuse_de_sortir_du_repertoire_de_l_exercice():
+    """LA FRONTIÈRE DE FICHIERS, ÉPROUVÉE PLUTÔT QUE SUPPOSÉE.
+
+    Deux couches, et les deux comptent :
+      1. on compile depuis une COPIE qui ne porte pas `assessment/`, donc un
+         corrigé n'est pas sur le disque que typst voit ;
+      2. `--root` est posé sur cette copie, donc `..` et un chemin absolu sont
+         refusés par typst lui-même.
+
+    Les cinq attaques ci-dessous ont été passées à la main avant d'être écrites
+    ici ; typst répond « would escape the project root » aux trois relatives et
+    ré-enracine les absolues dans la copie, où elles ne trouvent rien.
+    """
+    if not _typst_dispo():
+        print("     (sauté : ni CTESTER_TYPST_BIN ni Docker)")
+        return
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    cache = tempfile.mkdtemp(prefix="ctester-typst-cache-")
+    garde = os.environ.get("CTESTER_TYPST_CACHE")
+    try:
+        os.environ["CTESTER_TYPST_CACHE"] = cache
+        with open(os.path.join(root, "secret.txt"), "w", encoding="utf-8") as fh:
+            fh.write("SECRET-DU-BUILD")
+        exercise = _contenu_typst(root)
+        for attaque in ('#read("../../secret.txt")',
+                        '#read("/etc/passwd")',
+                        '#read("assessment/io.json")',
+                        '#include "../../secret.txt"',
+                        '#image("../../../etc/hostname")'):
+            with open(os.path.join(exercise, "statement.typ"), "w", encoding="utf-8") as fh:
+                fh.write(attaque + "\n")
+            try:
+                typst_build.render(exercise, "demo")
+            except typst_build.TypstError as exc:
+                assert "SECRET-DU-BUILD" not in str(exc), (attaque, exc)
+            else:
+                raise AssertionError("une lecture hors de l'exercice a réussi : "
+                                     + attaque)
+    finally:
+        if garde is None:
+            os.environ.pop("CTESTER_TYPST_CACHE", None)
+        else:
+            os.environ["CTESTER_TYPST_CACHE"] = garde
+        shutil.rmtree(root)
+        shutil.rmtree(cache)
+
+
+def test_typst_la_fixture_compile_vraiment_dans_les_deux_themes():
+    """LE CONTRÔLE QUI PROUVE LA FONCTIONNALITÉ, et il compile pour de vrai.
+
+    La fixture porte tout ce que le pipeline promet : titre, prose, code C
+    colorié, maths inline et une somme, un tableau, un tableau CALCULÉ, une
+    image, un diagramme Mermaid et un saut de page. Si l'un d'eux casse, c'est
+    ici qu'on l'apprend -- pas à la publication d'un vendredi soir.
+    """
+    if not _typst_dispo():
+        print("     (sauté : ni CTESTER_TYPST_BIN ni Docker)")
+        return
+    cache = tempfile.mkdtemp(prefix="ctester-typst-cache-")
+    garde = os.environ.get("CTESTER_TYPST_CACHE")
+    try:
+        os.environ["CTESTER_TYPST_CACHE"] = cache
+        fixture = os.path.join(HERE, "typst", "fixture")
+        rendu, du_cache = typst_build.render(fixture, "fixture-typst")
+        assert du_cache is False, "un cache frais ne peut pas déjà servir"
+        assert sorted(rendu) == ["dark", "light"], sorted(rendu)
+        assert len(rendu["dark"]) >= 2, "le #pagebreak() n'a pas produit deux pages"
+        assert len(rendu["dark"]) == len(rendu["light"]), "les deux thèmes divergent"
+        for theme, pages in rendu.items():
+            for numero, octets in enumerate(pages, 1):
+                assert octets.startswith(b"<svg"), (theme, numero, octets[:40])
+                # LE TEXTE DE LA SOURCE N'EST PAS DANS LE SVG : typst vectorise
+                # ses glyphes. C'est ce qui coûte l'accessibilité (voir
+                # docs/content/typst.md) et ce qui garantit qu'une consigne ne
+                # peut pas recracher son propre source.
+                assert b"plus_grand" not in octets, (theme, numero)
+                assert b"#import" not in octets, (theme, numero)
+        # Les deux thèmes ne peignent pas la même chose.
+        assert rendu["dark"][0] != rendu["light"][0]
+        # Et le second appel est servi par le cache, sans relancer typst.
+        encore, du_cache = typst_build.render(fixture, "fixture-typst")
+        assert du_cache is True and encore == rendu
+    finally:
+        if garde is None:
+            os.environ.pop("CTESTER_TYPST_CACHE", None)
+        else:
+            os.environ["CTESTER_TYPST_CACHE"] = garde
+        shutil.rmtree(cache)
+
+
+def test_typst_une_erreur_nomme_l_exercice_le_fichier_et_la_ligne():
+    """Un `.typ` cassé ne publie RIEN, et le dit de façon diagnosticable.
+
+    Le message porte la sortie de typst telle quelle -- elle écrit déjà
+    `statement.typ:LIGNE:COLONNE: error: ...`, et la réécrire ne ferait que
+    perdre la ligne.
+    """
+    if not _typst_dispo():
+        print("     (sauté : ni CTESTER_TYPST_BIN ni Docker)")
+        return
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    cache = tempfile.mkdtemp(prefix="ctester-typst-cache-")
+    garde = os.environ.get("CTESTER_TYPST_CACHE")
+    try:
+        os.environ["CTESTER_TYPST_CACHE"] = cache
+        _contenu_typst(root, "= Titre\n\n#une-fonction-qui-n-existe-pas()\n")
+        modele = content_catalogue.discover(root)
+        try:
+            typst_build.render_all(modele)
+        except typst_build.TypstError as exc:
+            message = str(exc)
+            assert "demo" in message, message
+            assert "statement.typ" in message, message
+            assert ":3:" in message, ("pas de ligne dans le message", message)
+        else:
+            raise AssertionError("un statement.typ cassé a été rendu")
+    finally:
+        if garde is None:
+            os.environ.pop("CTESTER_TYPST_CACHE", None)
+        else:
+            os.environ["CTESTER_TYPST_CACHE"] = garde
+        shutil.rmtree(root)
+        shutil.rmtree(cache)
+
+
+def test_typst_la_publication_ecrit_les_pages_et_respecte_le_cadenas():
+    """Les SVG suivent le détail : sous `staff/` tant que l'exercice est fermé.
+
+    Montrer n'est pas donner, et c'est la même règle qu'ailleurs : l'enseignant
+    vérifie son rendu avant le cours, l'étudiant lit un cadenas et une date.
+    """
+    if not _typst_dispo():
+        print("     (sauté : ni CTESTER_TYPST_BIN ni Docker)")
+        return
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    cache = tempfile.mkdtemp(prefix="ctester-typst-cache-")
+    garde = os.environ.get("CTESTER_TYPST_CACHE")
+    try:
+        os.environ["CTESTER_TYPST_CACHE"] = cache
+        for ouvert, prefixe in ((True, ""), (False, "staff/")):
+            _contenu_typst(root, ouvert=ouvert)
+            modele = content_catalogue.discover(root)
+            rendus, (total, _) = typst_build.render_all(modele)
+            assert total == 1, total
+            revision = publish_content.publish(modele, dest, renders=rendus)
+            release = os.path.join(dest, revision)
+            publie = sorted(
+                os.path.relpath(os.path.join(d, n), release).replace(os.sep, "/")
+                for d, _, noms in os.walk(release) for n in noms)
+            attendus = [prefixe + "statements/demo/%s-1.svg" % t
+                        for t in ("dark", "light")]
+            for chemin in attendus:
+                assert chemin in publie, (chemin, publie)
+            assert not any(c.endswith(".typ") for c in publie), publie
+            # Le détail annonce le bon nombre de pages, au bon endroit.
+            detail = json.loads(lire(os.path.join(
+                release, prefixe + "exercises/demo.json")))
+            assert detail["statement_format"] == "typst", detail
+            assert detail["statement_pages"] == 1, detail
+            assert detail["statement"] == "", detail
+    finally:
+        if garde is None:
+            os.environ.pop("CTESTER_TYPST_CACHE", None)
+        else:
+            os.environ["CTESTER_TYPST_CACHE"] = garde
+        for chemin in (root, dest, cache):
+            shutil.rmtree(chemin)
+
+
 def test_public_catalogue_omits_malformed_contexts():
     """The projection stays defensive even on a hand-built model."""
     model = {"schema_version": 1, "skills": [], "collections": {},
@@ -787,7 +1232,12 @@ def test_discover_rejects_each_exercise_level_defect():
         (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(summary=42)),
          "summary must be text"),
         (lambda r: os.remove(os.path.join(ex(r), "statement.md")),
-         "missing statement.md"),
+         "il manque statement.md ou statement.typ"),
+        # LES DEUX FORMATS PRÉSENTS EST UNE ERREUR, PAS UN CHOIX À FAIRE.
+        # Choisir en silence voudrait dire qu'un auteur qui migre un énoncé et
+        # oublie d'effacer l'ancien corrige un fichier que personne ne lit.
+        (lambda r: open(os.path.join(ex(r), "statement.typ"), "w").close(),
+         "statement.md ET statement.typ sont présents"),
         (lambda r: os.remove(os.path.join(ex(r), "assessment", "io.json")),
          "no mode present"),
         (lambda r: _write_json(os.path.join(ex(r), "assessment", "io.json"),

@@ -56,7 +56,15 @@ def load_catalog():
     return data if isinstance(data, dict) else None
 
 
-def source_publiee(entry, quoi):
+# WHAT A STATEMENT PAGE IS CALLED, AS A CLOSED PATTERN. No separator and no dot
+# dot, so there is nothing to traverse and nothing to filter -- filtering would
+# mean accepting an input, which we do not. The publisher holds the other half
+# of this rule (`publish_content.ACTIF_RE`): one writes these names, one accepts
+# them, and neither builds a path out of what the URL said.
+PAGE_RE = re.compile(r"\A(?:dark|light)-(?:[1-9]|1[0-6])\.svg\Z")
+
+
+def source_publiee(entry, quoi, nom=None):
     """(base, name) of the published file for this exercise, or (None, None).
 
     The name is REBUILT from the catalog id, never received: there is
@@ -72,6 +80,16 @@ def source_publiee(entry, quoi):
     release = release_dir()
     if release is None:
         return None, None
+    if quoi == "statement":
+        # UNE PAGE D'ÉNONCÉ, et son nom est VALIDÉ ICI plutôt que chez
+        # l'appelant : c'est la seule fonction qui sait construire un chemin de
+        # release, donc c'est elle qui doit refuser ce qui n'en est pas un.
+        if not isinstance(nom, str) or not PAGE_RE.match(nom):
+            return None, None
+        dossier = os.path.join("statements", entry["id"])
+        if entry.get("access") != "available":
+            dossier = os.path.join("staff", dossier)
+        return release, os.path.join(dossier, nom)
     dossier = "exercises" if quoi == "detail" else "quiz"
     if entry.get("access") != "available":
         dossier = os.path.join("staff", dossier)

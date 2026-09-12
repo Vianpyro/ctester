@@ -70,11 +70,26 @@ def csp(body, issuer=""):
         # decouverte, puis le jeton). Une origine de plus dans une CSP est une
         # origine de plus a laquelle la page a le droit de parler.
         origines.append("/".join(issuer.split("/")[:3]))
+    # `img-src` PORTE L'API ET `blob:`, ET LES DEUX SONT DUS AUX ÉNONCÉS TYPST.
+    #
+    # L'ORIGINE DE L'API : la page est servie par GitHub Pages (`tch009`) et les
+    # pages d'énoncé rendues vivent dans la release, servie par le Dell
+    # (`tch099`). Un `<img>` vers une autre origine est refusé par
+    # `img-src 'self'` -- en silence, comme tout ce que bloque une CSP. C'est la
+    # même origine que `connect-src` autorise déjà deux lignes plus bas.
+    #
+    # `blob:` : un `<img src>` ne porte PAS d'en-tête `Authorization`. L'aperçu
+    # enseignant d'un énoncé pas encore ouvert est servi `no-store` derrière un
+    # jeton ; la page le récupère donc par `fetch` et le pose en `blob:`. Sans
+    # ça, l'enseignant verrait une image cassée exactement là où il vient
+    # vérifier son rendu. Un `blob:` est fabriqué par la page elle-même, à
+    # partir d'octets qu'elle vient de recevoir : il n'ouvre aucune origine.
     return "; ".join([
         "default-src 'none'",
         "script-src 'self'",
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self'",
+        " ".join(["img-src 'self'"] + ([config.API_ORIGIN] if config.API_ORIGIN else [])
+                 + ["blob:"]),
         " ".join(["connect-src 'self'"] + origines),
         "base-uri 'none'",
         "form-action 'none'",

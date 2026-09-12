@@ -14,6 +14,8 @@ import json
 import os
 import re
 
+import typst_build
+
 
 SCHEMA_VERSION = 1
 EXERCISE_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,62}\Z")
@@ -237,12 +239,22 @@ def _exercise(root, dirname, known_skills, errors):
         errors.append("%s: missing title" % where)
     if not isinstance(data.get("summary", ""), str):
         errors.append("%s: summary must be text" % where)
+    # THE STATEMENT COMES IN ONE OF TWO FORMATS, AND EXACTLY ONE. `statement.md`
+    # is the default and nothing about it changed; `statement.typ` is rendered
+    # to SVG at publish time (see typst_build.py) for the statements a
+    # hand-written Markdown subset cannot express -- a table, a diagram, a
+    # figure, a formula outside `math.ts`'s grammar.
+    #
+    # BOTH PRESENT IS AN ERROR, NOT A CHOICE TO MAKE. Picking one silently would
+    # mean an author who migrates a statement and forgets to delete the old file
+    # keeps editing a file nobody reads.
+    statement_format, statement = "md", ""
     try:
-        with open(os.path.join(path, "statement.md"), encoding="utf-8") as fh:
-            statement = fh.read()
-    except OSError:
-        errors.append("%s: missing statement.md" % where)
-        statement = ""
+        statement_format, valeur = typst_build.statement_of(path)
+        if statement_format == "md":
+            statement = valeur
+    except typst_build.TypstError as exc:
+        errors.append("%s: %s" % (where, exc))
     assessment = os.path.join(path, "assessment")
     mode = detect_mode(assessment)
     if isinstance(mode, list):
@@ -305,7 +317,8 @@ def _exercise(root, dirname, known_skills, errors):
         errors.append("%s: invalid prerequisite" % where)
     return {
         "id": exercise_id, "path": path, "title": title, "summary": data.get("summary", ""),
-        "statement": statement, "mode": mode, "release": _release(data.get("release"), where, errors),
+        "statement": statement, "statement_format": statement_format,
+        "mode": mode, "release": _release(data.get("release"), where, errors),
         "skills": skills, "difficulty": difficulty, "contexts": contexts,
         "verification": verification, "bonus": bonus,
         "prerequisites": prerequisites, "files": _public_files(path, where, errors, mode),
@@ -624,14 +637,33 @@ def _public_assignment(entry, now=None):
     return public
 
 
-def public_detail(model, exercise_id, now=None):
+def public_detail(model, exercise_id, now=None, pages=None):
     """An exercise's public detail, kept apart from the menu and from assessment.
 
     Templates are bulky enough to stay out of catalog.json, but are public by
     design and needed by the editor. An unknown id does not resolve to a
     path: the caller must already have found it in the validated model.
+
+    `statement` STAYS A STRING, AND THAT IS THE WHOLE COMPATIBILITY STORY. A
+    Markdown exercise answers byte for byte what it always answered. A Typst one
+    answers `""` plus two keys that did not exist -- so a page still sitting in
+    a student's cache reads an empty statement and says "no statement online"
+    instead of throwing on an object where it expected text.
+
+    NO PATH TRAVELS. `statement_pages` is a COUNT; the page rebuilds
+    `/statement/<id>/<theme>-<n>.svg` from the id it already has. Same rule as
+    `source_publiee()`, which rebuilds its path from the entry it found rather
+    than concatenating one it was handed.
+
+    `pages` is what `publish_content` measured when it rendered; it is not read
+    from disk here, because this module never runs a subprocess.
     """
     entry = find_exercise(model, exercise_id, now)
     if entry is None:
         return None
-    return {"statement": entry["statement"], "files": [dict(item) for item in entry["files"]]}
+    detail = {"statement": entry["statement"],
+              "files": [dict(item) for item in entry["files"]]}
+    if entry.get("statement_format") == "typ":
+        detail["statement_format"] = "typst"
+        detail["statement_pages"] = int(pages or 0)
+    return detail

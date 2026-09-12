@@ -374,7 +374,17 @@ def publish_catalogue():
     # of a release, and setting the clock to the year 9999 opens everything
     # that is dated without touching what is archived.
     maintenant = datetime.datetime(9999, 1, 1, tzinfo=datetime.timezone.utc) if PREVIEW else None
-    publish_content.publish(model, PUBLISHED, now=maintenant)
+    # LES ÉNONCÉS TYPST SONT RENDUS AVANT LA PREMIÈRE ÉCRITURE, et c'est la même
+    # propriété que `discover()` tient pour un contenu invalide : ce qui ne
+    # compile pas ne remplace jamais la release active. Le rendu est un
+    # conteneur jetable, mis en cache par hachage de contenu -- un tick qui ne
+    # trouve rien de changé ne lance pas typst.
+    import typst_build
+    renders, (total, du_cache) = typst_build.render_all(model)
+    if total:
+        print("ctester: %d énoncé(s) Typst rendu(s), dont %d depuis le cache"
+              % (total, du_cache), file=sys.stderr, flush=True)
+    publish_content.publish(model, PUBLISHED, now=maintenant, renders=renders)
     return list(model["exercises"].values())
 
 

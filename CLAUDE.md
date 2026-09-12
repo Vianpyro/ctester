@@ -69,6 +69,17 @@ app/services/source.py  la forme canonique d'une source -- AUCUN IMPORT
 app/services/scratch.py la Console : le protocole d'une session interactive
 ```
 
+Et, à la racine, ce que le rendu des énoncés Typst ajoute :
+
+```
+typst_build.py          le moteur : conteneur, cache, frontière de fichiers
+                        -- BIBLIOTHÈQUE STANDARD SEULEMENT, voir plus haut
+render_statement.py     rendre UN énoncé pour le regarder, sans rien publier
+typst/packages/local/ctester/1.0.0/   le gabarit, la palette, les helpers
+typst/packages/preview/merman/0.3.0/  Mermaid, vendoré, jamais téléchargé
+typst/fixture/          l'exercice de démonstration, compilé par les tests
+```
+
 La page, elle, vit dans `frontend/` — voir « La page » plus bas :
 
 ```
@@ -83,6 +94,7 @@ frontend/src/lib/api/          le client typé et LES TYPES DU FIL
 frontend/src/lib/auth/         la session OIDC, coupée en deux (noyau / à la demande)
 frontend/src/lib/collab/       le document partagé et la géométrie des curseurs
 frontend/src/components/       l'atelier : éditeur, verdict, barre, actions
+                               (dont TypstStatement : des <img>, rien de plus)
 frontend/src/features/         les écrans chargés à la demande, un répertoire chacun
 frontend/tests/                les suites Vitest
 ```
@@ -386,6 +398,19 @@ python3 test_api.py              # l'API : frontière HTTP, bornes, valeurs extr
 python3 verify_content.py   ../unittests/content
 python3 validate_content.py  ../unittests/content   # le schéma seul, sans gcc
 python3 test_sandbox.py  ../unittests/content   # les trois build.sh, vrai gcc
+```
+
+**LES CONTRÔLES DE RENDU TYPST SAUTENT SANS MOTEUR, et un saut ne prouve
+rien.** `test_ctester.py` compile la fixture d'énoncé pour de vrai — c'est le
+seul endroit où le pipeline entier (maths, code C colorié, tableau calculé,
+image, Mermaid, multi-page) est éprouvé — mais il lui faut Docker ou un binaire.
+Sans l'un des deux, ces contrôles-là s'annoncent sautés et le reste tourne, comme
+`bundle.test.ts` sans `dist/`. La CI, elle, pose `CTESTER_TYPST_BIN` (version et
+sha256 épinglés dans `ci.yml`), donc ils y tournent à chaque poussée. En local :
+
+```sh
+CTESTER_TYPST_BIN=/chemin/vers/typst python3 test_ctester.py   # ou simplement Docker
+python3 render_statement.py typst/fixture --out /tmp/apercu --png   # et regarder
 ```
 
 **`npm run build` VIENT AVANT LES DEUX SUITES QUI LE LISENT**, et l'ordre n'est
@@ -1104,6 +1129,142 @@ les processus créés dans le bac à sable sont internes à gVisor, donc
 alors est le plafond mémoire du sandbox et le chronomètre. Les deux options
 restent en place — l'une couvre `runc`, l'autre `runsc` — et ce qui compte est
 que `uptime` sur le Dell ne bronche pas.
+
+## Les énoncés Typst
+
+Un exercice porte `statement.md` **ou** `statement.typ`, jamais les deux — la
+validation lève en les nommant plutôt que d'en choisir un en silence, parce que
+choisir voudrait dire qu'un auteur qui migre et oublie d'effacer l'ancien
+corrige un fichier que personne ne lit. **Les 77 énoncés du cours restent en
+Markdown et leur charge n'a pas bougé d'un octet** ; `.typ` existe pour ce que
+la grammaire de `statement.ts` ne sait pas écrire : un tableau, un diagramme,
+une figure, une formule hors de `math.ts`, plusieurs pages.
+
+**LE SVG EST RENDU AU BUILD, ET C'EST TOUT LE DESSIN.** `typst_build.py` compile
+dans un conteneur jetable (`ghcr.io/typst/typst:0.15.1`) pendant
+`publish_catalogue()`, donc dans le tick de cinq minutes. Le conteneur web ne
+monte pas `CTESTER_CONTENT`, n'a ni typst ni socket Docker, et **rien ne compile
+à la requête** : l'étudiant reçoit un fichier, exactement comme un quiz. Pas de
+WebAssembly côté page, aucune dépendance npm ajoutée — `merman`, le moteur
+Mermaid, pèse 7,6 Mo et ne descend chez personne.
+
+**DEUX RENDUS PAR ÉNONCÉ, CLAIR ET SOMBRE.** Un SVG est peint une fois pour
+toutes : il ne peut pas suivre `prefers-color-scheme`. `--input theme=` choisit
+la palette, la page choisit le fichier. Une IMAGE de l'exercice, elle, ne suit
+rien — c'est la seule chose qui ne se retheme pas, et la doc dit de choisir des
+couleurs lisibles sur les deux fonds.
+
+**LA FRONTIÈRE DE FICHIERS A DEUX COUCHES, et un test les éprouve toutes les
+deux** (`test_typst_root_refuse_de_sortir_du_repertoire_de_l_exercice`) : on
+compile depuis une COPIE qui ne porte ni `assessment/` ni `exercise.json` — un
+corrigé n'est pas sur le disque que typst voit — et `--root` est posé sur cette
+copie, donc typst refuse `..` (« would escape the project root ») et
+ré-enracine un chemin absolu dans la copie, où il ne trouve rien. Mesuré sur
+cinq attaques avant d'être écrit.
+
+**LA BIBLIOTHÈQUE EST UN PAQUET TYPST, et pas un fichier voisin.** C'est ce qui
+permet les deux à la fois : `--root` sur le seul répertoire de l'exercice, et un
+gabarit partagé — un paquet est résolu hors de `--root`. Elle vit dans
+`typst/packages/local/ctester/1.0.0/` ; `merman` est vendoré à côté, dans
+`typst/packages/preview/`, et le build tourne `--network=none`.
+
+**L'ENSEIGNANT N'ÉCRIT AUCUN PRÉAMBULE.** `typst_build._preparer()` écrit un
+`main.typ` qui applique le gabarit puis `#include` le `statement.typ` : deux
+lignes suffisent à faire un énoncé stylé. La ligne `#import` que la doc montre
+ne sert qu'aux helpers — les portées de Typst sont par fichier, un import dans
+le `main.typ` ne les rendrait pas visibles dans le `statement.typ`.
+
+**LA CLÉ DE CACHE PORTE TOUT CE DONT LE RENDU DÉPEND** : la version de typst, la
+bibliothèque (donc le gabarit, la palette et les deux `.tmTheme`), les paquets
+vendorés, et l'arbre de l'exercice **sauf `assessment/`** — un cas de test
+corrigé ne doit pas recompiler le semestre. Du hachage de CONTENU, jamais un
+mtime : c'est la leçon déjà payée par `_publie_le`. Il n'y a donc aucun numéro
+de version de cache à incrémenter à la main, qui serait oublié le jour où il
+compte — même raisonnement qu'`empreinte_juge()`.
+
+**LE CACHE VIT HORS DE `published/`, ET C'EST STRUCTUREL.** `_elaguer()`
+supprime tout répertoire de `published/` qui n'est pas une des trois dernières
+révisions : posé là, il serait effacé à chaque publication et le tick
+recompilerait tout, toutes les cinq minutes. `CTESTER_TYPST_CACHE`, défaut
+`<published>/../typst-cache`. Un test le vérifie.
+
+**LES SVG ENTRENT DANS `revision()`, et sans ça un `.tmTheme` corrigé ne serait
+jamais servi** : un rendu modifié ne change aucun JSON, donc la révision
+resterait la même, le répertoire existerait déjà, et `publish()` n'écrirait
+rien. Les octets sont hachés à part, dans l'ordre des chemins. C'est aussi ce
+qui rend un rendu *rollbackable*.
+
+**DEUX CEINTURES DE PLUS DANS `projection()`**, dans l'esprit d'`INTERDIT` :
+aucun chemin publié ne finit par `.typ` (les sources restent privées), et tout
+ce qui n'est pas du JSON doit matcher
+`(staff/)?statements/<id>/(dark|light)-<n>.svg`. Le jour où quelqu'un ajoutera
+un type d'artefact, c'est là qu'il devra le déclarer.
+
+**`statement` RESTE UNE CHAÎNE SUR LE FIL.** Un énoncé Typst répond `""` plus
+`statement_format` et `statement_pages` — un COMPTE, jamais un chemin : la page
+reconstruit `/statement/<id>/<theme>-<n>.svg` depuis l'identifiant qu'elle a
+déjà, comme `source_publiee()` reconstruit le sien. Une page restée dans le
+cache d'un étudiant lit donc un statement vide et dit « pas de consigne en
+ligne » au lieu de planter sur un objet là où elle attendait du texte.
+
+**LA ROUTE EST GARDÉE COMME `/tp/`**, et le nom de la page est un motif fermé
+sans séparateur (`app/services/catalog.py`, `PAGE_RE`) — il n'y a rien à
+traverser, donc rien à filtrer. Un exercice pas encore ouvert n'a de pages que
+sous `staff/`, servies `prive=True` : `no-cache` + ETag laisserait Cloudflare
+garder une consigne staff et la revalider sur la requête d'un étudiant.
+
+**`img-src` A GAGNÉ DEUX CHOSES, DANS LES DEUX COPIES DE LA CSP.** L'origine de
+l'API, parce que la page vient de Pages (`tch009`) et les SVG du Dell
+(`tch099`) — la même origine que `connect-src` autorise déjà. Et `blob:`, parce
+qu'un `<img>` **ne porte pas d'en-tête `Authorization`** : l'aperçu enseignant
+d'un énoncé fermé passe par `authFetch` puis un blob, révoqué au démontage.
+Sans ça l'enseignant verrait une image cassée exactement là où il vient
+vérifier son rendu. `test_csp_du_document` force la synchronisation des deux
+copies, comme avant.
+
+**LE PLAFOND DU PAQUET EAGER EST PASSÉ DE 140 À 144 Ko**, pour +2 055 octets
+mesurés (138 957 avant, 141 012 après) : le composant, le cinquième état de
+consigne et les deux champs du fil. Il est **eager** pour la même raison que
+`math.ts` — un anonyme lit les consignes, et différer voudrait dire un panneau
+vide plus un aller-retour pour un kilo-octet.
+
+**LE TIMEOUT EST 30 s, ET C'EST MESURÉ** : la fixture — le document le plus
+lourd du dépôt, avec un Mermaid qui instancie 7,6 Mo de WebAssembly, une image,
+un tableau calculé et des maths — compile en 0,47 s par binaire et 0,62 s par
+conteneur, démarrage compris ; un énoncé ordinaire prend 0,10 s. Ce que ce
+plafond garde n'est **pas** une boucle infinie : typst refuse `while true` et
+borne la profondeur d'appel lui-même. C'est un document lourd-mais-fini qui
+bloquerait le tick.
+
+**L'ACCESSIBILITÉ EST UNE PERTE RÉELLE, ET ELLE EST ÉCRITE.** Typst vectorise
+ses glyphes — mesuré : zéro `<text>`, 97 `<path>`, 138 `<use>`. Le texte d'une
+consigne Typst n'est ni sélectionnable, ni copiable, ni trouvable au `Ctrl+F`,
+ni lisible par une synthèse vocale. Le `<figure aria-label>` et les `alt` disent
+ce qu'est le bloc, **ils ne rendent pas l'énoncé accessible** et il ne faut pas
+prétendre le contraire. C'est la raison pour laquelle **`statement.md` reste le
+défaut** et pourquoi `.typ` est réservé à ce qu'on ne peut pas écrire autrement.
+Effet de bord gratuit : le texte source n'étant pas dans le SVG, une consigne ne
+peut pas recracher son propre source, et le `grep -rl answer` du runbook ne peut
+pas s'y déclencher.
+
+**Ce que ça demande à `VHome`, et c'est petit** : `ctester_typst_image` et
+`ctester_typst_cache` sur le tick, l'image tirée au converge, et
+`/opt/ctester/typst-cache` créé. Aucune unité systemd, aucun `ReadWritePaths`
+(le tick n'est pas durci), aucun volume, aucun paquet apt. **Vider
+`ctester_typst_image` n'est pas un rollback, c'est une panne** : plus rien ne se
+publie. Le rollback reste le pointeur, ou remettre un `statement.md`.
+
+**Éprouvé par** : `test_ctester.py` (douze contrôles — collision de formats,
+forme de la projection, les deux ceintures, la clé de cache, la révision, la
+frontière `--root` sur cinq attaques, la fixture qui compile vraiment dans les
+deux thèmes, l'erreur qui nomme la ligne, les `.tmTheme` comparés à `app.css`),
+`test_api.py` (cinq — le fichier cacheable, le motif fermé, le cadenas staff, la
+non-régression Markdown, la CSP), `typstStatement.test.ts` et
+`mountTypst.test.ts`. Ce dernier vit dans son propre fichier parce que le cache
+de détails de `catalog` est un singleton de chargement de page : un exercice
+déjà ouvert par un test voisin reviendrait en Markdown.
+
+Le guide pour l'équipe enseignante est `docs/content/typst.md`.
 
 ## Ajouter ou modifier un TP
 

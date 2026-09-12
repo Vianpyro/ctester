@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Une image d'énoncé, écrite à la main en SVG plutôt qu'exportée d'un outil :
+     le dépôt de contenu ne porte aujourd'hui aucun octet binaire, et une figure
+     de cinq rectangles n'est pas une raison d'en introduire un.
+
+     SES COULEURS NE SUIVENT PAS LE THÈME, et c'est la seule chose d'un énoncé
+     qui ne le fait pas : le texte, le code et les diagrammes Mermaid sont
+     repeints à chaque compilation, une image de l'exercice est reprise telle
+     quelle. Celles d'ici sont donc choisies pour être lisibles sur les DEUX
+     fonds. #597ea3 est l'accent acier, identique dans les deux thèmes, et le
+     vert est assombri jusqu'à passer sur le fond clair aussi. Pas de fond
+     peint non plus : celui de la page se voit à travers.
+
+     (Et pas de deux tirets consécutifs dans ce commentaire : XML les interdit,
+     et typst refuse alors le fichier entier en nommant la ligne 2.) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 96" width="320" height="96">
+  <g font-family="monospace" font-size="12" text-anchor="middle">
+    <g fill="none" stroke="#597ea3" stroke-width="1">
+      <rect x="8"   y="28" width="56" height="30"/>
+      <rect x="64"  y="28" width="56" height="30"/>
+      <rect x="120" y="28" width="56" height="30"/>
+      <rect x="176" y="28" width="56" height="30"/>
+      <rect x="232" y="28" width="56" height="30"/>
+    </g>
+    <g fill="#8b94a3" font-size="10">
+      <text x="36"  y="22">[0]</text>
+      <text x="92"  y="22">[1]</text>
+      <text x="148" y="22">[2]</text>
+      <text x="204" y="22">[3]</text>
+      <text x="260" y="22">[4]</text>
+    </g>
+    <g fill="#597ea3">
+      <text x="36"  y="48">12</text>
+      <text x="92"  y="48">42</text>
+      <text x="148" y="48">7</text>
+      <text x="204" y="48">91</text>
+      <text x="260" y="48">23</text>
+    </g>
+    <path d="M204 66 v10 h-168 v-10" fill="none" stroke="#2f9c5a" stroke-width="1.5"/>
+    <text x="36" y="90" fill="#2f9c5a" font-size="10">plus_grand = 91</text>
+  </g>
+</svg>

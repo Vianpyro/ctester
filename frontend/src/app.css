@@ -213,6 +213,18 @@ main {
   font-family: var(--mono);
 }
 #consignetexte.vide { font-family: var(--sans); color: var(--muted); }
+/* UNE CONSIGNE TYPST : DES PAGES DÉJÀ PEINTES, donc aucun padding et aucune
+   police ici -- la marge, le corps et la palette sont DANS le SVG, rendus à la
+   largeur de cette colonne (320 pt, voir typst/.../theme.typ). Poser un padding
+   en plus ajouterait une gouttière autour d'une image qui porte déjà la sienne.
+   Le fond est celui du panneau parce que le SVG le peint aussi : les deux se
+   rejoignent exactement, et un thème qui changerait avant que l'autre image
+   n'arrive ne montre pas une bande blanche. */
+#consignetexte.typstpages {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+}
 
 /* THE RENDERED STATEMENT. The `<pre>` above stays for the three EMPTY states, which
    are one sentence of our own; this is the Markdown of `lib/domain/statement.ts`.

@@ -2,3 +2,13 @@
 # sable. Un CR final y donne « ^M: command not found », un message qui ne dit
 # nulle part que la cause est une fin de ligne Windows.
 * text=auto eol=lf
+
+# LES PAQUETS TYPST VENDORÉS NE SE NORMALISENT PAS. `text=auto` ci-dessus
+# détecte le binaire tout seul, et il a raison sur le `.wasm` de 7,6 Mo de
+# merman -- mais « il a raison aujourd'hui » n'est pas une garantie, et le mode
+# d'échec est le pire qui soit : un octet 0x0D réécrit dans un WebAssembly donne
+# un module qui ne charge plus, donc des diagrammes Mermaid qui disparaissent
+# sans que rien ne dise pourquoi. Le dire explicitement coûte deux lignes.
+typst/packages/**/*.wasm -text
+# Les `.tmTheme` et les `.typ`, eux, sont du texte et gardent `eol=lf` : ils
+# sont lus par typst, qui s'en moque, et par des humains, qui non.

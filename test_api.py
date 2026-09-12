@@ -803,6 +803,205 @@ def test_release_pilote_le_catalogue_et_ferme_le_reste():
         assert c.post("/submit", json=dict(corps, exercise_id="ouvert")).status_code == 400
 
 
+# --- Les énoncés Typst ---------------------------------------------------------
+
+
+def _contenu_typst(racine, pages=2, ouvert_et_ferme=True):
+    """Une racine v2 dont les énoncés sont du Typst.
+
+    LE RENDU N'EST PAS LANCÉ ICI. `typst_build` a besoin de Docker ou d'un
+    binaire, et cette suite ne doit dépendre ni de l'un ni de l'autre : elle
+    éprouve la FRONTIÈRE HTTP. Les pages sont donc de faux SVG, écrits par
+    `_publier_typst` exactement là où la publication les écrirait -- ce que la
+    route lit est un fichier, et un fichier suffit à prouver ce qui est ici.
+    """
+    def ecrire(chemin, valeur):
+        os.makedirs(os.path.dirname(chemin), exist_ok=True)
+        with open(chemin, "w", encoding="utf-8") as fh:
+            json.dump(valeur, fh)
+
+    ecrire(os.path.join(racine, "catalog.json"), {"schema_version": 1, "skills": []})
+    etats = (("ouvert", {"state": "available"}),
+             ("ferme", {"state": "scheduled",
+                        "available_from": "2099-01-01T00:00:00-05:00"}))
+    for identifiant, release in (etats if ouvert_et_ferme else etats[:1]):
+        exercice = os.path.join(racine, "exercises", identifiant)
+        ecrire(os.path.join(exercice, "exercise.json"),
+               {"schema_version": 1, "id": identifiant, "title": identifiant.title(),
+                "release": release})
+        with open(os.path.join(exercice, "statement.typ"), "w", encoding="utf-8") as fh:
+            fh.write("= Titre\n")
+        ecrire(os.path.join(exercice, "assessment", "io.json"),
+               {"cases": [{"stdin": "1\n", "expect": [1]}]})
+        ecrire(os.path.join(exercice, "public", "files.json"),
+               {"files": [{"name": "submission.c", "template": ""}]})
+    ecrire(os.path.join(racine, "collections", "tp1.json"),
+           {"schema_version": 1, "id": "tp1", "title": "TP 1",
+            "items": [i for i, _ in (etats if ouvert_et_ferme else etats[:1])],
+            "release": {"state": "available"}})
+
+
+def _publier_typst(tmp, pages=2):
+    """Publie un contenu Typst avec des pages simulées, et repointe l'API."""
+    import content_catalog as content_catalogue
+    import publish_content
+
+    racine, publie = os.path.join(tmp, "typ"), os.path.join(tmp, "typreleases")
+    _contenu_typst(racine)
+    modele = content_catalogue.discover(racine)
+    rendus = {identifiant: {theme: [("<svg id='%s-%s-%d'/>" % (identifiant, theme, n)).encode()
+                                    for n in range(1, pages + 1)]
+                            for theme in ("dark", "light")}
+              for identifiant in modele["exercises"]}
+    publish_content.publish(modele, publie, renders=rendus)
+    config.PUBLISHED = publie
+    return publie
+
+
+def test_une_page_d_enonce_typst_est_un_fichier_cacheable():
+    """`/statement/<id>/<theme>-<n>.svg` : un fichier, revalidé, compressé.
+
+    RIEN N'EST COMPILÉ À LA REQUÊTE, et c'est tout le dessin : ces octets ont
+    été écrits par le worker à la publication. Le conteneur web ne monte pas
+    `CTESTER_CONTENT`, n'a ni typst ni socket Docker, et n'en aura pas.
+    """
+    with contexte() as (c, _, tmp):
+        _publier_typst(tmp)
+
+        r = c.get("/statement/ouvert/dark-1.svg")
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "image/svg+xml", dict(r.headers)
+        assert r.headers["cache-control"] == "no-cache", dict(r.headers)
+        assert r.headers["etag"], dict(r.headers)
+        assert r.content == b"<svg id='ouvert-dark-1'/>", r.content
+
+        # LE THÈME CHANGE LE CORPS, sinon les deux rendus ne serviraient à rien.
+        clair = c.get("/statement/ouvert/light-1.svg")
+        assert clair.status_code == 200 and clair.content != r.content
+        assert clair.headers["etag"] != r.headers["etag"], "deux corps, un ETag"
+
+        # La seconde page existe, la troisième non : 404, pas 500.
+        assert c.get("/statement/ouvert/dark-2.svg").status_code == 200
+        assert c.get("/statement/ouvert/dark-3.svg").status_code == 404
+
+        # Le détail annonce le format et le NOMBRE, jamais un chemin.
+        detail = c.get("/tp/ouvert.json").json()
+        assert detail["statement"] == "", detail
+        assert detail["statement_format"] == "typst", detail
+        assert detail["statement_pages"] == 2, detail
+        assert "statements/" not in json.dumps(detail), detail
+
+
+def test_une_page_d_enonce_refuse_tout_ce_qui_n_est_pas_une_page():
+    """Le nom est un MOTIF FERMÉ : il n'y a rien à traverser, donc rien à filtrer.
+
+    Filtrer voudrait dire accepter une entrée. Ici on compare à une forme, et
+    ce qui n'a pas cette forme n'existe pas -- exactement comme `assets/` dans
+    `routers/page.py`.
+    """
+    with contexte() as (c, _, tmp):
+        _publier_typst(tmp)
+        for nom in ("dark-0.svg", "dark-17.svg", "sepia-1.svg", "dark-1.png",
+                    "dark-1.svg.typ", "dark-1", "", "dark--1.svg",
+                    "dark-01.svg", "DARK-1.svg",
+                    # LES TRAVERSÉES, SOUS LEURS FORMES ENCODÉES -- celles qui
+                    # atteignent vraiment la route. Starlette apparie sur le
+                    # chemin BRUT puis décode `{nom}`, donc `%2F` arrive ici
+                    # sous la forme `/` et le motif le refuse.
+                    "..%2Fcatalog.json", "%2e%2e%2fcatalog.json",
+                    "%2E%2E/catalog.json", "dark-1.svg%00.typ"):
+            r = c.get("/statement/ouvert/" + nom)
+            assert r.status_code == 404, (nom, r.status_code, r.text[:120])
+        # `../../catalog.json` EN CLAIR N'ARRIVE JAMAIS ICI, et c'est une
+        # propriété du CLIENT, pas de cette route : httpx normalise le chemin
+        # avant d'émettre, donc la requête part vers `/catalog.json`. Écrit
+        # plutôt que passé sous silence, pour que personne ne rajoute le cas
+        # dans la liste ci-dessus en croyant éprouver le serveur.
+        r = c.get("/statement/ouvert/../../catalog.json")
+        assert str(r.url).endswith("/catalog.json"), str(r.url)
+        # Et un exercice qui n'existe pas non plus.
+        assert c.get("/statement/inconnu/dark-1.svg").status_code == 404
+
+
+def test_une_page_d_enonce_fermee_n_est_servie_qu_au_moderateur():
+    """Les dates sont pour les étudiants -- et la page suit son détail.
+
+    L'enseignant doit pouvoir VÉRIFIER SON RENDU avant le cours ; c'est
+    précisément ce qu'il vient chercher. Le `no-store` est une assertion et pas
+    un détail : avec `no-cache` + ETag, Cloudflare garderait la page staff et la
+    revaliderait sur la requête d'un étudiant.
+    """
+    with contexte(jetons={"alice": "sub-alice", "prof": "sub-prof"},
+                  moderateurs=["sub-prof"]) as (c, _, tmp):
+        _publier_typst(tmp)
+
+        assert c.get("/statement/ferme/dark-1.svg").status_code == 404
+        assert c.get("/statement/ferme/dark-1.svg",
+                     headers=auth("alice")).status_code == 404
+        r = c.get("/statement/ferme/dark-1.svg", headers=auth("prof"))
+        assert r.status_code == 200, r.text
+        assert r.content == b"<svg id='ferme-dark-1'/>", r.content
+        assert r.headers["cache-control"] == "no-store", dict(r.headers)
+        assert "etag" not in r.headers, dict(r.headers)
+
+        # ET L'OUVERT RESTE UN FICHIER POUR TOUT LE MONDE, prof compris : la
+        # copie staff ne doit pas coûter la revalidation de ce que 80 étudiants
+        # rechargent.
+        ouvert = c.get("/statement/ouvert/dark-1.svg", headers=auth("prof"))
+        assert ouvert.headers["cache-control"] == "no-cache", dict(ouvert.headers)
+        assert ouvert.headers["etag"], dict(ouvert.headers)
+
+
+def test_un_enonce_markdown_repond_exactement_ce_qu_il_repondait():
+    """LA NON-RÉGRESSION, ET C'EST LE CONTRÔLE LE PLUS IMPORTANT DU LOT.
+
+    Les 77 énoncés du cours sont du Markdown. Leur charge ne doit pas gagner une
+    clé, pas en perdre une, pas en changer une : une page restée dans le cache
+    d'un étudiant lit cette réponse-là.
+    """
+    with contexte() as (c, _, tmp):
+        racine, publie = os.path.join(tmp, "md"), os.path.join(tmp, "mdreleases")
+        import content_catalog as content_catalogue
+        import publish_content
+        _contenu_v2(racine)
+        publish_content.publish(content_catalogue.discover(racine), publie)
+        config.PUBLISHED = publie
+
+        detail = c.get("/tp/ouvert.json").json()
+        assert detail == {"statement": "Consigne.",
+                          "files": [{"name": "submission.c", "template": ""}]}, detail
+        # Et il n'a AUCUNE page à servir : la route existe, cet exercice non.
+        assert c.get("/statement/ouvert/dark-1.svg").status_code == 404
+
+
+def test_la_csp_autorise_les_images_de_l_api_et_les_blobs():
+    """`img-src` porte l'API et `blob:`, et les deux sont dus aux énoncés Typst.
+
+    L'ORIGINE DE L'API parce que la page vient de GitHub Pages et les SVG du
+    Dell -- un `<img>` cross-origin est refusé par `img-src 'self'`, en silence
+    comme tout ce que bloque une CSP. `blob:` parce qu'un `<img>` ne porte pas
+    d'en-tête `Authorization` : l'aperçu enseignant passe par `fetch` puis un
+    blob, sans quoi l'enseignant verrait une image cassée exactement là où il
+    vient vérifier son rendu.
+    """
+    with contexte() as (c, _, tmp):
+        config.PAGE = os.path.join(tmp, "web")
+        with open(os.path.join(config.PAGE, "index.html"), "w", encoding="utf-8") as fh:
+            fh.write("<html><head></head><body></body></html>")
+        r = c.get("/")
+        politique = r.headers["content-security-policy"]
+        directives = {d.split()[0]: d.split()[1:] for d in politique.split("; ")}
+        assert "'self'" in directives["img-src"], politique
+        assert "blob:" in directives["img-src"], politique
+        assert config.API_ORIGIN in directives["img-src"], politique
+        # ET RIEN DE PLUS. `data:` n'est pas là et ne doit pas y venir : c'est
+        # ce qui rend `assetsInlineLimit: 0` nécessaire côté Vite, et une image
+        # en `data:` serait une image que la CSP ne distingue plus d'un script
+        # encodé. `*` encore moins.
+        assert "data:" not in directives["img-src"], politique
+        assert "*" not in directives["img-src"], politique
+
+
 def test_les_dates_sont_pour_les_etudiants_et_l_enseignant_voit_quand_meme():
     """Un modérateur ouvre un exercice PROGRAMMÉ ; personne d'autre ne le peut.
 

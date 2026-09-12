@@ -17,7 +17,7 @@
      browser says so in the console -- a red console is a production outage we
      have already had. It lives in the header, and in front of Pages it is
      reposted as `X-Frame-Options: DENY` by a Cloudflare Transform Rule. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self' https://tch099.thevhome.com wss://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://tch099.thevhome.com blob:; connect-src 'self' https://tch099.thevhome.com wss://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- DELIBERATE: a temporary site, students have the link, and staying out of
      search engines limits traffic on personal infrastructure. Lighthouse's SEO

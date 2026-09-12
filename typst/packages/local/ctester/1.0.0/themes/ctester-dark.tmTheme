@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- LA COLORATION C DES ÉNONCÉS TYPST, ET C'EST LA MÊME QUE CELLE DE L'ÉDITEUR.
+     Les sept règles ci-dessous sont exactement les sept classes de
+     `frontend/src/lib/domain/highlight.ts` (tc ts tp tk tn tf tu), avec les
+     couleurs de `frontend/src/app.css`. Deux colorations pour un seul langage
+     doivent dire la même chose, sinon l'étudiant lit un `int` bleu dans son
+     éditeur et vert dans sa consigne.
+
+     GÉNÉRÉ, PUIS COMMITÉ : `test_le_theme_typst_porte_les_couleurs_de_la_page`
+     relit `app.css` et ce fichier et refuse qu'ils divergent. Éditer l'un sans
+     l'autre fait échouer la suite.
+
+     PIÈGE MESURÉ : un `.tmTheme` ne colore que les jetons SCOPÉS. Les
+     identifiants nus (`s`, `main`, `n`) prennent le `fill` du `text` Typst
+     environnant, PAS le `foreground` ci-dessous -- sans un
+     `#set text(fill: ...)` à côté, ils sortent en noir, invisibles sur fond
+     sombre. C'est `code.typ` qui le pose. -->
+<plist version="1.0"><dict>
+  <key>name</key><string>ctester-dark</string>
+  <key>settings</key><array>
+    <dict><key>settings</key><dict>
+      <key>background</key><string>#1A1E26</string>
+      <key>foreground</key><string>#DFE3EA</string>
+    </dict></dict>
+    <dict><key>scope</key><string>comment</string>
+      <key>settings</key><dict><key>foreground</key><string>#6E7A70</string><key>fontStyle</key><string>italic</string></dict></dict>
+    <dict><key>scope</key><string>string, constant.character.escape</string>
+      <key>settings</key><dict><key>foreground</key><string>#9ECF8A</string></dict></dict>
+    <dict><key>scope</key><string>meta.preprocessor, keyword.control.import, keyword.control.directive</string>
+      <key>settings</key><dict><key>foreground</key><string>#D68FD0</string></dict></dict>
+    <dict><key>scope</key><string>keyword, storage.type, storage.modifier, keyword.control</string>
+      <key>settings</key><dict><key>foreground</key><string>#7FB0F2</string><key>fontStyle</key><string>bold</string></dict></dict>
+    <dict><key>scope</key><string>constant.numeric</string>
+      <key>settings</key><dict><key>foreground</key><string>#E0A06A</string></dict></dict>
+    <dict><key>scope</key><string>variable.function, entity.name.function, support.function</string>
+      <key>settings</key><dict><key>foreground</key><string>#E8D08A</string></dict></dict>
+    <dict><key>scope</key><string>entity.name.constant, variable.other.constant, constant.other, constant.language</string>
+      <key>settings</key><dict><key>foreground</key><string>#C9A2E8</string></dict></dict>
+  </array>
+</dict></plist>

@@ -16,16 +16,49 @@ import { quiz } from "./quiz.svelte";
 import { submission } from "./submission.svelte";
 import { session } from "../auth/session.svelte";
 import type { Exercise } from "../domain/catalog";
+import type { ExerciseDetail } from "../api/types";
 
-/** The statement's three states -- and they are three, not two. */
+/** The statement's states. Four of them are about fetching; one is a format. */
 export type StatementState =
   | { kind: "loading" }
   | { kind: "text"; text: string }
+  /** A TYPST STATEMENT: pages rendered to SVG at publish time, not text. The
+   *  page holds the id and the count and rebuilds the URLs -- no path travels
+   *  over the wire. `staff` says the pages sit under `staff/` and need a token,
+   *  which is why the component has a second loading path. */
+  | { kind: "typst"; id: string; pages: number; staff: boolean; title: string }
   /** "No statement online" is a property of the exercise... */
   | { kind: "none" }
   /** ...and this is a failure to fetch one. The student used to see them the
    *  same way, so they never retried -- when a reload would have been enough. */
   | { kind: "failed" };
+
+/**
+ * What a fetched detail means for the statement panel. ONE PLACE, because it is
+ * read twice -- opening an exercise and retrying a statement that did not
+ * arrive -- and the two used to be a copied ternary.
+ *
+ * THE ORDER MATTERS: a failed fetch comes first. `offline` already answers `""`
+ * for the statement, so testing the format first would turn a dead network into
+ * "this exercise has no statement online" -- exactly the confusion the three
+ * states were introduced to remove.
+ */
+function statementOf(ex: Exercise, detail: ExerciseDetail): StatementState {
+  if (detail.offline) return { kind: "failed" };
+  if (detail.statement_format === "typst" && detail.statement_pages) {
+    return {
+      kind: "typst",
+      id: ex.id,
+      pages: detail.statement_pages,
+      // PAS ENCORE OUVERT VEUT DIRE `staff/`, et seul un modérateur a pu
+      // recevoir cette entrée : `normalize()` ne garde un exercice verrouillé
+      // dans la liste plate que quand le serveur a dit que ce compte est staff.
+      staff: ex.access !== "available",
+      title: ex.label,
+    };
+  }
+  return detail.statement ? { kind: "text", text: detail.statement } : { kind: "none" };
+}
 
 // --- The two optional features an open exercise can reach ---------------------
 // Both are lazy chunks. The module reference is kept once imported, so LEAVING a
@@ -80,11 +113,7 @@ class ExerciseState {
     if (ex.mode === "quiz") quiz.clear();
     const detail = await catalog.detail(ex.id);
     if (thisLoad !== this.#load) return;
-    this.statement = detail.offline
-      ? { kind: "failed" }
-      : detail.statement
-        ? { kind: "text", text: detail.statement }
-        : { kind: "none" };
+    this.statement = statementOf(ex, detail);
     if (ex.mode === "quiz") {
       await quiz.load(ex.id);
       return;
@@ -108,12 +137,7 @@ class ExerciseState {
     const ex = catalog.selected;
     if (!ex) return;
     this.statement = { kind: "loading" };
-    const detail = await catalog.detail(ex.id);
-    this.statement = detail.offline
-      ? { kind: "failed" }
-      : detail.statement
-        ? { kind: "text", text: detail.statement }
-        : { kind: "none" };
+    this.statement = statementOf(ex, await catalog.detail(ex.id));
   }
 
   #fillEditor(ex: Exercise, templateFiles: { name: string; template?: string }[]): void {

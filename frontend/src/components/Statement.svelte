@@ -11,11 +11,18 @@
   // it between tags it writes itself, so this `{@html}` is safe for the same reason
   // `highlight()`'s output is -- see `lib/domain/statement.ts`. No `marked`, no
   // DOMPurify: those two are 74 KB and the statement is on the ANONYMOUS path.
+  //
+  // AND SINCE A STATEMENT CAN ALSO BE TYPST, there is a fifth branch. It is a
+  // FORMAT, not a fetch state: the pages were rendered to SVG at publish time
+  // and arrive as images. Nothing about the Markdown path changed -- the 77
+  // existing statements take exactly the branch they always took, and
+  // `statement.test.ts` proves it.
 
   import { exercise } from "../lib/state/exercise.svelte";
   import { catalog } from "../lib/state/catalog.svelte";
   import { lockNote } from "../lib/domain/catalog";
   import { renderStatement } from "../lib/domain/statement";
+  import TypstStatement from "./TypstStatement.svelte";
 
   const state = $derived(exercise.statement);
   // ONLY A MODERATOR CAN REACH THIS STATE, so there is no role to test here:
@@ -37,6 +44,15 @@
     <pre id="consignetexte" class="vide">Chargement…</pre>
   {:else if state.kind === "text"}
     <div id="consignetexte" class="md">{@html renderStatement(state.text)}</div>
+  {:else if state.kind === "typst"}
+    <div id="consignetexte" class="typstpages">
+      <TypstStatement
+        id={state.id}
+        pages={state.pages}
+        staff={state.staff}
+        title={state.title}
+      />
+    </div>
   {:else if state.kind === "none"}
     <pre id="consignetexte" class="vide">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.</pre>
   {:else}

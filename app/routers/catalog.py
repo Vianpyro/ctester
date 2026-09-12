@@ -13,6 +13,8 @@ projection back and refuses to publish if a private key shows up in it -- and
 the runbook replays a `grep` after every deploy.
 """
 
+import os
+
 import headers
 from deps import Apercu
 from fastapi import APIRouter, Request
@@ -78,4 +80,42 @@ def quiz(exercise_id: str, request: Request, apercu: Apercu):
         return headers.erreur(404, "pas un quiz")
     return headers.fichier_du_disque(request, base, nom,
                                      "application/json; charset=utf-8",
+                                     prive=entry.get("access") != "available")
+
+
+@router.get("/statement/{exercise_id}/{nom}")
+def statement(exercise_id: str, nom: str, request: Request, apercu: Apercu):
+    """One page of a Typst statement, rendered to SVG at publish time.
+
+    NOTHING IS COMPILED HERE, AND NOTHING EVER WILL BE. This container does not
+    mount `CTESTER_CONTENT`, has no typst and no Docker socket; the pages were
+    written by the worker's publish step (`typst_build.py`) into the release
+    this process reads. A statement is a file, exactly like a quiz.
+
+    THE SAME GATE AND THE SAME LOCK AS `/tp/`. `find_exercise` refuses anything
+    that is not an open catalog exercise, `source_publiee` refuses a name that
+    is not a page, and a not-yet-open exercise only exists under `staff/` -- so
+    a moderator sees their preview and a student gets the 404 they always got.
+
+    `prive` FOR A STAFF PAGE, for the reason `fichier_du_disque` spells out: an
+    ETag plus `no-cache` tells Cloudflare to keep the body and revalidate it,
+    and a student's request could revalidate into a kept staff statement.
+
+    ponytail: the URL carries the theme because the SVG is painted once, at
+    build time, and cannot follow `prefers-color-scheme` on its own. The day
+    statements are served from the page's own origin, this becomes two files
+    next to each other and the route goes away.
+    """
+    entry = find_exercise(exercise_id, apercu)
+    if entry is None:
+        return headers.erreur(404, "inconnu")
+    base, chemin = source_publiee(entry, "statement", nom)
+    if base is None:
+        return headers.erreur(404, "inconnu")
+    # L'EXISTENCE EST CONTRÔLÉE ICI, pas déduite du détail. Le motif accepte
+    # seize pages ; cet énoncé-là en a deux, et la troisième doit répondre 404
+    # plutôt que « fichier manquant », qui est un 500.
+    if not os.path.isfile(os.path.join(base, chemin)):
+        return headers.erreur(404, "inconnu")
+    return headers.fichier_du_disque(request, base, chemin, "image/svg+xml",
                                      prive=entry.get("access") != "available")

@@ -29,10 +29,12 @@ import datetime as dt
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 
 import content_catalog
+import typst_build
 from runner import public_quiz
 
 POINTER = "current.json"
@@ -70,7 +72,15 @@ def _cles(value):
 APERCU = dt.datetime(9999, 1, 1, tzinfo=dt.timezone.utc)
 
 
-def projection(model, now=None):
+# LE MOTIF FERMÉ DES SVG D'ÉNONCÉ. Écrit ici et relu par la ceinture plus bas :
+# ce qui sort de `projection()` doit être soit du JSON, soit une page d'énoncé à
+# ce nom-là. Le même motif vit dans `app/routers/catalog.py`, qui le fait valoir
+# sur ce qui ENTRE -- les deux moitiés d'une seule règle.
+ACTIF_RE = re.compile(
+    r"\A(?:staff/)?statements/[a-z0-9][a-z0-9-]{0,62}/(?:dark|light)-(?:[1-9]|1[0-6])\.svg\Z")
+
+
+def projection(model, now=None, renders=None):
     """{relative path: JSON object} -- exactly what the browser can see.
 
     The catalog carries EVERY exercise, open or not (a lock and a date). The
@@ -89,30 +99,72 @@ def projection(model, now=None):
     UNDER `CTESTER_PREVIEW` THIS BRANCH IS DEAD: `now` is already the year 9999,
     so everything is open and `staff/` stays empty. The two never stack.
     """
+    renders = renders or {}
     files = {"catalog.json": content_catalog.public_catalogue(model, now)}
     for exercise_id, entry in model["exercises"].items():
-        detail = content_catalog.public_detail(model, exercise_id, now)
+        pages = renders.get(exercise_id) or {}
+        compte = len(pages.get("dark") or ())
+        detail = content_catalog.public_detail(model, exercise_id, now, compte)
         prefixe = ""
         if detail is None:
-            detail = content_catalog.public_detail(model, exercise_id, APERCU)
+            detail = content_catalog.public_detail(model, exercise_id, APERCU, compte)
             if detail is None:
                 continue  # archived: there is nothing to show anybody
             prefixe = "staff/"
         files["%sexercises/%s.json" % (prefixe, exercise_id)] = detail
         if entry["mode"] == "quiz":
             files["%squiz/%s.json" % (prefixe, exercise_id)] = public_quiz(entry["config"])
+        # LES SVG SUIVENT LE DÉTAIL, DONC LE MÊME PRÉFIXE. Un énoncé pas encore
+        # ouvert n'a de pages que sous `staff/`, exactement comme son détail :
+        # l'enseignant peut vérifier le rendu avant le cours, l'étudiant lit un
+        # cadenas et une date. Écrire ce préfixe à un second endroit serait
+        # l'endroit où les deux finiraient par diverger.
+        for theme, rendu in sorted(pages.items()):
+            for numero, octets in enumerate(rendu, 1):
+                files["%sstatements/%s/%s-%d.svg"
+                      % (prefixe, exercise_id, theme, numero)] = octets
     fuites = sorted({key for value in files.values() for key in _cles(value)}
                     & INTERDIT)
     if fuites:
         raise content_catalog.ContentValidationError(
             ["private key in the public projection: " + ", ".join(fuites)])
+    # DEUX CEINTURES DE PLUS, MÊME ESPRIT QUE `INTERDIT`. La première dit que
+    # les SOURCES ne sortent pas : un `statement.typ` est du contenu privé, et
+    # l'étudiant reçoit ce qui en a été rendu. La seconde dit que tout ce qui
+    # n'est pas du JSON est une page d'énoncé et rien d'autre -- un jour où
+    # quelqu'un ajoutera un type d'artefact, c'est ici qu'il devra le déclarer.
+    for chemin, valeur in sorted(files.items()):
+        if chemin.endswith(".typ"):
+            raise content_catalog.ContentValidationError(
+                ["a Typst source reached the public projection: " + chemin])
+        if isinstance(valeur, bytes) and not ACTIF_RE.match(chemin):
+            raise content_catalog.ContentValidationError(
+                ["unexpected binary artefact in the projection: " + chemin])
     return files
 
 
 def revision(files):
-    """The hash of the published content, i.e. its release name."""
-    payload = json.dumps(files, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()[:16]
+    """The hash of the published content, i.e. its release name.
+
+    LES SVG ENTRENT DANS LE HACHAGE, ET C'EST CE QUI REND UN RENDU
+    ROLLBACKABLE. Un `.tmTheme` corrigé ne change aucun JSON : si seule la part
+    JSON était hachée, la révision resterait la même, le répertoire existerait
+    déjà, et `publish()` n'écrirait rien -- la correction ne serait jamais
+    servie. Les octets sont donc hachés à part, dans l'ordre des chemins, et
+    mêlés au même condensé.
+    """
+    json_part = {chemin: valeur for chemin, valeur in files.items()
+                 if not isinstance(valeur, bytes)}
+    h = hashlib.sha256()
+    h.update(json.dumps(json_part, sort_keys=True, ensure_ascii=False).encode("utf-8"))
+    for chemin in sorted(files):
+        valeur = files[chemin]
+        if isinstance(valeur, bytes):
+            h.update(b"\0")
+            h.update(chemin.encode("utf-8"))
+            h.update(b"\0")
+            h.update(hashlib.sha256(valeur).digest())
+    return h.hexdigest()[:16]
 
 
 def current(dest):
@@ -127,19 +179,24 @@ def current(dest):
 
 
 def _write(path, value):
+    """One projection entry: JSON, or the raw bytes of a rendered statement page."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    if isinstance(value, bytes):
+        with open(path, "wb") as fh:
+            fh.write(value)
+        return
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(value, fh, ensure_ascii=False)
 
 
-def publish(model, dest, now=None, keep=3):
+def publish(model, dest, now=None, keep=3, renders=None):
     """Writes the release, switches the pointer, keeps the last `keep`.
 
     The order is the invariant: everything is written BEFORE the pointer
     moves, and the pointer moves with a single `os.replace`. An interrupted
     publish leaves an orphaned directory nobody reads.
     """
-    files = projection(model, now)
+    files = projection(model, now, renders)
     rev = revision(files)
     release = os.path.join(dest, rev)
     if not os.path.isdir(release):
@@ -217,17 +274,33 @@ def main(argv=None):
     parser.add_argument("root", help="root containing catalog.json and exercises/")
     parser.add_argument("dest", help="directory for releases (published/)")
     parser.add_argument("--keep", type=int, default=3, help="releases kept")
+    # `--no-render` VALIDE SANS COMPILER, et c'est ce que `validate_content.py`
+    # fait déjà : le schéma, la collision md/typ, les identifiants. Utile là où
+    # il n'y a ni Docker ni binaire typst, et jamais en production -- publier
+    # sans rendre écrirait un détail annonçant des pages qui n'existent pas.
+    parser.add_argument("--no-render", action="store_true",
+                        help="skip Typst rendering (schema only, never in production)")
     args = parser.parse_args(argv)
     try:
         model = content_catalog.discover(args.root)
-        rev = publish(model, args.dest, keep=args.keep)
+        renders, compte = ({}, (0, 0)) if args.no_render else typst_build.render_all(model)
+        rev = publish(model, args.dest, keep=args.keep, renders=renders)
+    except typst_build.TypstError as exc:
+        # UNE ERREUR TYPST NE PUBLIE RIEN. Le rendu est fait AVANT la première
+        # écriture, donc la release active n'a pas bougé -- exactement ce que
+        # `discover()` garantit déjà pour un contenu invalide.
+        print("publish refused, the active release is untouched:", file=sys.stderr)
+        print("- " + str(exc), file=sys.stderr)
+        return 1
     except content_catalog.ContentValidationError as exc:
         print("publish refused, the active release is untouched:", file=sys.stderr)
         for error in exc.errors:
             print("- " + error, file=sys.stderr)
         return 1
-    print("published: revision %s (%d exercise(s), %d collection(s))"
-          % (rev, len(model["exercises"]), len(model["collections"])))
+    print("published: revision %s (%d exercise(s), %d collection(s), "
+          "%d Typst statement(s), %d from cache)"
+          % (rev, len(model["exercises"]), len(model["collections"]),
+             compte[0], compte[1]))
     return 0
 
 

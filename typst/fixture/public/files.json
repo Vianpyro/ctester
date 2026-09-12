@@ -1,0 +1,1 @@
+{ "files": [{ "name": "tampon.c", "template": "int maximum(const int valeurs[], int n) {\n    return 0;\n}\n" }] }

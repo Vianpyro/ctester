@@ -75,6 +75,29 @@ jobs:
       # là où `test_sandbox.py` et `verify_content.py` exigent le dépôt de
       # corrigés (et gcc), et restent donc des outils de contrôleur.
       - run: pip install -r requirements-dev.txt
+      # TYPST, ÉPINGLÉ PAR VERSION **ET** PAR SOMME DE CONTRÔLE. Deux suites en
+      # ont besoin -- `test_ctester.py` compile la fixture d'énoncé pour de
+      # vrai, et c'est le seul endroit où le pipeline entier (math, code C,
+      # tableau calculé, image, Mermaid, multi-page) est prouvé. Sans la
+      # variable, ces contrôles-là SAUTENT en le disant, comme
+      # `bundle.test.ts` sans `dist/` : un dépôt frais ne doit pas exiger
+      # typst pour lancer la suite. Ici on le pose, donc ils tournent.
+      #
+      # LE BINAIRE ET PAS L'IMAGE DOCKER que le Dell utilise : c'est le même
+      # typst 0.15.1, il descend en cinq secondes, et `typst_build.py` empreint
+      # le NUMÉRO de version et non la chaîne -- le binaire dit
+      # « 0.15.1 (9dfd3a08) » et l'image « 0.15.1 (unknown commit) », donc un
+      # cache écrit d'un côté reste valide de l'autre.
+      - name: Install the pinned Typst
+        run: |
+          set -euo pipefail
+          V=0.15.1
+          SHA=a6d077d0a95eed5a2eba715b2dae06be954f624ccbf85758a03f389ded33118c
+          curl -sSLo typst.tar.xz \
+            "https://github.com/typst/typst/releases/download/v$V/typst-x86_64-unknown-linux-musl.tar.xz"
+          echo "$SHA  typst.tar.xz" | sha256sum -c -
+          tar xJf typst.tar.xz
+          echo "CTESTER_TYPST_BIN=$PWD/typst-x86_64-unknown-linux-musl/typst" >> "$GITHUB_ENV"
       # LE TYPAGE D'ABORD : `svelte-check` voit ce qu'un test ne voit pas -- une
       # propriété qui n'existe pas, une charge d'API mal lue, un `{@const}` mal
       # placé. C'est ce qui a remplacé le `node --check` de l'ancienne page, et

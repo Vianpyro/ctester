@@ -1,0 +1,14 @@
+# LA BIBLIOTHÈQUE PARTAGÉE DES ÉNONCÉS, et c'est un PAQUET Typst et pas un
+# fichier voisin. La raison est une frontière de sécurité : `typst_build.py`
+# compile avec `--root` posé sur le répertoire de l'exercice, donc un
+# `statement.typ` ne peut lire QUE ses propres fichiers. Un paquet, lui, est
+# résolu hors de `--root` -- c'est le seul moyen d'avoir les deux à la fois.
+#
+# `local` et pas `preview` : ce paquet n'est pas publié, il est monté depuis
+# `TYPST_PACKAGE_PATH`. La version ne bouge que si l'API change ; le rendu, lui,
+# est invalidé par le hachage de contenu de ce répertoire (voir typst_build.py).
+[package]
+name = "ctester"
+version = "1.0.0"
+entrypoint = "lib.typ"
+compiler = "0.15.0"

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "id": "fixture-typst",
+  "title": "Analyse d'un tampon",
+  "summary": "L'exercice de démonstration du rendu Typst.",
+  "release": { "state": "available" },
+  "skills": ["arrays-1d", "for", "functions"],
+  "difficulty": "foundation"
+}
