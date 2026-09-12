@@ -45,7 +45,7 @@
 // la taille lue à l'écran. À 320 pt pour 11,5 pt de corps, le texte est rendu
 // entre 10,9 px (colonne à 19 rem) et 14,4 px (colonne à 25 rem) -- de part et
 // d'autre des 13,5 px du Markdown, qui est la référence.
-#let page-width = 160pt
+#let page-width = 220pt
 
 // Le corps en Libertinus Serif et le code en DejaVu Sans Mono : ce sont DEUX DES
 // QUATRE FAMILLES EMBARQUÉES dans le binaire typst. Avec `--ignore-system-fonts`

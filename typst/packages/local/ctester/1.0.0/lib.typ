@@ -30,7 +30,7 @@
   // feuille : il est posé dans une colonne qui défile. `auto` donne donc UNE
   // page aussi haute qu'il faut, et un `#pagebreak()` volontaire de l'auteur en
   // donne deux -- c'est le seul moyen d'en avoir plusieurs, et c'est voulu.
-  set page(width: page-width, height: auto, margin: 4pt, fill: palette.bg)
+  set page(width: page-width, height: auto, margin: 5.5pt, fill: palette.bg)
   set text(font: body-font, size: body-size, fill: palette.fg, lang: "fr")
   set par(justify: false, leading: 0.65em, spacing: 0.9em)
 
