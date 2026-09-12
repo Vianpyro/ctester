@@ -149,7 +149,7 @@ h1 {
    cible de 36 px, un curseur, et un survol qui répond.
    `:focus-visible` marche tel quel : c'est la règle globale, en 3 px. */
 #accueil {
-  display: inline-flex; align-items: baseline; gap: .55rem;
+  display: inline-flex; align-items: center; gap: .55rem;
   min-height: var(--tap); padding: 0 .2rem;
   background: none; border: 0; color: inherit;
   font: inherit; cursor: pointer;
