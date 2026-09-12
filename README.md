@@ -36,27 +36,27 @@ Students write C code in the browser, run it in an isolated environment, submit 
                     │                                 │
                     │  Auth · Catalog · Drafts        │
                     │  Submissions · Progress         │
-                    │  Forum · Teams · Console       │
+                    │  Forum · Teams · Console        │
                     └──────────────┬──────────────────┘
                                    │
                             submission spool
                                    │
                                    ▼
                     ┌─────────────────────────────────┐
-                    │          Host worker             │
+                    │          Host worker            │
                     │                                 │
                     │  reads submissions              │
-                    │  reads private tests             │
-                    │  launches sandbox                │
+                    │  reads private tests            │
+                    │  launches sandbox               │
                     └──────────────┬──────────────────┘
                                    │
                               Docker + gVisor
                                    │
                                    ▼
                     ┌─────────────────────────────────┐
-                    │        Disposable sandbox        │
+                    │        Disposable sandbox       │
                     │                                 │
-                    │       C compiler + tests         │
+                    │       C compiler + tests        │
                     └─────────────────────────────────┘
 ```
 
@@ -66,28 +66,28 @@ The web application **cannot compile or execute student code** and does not have
 
 ```text
 ┌─────────────────────────────── Web tier ───────────────────────────────┐
-│                                                                         │
+│                                                                        │
 │  Browser ──► FastAPI ──► spool                                         │
-│                 │                                                       │
+│                 │                                                      │
 │                 └── no Docker socket                                   │
 │                 └── no private tests                                   │
 │                 └── no code execution                                  │
-│                                                                         │
-└──────────────────────────────────┬──────────────────────────────────────┘
+│                                                                        │
+└──────────────────────────────────┬─────────────────────────────────────┘
                                    │
                          filesystem / job queue
                                    │
-┌─────────────────────────────── Worker host ─────────────────────────────┐
-│                                   │                                     │
-│                         private content                                 │
-│                                   │                                     │
-│                                   ▼                                     │
-│                         Docker + gVisor                                 │
-│                                   │                                     │
-│                                   ▼                                     │
-│                            student code                                 │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────── Worker host ────────────────────────────┐
+│                                   │                                    │
+│                         private content                                │
+│                                   │                                    │
+│                                   ▼                                    │
+│                         Docker + gVisor                                │
+│                                   │                                    │
+│                                   ▼                                    │
+│                            student code                                │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 Each submission gets a fresh sandbox with bounded resources.
@@ -332,7 +332,7 @@ The frontend is a static Svelte application.
 
 ```text
                     ┌─────────────────┐
-                    │   Git repository │
+                    │  Git repository │
                     └────────┬────────┘
                              │
                          Vite build
