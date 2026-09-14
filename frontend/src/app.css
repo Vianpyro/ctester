@@ -405,7 +405,7 @@ main {
 #consignetexte.md p { margin: 0 0 .7rem; }
 /* Sub-headings in a 25 rem column, not page titles: barely above the body size. */
 #consignetexte.md :is(h1, h2, h3, h4) {
-  margin: 1.1rem 0 .45rem; font-size: var(--fs-lead); font-weight: 600;
+  margin: 0 0 .45rem; font-size: var(--fs-lead); font-weight: 600;
   color: var(--fg);
 }
 #consignetexte.md ul, #consignetexte.md ol { margin: 0 0 .7rem; padding-left: 1.3rem; }
