@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import sys
 
-import content_catalog
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "worker"))
+import content_catalog  # noqa: E402
 
 
 def main(argv=None):
