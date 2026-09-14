@@ -62,12 +62,12 @@
       TCH009<span class="tagline">Tester mon code</span>
     </button>
   </h1>
+  <span class="tagline credit">par <a href="https://www.linkedin.com/in/vianney-veremme-1b88a5177">Vianney Veremme</a></span>
   <!-- A FAILURE OF THE COUNTER IS INVISIBLE: it stays hidden. It must never get in
        the way of an exercise. -->
   <span id="live" class="tagline" aria-live="polite" hidden={presence.count === null}>
     {presence.label}
   </span>
-  <span class="tagline credit">par Vianney Veremme</span>
   <span class="sep"></span>
 
   <ExerciseMenu open={menuOpen} {focusSearch} onOpenChange={(o) => onMenu(o)} />
