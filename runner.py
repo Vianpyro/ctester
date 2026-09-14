@@ -1640,9 +1640,20 @@ def run_console(job_dir):
     # conclurait « worker mort » sur une session parfaitement vivante.
     revendication = os.open(os.path.join(job_dir, "claim"),
                             os.O_RDWR | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(revendication, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    # UNE SONDE PREND CE VERROU UN INSTANT -- `verrou_tenu()` teste en
+    # l'essayant, et l'API sonde `claim`. Tomber dessus n'est pas un second
+    # tenant : on réessaie une seconde. Un vrai tenant, lui, ne relâche pas.
+    # Vu en CI : la boucle de sonde du test gagnait la course, et la session
+    # mourait avec « claim deja tenu » sur un job que personne ne tenait.
+    pris = False
+    for _ in range(100):
+        try:
+            fcntl.flock(revendication, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            pris = True
+            break
+        except OSError:
+            time.sleep(0.01)
+    if not pris:
         # ON ECRIT L'ETAT AVANT DE PARTIR. Sans ca, ce retour etait MUET : le
         # job restait sans etat, l'API finissait par sonder `claim`, le trouvait
         # libre et concluait « worker » elle-meme -- le meme mot pour deux

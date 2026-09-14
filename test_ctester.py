@@ -3605,7 +3605,7 @@ def test_la_forme_canonique_se_tait_sur_tout_le_reste():
 
 
 def test_la_forme_canonique_epargne_un_raccord_de_lignes():
-    """`\` suivi d'espaces puis d'un retour est un raccord que gcc accepte EN LE
+    r"""`\` suivi d'espaces puis d'un retour est un raccord que gcc accepte EN LE
     SIGNALANT (« backslash and newline separated by space »). Couper ces
     espaces ferait TAIRE le diagnostic sans rien réparer, et l'étudiant perdrait
     un avertissement au lieu de gagner une correction. Ça couvre du même coup
