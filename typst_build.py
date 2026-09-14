@@ -330,7 +330,18 @@ def render(exercise_dir, exercise_id, version=None):
             fin = subprocess.run(argv, capture_output=True, text=True,
                                  timeout=TIMEOUT, env=env, cwd=cwd)
             chemin = os.path.join(travail, "statement.html")
-            if fin.returncode == 0 and os.path.isfile(chemin):
+            # UN HTML QUI A PERDU QUELQUE CHOSE N'EST PAS PUBLIÉ : typst le dit
+            # par « X was ignored during HTML export ». La page n'offre aucun
+            # choix, donc elle ne doit recevoir que ce qui est complet -- sans
+            # fichier, elle affiche les pages SVG. Le `#pagebreak()` est la
+            # seule perte sans conséquence : le HTML défile, il n'a pas de pages.
+            pertes = [l for l in (fin.stderr or "").splitlines()
+                      if "ignored during HTML export" in l
+                      and "pagebreak" not in l]
+            if pertes:
+                print("ctester: %s: rendu HTML incomplet, SVG seul :\n%s"
+                      % (exercise_id, "\n".join(pertes)))
+            elif fin.returncode == 0 and os.path.isfile(chemin):
                 with open(chemin, "rb") as fh:
                     rendu["html"] = fh.read()
             else:

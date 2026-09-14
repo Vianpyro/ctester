@@ -32,27 +32,11 @@
   // because that is where the instructor is looking when they check the render.
   const ferme = $derived(lockNote(catalog.selected));
 
-  // SVG OU HTML, POUR UN ÉNONCÉ TYPST QUI A LES DEUX. Un réglage d'affichage
-  // par appareil : `localStorage`, et l'échec de celui-ci ne change que le
-  // souvenir, jamais l'affichage. Le SVG reste le défaut pendant l'essai.
-  const CLE = "ctester.typst.vue";
-  let vue = $state<"svg" | "html">(
-    (() => {
-      try {
-        return localStorage.getItem(CLE) === "html" ? "html" : "svg";
-      } catch {
-        return "svg";
-      }
-    })(),
-  );
-  function choisir(v: "svg" | "html") {
-    vue = v;
-    try {
-      localStorage.setItem(CLE, v);
-    } catch {
-      /* le choix vaut pour cette visite */
-    }
-  }
+  // LE HTML D'ABORD, LE SVG EN REPLI, ET PERSONNE N'A À CHOISIR. Le HTML est
+  // essayé quand la publication l'a produit ; s'il ne se charge pas, la page
+  // retombe sur les pages SVG pour CET énoncé. L'échec est clé sur
+  // l'identifiant : ouvrir un autre exercice réessaie son propre HTML.
+  let htmlRate = $state<string | null>(null);
 </script>
 
 <details id="consigne" open>
@@ -67,13 +51,12 @@
     <pre id="consignetexte" class="vide">Chargement…</pre>
   {:else if etat.kind === "text"}
     <div id="consignetexte" class="md">{@html renderStatement(etat.text)}</div>
-  {:else if etat.kind === "typst" && etat.html && vue === "html"}
-    {@render bascule()}
+  {:else if etat.kind === "typst" && etat.html && htmlRate !== etat.id}
+    {@const id = etat.id}
     <div id="consignetexte" class="md">
-      <TypstHtml id={etat.id} staff={etat.staff} />
+      <TypstHtml {id} staff={etat.staff} onfail={() => (htmlRate = id)} />
     </div>
   {:else if etat.kind === "typst"}
-    {#if etat.html}{@render bascule()}{/if}
     <div id="consignetexte" class="typstpages">
       <TypstStatement
         id={etat.id}
@@ -93,24 +76,7 @@
   {/if}
 </details>
 
-{#snippet bascule()}
-  <div class="bascule" role="group" aria-label="Affichage de la consigne">
-    <button type="button" class="nav" aria-pressed={vue === "svg"} onclick={() => choisir("svg")}>SVG</button>
-    <button type="button" class="nav" aria-pressed={vue === "html"} onclick={() => choisir("html")}>HTML</button>
-  </div>
-{/snippet}
-
 <style>
-  .bascule {
-    display: flex;
-    gap: 0.3rem;
-    justify-content: flex-end;
-    margin: 0.4rem 0.6rem 0;
-  }
-  .bascule [aria-pressed="true"] {
-    border-color: var(--ink);
-    color: var(--ink);
-  }
   /* Not a warning and not an error: a statement of fact about who can see this.
      `--wait` is already the page's "not yet" colour (the syntax checker's hints,
      the queued verdict), so it costs no new token. */
