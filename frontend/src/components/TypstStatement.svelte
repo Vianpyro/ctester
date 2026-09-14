@@ -119,9 +119,13 @@
     flex-direction: column;
     gap: 0.4rem;
   }
+  /* TAILLE NATURELLE : le SVG fait 300 pt = 25 rem, avec un corps de 14 px,
+     donc le texte a la taille du Markdown. `width: 100%` le grossissait avec la
+     colonne. */
   .typst img {
     display: block;
-    width: 100%;
+    width: auto;
+    max-width: 100%;
     height: auto;
   }
   .ratee {

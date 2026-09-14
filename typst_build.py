@@ -245,6 +245,16 @@ def _preparer(exercise_dir, travail):
 
 
 def _argv(travail, theme):
+    if theme == "html":
+        # UN SEUL RENDU HTML, SANS THÈME : les couleurs viennent de la feuille
+        # de la page. `--features html` : l'export est expérimental en 0.15.
+        return _commande(travail, ["--features", "html", "--format", "html"],
+                         "statement.html")
+    return _commande(travail, ["--input", "theme=" + theme, "--format", "svg"],
+                     theme + "-{p}.svg")
+
+
+def _commande(travail, options, sortie):
     """La ligne de commande du moteur configuré.
 
     LE CONTENEUR NE MONTE QUE TROIS CHOSES, et deux le sont en lecture seule :
@@ -253,11 +263,10 @@ def _argv(travail, theme):
     le système de fichiers de l'image ; l'uid de l'appelant pour que les SVG ne
     sortent pas root.
     """
-    commun = ["compile", "--ignore-system-fonts", "--root", ".",
-              "--input", "theme=" + theme, "--format", "svg"]
+    commun = ["compile", "--ignore-system-fonts", "--root", "."] + options
     if BIN:
         return [BIN] + commun + ["--font-path", FONTS,
-                                 "main.typ", theme + "-{p}.svg"], dict(
+                                 "main.typ", sortie], dict(
             os.environ, TYPST_PACKAGE_PATH=PACKAGES), travail
     return ["docker", "run", "--rm", "--network=none", "--read-only",
             "--user", "%d:%d" % (os.getuid(), os.getgid()),
@@ -266,7 +275,7 @@ def _argv(travail, theme):
             "-v", FONTS + ":/fonts:ro",
             "-v", travail + ":/work",
             "-w", "/work", IMAGE] + commun + ["--font-path", "/fonts",
-                                              "main.typ", theme + "-{p}.svg"], \
+                                              "main.typ", sortie], \
         dict(os.environ), None
 
 
@@ -313,6 +322,22 @@ def render(exercise_dir, exercise_id, version=None):
                 "pas changer la pagination : vérifie un tableau ou une image "
                 "qui déborde." % (exercise_id, len(rendu["dark"]),
                                   len(rendu["light"])))
+        # ponytail: l'export HTML est expérimental, donc son échec NE BLOQUE
+        # PAS la publication pendant l'essai -- le SVG reste servi seul. À
+        # durcir (lever comme ci-dessus) le jour où le HTML devient le défaut.
+        argv, env, cwd = _argv(travail, "html")
+        try:
+            fin = subprocess.run(argv, capture_output=True, text=True,
+                                 timeout=TIMEOUT, env=env, cwd=cwd)
+            chemin = os.path.join(travail, "statement.html")
+            if fin.returncode == 0 and os.path.isfile(chemin):
+                with open(chemin, "rb") as fh:
+                    rendu["html"] = fh.read()
+            else:
+                print("ctester: %s: rendu HTML ignoré :\n%s"
+                      % (exercise_id, (fin.stderr or fin.stdout).strip()))
+        except (OSError, subprocess.SubprocessError) as exc:
+            print("ctester: %s: rendu HTML ignoré (%s)" % (exercise_id, exc))
         _ecrire_cache(magasin, rendu)
         return rendu, False
     finally:
@@ -350,6 +375,10 @@ def _lire_cache(magasin):
         if not pages:
             return None  # un cache à moitié écrit n'est pas un cache
         rendu[theme] = pages
+    html = os.path.join(magasin, "statement.html")
+    if os.path.isfile(html):
+        with open(html, "rb") as fh:
+            rendu["html"] = fh.read()
     return rendu
 
 
@@ -364,8 +393,11 @@ def _ecrire_cache(magasin, rendu):
     shutil.rmtree(temporaire, ignore_errors=True)
     try:
         os.makedirs(temporaire, exist_ok=True)
-        for theme, pages in rendu.items():
-            for numero, octets in enumerate(pages, 1):
+        if rendu.get("html"):
+            with open(os.path.join(temporaire, "statement.html"), "wb") as fh:
+                fh.write(rendu["html"])
+        for theme in THEMES:
+            for numero, octets in enumerate(rendu[theme], 1):
                 with open(os.path.join(temporaire, "%s-%d.svg" % (theme, numero)),
                           "wb") as fh:
                     fh.write(octets)

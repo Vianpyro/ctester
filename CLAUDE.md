@@ -1264,6 +1264,30 @@ non-régression Markdown, la CSP), `typstStatement.test.ts` et
 de détails de `catalog` est un singleton de chargement de page : un exercice
 déjà ouvert par un test voisin reviendrait en Markdown.
 
+**L'ESSAI HTML : `statement.html` EST PUBLIÉ À CÔTÉ DES SVG**, par
+`--features html` (expérimental en 0.15). La page propose une bascule SVG/HTML
+(`ctester.typst.vue` en `localStorage`, SVG par défaut) quand le détail porte
+`statement_html: true`. Quatre choses à savoir :
+
+- **Un échec HTML NE BLOQUE PAS la publication** (`ponytail:` dans `render()`),
+  contrairement au SVG. À durcir si le HTML devient le défaut.
+- **Servi en `text/plain`**, lu par `fetch`, préparé par `lib/typstHtml.ts`
+  (`DOMParser`, qui n'exécute ni ne charge rien) puis écrit par `{@html}`. Même
+  confiance que `statement.md` : le fichier vient du dépôt privé relu.
+- **Les images arrivent en `data:`, et `img-src` les refuse exprès** : elles
+  sont converties en `blob:` avant l'écriture. Ne pas ajouter `data:` à la CSP.
+- **La coloration inline de Typst est remplacée par `highlight()`** : elle est
+  peinte aux couleurs du thème sombre et ne suivrait pas la page.
+- `#recopier(...)` rend `.typ-recopier` : pas de bouton Copier, `user-select:
+  none` et copie refusée. Dissuasion, pas protection.
+
+Le gabarit (`lib.typ`, `blocks.typ`) teste `target() == "html"` et n'y pose
+AUCUN style : titres, code et tableaux prennent la feuille de `#consignetexte.md`.
+
+**LA TAILLE DU SVG** : 300 pt de large, corps 10,5 pt, posé à sa taille
+naturelle (`max-width: 100%`) — donc 14 px, `--fs-body`, dans une colonne de
+25 rem. `width: 100%` faisait grossir le texte avec la colonne.
+
 Le guide pour l'équipe enseignante est `docs/content/typst.md`.
 
 ## Ajouter ou modifier un TP

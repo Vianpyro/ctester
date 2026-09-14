@@ -210,6 +210,24 @@ Quatre encadrés, et il y en a quatre parce que quatre servent.
 Chacun accepte `titre:` si « Note », « Attention » ou « Exemple » ne convient
 pas.
 
+Un code d'exemple que l'étudiant doit **retaper à la main** :
+
+````typst
+#recopier(```c
+for (int i = 0; i < n; i++)
+    printf("%d\n", t[i]);
+```)
+````
+
+Un bloc ```` ```c ```` passé directement, SANS guillemets autour : rien à
+échapper, les `"` et les `\n` du programme restent tels quels. Une chaîne
+(`#recopier("int x;")`) marche aussi pour une ligne courte.
+
+Dans la version HTML de la consigne (essai, bouton « HTML » au-dessus de
+l'énoncé), les blocs de code ont un bouton « Copier », **sauf** ceux-là : ils
+refusent la sélection et la copie. C'est une dissuasion, pas une protection —
+le texte reste dans la page. En SVG, rien n'est copiable de toute façon.
+
 ## 11. Plusieurs pages
 
 Un `#pagebreak()` et rien d'autre. La page affiche les images l'une sous l'autre

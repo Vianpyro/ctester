@@ -61,7 +61,7 @@ def load_catalog():
 # mean accepting an input, which we do not. The publisher holds the other half
 # of this rule (`publish_content.ACTIF_RE`): one writes these names, one accepts
 # them, and neither builds a path out of what the URL said.
-PAGE_RE = re.compile(r"\A(?:dark|light)-(?:[1-9]|1[0-6])\.svg\Z")
+PAGE_RE = re.compile(r"\A(?:(?:dark|light)-(?:[1-9]|1[0-6])\.svg|statement\.html)\Z")
 
 
 def source_publiee(entry, quoi, nom=None):

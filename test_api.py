@@ -904,6 +904,8 @@ def test_une_page_d_enonce_refuse_tout_ce_qui_n_est_pas_une_page():
         for nom in ("dark-0.svg", "dark-17.svg", "sepia-1.svg", "dark-1.png",
                     "dark-1.svg.typ", "dark-1", "", "dark--1.svg",
                     "dark-01.svg", "DARK-1.svg",
+                    # le seul HTML accepté s'appelle `statement.html`
+                    "index.html", "statement.htm", "dark-1.html",
                     # LES TRAVERSÉES, SOUS LEURS FORMES ENCODÉES -- celles qui
                     # atteignent vraiment la route. Starlette apparie sur le
                     # chemin BRUT puis décode `{nom}`, donc `%2F` arrive ici

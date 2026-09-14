@@ -117,5 +117,10 @@ def statement(exercise_id: str, nom: str, request: Request, apercu: Apercu):
     # plutôt que « fichier manquant », qui est un 500.
     if not os.path.isfile(os.path.join(base, chemin)):
         return headers.erreur(404, "inconnu")
-    return headers.fichier_du_disque(request, base, chemin, "image/svg+xml",
+    # LE HTML PART EN `text/plain`, EXPRÈS : la page le lit par `fetch` et
+    # l'insère elle-même. Servi en `text/html`, ce fichier deviendrait un
+    # document ouvrable sur l'origine de l'API.
+    ctype = ("text/plain; charset=utf-8" if nom.endswith(".html")
+             else "image/svg+xml")
+    return headers.fichier_du_disque(request, base, chemin, ctype,
                                      prive=entry.get("access") != "available")

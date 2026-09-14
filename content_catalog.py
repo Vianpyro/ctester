@@ -637,7 +637,7 @@ def _public_assignment(entry, now=None):
     return public
 
 
-def public_detail(model, exercise_id, now=None, pages=None):
+def public_detail(model, exercise_id, now=None, pages=None, html=False):
     """An exercise's public detail, kept apart from the menu and from assessment.
 
     Templates are bulky enough to stay out of catalog.json, but are public by
@@ -666,4 +666,7 @@ def public_detail(model, exercise_id, now=None, pages=None):
     if entry.get("statement_format") == "typ":
         detail["statement_format"] = "typst"
         detail["statement_pages"] = int(pages or 0)
+        # Un BOOLÉEN, comme `statement_pages` est un compte : la page
+        # reconstruit `/statement/<id>/statement.html` elle-même.
+        detail["statement_html"] = bool(html)
     return detail

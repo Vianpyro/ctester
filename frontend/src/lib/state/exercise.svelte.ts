@@ -46,7 +46,7 @@ export type StatementState =
    *  page holds the id and the count and rebuilds the URLs -- no path travels
    *  over the wire. `staff` says the pages sit under `staff/` and need a token,
    *  which is why the component has a second loading path. */
-  | { kind: "typst"; id: string; pages: number; staff: boolean; title: string }
+  | { kind: "typst"; id: string; pages: number; staff: boolean; title: string; html: boolean }
   /** "No statement online" is a property of the exercise... */
   | { kind: "none" }
   /** ...and this is a failure to fetch one. The student used to see them the
@@ -75,6 +75,7 @@ function statementOf(ex: Exercise, detail: ExerciseDetail): StatementState {
       // dans la liste plate que quand le serveur a dit que ce compte est staff.
       staff: ex.access !== "available",
       title: ex.label,
+      html: detail.statement_html === true,
     };
   }
   return detail.statement ? { kind: "text", text: detail.statement } : { kind: "none" };

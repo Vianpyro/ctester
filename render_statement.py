@@ -68,6 +68,11 @@ def main(argv=None):
             with open(chemin, "wb") as fh:
                 fh.write(octets)
             ecrits.append(chemin)
+    if rendu.get("html"):
+        chemin = os.path.join(sortie, "statement.html")
+        with open(chemin, "wb") as fh:
+            fh.write(rendu["html"])
+        ecrits.append(chemin)
     print("%d page(s) par thème%s" % (len(rendu[themes[0]]),
                                       " (depuis le cache)" if du_cache else ""))
     for chemin in ecrits:

@@ -958,10 +958,16 @@ def test_typst_la_fixture_compile_vraiment_dans_les_deux_themes():
         fixture = os.path.join(HERE, "typst", "fixture")
         rendu, du_cache = typst_build.render(fixture, "fixture-typst")
         assert du_cache is False, "un cache frais ne peut pas déjà servir"
-        assert sorted(rendu) == ["dark", "light"], sorted(rendu)
+        assert sorted(rendu) == ["dark", "html", "light"], sorted(rendu)
+        # L'ESSAI HTML : un document, de vrais titres, le code EN CLAIR (c'est
+        # tout l'intérêt : copier), et aucun source Typst.
+        html = rendu["html"]
+        assert b"<h2>" in html and b"plus_grand" in html, html[:200]
+        assert b"#import" not in html
         assert len(rendu["dark"]) >= 2, "le #pagebreak() n'a pas produit deux pages"
         assert len(rendu["dark"]) == len(rendu["light"]), "les deux thèmes divergent"
-        for theme, pages in rendu.items():
+        for theme in typst_build.THEMES:
+            pages = rendu[theme]
             for numero, octets in enumerate(pages, 1):
                 assert octets.startswith(b"<svg"), (theme, numero, octets[:40])
                 # LE TEXTE DE LA SOURCE N'EST PAS DANS LE SVG : typst vectorise

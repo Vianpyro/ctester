@@ -41,11 +41,10 @@
 
 // LA LARGEUR EST CELLE DE LA COLONNE, pas celle d'une feuille. `#consigne` fait
 // `minmax(19rem, 25rem)` dans `app.css` et le SVG est posé en `width: 100%` :
-// c'est donc le RAPPORT entre cette largeur et le corps du texte qui décide de
-// la taille lue à l'écran. À 320 pt pour 11,5 pt de corps, le texte est rendu
-// entre 10,9 px (colonne à 19 rem) et 14,4 px (colonne à 25 rem) -- de part et
-// d'autre des 13,5 px du Markdown, qui est la référence.
-#let page-width = 220pt
+// le SVG est posé à sa TAILLE NATURELLE (`max-width: 100%`) : 300 pt = 400 px =
+// 25 rem, et 10,5 pt = 14 px = `--fs-body`, la taille du Markdown. Dans une
+// colonne plus étroite, l'image rétrécit un peu, sans jamais grossir.
+#let page-width = 300pt
 
 // LE CORPS EN DEJAVU SANS, POUR RESTER DANS LA MÊME FAMILLE QUE LE SITE.
 // `app.css` pose `--sans: system-ui, ...` -- une pile de polices SYSTÈME, sans
@@ -61,5 +60,5 @@
 // retenir.
 #let body-font = "DejaVu Sans"
 #let mono-font = "DejaVu Sans Mono"
-#let body-size = 11.5pt
-#let mono-size = 9.5pt
+#let body-size = 10.5pt   // 14 px, `--fs-body`
+#let mono-size = 9.75pt   // 13 px, `--fs-ui`

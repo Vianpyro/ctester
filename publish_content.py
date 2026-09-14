@@ -77,7 +77,8 @@ APERCU = dt.datetime(9999, 1, 1, tzinfo=dt.timezone.utc)
 # ce nom-là. Le même motif vit dans `app/routers/catalog.py`, qui le fait valoir
 # sur ce qui ENTRE -- les deux moitiés d'une seule règle.
 ACTIF_RE = re.compile(
-    r"\A(?:staff/)?statements/[a-z0-9][a-z0-9-]{0,62}/(?:dark|light)-(?:[1-9]|1[0-6])\.svg\Z")
+    r"\A(?:staff/)?statements/[a-z0-9][a-z0-9-]{0,62}/"
+    r"(?:(?:dark|light)-(?:[1-9]|1[0-6])\.svg|statement\.html)\Z")
 
 
 def projection(model, now=None, renders=None):
@@ -104,10 +105,12 @@ def projection(model, now=None, renders=None):
     for exercise_id, entry in model["exercises"].items():
         pages = renders.get(exercise_id) or {}
         compte = len(pages.get("dark") or ())
-        detail = content_catalog.public_detail(model, exercise_id, now, compte)
+        html = pages.get("html")
+        detail = content_catalog.public_detail(model, exercise_id, now, compte, bool(html))
         prefixe = ""
         if detail is None:
-            detail = content_catalog.public_detail(model, exercise_id, APERCU, compte)
+            detail = content_catalog.public_detail(model, exercise_id, APERCU, compte,
+                                                   bool(html))
             if detail is None:
                 continue  # archived: there is nothing to show anybody
             prefixe = "staff/"
@@ -119,8 +122,10 @@ def projection(model, now=None, renders=None):
         # l'enseignant peut vérifier le rendu avant le cours, l'étudiant lit un
         # cadenas et une date. Écrire ce préfixe à un second endroit serait
         # l'endroit où les deux finiraient par diverger.
-        for theme, rendu in sorted(pages.items()):
-            for numero, octets in enumerate(rendu, 1):
+        if html:
+            files["%sstatements/%s/statement.html" % (prefixe, exercise_id)] = html
+        for theme in typst_build.THEMES:
+            for numero, octets in enumerate(pages.get(theme) or (), 1):
                 files["%sstatements/%s/%s-%d.svg"
                       % (prefixe, exercise_id, theme, numero)] = octets
     fuites = sorted({key for value in files.values() for key in _cles(value)}

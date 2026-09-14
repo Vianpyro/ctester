@@ -87,6 +87,8 @@ export interface ExerciseDetail {
   /** A COUNT, never a path: the page rebuilds
    *  `/statement/<id>/<theme>-<n>.svg` from the id it already holds. */
   statement_pages?: number;
+  /** A Typst statement ALSO published as `statement.html` (experimental). */
+  statement_html?: boolean;
   files: { name: string; template?: string }[];
   /** Set by the client when the fetch failed: NOT a property of the exercise. */
   offline?: boolean;

@@ -21,11 +21,16 @@
 // en tête, et celui qui n'en veut pas n'écrit rien du tout et garde le style.
 
 #import "theme.typ": palette, page-width, body-font, mono-font, body-size, mono-size, theme-name
-#import "blocks.typ": attention, exemple, note, signature
+#import "blocks.typ": attention, exemple, note, recopier, signature
 #import "mermaid.typ": mermaid
 
 /// Le gabarit d'un énoncé. Appliqué par le `main.typ` que le build écrit.
-#let enonce(corps) = {
+///
+/// EN HTML, AUCUN STYLE : la page pose `#consignetexte.md` autour, donc les
+/// titres, le code et les tableaux prennent la feuille du Markdown. Les règles
+/// `show` ci-dessous transformeraient les titres en `<div>` et n'apportent rien
+/// là-bas (`set page` y est de toute façon ignoré, avec un avertissement).
+#let enonce(corps) = context if target() == "html" { corps } else {
   // HAUTEUR AUTOMATIQUE, SAUF PAGINATION EXPLICITE. Un énoncé n'est pas une
   // feuille : il est posé dans une colonne qui défile. `auto` donne donc UNE
   // page aussi haute qu'il faut, et un `#pagebreak()` volontaire de l'auteur en

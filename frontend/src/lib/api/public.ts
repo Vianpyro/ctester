@@ -30,6 +30,7 @@ type Wire = {
   statement?: unknown;
   statement_format?: unknown;
   statement_pages?: unknown;
+  statement_html?: unknown;
   files?: unknown;
 };
 
@@ -69,6 +70,7 @@ export async function fetchDetail(id: string, staff = false): Promise<ExerciseDe
   ) {
     detail.statement_format = "typst";
     detail.statement_pages = d.statement_pages;
+    if (d.statement_html === true) detail.statement_html = true;
   }
   return detail;
 }

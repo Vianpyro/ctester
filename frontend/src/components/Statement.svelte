@@ -23,13 +23,36 @@
   import { lockNote } from "../lib/domain/catalog";
   import { renderStatement } from "../lib/domain/statement";
   import TypstStatement from "./TypstStatement.svelte";
+  import TypstHtml from "./TypstHtml.svelte";
 
-  const state = $derived(exercise.statement);
+  const etat = $derived(exercise.statement);
   // ONLY A MODERATOR CAN REACH THIS STATE, so there is no role to test here:
   // `catalog.selected` reads the flat list, and a locked exercise is only in it
   // when the server said this account is staff. Said HERE, above the statement,
   // because that is where the instructor is looking when they check the render.
   const ferme = $derived(lockNote(catalog.selected));
+
+  // SVG OU HTML, POUR UN ÉNONCÉ TYPST QUI A LES DEUX. Un réglage d'affichage
+  // par appareil : `localStorage`, et l'échec de celui-ci ne change que le
+  // souvenir, jamais l'affichage. Le SVG reste le défaut pendant l'essai.
+  const CLE = "ctester.typst.vue";
+  let vue = $state<"svg" | "html">(
+    (() => {
+      try {
+        return localStorage.getItem(CLE) === "html" ? "html" : "svg";
+      } catch {
+        return "svg";
+      }
+    })(),
+  );
+  function choisir(v: "svg" | "html") {
+    vue = v;
+    try {
+      localStorage.setItem(CLE, v);
+    } catch {
+      /* le choix vaut pour cette visite */
+    }
+  }
 </script>
 
 <details id="consigne" open>
@@ -40,20 +63,26 @@
   {#if ferme}
     <p class="apercu">🔒 Invisible pour les étudiants — {ferme}.</p>
   {/if}
-  {#if state.kind === "loading"}
+  {#if etat.kind === "loading"}
     <pre id="consignetexte" class="vide">Chargement…</pre>
-  {:else if state.kind === "text"}
-    <div id="consignetexte" class="md">{@html renderStatement(state.text)}</div>
-  {:else if state.kind === "typst"}
+  {:else if etat.kind === "text"}
+    <div id="consignetexte" class="md">{@html renderStatement(etat.text)}</div>
+  {:else if etat.kind === "typst" && etat.html && vue === "html"}
+    {@render bascule()}
+    <div id="consignetexte" class="md">
+      <TypstHtml id={etat.id} staff={etat.staff} />
+    </div>
+  {:else if etat.kind === "typst"}
+    {#if etat.html}{@render bascule()}{/if}
     <div id="consignetexte" class="typstpages">
       <TypstStatement
-        id={state.id}
-        pages={state.pages}
-        staff={state.staff}
-        title={state.title}
+        id={etat.id}
+        pages={etat.pages}
+        staff={etat.staff}
+        title={etat.title}
       />
     </div>
-  {:else if state.kind === "none"}
+  {:else if etat.kind === "none"}
     <pre id="consignetexte" class="vide">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.</pre>
   {:else}
     <pre id="consignetexte" class="vide">La consigne n'a pas pu être chargée. Tu peux quand même écrire et tester : les noms de fichiers attendus, eux, sont déjà là.<button
@@ -64,7 +93,24 @@
   {/if}
 </details>
 
+{#snippet bascule()}
+  <div class="bascule" role="group" aria-label="Affichage de la consigne">
+    <button type="button" class="nav" aria-pressed={vue === "svg"} onclick={() => choisir("svg")}>SVG</button>
+    <button type="button" class="nav" aria-pressed={vue === "html"} onclick={() => choisir("html")}>HTML</button>
+  </div>
+{/snippet}
+
 <style>
+  .bascule {
+    display: flex;
+    gap: 0.3rem;
+    justify-content: flex-end;
+    margin: 0.4rem 0.6rem 0;
+  }
+  .bascule [aria-pressed="true"] {
+    border-color: var(--ink);
+    color: var(--ink);
+  }
   /* Not a warning and not an error: a statement of fact about who can see this.
      `--wait` is already the page's "not yet" colour (the syntax checker's hints,
      the queued verdict), so it costs no new token. */
