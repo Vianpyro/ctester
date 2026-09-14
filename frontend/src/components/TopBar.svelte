@@ -67,6 +67,7 @@
   <span id="live" class="tagline" aria-live="polite" hidden={presence.count === null}>
     {presence.label}
   </span>
+  <span class="tagline credit">par Vianney Veremme</span>
   <span class="sep"></span>
 
   <ExerciseMenu open={menuOpen} {focusSearch} onOpenChange={(o) => onMenu(o)} />
