@@ -1,6 +1,3 @@
-// WHAT A VERDICT MEANS FOR THE STUDENT. Every assertion here is a sentence somebody reads
-// in front of a failing test, or a rule that decides whether a lab counts as validated.
-
 import { describe, expect, it } from "vitest";
 import {
   AFTER_FAILURE,
@@ -50,8 +47,6 @@ describe("firstError", () => {
   ].join("\n");
 
   it("isolates the FIRST error and the excerpt that follows it", () => {
-    // In C, errors cascade: one missing `;` produces six, five of which do not really
-    // exist -- and the raw output scrolls, so what a beginner reads is the most derived one.
     const first = firstError(gcc)!;
     expect(first).toContain("expected ';'");
     expect(first).toContain("^");
@@ -81,8 +76,6 @@ describe("caseClass", () => {
 
 describe("showsContract", () => {
   it("shows the grading contract only for a VALUE comparison", () => {
-    // A program that crashed, or a case looking for a word, is not fixed by reformatting
-    // its output.
     expect(showsContract({ case: 1, reason: "la valeur attendue n'y est pas" })).toBe(true);
     expect(showsContract({ case: 1, reason: "ton programme n'a pas terminé" })).toBe(false);
     expect(showsContract({ case: 1, reason: "le mot attendu n'apparaît pas" })).toBe(false);
@@ -111,13 +104,10 @@ describe("restrictToScope", () => {
   };
 
   it("restricts the READING only -- the judge graded the whole quiz", () => {
-    // "Tester l'exercice" changes nothing about grading: it is from the COMPLETE verdict
-    // that the API derives "solved", so a correct exercise cannot validate a half-filled lab.
     const shown = restrictToScope(graded, { titre: "Exercice 1", ids: ["q1", "q2"] });
     expect(shown.total).toBe(2);
     expect(shown.passed).toBe(1);
     expect(shown.wrong!.map((w) => w.id)).toEqual(["q1"]);
-    // The original is untouched: it is what the API already read.
     expect(graded.total).toBe(4);
     expect(graded.passed).toBe(2);
   });
@@ -168,7 +158,6 @@ describe("estimatedWait", () => {
   });
 
   it("says NOTHING rather than inventing a number", () => {
-    // An older API, or an `eta` of 0: only the rank stays displayed.
     expect(estimatedWait(0)).toBe("");
     expect(estimatedWait(undefined)).toBe("");
   });
@@ -176,7 +165,6 @@ describe("estimatedWait", () => {
 
 describe("isJudgeFailure", () => {
   it("tells a crashed student program from a broken judge", () => {
-    // `error` covers both server-side, and only one of them belongs in the verdict channel.
     expect(
       isJudgeFailure({ state: "done", status: "error", kind: "io", message: "Erreur interne du juge" }),
     ).toBe(true);

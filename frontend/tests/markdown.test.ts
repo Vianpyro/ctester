@@ -1,12 +1,3 @@
-// THE RENDERING OF A MESSAGE, AND IT IS THE PART THAT MATTERS.
-//
-// A REAL DOM IS NON-NEGOTIABLE HERE. DOMPurify refuses to work without one: `isSupported`
-// goes false and `sanitize()` then RETURNS ITS INPUT AS-IS. A suite running in that state
-// would report "no injection gets through" without having sanitized anything -- the worst
-// kind of security check, the one that reassures. `renderMarkdown` returns `null` in that
-// state and the component falls back to text, so the first assertion below is that the
-// sanitizer is actually available.
-
 import { describe, expect, it } from "vitest";
 import { escapeAngle, renderAvailable, renderMarkdown } from "../src/lib/domain/markdown";
 
@@ -33,13 +24,6 @@ describe("escapeAngle", () => {
 describe("renderMarkdown", () => {
   const clean = (source: string) => renderMarkdown(source) ?? "";
 
-  /**
-   * THE ASSERTIONS ARE ON THE DOM, NOT ON THE TEXT, and that distinction is the whole
-   * point of the first barrier: `&lt;script&gt;` as escaped TEXT is exactly the right
-   * outcome, and a substring check would flag it as a failure. What must not exist is a
-   * dangerous ELEMENT or a dangerous ATTRIBUTE -- so the output is parsed the way the
-   * browser will parse it, and then queried.
-   */
   function parsed(source: string): HTMLElement {
     const host = document.createElement("div");
     host.innerHTML = clean(source);
@@ -74,7 +58,6 @@ describe("renderMarkdown", () => {
     "<a href=# onclick=alert(1)>clic</a>",
   ];
 
-  /** The closed allow-list, restated here so a widened one fails LOUDLY. */
   const ALLOWED = [
     "P",
     "BR",
@@ -97,7 +80,6 @@ describe("renderMarkdown", () => {
         expect(ALLOWED_ATTRS).toContain(attribute.name);
       }
       if (node.tagName === "A") {
-        // ABSOLUTE http(s) ONLY: everything else loses its href entirely.
         const href = node.getAttribute("href");
         if (href !== null) expect(href).toMatch(/^https?:\/\//i);
       }
@@ -107,7 +89,6 @@ describe("renderMarkdown", () => {
   it("keeps an absolute http(s) link and stamps `rel` itself", () => {
     const link = parsed("[doc](https://exemple.test/page)").querySelector("a")!;
     expect(link.getAttribute("href")).toBe("https://exemple.test/page");
-    // `rel` IS SET BY US AND NEVER HOPED FOR FROM THE AUTHOR.
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
     expect(link.hasAttribute("target")).toBe(false);
   });
@@ -130,8 +111,6 @@ describe("renderMarkdown", () => {
   });
 
   it("keeps a student's angle brackets VISIBLE as text rather than dropping them", () => {
-    // The first barrier turns them into text; losing them would silently mangle a message
-    // about `#include <stdio.h>`.
     expect(parsed("j'ai écrit <stdio.h>").textContent).toContain("<stdio.h>");
   });
 });

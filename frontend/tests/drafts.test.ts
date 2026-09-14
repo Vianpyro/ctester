@@ -1,24 +1,15 @@
-// THE DRAFTS, AND THE EASIEST WAY TO LOSE CODE ON THIS PAGE.
-//
-// What is checked here is that a poisoned store never reaches the editor, that the status
-// line SAYS WHERE the work is, and that a shared document does not get copied into the
-// individual draft on top of itself.
-
 import { describe, expect, it, vi } from "vitest";
 import { drafts, sanitizeDrafts } from "../src/lib/state/drafts.svelte";
 import { editor } from "../src/lib/state/editor.svelte";
 
 describe("sanitizeDrafts", () => {
   it("keeps the well-formed entry and drops the poisoned ones, entry by entry", () => {
-    // WHAT COMES OUT OF STORAGE IS NOT TRUSTED DATA -- and one bad exercise must not lose
-    // the others. This was a real fixture in the old harness.
     const clean = sanitizeDrafts({
       "tp2-ex3": { "submission.c": "// travail d'hier" },
       "tp2-ex0": { "submission.c": { pas: "une chaîne" } },
       "tp7-ex1": "pas un objet de fichiers",
     });
     expect(clean["tp2-ex3"]).toEqual({ "submission.c": "// travail d'hier" });
-    // The exercise survives, minus the file that was not a string.
     expect(clean["tp2-ex0"]).toEqual({});
     expect(clean["tp7-ex1"]).toBeUndefined();
   });
@@ -32,8 +23,6 @@ describe("sanitizeDrafts", () => {
 
 describe("the status line", () => {
   it("says WHERE the work is, not only when", () => {
-    // "saved at 14:32" does not answer the real question, which is "will I find this again
-    // on the other machine?".
     drafts.put("tp2-ex1", { "submission.c": "int main(void){}" }, false);
     expect(drafts.status).toMatch(/cet appareil/);
     expect(drafts.statusFailed).toBe(false);
@@ -50,7 +39,6 @@ describe("the status line", () => {
   });
 
   it("is never empty on arrival: a fresh exercise says saving is automatic", () => {
-    // It used to stay EMPTY until the student had typed for a second and a half.
     drafts.opened("tp9-ex1", false);
     expect(drafts.status).toBe("enregistrement automatique");
     drafts.opened("tp9-ex1", true);
@@ -58,8 +46,6 @@ describe("the status line", () => {
   });
 
   it("keeps the export's message in its OWN slot", () => {
-    // The two used to share one and erase each other: "main.c exported" would replace
-    // "draft NOT saved", the page's only data-loss warning.
     drafts.put("tp2-ex1", { "submission.c": "x" }, false);
     const saved = drafts.status;
     drafts.sayExport("main.c exporté — 2 exercices sur 2");
@@ -118,8 +104,6 @@ describe("the editor's own state", () => {
   });
 
   it("opens a tab with no template empty rather than refusing to open it", () => {
-    // NAMES come from the catalog and are authoritative; templates come from the detail
-    // and may simply be missing.
     editor.open("tp5-ex1", [{ name: "calendrier.h", template: "" }, { name: "calendrier.c", template: "" }], null);
     expect(editor.activeFile).toBe("calendrier.h");
     expect(editor.text).toBe("");
@@ -144,8 +128,6 @@ describe("the editor's own state", () => {
   });
 
   it("locks as a real STATE, not as a disabled button", () => {
-    // A workspace whose library did not load must stop accepting typing rather than accept
-    // it and lose it.
     editor.lock(true);
     expect(editor.readOnly).toBe(true);
     editor.lock(false);

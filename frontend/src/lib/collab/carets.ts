@@ -1,17 +1,3 @@
-// CARET GEOMETRY, AND IT IS ARITHMETIC RATHER THAN A SECOND COPY OF THE DOCUMENT.
-//
-// The overlay is already there: the highlight layer and the textarea share their
-// metrics to the pixel (see the note in `app.css`), so a caret is a character
-// width measured once plus a row and a column. Four remote carets over a 64 KB
-// file would otherwise cost a second DOM tree on every keystroke.
-//
-// ponytail: this holds because the editor is monospaced. The day it accepts a
-// proportional font, this is the function to rewrite.
-//
-// EVERYTHING HERE IS PURE, so the transform a remote edit applies to a caret is
-// tested by calling it -- which matters, because getting it wrong is what makes a
-// shared editor unusable.
-
 export interface Metrics {
   char: number;
   line: number;
@@ -24,14 +10,8 @@ export interface RowColumn {
   column: number;
 }
 
-/** A Yjs delta, as `Y.Text.observe` reports it. */
 export type Delta = { retain?: number; insert?: unknown; delete?: number }[];
 
-/**
- * WHERE THE CARET LANDS AFTER SOMEBODY ELSE'S CHANGE. The delta says what happened
- * before it; this is the standard transform, and it is the whole reason a remote
- * edit does not throw the typist to the end of the file.
- */
 export function shift(delta: Delta, position: number): number {
   let index = 0;
   let moved = position;
@@ -55,14 +35,6 @@ export function rowColumn(text: string, offset: number): RowColumn {
   return { row: rows.length - 1, column: rows[rows.length - 1]!.length };
 }
 
-/**
- * WHERE A (COLUMN, ROW) LANDS IN THE OVERLAY. One function, so a caret and the
- * selection band under it can never disagree about the same position.
- *
- * `setAttribute("style", …)`-shaped output, like every computed style on this page:
- * one way of writing it, and the one the CSP's `style-src 'unsafe-inline'` already
- * covers.
- */
 export function place(
   box: Metrics,
   scroll: { left: number; top: number },
@@ -75,12 +47,7 @@ export function place(
   );
 }
 
-/**
- * Measure the editor's metrics once. `getBoundingClientRect` returns zeros in a
- * headless DOM, which is exactly where this must not throw -- and a zero width is
- * what tells the caller to draw NO caret at all: one drawn at the wrong place is
- * worse than none, because it points at a line its owner is not on.
- */
+// Carets are placed from one measured character width, which assumes a monospace font.
 export function measure(zone: HTMLTextAreaElement): Metrics {
   const style = typeof window.getComputedStyle === "function" ? window.getComputedStyle(zone) : null;
   const probe = document.createElement("span");
@@ -100,11 +67,6 @@ export function measure(zone: HTMLTextAreaElement): Metrics {
   };
 }
 
-/**
- * The selection bands for one caret: one rectangle per line, and only when there
- * IS a selection. Drawn as rectangles rather than text ranges because the overlay
- * is `white-space: pre`, so a line's width in characters is all it takes.
- */
 export function selectionBands(
   text: string,
   anchor: number,
@@ -129,12 +91,6 @@ export function selectionBands(
   }
   return bands;
 }
-
-// --- Bytes on the wire ---------------------------------------------------------
-// Yjs speaks Uint8Array, the socket carries JSON. base64 rather than a binary
-// frame, for one reason: the frames the server relays also carry a `from` it
-// stamps itself, and a JSON envelope is what lets it do that without parsing -- or
-// even understanding -- the payload inside.
 
 export const toBase64 = (bytes: Uint8Array): string => {
   let out = "";

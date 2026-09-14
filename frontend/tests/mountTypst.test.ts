@@ -1,16 +1,3 @@
-// LA PAGE ENTIÈRE, AVEC UNE CONSIGNE TYPST. Le jumeau de `mount.test.ts`, et il
-// vit dans SON PROPRE FICHIER pour une raison mécanique : le cache de détails de
-// `catalog` est un singleton de chargement de page, partagé par tous les tests
-// d'un même fichier. Un exercice déjà ouvert par un test voisin reviendrait
-// depuis ce cache, en Markdown, et celui-ci n'éprouverait plus rien. Vitest
-// isole les modules PAR FICHIER : un fichier de plus est la remise à zéro, et
-// elle ne coûte aucune méthode ajoutée au code de production pour un test.
-//
-// CE QU'IL ÉPROUVE, c'est le CÂBLAGE : que `statement_format` traverse le
-// client, l'état et le composant jusqu'à des `<img>` dans le panneau, et que la
-// grille de `#travail` n'ait pas bougé. Le rendu lui-même est éprouvé là où il
-// est produit -- `test_ctester.py` compile la fixture pour de vrai.
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 import App from "../src/App.svelte";
@@ -31,7 +18,6 @@ const RELEASE = {
   assignments: [],
 };
 
-/** Ce que `/tp/<id>.json` répond : un énoncé Typst de deux pages. */
 const DETAIL = {
   statement: "",
   statement_format: "typst",
@@ -93,8 +79,6 @@ describe("a Typst statement, all the way to the page", () => {
   it("draws the pages as images instead of rendered Markdown", async () => {
     await render();
     const panneau = document.getElementById("consignetexte")!;
-    // PAS LA CLASSE `md` : c'est celle du rendu Markdown, et elle porte un
-    // padding et une police qu'un SVG déjà peint ne doit pas recevoir.
     expect(panneau.classList.contains("md")).toBe(false);
     const images = [...panneau.querySelectorAll("img")];
     expect(images).toHaveLength(2);
@@ -105,11 +89,6 @@ describe("a Typst statement, all the way to the page", () => {
   });
 
   it("keeps the workspace grid at exactly three columns", async () => {
-    // UN SECOND ÉLÉMENT RACINE DANS `Statement.svelte` prendrait la première
-    // colonne de la grille et pousserait tout le reste d'un cran. C'est déjà
-    // arrivé, et c'est pour ça que ce contrôle existe dans `mount.test.ts`.
-    // Il est rejoué ici parce que la branche Typst est un nouveau chemin de
-    // rendu dans ce même composant.
     await render();
     const travail = document.getElementById("travail")!;
     expect([...travail.children].map((el) => el.id)).toEqual([
@@ -127,10 +106,6 @@ describe("a Typst statement, all the way to the page", () => {
   });
 
   it("emits no request for the pages: an <img> is the browser's business", async () => {
-    // LES SVG NE PASSENT PAS PAR `fetch` sur le chemin public -- ils sont des
-    // `<img src>`, donc mis en cache et revalidés par le navigateur. Le
-    // contrat de `mount.test.ts` (« rien hors de quatre sortes de requête »)
-    // tient donc tel quel, sans une cinquième entrée.
     await render();
     const kinds = new Set(asked.map((u) => u.split("?")[0]!.replace(/^tp\/.*/, "tp/")));
     for (const kind of kinds) {

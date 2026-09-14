@@ -1,23 +1,4 @@
-<script lang="ts">
-  // THE LEADERBOARD: a signed-in account's OPTIONAL view. Loaded ON CLICK -- the
-  // anonymous visitor downloads none of it, and neither does a signed-in student who
-  // never opens it, which matters more here than anywhere else since taking part is
-  // optional and most accounts never opt in.
-  //
-  // NOTHING IS COMPUTED HERE. Ranks, the gap to the row above, the cohort threshold and
-  // the divisions all arrive decided. A page that ranked itself would be a page where one
-  // ranks oneself from the console -- and this is the one screen where that would be worth
-  // doing.
-  //
-  // NOBODY IS NAMED LAST, and that is the server's doing too: only the top of the table
-  // plus one's OWN row ever come down. There is nothing here to truncate, because nothing
-  // more ever arrives.
-  //
-  // THE OPT-IN IS NOT ON THIS SCREEN, deliberately: joining a ranking is an identity
-  // setting, next to "show my name" and "show my group". Two places to consent would be
-  // two places that can disagree about whether one did.
-
-  import { onMount } from "svelte";
+<script lang="ts">  import { onMount } from "svelte";
   import { fetchLeaderboard } from "../../lib/api/leaderboard";
   import { redrawAlias } from "../../lib/api/forum";
   import { whenSignedOut } from "../../lib/auth/session.svelte";
@@ -28,11 +9,7 @@
   let payload = $state<LeaderboardPayload | null>(null);
   let error = $state("");
   let said = $state("");
-  /** The scope is a REQUEST PARAMETER, not a filter over a full table: the full table
-   *  never comes down. */
   let scope = $state<"group" | "course">("group");
-  /** The group an instructor is looking at. `null` = their own, so for staff with no
-   *  group on their profile, the whole course. */
   let targetGroup = $state<number | null>(null);
 
   async function load() {
@@ -86,8 +63,6 @@
 {#if said}<p class="annonce" aria-live="polite">{said}</p>{/if}
 
 {#if !payload}
-  <!-- WE DO NOT INVENT AN EMPTY RANKING. "Personne" during an outage says nobody is
-       working, and that would be false. -->
   <p class="rate">{error}</p>
 {:else if !payload.participating && !payload.moderator}
   <div class="bloc plan">
@@ -103,8 +78,6 @@
     <button type="button" onclick={openIdentity}>Ouvrir « Mon identité »</button>
   </div>
 {:else}
-  <!-- THE GROUP SELECTOR ONLY EXISTS FOR A MODERATOR, and it is the SERVER that says so
-       (`moderator` in the response): the page does not guess a role. -->
   {#if payload.moderator && (payload.groups ?? []).length}
     <div class="tabs">
       <button
@@ -125,8 +98,6 @@
   {:else}
     <div class="tabs">
       {#each [["group", "Mon groupe"], ["course", "Cours entier"]] as const as [id, label]}
-        <!-- `aria-pressed` RATHER THAN A CLASS: "on" says nothing to a screen reader, and
-             which scope one is looking at is the whole context of the numbers below. -->
         <button
           type="button"
           class={"nav" + (scope === id ? " on" : "")}
@@ -139,10 +110,6 @@
 
   <div class="bloc">
     {#if payload.moderator}
-      <!-- WE DO NOT TELL SOMEBODY THE `WHERE` EXCLUDES "you appear as X". The instructor
-           reads the leaderboard and never figures in it -- their XP is test XP, and a
-           table carrying it would be unfair to everyone who is in it. The rule is in SQL;
-           what is here is not lying about it. -->
       <p>
         Tu n'apparais pas au classement : il ne compte que les comptes étudiants qui s'y
         sont inscrits.
@@ -159,9 +126,6 @@
     {/if}
   </div>
 
-  <!-- ONE'S OWN STANDING, AND THE STEP UP. "Deux de plus et tu passes 3e" is something to
-       do; "quelqu'un te rattrape" is pressure with nothing to do about it, and it is not
-       sent. -->
   {#if payload.me}
     <div class="bloc plan rang">
       <span class="chiffre">{payload.me.rank}</span>
@@ -213,10 +177,6 @@
       </p>
     </div>
   {:else}
-    <!-- UNDER THE MINIMUM COHORT THERE IS NO TABLE, and the reason is written on screen: a
-         ranking of four people names those four people, including the last one. The server
-         already refuses to send it; this says why, so an empty screen does not read as a
-         failure. THE THRESHOLD APPLIES TO THE INSTRUCTOR TOO, deliberately. -->
     <div class="bloc">
       <p>
         Vous êtes {plural(payload.cohort, "compte")} à participer ici. Il en faut au moins

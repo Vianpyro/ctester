@@ -1,7 +1,3 @@
-// SUBMITTING, AND THE STATES IT REALLY HAS. What is checked here is that each phase says
-// something different, that a quota is not a refusal of the code, and above all that the
-// "same code as last time" shortcut ASSERTS NOTHING to the server.
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { session } from "../src/lib/auth/session.svelte";
 import { submission } from "../src/lib/state/submission.svelte";
@@ -23,17 +19,13 @@ interface Answer {
 }
 
 let calls: Call[] = [];
-/** What `/submit` answers next, in order. */
 let accepted: Answer[] = [];
-/** What `/r/<id>` answers next, PER JOB: a stale poll has to be unambiguous. */
 let polled: Record<string, Answer[]> = {};
 
 const OK: Verdict = { state: "done", status: "ok", kind: "io", total: 3, passed: 3 };
 
-/** A job id looks like the server's: 32 hex characters. */
 const job = (letter: string) => letter.repeat(32);
 
-/** `/submit` hands back `id`, and `/r/<id>` then answers these, in order. */
 function queue(letter: string, ...answers: Answer[]): void {
   accepted.push({ status: 200, body: { id: job(letter) } });
   polled[job(letter)] = answers;
@@ -51,7 +43,6 @@ function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Respon
   return Promise.resolve(new Response(JSON.stringify(next.body), { status: next.status }));
 }
 
-/** A different code per scenario, so the shortcut below is not what is being measured. */
 let variant = 0;
 const uniqueCode = () => ({ "submission.c": `int main(void){return ${++variant};}` });
 
@@ -93,7 +84,6 @@ describe("a submission that lands", () => {
   });
 
   it("re-reads the projections AFTER the verdict, and survives their failure", async () => {
-    // The verdict is already displayed, and nothing that follows must be able to spoil it.
     queue("d", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, async () => {
       throw new Error("une projection qui lève");
@@ -122,8 +112,6 @@ describe("a submission that lands", () => {
 
 describe("a submission that does not", () => {
   it("puts a QUOTA in the service channel and counts it down on the button", async () => {
-    // The API always sent `retry_after`; the page used to discard it and show the raw
-    // message in red, where the verdict goes -- "my code was refused".
     accepted = [{ status: 429, body: { error: "trop de soumissions", retry_after: 8 } }];
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     expect(submission.phase).toEqual({ kind: "cooldown", seconds: 8 });
@@ -157,8 +145,6 @@ describe("a submission that does not", () => {
   });
 
   it("keeps a JUDGE failure out of the verdict channel entirely", async () => {
-    // `error` covers a crashed student program AND an internal judge error; only one of
-    // them is about the code.
     queue("h", {
       status: 200,
       body: { state: "done", status: "error", kind: "io", message: "Erreur interne du juge." },
@@ -192,8 +178,6 @@ describe("the queue", () => {
 
   it("keeps a STALE poll silent -- an abandoned test's verdict arrives LAST", async () => {
     vi.useFakeTimers();
-    // The first run stays queued, then would answer with a FAILURE. The second lands
-    // successfully. Without the token, the abandoned verdict is the one on screen.
     queue(
       "j",
       { status: 200, body: { state: "queued", position: 9 } },
@@ -212,9 +196,6 @@ describe("the queue", () => {
 
 describe("do not ask again for what was just asked", () => {
   it("redisplays without sending, and ASSERTS NOTHING to the server", async () => {
-    // A hash sent IN the request would CHOOSE which stored verdict comes back: broken code
-    // plus the hash of a successful submission would yield `passed == total`, which the API
-    // turns into "solved" and into XP. Deciding not to bother the server needs no trust.
     const files = uniqueCode();
     queue("l", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
@@ -227,20 +208,16 @@ describe("do not ask again for what was just asked", () => {
   });
 
   it("SENDS ANYWAY on the second click -- the escape hatch is not optional", async () => {
-    // A test case fixed by the five-minute tick makes the kept verdict wrong, and the page
-    // has no way to learn that. Without this, the button would look broken.
     const files = uniqueCode();
     queue("m", { status: 200, body: OK });
     queue("n", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
-    await submission.submit(EXERCISE, KEY, { files }, null, noop); // redisplayed
-    await submission.submit(EXERCISE, KEY, { files }, null, noop); // sent again
+    await submission.submit(EXERCISE, KEY, { files }, null, noop);
+    await submission.submit(EXERCISE, KEY, { files }, null, noop);
     expect(submits()).toHaveLength(2);
   });
 
   it("KEEPS ONLY WHAT THE SERVER AGREES TO KEEP: `rejouer` is never memoized", async () => {
-    // The worker sets it on any verdict it refuses to cache -- a timeout, a judge failure,
-    // and exercises whose PROGRAM is randomized, which the page cannot recognize on its own.
     const files = uniqueCode();
     queue("o", { status: 200, body: { ...OK, rejouer: true } });
     queue("p", { status: 200, body: OK });
@@ -250,10 +227,6 @@ describe("do not ask again for what was just asked", () => {
   });
 
   it("UN ESPACE DE FIN N'EST PAS UN AUTRE CODE", async () => {
-    // La clé et le corps envoyé sont canonisés ENSEMBLE : la page compare
-    // exactement ce qu'elle enverrait. Sans ça, l'éditeur -- qui recopie
-    // l'indentation à chaque Entrée -- fabrique tout seul des variantes qui
-    // reprennent une place dans la file pour un verdict déjà tenu.
     const files = uniqueCode();
     queue("ws1", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
@@ -266,8 +239,6 @@ describe("do not ask again for what was just asked", () => {
   });
 
   it("mais une VRAIE ligne de plus en est un", async () => {
-    // Le jumeau silencieux : la canonisation ne touche pas au nombre de
-    // lignes, donc une ligne vide ajoutée reste une soumission différente.
     const files = uniqueCode();
     queue("ws2", { status: 200, body: OK });
     queue("ws3", { status: 200, body: OK });

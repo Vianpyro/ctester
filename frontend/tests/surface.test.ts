@@ -1,15 +1,3 @@
-// THE SHARED SURFACE IS REALLY SHARED, and this is the check that says so.
-//
-// The exercise editor and the Console were two copies of the same three elements,
-// and the second one silently fell behind: the Tab key, the auto-closing pairs and
-// the syntax checker were each written once and reached only one of them. They are
-// one component now, so what has to be guarded is the WIRING -- that the checker
-// reaches the gutter and the list, and that mounting it twice does not produce two
-// elements wearing the same id.
-//
-// `keyEdit` itself is tested by calling it (`keys.test.ts`), and the checker by
-// calling it (`syntax.test.ts`). Nothing here re-tests either.
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import CodeSurface from "../src/components/CodeSurface.svelte";
@@ -18,7 +6,6 @@ import { system } from "../src/lib/state/system.svelte";
 let host: HTMLDivElement;
 const mounted: ReturnType<typeof mount>[] = [];
 
-/** Mounts a surface and runs past the checker's 600 ms pause. */
 function surface(value: string, idPrefix = "") {
   const app = mount(CodeSurface, {
     target: host,
@@ -67,7 +54,6 @@ describe("the checker reaches the screen", () => {
   it("flags the gutter line AND lists the fault", () => {
     surface("int main(void) {\n    return 0;\n");
     expect(host.querySelector(".diags")?.hasAttribute("hidden")).toBe(false);
-    // The unclosed brace is on line 1, and it is certain, so the number is red.
     const flagged = host.querySelectorAll(".gutter .error");
     expect(flagged).toHaveLength(1);
     expect(flagged[0]!.textContent).toBe("1");
@@ -111,20 +97,6 @@ describe("two editors, one document", () => {
   });
 });
 
-// --- LES RACCOURCIS D'UN IDE -----------------------------------------------
-//
-// `commandEdit` est éprouvée en l'appelant (`keys.test.ts`) et la table en
-// l'appelant aussi (`shortcuts.test.ts`). Ce qui se vérifie ICI est le CÂBLAGE :
-// que la frappe atteigne bien la commande, qu'elle passe par le `apply()` qui
-// garde la pile d'annulation et le diff CRDT, et que ce qui n'est pas à nous
-// reparte intact vers le navigateur.
-//
-// ⚠ jsdom N'A PAS `execCommand`, donc tout ce qui suit éprouve le CHEMIN DE
-// REPLI de `apply()` (l'écriture directe). Le vrai `insertText` ne se vérifie
-// que dans un navigateur -- c'est écrit dans le plan, et c'est pour ça que la
-// passe manuelle n'est pas décorative.
-
-/** Une frappe sur le textarea, et ce que le navigateur en retiendrait. */
 function press(
   area: HTMLTextAreaElement,
   key: string,
@@ -136,7 +108,6 @@ function press(
   return event;
 }
 
-/** Une surface montée avec un rappel `onInput` qu'on peut compter. */
 function typing(value: string, props: Record<string, unknown> = {}) {
   const seen: string[] = [];
   const app = mount(CodeSurface, {
@@ -145,17 +116,12 @@ function typing(value: string, props: Record<string, unknown> = {}) {
   });
   mounted.push(app);
   flushSync();
-  // LE DERNIER, pas le premier : plusieurs surfaces partagent l'hôte dans un
-  // même cas, et `querySelector` rendrait celle d'avant.
   const areas = host.querySelectorAll("textarea");
   return { area: areas[areas.length - 1]!, seen };
 }
 
 describe("les commandes atteignent l'éditeur", () => {
   it("duplique la ligne, et n'annonce le changement QU'UNE FOIS", () => {
-    // L'appel unique EST le contrat CRDT : `applyLocal()` dérive un seul delete
-    // et un seul insert. Deux appels feraient deux transactions Yjs par frappe
-    // et replieraient les curseurs des coéquipiers à chaque geste.
     const { area, seen } = typing("int a;");
     area.setSelectionRange(6, 6);
     press(area, "d", { ctrlKey: true });
@@ -171,8 +137,6 @@ describe("les commandes atteignent l'éditeur", () => {
   });
 
   it("commente aussi quand Maj est tenu -- le clavier canadien-français", () => {
-    // `/` s'y tape `Maj+3`, donc il ARRIVE avec Maj. Sans ce cas, la moitié de
-    // la cohorte n'aurait jamais pu commenter une ligne.
     const { area } = typing("int a;");
     area.setSelectionRange(0, 0);
     press(area, "/", { ctrlKey: true, shiftKey: true });
@@ -192,8 +156,6 @@ describe("les commandes atteignent l'éditeur", () => {
   });
 
   it("prévient le défaut MÊME quand la commande ne fait rien", () => {
-    // Alt+Maj+↑ sur la première ligne : sans `preventDefault`, le navigateur
-    // étendrait la sélection par-dessus le bloc qu'on essaie de déplacer.
     const { area } = typing("a\nb");
     area.setSelectionRange(0, 0);
     const event = press(area, "ArrowUp", { altKey: true, shiftKey: true });
@@ -213,7 +175,6 @@ describe("SILENCE : ce qui n'est pas à nous repart intact", () => {
   });
 
   it("ne prend pas une frappe AltGr pour un raccourci", () => {
-    // Sous Windows AltGr se rapporte `ctrlKey && altKey`.
     const { area } = typing("int a;");
     area.setSelectionRange(0, 0);
     const event = press(area, "d", { ctrlKey: true, altKey: true });
@@ -222,7 +183,6 @@ describe("SILENCE : ce qui n'est pas à nous repart intact", () => {
   });
 
   it("laisse Ctrl+S et Ctrl+Entrée remonter jusqu'à la fenêtre", () => {
-    // Si la surface les réclamait, ils seraient morts là où le curseur est.
     const { area } = typing("int a;");
     for (const key of ["s", "Enter"]) {
       expect(press(area, key, { ctrlKey: true }).defaultPrevented, key).toBe(false);
@@ -230,8 +190,6 @@ describe("SILENCE : ce qui n'est pas à nous repart intact", () => {
   });
 
   it("garde Échap-puis-Tab, l'échappatoire clavier", () => {
-    // La non-régression qui compte : Échap ne doit rien prévenir ici, sinon
-    // `App.svelte` et ce drapeau se marcheraient dessus.
     const { area } = typing("int a;");
     area.setSelectionRange(0, 0);
     expect(press(area, "Escape").defaultPrevented).toBe(false);
@@ -242,8 +200,6 @@ describe("SILENCE : ce qui n'est pas à nous repart intact", () => {
 
 describe("un document verrouillé", () => {
   it("refuse l'édition EN LE DISANT, et prévient quand même le défaut", () => {
-    // Prévenir compte : un Ctrl+D non prévenu ouvrirait la boîte de favoris de
-    // Chrome. Et un refus muet se lit comme une page cassée.
     const { area, seen } = typing("int a;", { readOnly: true });
     area.setSelectionRange(0, 0);
     const event = press(area, "d", { ctrlKey: true });
@@ -320,8 +276,6 @@ describe("la faute suivante (F2)", () => {
 
 describe("les deux surfaces à la fois", () => {
   it("pilote la Console sans toucher à l'exercice", () => {
-    // C'est la propriété pour laquelle ce fichier existe : une fonctionnalité
-    // ajoutée ici apparaît dans les deux, ou dans aucune.
     const exercise = typing("int a;");
     const console_ = mount(CodeSurface, {
       target: host,

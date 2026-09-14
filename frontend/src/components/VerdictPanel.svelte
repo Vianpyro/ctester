@@ -1,17 +1,4 @@
-<script lang="ts">
-  // THE VERDICT CHANNEL. It talks about the STUDENT'S CODE and about nothing else --
-  // the service speaks through `SystemBanner`. See `lib/domain/verdict.ts` for why
-  // the two must never merge again.
-  //
-  // `textContent` EVERYWHERE, which in Svelte means ordinary interpolation: what
-  // arrives here is a compiler's output and a student program's output, that is to
-  // say arbitrary strings. There is no `{@html}` in this file.
-  //
-  // IT DECIDES NOTHING. Which stage broke, what to say, what to do next: all of it
-  // comes from `lib/domain/verdict.ts`, and the submission's phase decides which of
-  // the shapes below is on screen.
-
-  import { catalog } from "../lib/state/catalog.svelte";
+<script lang="ts">  import { catalog } from "../lib/state/catalog.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import { session } from "../lib/auth/session.svelte";
   import { submission } from "../lib/state/submission.svelte";
@@ -39,7 +26,6 @@
 
   const phase = $derived(submission.phase);
 
-  /** The verdict being displayed, already restricted to the quiz page if any. */
   const shown = $derived.by((): { r: Verdict; scope: Scope | null } | null => {
     if (phase.kind !== "done") return null;
     const scope = phase.scope;
@@ -55,15 +41,10 @@
   );
   const complete = $derived(!!shown && !failed && shown.r.passed === shown.r.total);
 
-  /** The heading, and the count keeps the large type -- a state's title does not. */
   const headline = $derived.by(() => {
     if (phase.kind === "sending") return "Envoi…";
     if (phase.kind === "running") return "Test en cours…";
     if (phase.kind === "queued") {
-      // "COMPILATION EN COURS" WAS WRONG HALF THE TIME: `running` covers
-      // compilation, execution AND tests -- the worker reports no sub-state, and
-      // announcing a stage we do not know shapes the wrong mental model in the
-      // person who has the least of one.
       return (
         `En file d'attente — ${phase.position}${phase.position === 1 ? "er" : "e"}` +
         estimatedWait(phase.eta)
@@ -88,8 +69,6 @@
     return "idle";
   });
 
-  /** Two steps when the judge graded: the count below IS the tests' result, and a
-   *  third box would only repeat it. Three when it did not, so "not reached" shows. */
   const steps = $derived.by((): StepState[] | null => {
     if (phase.kind !== "done") return null;
     if (failed) return outcome!.etapes;
@@ -100,17 +79,12 @@
     if (phase.kind !== "done") return null;
     if (failed) return { text: outcome!.suite, next: null };
     if (!complete) return { text: AFTER_FAILURE[shown!.r.kind] ?? "", next: null };
-    // WHAT IS OFFERED AFTER A COMPLETE SUCCESS. A button, not a sentence: it is the
-    // only moment in the loop where the student has nothing left to fix, and the
-    // page used to offer them nothing.
     const next = catalog.nextOpen();
     return next
       ? { text: "Tu peux passer à la suite.", next }
       : { text: "C'est le dernier exercice ouvert pour l'instant.", next: null };
   });
 
-  /** HELP IS OFFERED WHERE THE NEED IS BORN: in front of a failing verdict, not in a
-   *  button on the global bar. Both conditions come from the server. */
   const offersHelp = $derived(cls === "bad" && session.signedIn && session.forumOffered);
 
   async function openDiscussions() {
@@ -118,12 +92,6 @@
     await chat.toggleWide();
   }
 
-  /**
-   * ON A SMALL SCREEN THE RESULT SITS BELOW THE EDITOR AND OFF-SCREEN: clicking
-   * "Tester" visibly produced NOTHING there. On a large screen it is already in the
-   * grid next to the editor, and stealing focus mid-correction would be worse than
-   * the problem.
-   */
   let lastSeen = $state<unknown>(null);
   $effect(() => {
     if (phase.kind !== "done" || phase === lastSeen) return;
@@ -135,13 +103,10 @@
     box.focus?.();
   });
 
-  // The heading is what gets announced, and nothing more: the compiler's whole
-  // output read aloud would be worse than silence.
   $effect(() => {
     if (headline) system.announce(headline);
   });
 
-  /** Which exercise a wrong quiz answer belongs to, so it can be named. */
   const quizGroup = (id: string): string => quiz.groupOf[id] ?? "";
 
   const idleHelp =
@@ -150,17 +115,12 @@
     "correction.";
 </script>
 
-<!-- FOCUSABLE WITHOUT BEING IN THE TAB ORDER: the effect above puts focus here on
-     small screens, where the verdict lands off-screen. -->
 <div bind:this={box} id="out" class={cls} tabindex="-1">
   {#if steps}
     <div class="etapes">
       {#each steps as state, i}
         {@const [name, gender] = STEPS[i]!}
         <span class={"pas " + (state || "vide")}>
-          <!-- THE WORD, NOT ONLY THE COLOUR nor only a check mark: a state visible
-               through a tint alone disappears in black and white as under colour
-               blindness, and does not read aloud. -->
           <b>{name}</b><i>{STEP_STATE[gender][state]}</i>
         </span>
       {/each}
@@ -183,9 +143,6 @@
     </div>
   {/if}
 
-  <!-- AS BODY TEXT, NEVER AT 2.1REM. `link_error` and `memory_error` messages run
-       two hundred characters: in title typography they crushed the result area. And
-       when the title IS the server's message, it is not repeated. -->
   {#if phase.kind === "idle" || phase.kind === "lost" || phase.kind === "cooldown"}
     <p class="explique">
       {catalog.catalog.length
@@ -199,13 +156,7 @@
   {#if shown && shown.r.status === "compile_error"}
     <div class="gcc">
       {#if firstError(shown.r.gcc)}
-        <!-- THE FIRST ERROR, NOT THE LAST. In C, errors cascade: one missing `;`
-             produces six, five of which do not really exist -- and the raw output
-             scrolls, so what a beginner reads is the most derived one. -->
         <pre>{firstError(shown.r.gcc)}</pre>
-        <!-- EVERYTHING IS ALWAYS THERE, just folded: hiding the rest would raise
-             doubt about what is not shown, and some errors only make sense read as
-             a chain. -->
         <details class="case">
           <summary>Voir toute la sortie du compilateur</summary>
           <pre>{shown.r.gcc ?? ""}</pre>
@@ -238,10 +189,6 @@
               <span class="quoi">Ce qu'il a affiché :</span>
               <pre class="valeur">{c.stdout || "(rien)"}</pre>
             </div>
-            <!-- THE NUMBERS THE JUDGE READ, at the same rank as the output. This is
-                 the block's single most actionable piece of information -- it takes
-                 apart the matching black box -- and it used to live in 12px grey
-                 under everything else. -->
             {#if c.nombres}
               <div class="champ">
                 <span class="quoi">Les nombres que le juge y a lus :</span>
@@ -266,8 +213,6 @@
 
   {#if shown && !failed && !complete && shown.r.kind === "unity" && (shown.r.failed ?? []).length}
     <div class="rates">
-      <!-- TEST NAMES ARE WRITTEN FOR THE STUDENT -- one still has to say so. A list
-           of bare ids does not announce itself as French. -->
       <p class="quoi">
         {(shown.r.failed ?? []).length === 1
           ? "Cette vérification a échoué. Son nom décrit le cas qu'elle teste :"
@@ -288,7 +233,6 @@
         {@const group = quizGroup(w.id)}
         {@const ex = group.match(/Exercice\s*\d+/i)}
         {@const empty = !(w.given && w.given.trim())}
-        <!-- Not answered is not wrong: red is reserved for actual errors. -->
         <li class={empty ? "rien" : ""}>
           {(ex ? ex[0] + " — " : "") +
             w.label +
@@ -300,9 +244,6 @@
   {/if}
 
   {#if nextAction}
-    <!-- THE NEXT ACTION, AND ONE IS NEEDED EVERYWHERE -- success included. The
-         moment the student is most receptive used to be exactly the one where the
-         page offered nothing. -->
     <div class="suite">
       <span>{nextAction.text}</span>
       {#if nextAction.next}

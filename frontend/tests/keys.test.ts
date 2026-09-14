@@ -1,17 +1,7 @@
-// LES TOUCHES DE L'ÉDITEUR. `keyEdit()` est pure, donc elle s'éprouve en
-// l'appelant -- il n'y a pas de faux DOM à piloter, et `execCommand` (que le
-// composant utilise pour garder la pile d'annulation) n'existe pas dans jsdom :
-// une raison de plus pour que la décision vive dehors.
-
 import { describe, expect, it } from "vitest";
 import { commandEdit, keyEdit, lineSpan, parseLine, type Edit } from "../src/lib/domain/keys";
 import type { ShortcutId } from "../src/lib/domain/shortcuts";
 
-/**
- * Applique une modification à un texte et rend le résultat avec le curseur
- * marqué par `|` (ou la sélection encadrée), pour que les cas se lisent.
- * `§` marque le curseur dans l'entrée.
- */
 function press(key: string, marked: string, shift = false): string | null {
   const start = marked.indexOf("§");
   const rest = marked.slice(start + 1);
@@ -54,8 +44,6 @@ describe("les paires", () => {
     expect(press("[", "§tableau")).toBeNull();
   });
 
-  // LE PIÈGE QUI COÛTERAIT UNE SESSION : les commentaires du cours sont en
-  // français, et « aujourd'hui » ne doit pas devenir « aujourd''hui ».
   it("ne ferme pas une apostrophe collée à un mot", () => {
     expect(press("'", "// aujourd§")).toBeNull();
     expect(press("'", "// c§")).toBeNull();
@@ -78,7 +66,6 @@ describe("Backspace", () => {
 
   it("efface un niveau d'indentation d'un seul coup", () => {
     expect(press("Backspace", "        §x")).toBe("    |x");
-    // Un décalage de deux espaces retombe sur le multiple de quatre.
     expect(press("Backspace", "      §x")).toBe("    |x");
   });
 });
@@ -152,13 +139,6 @@ describe("ce qui n'est pas à nous", () => {
   });
 });
 
-// --- LES COMMANDES D'UN IDE ------------------------------------------------
-//
-// Même idiome que `press()` juste au-dessus : `§` marque le curseur, `|` le
-// rend. La moitié des cas gardent un SILENCE -- pour chaque geste qui doit
-// agir, celui qui doit laisser le texte intact.
-
-/** Le jumeau de `press()`, pour une commande plutôt qu'une touche. */
 function run(id: ShortcutId, marked: string): string | null {
   const start = marked.indexOf("§");
   const rest = marked.slice(start + 1);
@@ -178,7 +158,6 @@ function run(id: ShortcutId, marked: string): string | null {
   );
 }
 
-/** Le texte seul, sans les marques -- pour les cas où seule la forme compte. */
 const text = (id: ShortcutId, marked: string) => run(id, marked)?.replace(/\|/g, "") ?? null;
 
 describe("commenter", () => {
@@ -191,16 +170,10 @@ describe("commenter", () => {
   });
 
   it("SILENCE sur le sens : un bloc MIXTE se fait commenter, pas décommenter", () => {
-    // Décommenter sur la foi de la première ligne laisserait la seconde
-    // commentée sans que personne ne le voie.
     expect(text("commentLine", "§// int x;\nint y;§")).toBe("// // int x;\n// int y;");
   });
 
   it("aligne les `//` en COLONNE et garde l'indentation relative", () => {
-    // Un `//` posé à l'indentation propre de chaque ligne les mettrait en
-    // escalier ; posé au début de chaque ligne, il écraserait l'escalier du
-    // code. La colonne commune garde les deux lisibles -- et c'est ce que fait
-    // CLion. Ici `int b;` reste décalé de quatre espaces APRÈS son `//`.
     expect(text("commentLine", "§    int a;\n        int b;§")).toBe(
       "    // int a;\n    //     int b;",
     );
@@ -221,9 +194,7 @@ describe("commenter", () => {
   });
 
   it("SILENCE sur la ligne d'en dessous quand la sélection finit à son début", () => {
-    // Une sélection à la souris de UNE ligne finit au début de la deuxième.
     expect(text("commentLine", "§int a;\n§int b;")).toBe("// int a;\nint b;");
-    // Un caractère dedans, et la deuxième compte vraiment.
     expect(text("commentLine", "§int a;\ni§nt b;")).toBe("// int a;\n// int b;");
   });
 
@@ -246,8 +217,6 @@ describe("commentaire de bloc", () => {
   });
 
   it("SILENCE : un `*/` au milieu fait retomber sur le commentaire de ligne", () => {
-    // C n'imbrique pas les blocs : encadrer fermerait au premier `*/` et
-    // rendrait du code qui ne compile plus, en silence.
     expect(text("commentBlock", "§int a; /* n */\nint b;§")).toBe("// int a; /* n */\n// int b;");
   });
 });
@@ -258,8 +227,6 @@ describe("dupliquer", () => {
   });
 
   it("copie un bloc de lignes ENTIÈRES en dessous, et sélectionne la COPIE", () => {
-    // Sans ce cas, on obtiendrait `int a;int a;\nint b;` -- la copie recollée
-    // au milieu du texte.
     expect(run("duplicate", "§int a;\nint b;§")).toBe("int a;\nint b;\n|int a;\nint b;|");
   });
 
@@ -279,7 +246,6 @@ describe("supprimer la ligne", () => {
   });
 
   it("prend le saut de ligne D'AVANT sur la dernière ligne", () => {
-    // Sinon le fichier garde une dernière ligne vide, qui s'accumule.
     expect(text("deleteLine", "int a;\nint §b;")).toBe("int a;");
   });
 
@@ -306,7 +272,6 @@ describe("déplacer la ligne", () => {
   });
 
   it("promène le bloc quand on répète", () => {
-    // La propriété qui rend le geste utilisable : tenir le chord fait monter.
     const once = text("moveUp", "a\nb\n§c")!;
     expect(once).toBe("a\nc\nb");
     expect(text("moveUp", "a\n§c\nb")).toBe("c\na\nb");
@@ -329,7 +294,6 @@ describe("compléter l'instruction", () => {
   });
 
   it("SILENCE SUR `if (x)`, et c'est le point-virgule le plus cher du cours", () => {
-    // `if (x);` compile, tourne, et fait le contraire de ce qu'il se lit.
     expect(run("completeStatement", "    if (x)§")).toBe("    if (x)\n    |");
     expect(run("completeStatement", "for (;;)§")).toBe("for (;;)\n|");
     expect(run("completeStatement", "while (a)§")).toBe("while (a)\n|");

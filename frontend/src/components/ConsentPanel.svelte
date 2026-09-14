@@ -1,15 +1,7 @@
-<script lang="ts">
-  // WHAT SIGNING IN KEEPS, SAID BEFORE THE REDIRECT AND NOT AFTER. The sentence about
-  // "Supprimer mes données" is a promise, so that button exists -- see
-  // `profile.deleteAccount()` and `DELETE /moi`, which erases every table of the
-  // schema.
-
-  import { barPanel } from "../lib/barPanel";
+<script lang="ts">  import { barPanel } from "../lib/barPanel";
   import { profile } from "../lib/state/profile.svelte";
 </script>
 
-<!-- `use:barPanel` PUTS IT UNDER THE BAR, which is the only ancestor its CSS can
-     anchor to. See `lib/barPanel.ts`. -->
 <div id="consentement" use:barPanel hidden={!profile.consentOpen}>
   <p>
     Te connecter fait conserver, sur le serveur de ce site&nbsp;: un identifiant de

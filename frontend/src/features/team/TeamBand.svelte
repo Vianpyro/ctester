@@ -1,15 +1,4 @@
 <script lang="ts">
-  // THE ASSIGNMENT'S OWN HEADER, ABOVE the exercise strip and never instead of it. It
-  // carries what an exercise screen could not: which assignment this is, when it is due,
-  // which team is in it, who of them is connected right now, and the two buttons that only
-  // exist at the assignment's level -- the ZIP and the hand-in. The strip below is
-  // UNCHANGED and does the local navigation, because that is exactly the job it had.
-  //
-  // NO FIFTH VIEW: the view arbitration did not change.
-  //
-  // `#teamband[hidden] { display: none }` matters in the stylesheet for the same reason as
-  // the dock: `display: flex` beats `[hidden]`.
-
   import { collaborators } from "../../lib/state/collaborators.svelte";
   import { room } from "../../lib/collab/room.svelte";
   import { fetchArchive, fetchRevisions, handIn, restoreRevision } from "../../lib/api/team";
@@ -17,7 +6,6 @@
   import { system } from "../../lib/state/system.svelte";
   import type { TeamRevision } from "../../lib/api/types";
 
-  /** The revisions panel's state, when it is open. */
   let history = $state<{ rows: TeamRevision[]; failed: boolean } | null>(null);
   let previousUrl: string | null = null;
 
@@ -33,9 +21,6 @@
     if (bad) system.say(text, true);
   }
 
-  // RECOVERY AND READING, NEVER A MEASUREMENT. The list says who and when, and there is
-  // deliberately NO PERCENTAGE anywhere in it: a number counting typed characters becomes a
-  // grade the day it appears, and it is wrong about whoever thinks before typing.
   async function toggleHistory() {
     if (history) {
       history = null;
@@ -66,8 +51,6 @@
       say((answer.body as { error?: string } | null)?.error ?? "La restauration n'a pas abouti.", true);
       return;
     }
-    // APPLIED AS AN ORDINARY LOCAL EDIT, so teammates receive it the way they receive any
-    // other change.
     if (answer.body?.sources) room.applyRestored(answer.body.sources);
     history = null;
     say("version restaurée");
@@ -137,9 +120,6 @@
 </script>
 
 {#if room.refusal}
-  <!-- THE BAND WITHOUT A WORKSPACE. A student who is not on a team must still be able to
-       read the assignment and practise its exercises alone -- the individual draft path is
-       untouched -- and must be told why there is no shared editor. -->
   <div class="teamhead">
     <b class="teamtitle">Devoir</b>
     <span class="tag rate">pas d'espace d'équipe</span>
@@ -152,13 +132,9 @@
       <span class={"tag" + (assignment.deadline_passed ? " rate" : "")}>{deadlineWord()}</span>
     {/if}
     <span class="tag">{context.team.label}</span>
-    <!-- TWO DIGITS, like everywhere else on this page: "groupe 4" here and "groupe 04" in
-         the profile are two ways of writing one thing a student ends up wondering about. -->
     <span class="tag">groupe {String(context.team.group_number).padStart(2, "0")}</span>
   </div>
 
-  <!-- THE TEAM, AND WHO IS HERE RIGHT NOW. The colour is the one their caret uses, which is
-       the only way "that cursor is Coéquipier 2" is legible. -->
   <div class="teamwho">
     {#each collaborators.members as member (member.id)}
       {@const online = member.you || collaborators.online.includes(member.id)}

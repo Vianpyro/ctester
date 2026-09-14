@@ -1,10 +1,3 @@
-// THE SESSION, AND THE TOKEN THAT IS NOT ONE.
-//
-// This is the behaviour the old harness ran in its own process to reach, and it is the
-// half of the application where a mistake signs a student out mid-lecture or, worse, hands
-// the next person at a lab machine a working session. Every assertion below is one of
-// those.
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEADLINE_KEY,
@@ -33,9 +26,7 @@ interface Exchange {
 }
 
 let calls: Exchange[] = [];
-/** What the token endpoint answers next, in order. */
 let grants: (Record<string, unknown> | null)[] = [];
-/** What our own API answers next, in order. */
 let apiStatuses: number[] = [];
 
 function fakeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -79,10 +70,6 @@ beforeEach(() => {
 const tokenCalls = () => calls.filter((c) => c.url === TOKEN_ENDPOINT);
 
 describe("where the credentials live", () => {
-  // THE LABS ARE A WEEK APART. `sessionStorage` dies with the tab, so a student who
-  // closed their browser on Tuesday evening came back the next Tuesday with no refresh
-  // token at all -- the renewal was never asked, and looked broken. This is the half of
-  // the fix that no amount of refresh-token work could replace.
   it("survives the tab, because a weekly lab does not fit in one", () => {
     expect(localStorage.getItem(TOKEN_KEY)).toBe("jeton-1");
     expect(sessionStorage.getItem(TOKEN_KEY)).toBeNull();
@@ -90,8 +77,6 @@ describe("where the credentials live", () => {
   });
 
   it("covers the ten days the course needs, and no more", () => {
-    // Seven days between labs, three for whoever finishes late. The number is the
-    // calendar, and it must match Rauthy's `refresh_token_lifetime` (240 hours).
     expect(SESSION_MAX_DAYS).toBe(10);
     const until = Number(localStorage.getItem(DEADLINE_KEY));
     expect(until).toBeGreaterThan(seconds() + 9 * 86400);
@@ -100,23 +85,14 @@ describe("where the credentials live", () => {
 });
 
 describe("the renewal window Rauthy actually allows", () => {
-  // RAUTHY STAMPS `nbf = access_token_lifetime - 60` ON EVERY REFRESH TOKEN
-  // (`token_set.rs`), so a refresh token may only be used during the LAST MINUTE of the
-  // access token's life. And being early is not a failed request: Rauthy invalidates "not
-  // only the token itself, but also all other linked sessions and tokens for this user".
-  // One early renewal signs the student out of everything.
   it("keeps the margin strictly INSIDE that window, not on its edge", async () => {
     const { REFRESH_MARGIN, ISSUER_NBF_OFFSET } = await import("../src/lib/auth/oidc");
     expect(ISSUER_NBF_OFFSET).toBe(60);
-    // 60 -- what this used to be -- fires at the very first instant the token becomes
-    // usable, with nothing left for a clock that moves.
     expect(REFRESH_MARGIN).toBeLessThan(ISSUER_NBF_OFFSET);
     expect(REFRESH_MARGIN).toBeGreaterThan(0);
   });
 
   it("does not renew while the token is younger than that window", async () => {
-    // A minute and one second of life left: Rauthy's `nbf` has not passed, so asking now
-    // would be the catastrophic case above rather than a wasted request.
     localStorage.setItem(EXPIRY_KEY, String(seconds() + 61));
     expect(await ensureValid()).toBe(true);
     expect(tokenCalls()).toHaveLength(0);
@@ -139,8 +115,6 @@ describe("ensureValid", () => {
   });
 
   it("renews BEFORE expiry rather than after a 401", async () => {
-    // A 401 costs a round trip and, on a WebSocket, a whole reconnection. How far before
-    // is not free to choose -- see "the renewal window Rauthy actually allows" above.
     localStorage.setItem(EXPIRY_KEY, String(seconds() + 25));
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     expect(await ensureValid()).toBe(true);
@@ -149,8 +123,6 @@ describe("ensureValid", () => {
   });
 
   it("treats an UNKNOWN lifetime as usable, not as expired", async () => {
-    // A provider that omits `expires_in` leaves 0, and renewing on every request would turn
-    // one student's page into a load generator aimed at the issuer.
     localStorage.setItem(EXPIRY_KEY, "0");
     expect(await ensureValid()).toBe(true);
     expect(tokenCalls()).toHaveLength(0);
@@ -164,8 +136,6 @@ describe("ensureValid", () => {
 
 describe("renew", () => {
   it("makes ONE request out of five concurrent callers", async () => {
-    // With rotation on, the other four would each burn the token the first one is using,
-    // and whichever lost the race would sign the student out.
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     const results = await Promise.all([renew(), renew(), renew(), renew(), renew()]);
     expect(results).toEqual([true, true, true, true, true]);
@@ -173,15 +143,12 @@ describe("renew", () => {
   });
 
   it("FOLLOWS ROTATION: a fresh refresh token replaces the old one on the spot", async () => {
-    // Keeping the old one works exactly once, then signs the student out an hour later with
-    // nothing on screen to explain it.
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     await renew();
     expect(localStorage.getItem(REFRESH_KEY)).toBe("refresh-2");
   });
 
   it("keeps the one it has when the answer carries no new refresh token", async () => {
-    // Absent means "keep using the one you have", not "forget it".
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     await renew();
     expect(localStorage.getItem(REFRESH_KEY)).toBe("refresh-1");
@@ -214,8 +181,6 @@ describe("renew", () => {
   });
 
   it("is not a refusal when there is nothing to renew WITH", async () => {
-    // An issuer that declined `offline_access`, or a session opened before this existed:
-    // the page then behaves exactly as it did before, and nothing signs itself out.
     localStorage.removeItem(REFRESH_KEY);
     expect(await renew()).toBe(false);
     expect(session.token).toBe("jeton-1");
@@ -223,9 +188,6 @@ describe("renew", () => {
   });
 
   it("PUSHES THE DEADLINE BACK on every successful grant", async () => {
-    // Sliding, not a countdown from the first sign-in: a student who works every week must
-    // never be asked to sign in again, and one who stops must eventually be. This is also
-    // what Rauthy's rotating refresh token does, so the two clocks agree by construction.
     localStorage.setItem(DEADLINE_KEY, String(seconds() + 120));
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     await renew();
@@ -233,8 +195,6 @@ describe("renew", () => {
   });
 
   it("gives up on a session abandoned past its deadline, WITHOUT asking the issuer", async () => {
-    // This is the deadline doing what the closing tab used to do. Rauthy's own refresh
-    // token dies on the same schedule, so asking would only be asking it to refuse.
     localStorage.setItem(DEADLINE_KEY, String(seconds() - 1));
     expect(await renew()).toBe(false);
     expect(tokenCalls()).toHaveLength(0);
@@ -243,8 +203,6 @@ describe("renew", () => {
   });
 
   it("drops a LATE result rather than resurrecting a closed session", async () => {
-    // Somebody signed out while this was in flight; on a lab machine, storing its grant
-    // would sign the next person in.
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     const inFlight = renew();
     signOut();
@@ -271,7 +229,6 @@ describe("authRequest", () => {
   });
 
   it("signs out on a SECOND 401, rather than spinning", async () => {
-    // A second 401 on a token minted seconds earlier is not a timing problem.
     apiStatuses = [401, 401];
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     await authRequest("etats");
@@ -309,9 +266,6 @@ describe("signOut", () => {
     expect(session.token).toBeNull();
     expect(localStorage.getItem(TOKEN_KEY)).toBeNull();
     expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
-    // AND THE DEADLINE, from the core. The credentials outlive the tab now, so a sign-out
-    // that left any of the four behind would be a sign-out that only hid the session --
-    // on a shared station, for the next person to sit down.
     expect(localStorage.getItem(EXPIRY_KEY)).toBeNull();
     expect(localStorage.getItem(DEADLINE_KEY)).toBeNull();
     expect(forgotten).toBe(true);
@@ -334,10 +288,6 @@ describe("signOut", () => {
 });
 
 describe("what a page load finds in storage", () => {
-  // THE CREDENTIALS OUTLIVE THE BROWSER NOW, so the check that used to be free -- the tab
-  // closing -- has to be made explicitly, and it has to be made BEFORE the first paint
-  // draws a signed-in bar. `vi.resetModules()` is the only way to reach it: the session is
-  // a singleton built at import time, which is exactly the moment being tested.
   const freshSession = async () => {
     vi.resetModules();
     return (await import("../src/lib/auth/session.svelte")).session;
@@ -356,8 +306,6 @@ describe("what a page load finds in storage", () => {
   });
 
   it("ERASES an abandoned one instead of opening it", async () => {
-    // Eleven days later on a shared station: the deadline is the whole protection, so it
-    // must not merely hide the token -- it has to take the refresh token with it.
     localStorage.setItem(TOKEN_KEY, "jeton-abandonne");
     localStorage.setItem(REFRESH_KEY, "refresh-abandonne");
     localStorage.setItem(DEADLINE_KEY, String(seconds() - 1));
@@ -373,7 +321,6 @@ describe("a deployment with no issuer", () => {
     session.deployment = {};
     session.setToken("jeton-1");
     localStorage.setItem(EXPIRY_KEY, String(seconds() - 10));
-    // Nearly expired, but there is no OIDC on this deployment at all.
     expect(await ensureValid()).toBe(true);
     expect(await renew()).toBe(false);
     expect(tokenCalls()).toHaveLength(0);

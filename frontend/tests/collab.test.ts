@@ -1,10 +1,3 @@
-// THE COLLABORATION'S TWO PIECES THAT ARE EASY TO GET SUBTLY WRONG: the diff that turns a
-// textarea into CRDT operations, and the transform that decides where a caret lands after
-// somebody else's change.
-//
-// A REAL `Y.Doc`, NO NETWORK. That split is why `collab/document.ts` exists apart from the
-// room: the merge rule is testable by calling it.
-
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { LOCAL, applyLocal, seed, snapshot, textOf } from "../src/lib/collab/document";
@@ -18,8 +11,6 @@ function room(): Y.Doc {
 
 describe("applyLocal", () => {
   it("sends ONE contiguous change for a keystroke, not a whole rewrite", () => {
-    // Replacing everything -- delete all, insert all -- would technically converge and
-    // would destroy every teammate's caret on every keystroke.
     const doc = room();
     const text = textOf(doc, "main.c");
     text.insert(0, "int main(void){}");
@@ -66,7 +57,6 @@ describe("applyLocal", () => {
   });
 
   it("converges when two members edit the same line concurrently", () => {
-    // This is the case a hand-rolled protocol gets wrong in week three.
     const a = room();
     const b = room();
     const textA = textOf(a, "main.c");
@@ -92,8 +82,6 @@ describe("seed and snapshot", () => {
   });
 
   it("refuses to seed a document that already has content -- the belt on top of `peers`", () => {
-    // Two clients seeding the same text into a CRDT would merge it TWICE, leaving the file
-    // written twice. That is the one failure this design has to make impossible.
     const doc = room();
     seed(doc, FILES, { "main.c": "déjà là" });
     seed(doc, FILES, { "main.c": "encore" });
@@ -162,7 +150,7 @@ describe("place and selectionBands", () => {
   it("draws one band per line of a multi-line selection", () => {
     const bands = selectionBands("abcd\nefgh\nijkl", 2, 12, box, { left: 0, top: 0 });
     expect(bands).toHaveLength(3);
-    expect(bands[0]).toContain("width:16px"); // "cd" on the first line
+    expect(bands[0]).toContain("width:16px");
   });
 
   it("skips a line the selection only touches at column zero", () => {

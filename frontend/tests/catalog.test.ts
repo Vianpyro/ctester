@@ -1,10 +1,3 @@
-// THE CATALOG'S TWO READS, AND EVERY RULE THAT DEPENDS ON THEM.
-//
-// These were the assertions the old harness could only reach by driving a fake DOM: the
-// logic now lives in a pure module, so they are reached by calling it. What they protect
-// is not cosmetic -- each one is a sentence a student reads, or a filter whose absence
-// would put a locked exercise into a hand-in.
-
 import { describe, expect, it } from "vitest";
 import {
   exportableExercises,
@@ -21,10 +14,6 @@ import {
 } from "../src/lib/domain/catalog";
 import type { PublishedRelease } from "../src/lib/api/types";
 
-// AN ISO INSTANT WITH ITS OFFSET, because that is what the content model REQUIRES:
-// `content_catalog.py` refuses a `scheduled` release whose `available_from` carries no
-// timezone. A bare "2026-11-18" would be parsed as UTC midnight and render as the 17th in
-// Montreal -- an opening date wrong by a day, which is exactly why the schema forbids it.
 const SCHEDULED = "2026-11-18T08:00:00-05:00";
 
 const release: PublishedRelease = {
@@ -37,9 +26,7 @@ const release: PublishedRelease = {
       access: "scheduled",
       release: { available_from: SCHEDULED },
     },
-    // A cross-cutting path: the same exercise, reached a second way.
     { id: "revision", title: "Révision", items: ["tp2-ex1"], access: "available" },
-    // A collection whose items were never published: it must not produce a row.
     { id: "vide", title: "Vide", items: ["absent"], access: "available" },
   ],
   exercises: [
@@ -59,7 +46,6 @@ const release: PublishedRelease = {
       access: "scheduled",
       release: { available_from: SCHEDULED },
     },
-    // NO COLLECTION AT ALL: publishing it must be enough to reach it.
     { id: "orphelin", title: "ex.9 seul", mode: "io", access: "available" },
   ],
   assignments: [{ id: "devoir", title: "Analyseur", team: { min: 3, max: 4 } }],
@@ -76,24 +62,14 @@ describe("normalize", () => {
       "Révision",
       "Autres",
     ]);
-    // The locked lab is in the tree...
     expect(model.collections[1]!.items.map((e) => e.id)).toEqual(["tp10-ex1"]);
-    // ...and NOT in the flat list, which is what counters and the export read.
     expect(model.catalog.map((e) => e.id)).not.toContain("tp10-ex1");
   });
 
   it("hands the instructor the locked ones too, and only when told to", () => {
-    // DATES ARE FOR STUDENTS. A moderator has to be able to open a locked exercise to
-    // check it renders and grades as intended -- so the flat list keeps it, and every
-    // screen downstream (`selected`, the strip, the editor, the submission) works with
-    // no branch of its own. The DEFAULT is the student's view, which is what makes a
-    // forgotten call site safe.
     const staff = normalize(release, true);
     expect(staff.catalog.map((e) => e.id)).toContain("tp10-ex1");
-    // The menu tree does not change: it already carried everything.
     expect(staff.collections.map((c) => c.titre)).toEqual(model.collections.map((c) => c.titre));
-    // AND THE LOCK IS STILL SAID. Opening it is not pretending it is open -- the
-    // instructor needs to read the date telling them the class cannot see this.
     expect(lockNote(staff.catalog.find((e) => e.id === "tp10-ex1")!)).toMatch(/^ouvre le /);
   });
 
@@ -132,8 +108,6 @@ describe("lockNote", () => {
     const note = lockNote({ access: "scheduled", available_from: SCHEDULED });
     expect(note).toMatch(/^ouvre le /);
     expect(note).toMatch(/18/);
-    // EN FRANÇAIS, QUELLE QUE SOIT LA LOCALE DU POSTE. « ouvre le » est écrit en
-    // dur ; une date suivant le navigateur donnait « ouvre le September 25 ».
     expect(note).toBe("ouvre le 18 novembre");
   });
 
@@ -150,8 +124,6 @@ describe("lockNote", () => {
 
 describe("tileState", () => {
   it("keeps PROGRESS and LOCATION as separate axes", () => {
-    // A solved exercise reads as solved even while it is the one open in the editor:
-    // folding the two into one value is what made it stop doing so.
     expect(tileState(byId("tp2-ex1"), false, { "tp2-ex1": "solved" })).toEqual({
       cls: "reussi",
       word: "réussi",
@@ -186,10 +158,6 @@ describe("labels", () => {
   });
 
   it("takes a bonus from the catalog's flag, and never from a word in a title", () => {
-    // THE TITLE DECIDES NOTHING, and guessing from it failed in BOTH directions: the
-    // course's only bonus is called "Puissance d'un treuil" -- no "bonus" in it, so it
-    // never got the dashes the legend promises -- while this fixture says "bonus" in its
-    // title and is an ordinary exercise that belongs in the one-piece main.c.
     expect(byId("tp2-ex1").bonus).toBe(false);
     const flagged = normalize({
       collections: [{ id: "tp2", title: "TP 2", items: ["bonus-1"], access: "available" }],
@@ -239,8 +207,6 @@ describe("what the one-piece main.c may bundle", () => {
     { ...byId("tp2-verif"), group: "TP 2" },
     { ...byId("tp2-ex1"), id: "devoir-a", group: "TP 2", assignment: "devoir" },
     { ...byId("tp2-ex1"), id: "tp2-mod", group: "TP 2", mode: "unity" },
-    // A BONUS: io, open, in the lab -- and still out. The handout numbers no
-    // bonus, so it has no `#if exercice == N` to be given.
     { ...byId("tp2-ex1"), id: "tp2-bonus", group: "TP 2", bonus: true },
   ];
 
@@ -254,7 +220,6 @@ describe("what the one-piece main.c may bundle", () => {
   it("needs two: a file bundling one bundles nothing the student cannot already see", () => {
     expect(isGroupExportable(catalog, "TP 2")).toBe(true);
     expect(isGroupExportable([catalog[0]!], "TP 2")).toBe(false);
-    // A bonus does not make up the second one.
     expect(isGroupExportable([catalog[0]!, catalog[catalog.length - 1]!], "TP 2")).toBe(false);
     expect(isGroupExportable(catalog, "TP 10")).toBe(false);
   });

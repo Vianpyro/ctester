@@ -1,13 +1,4 @@
-<script lang="ts" module>
-  // THE CHARTER, IN ONE PLACE. It displays in the view AND before the session's first
-  // post; two copies of the text would eventually contradict each other, and it is the
-  // forgotten copy that would get read at the moment it matters.
-  //
-  // MODERATION IS HUMAN, AND THE PAGE SAYS SO. Nothing here promises a shared solution
-  // would be detected automatically: it would not be. That is what makes "Signaler"
-  // useful rather than decorative.
-
-  export const CHARTER_SEEN = "ctester.charte";
+<script lang="ts" module>  export const CHARTER_SEEN = "ctester.charte";
 
   export const CHARTER = [
     "Entraide conceptuelle : une question, une idée, ce que tu observes, ce que tu as déjà essayé.",
@@ -19,8 +10,7 @@
   ];
 </script>
 
-<script lang="ts">
-  import { barPanel } from "../../lib/barPanel";
+<script lang="ts">  import { barPanel } from "../../lib/barPanel";
 
   interface Props {
     onAccept: () => void;
@@ -30,7 +20,6 @@
   const { onAccept, onCancel }: Props = $props();
 </script>
 
-<!-- Under the bar, like the two other floating panels: see `lib/barPanel.ts`. -->
 <div id="charte" use:barPanel>
   <h2>Avant de publier</h2>
   <ul class="regles">

@@ -1,12 +1,3 @@
-// THE C HIGHLIGHTER, AND IT IS SHARED. The exercise editor and the Console both
-// colour the same language, and a second copy of this grammar would be a second
-// grammar to fix twice.
-//
-// A PURE FUNCTION: text in, ESCAPED HTML out. Its output is the only thing in
-// this application allowed near `innerHTML` besides the sanitized forum markdown,
-// and that is safe for exactly one reason -- every branch below runs its slice
-// through `escapeHtml()` first.
-
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
 
 export const escapeHtml = (s: string): string => s.replace(/[&<>]/g, (c) => ESC[c]!);
@@ -30,9 +21,9 @@ const C_RE = new RegExp(
   "gm",
 );
 
-/** comment, string, preprocessor, keyword, number, function, upper-case macro */
 const CLASS = ["tc", "ts", "tp", "tk", "tn", "tf", "tu"];
 
+// The result goes to innerHTML: every slice is escaped after tokenizing, never before.
 export function highlight(src: string): string {
   let out = "";
   let last = 0;
@@ -42,7 +33,5 @@ export function highlight(src: string): string {
     out += '<span class="' + CLASS[which] + '">' + escapeHtml(m[0]) + "</span>";
     last = m.index + m[0].length;
   }
-  // The trailing newline keeps the overlay one line taller than the text, so the
-  // last line's colours do not get clipped as one types into it.
   return out + escapeHtml(src.slice(last)) + "\n";
 }

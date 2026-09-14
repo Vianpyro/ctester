@@ -1,17 +1,3 @@
-// OPENING AN EXERCISE, AND THE ORDER OF IT. This is the one transaction that touches
-// several owners at once, so the sequence is what is checked here -- not each owner again.
-//
-// THIS SUITE EXISTS BECAUSE A HOOK WAS SILENTLY DEAD. The chat's channel follows the
-// editor through a callback the chat registers on load; during the migration the
-// registration was written and never called, so opening an exercise stopped moving the
-// channel -- with nothing on screen to say so. A structural check ("does the file call
-// it?") would have been satisfied by the same broken code, so what is checked is the
-// BEHAVIOUR.
-//
-// EACH SCENARIO USES ITS OWN EXERCISE, and that is not tidiness: the statement cache and
-// the draft store are deliberately per-page-load, so reusing an id would have one test
-// read what the previous one left -- and hide exactly the caching this relies on.
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { catalog } from "../src/lib/state/catalog.svelte";
 import { drafts } from "../src/lib/state/drafts.svelte";
@@ -20,11 +6,6 @@ import { exercise, whenChatReady } from "../src/lib/state/exercise.svelte";
 import { session } from "../src/lib/auth/session.svelte";
 import { submission } from "../src/lib/state/submission.svelte";
 
-/**
- * Forty exercises in one lab, handed out by `next()` so no two scenarios ever share one.
- * The statement cache lives for the life of a page load, which is right in the application
- * and means a reused id would have one test read what the previous one left.
- */
 const IDS = Array.from({ length: 40 }, (_, i) => "tp2-ex" + (i + 1));
 
 let handedOut = 0;
@@ -42,9 +23,7 @@ const RELEASE = {
   assignments: [],
 };
 
-/** `tp/<id>.json`, and how long each one takes to answer. */
 let delays: Record<string, number> = {};
-/** Ids whose statement is empty -- "no statement online", not a failure. */
 let silent = new Set<string>();
 
 function fakeFetch(input: RequestInfo | URL): Promise<Response> {
@@ -71,8 +50,6 @@ beforeEach(async () => {
   session.setToken(null);
   session.deployment = {};
   whenChatReady(async () => {});
-  // The public "Effacer mes brouillons": the store is a per-page-load singleton, so this
-  // is what a fresh page load looks like from the outside.
   drafts.clearAll();
   await catalog.load("");
 });
@@ -96,8 +73,6 @@ describe("open", () => {
   });
 
   it("TELLS THE CHAT to follow, once its chunk has registered", async () => {
-    // The channel follows the editor; that is what let the second exercise menu be removed
-    // from the screen.
     let followed = 0;
     whenChatReady(async () => {
       followed++;
@@ -108,16 +83,11 @@ describe("open", () => {
   });
 
   it("does not ask the chat anything when its chunk was never loaded", async () => {
-    // Opening an exercise must NEVER fetch the chat's chunk on its own: that is the promise
-    // that the anonymous path downloads nothing. A null callback is the whole mechanism, so
-    // it must not throw.
     whenChatReady(undefined as unknown as () => Promise<void>);
     await expect(exercise.open(next())).resolves.toBeUndefined();
   });
 
   it("leaves `editor.exerciseId` NULL until the fill-in has come back", async () => {
-    // Setting it earlier would attribute the previous exercise's code, still displayed, to
-    // the new id at the next save.
     await exercise.open(next());
     const later = next();
     delays[later] = 20;
@@ -128,8 +98,6 @@ describe("open", () => {
   });
 
   it("lets the LAST open win when two are started quickly", async () => {
-    // Without the load token, the FIRST answer would land last and fill the editor with the
-    // wrong exercise.
     const first = next();
     const second = next();
     delays[first] = 30;
@@ -163,8 +131,6 @@ describe("open", () => {
   });
 
   it("tells `failed` from `none` on the statement, which are not the same thing", async () => {
-    // "No statement online" is a property of the exercise; a failure to fetch one is not,
-    // and displaying them the same way is why nobody ever retried.
     const empty = next();
     silent.add(empty);
     await exercise.open(empty);
@@ -174,8 +140,6 @@ describe("open", () => {
     vi.stubGlobal("fetch", () => Promise.reject(new Error("hors ligne")));
     await exercise.open(offline);
     expect(exercise.statement).toEqual({ kind: "failed" });
-    // AND THE EDITOR STILL WORKS: file names come from the catalog, so one can paste code
-    // and submit.
     expect(editor.files.map((f) => f.name)).toEqual(["submission.c"]);
     expect(editor.exerciseId).toBe(offline);
   });

@@ -1,13 +1,4 @@
 <script lang="ts">
-  // THE CONSOLE'S SCREEN. Its editor IS the exercise editor's -- `CodeSurface`, the same
-  // component -- and that is what it took to stop it falling behind: it used to restate
-  // the three elements itself, so the Tab key, the auto-closing pairs and the syntax
-  // checker were each written next door and never arrived here.
-  //
-  // `textContent`, NEVER `{@html}`, FOR THE OUTPUT: what arrives is a program written by a
-  // student, that is to say an arbitrary string. The colouring layer is the one exception
-  // and it receives `highlight()`'s output, which escapes every slice.
-
   import { onDestroy, onMount } from "svelte";
   import CodeSurface from "../../components/CodeSurface.svelte";
   import { scratch, TEMPLATE } from "./session.svelte";
@@ -22,11 +13,8 @@
     else if (!scratch.code) scratch.code = TEMPLATE;
   });
 
-  // LEAVING THE VIEW CLOSES THE SESSION. Without this, a container would survive a screen
-  // change and hold a core of the server while the student does something else.
   onDestroy(() => scratch.stop());
 
-  // The terminal follows the bottom, as every terminal does.
   $effect(() => {
     void scratch.output.length;
     if (terminal) terminal.scrollTop = terminal.scrollHeight;

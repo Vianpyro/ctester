@@ -1,7 +1,3 @@
-// THE C HIGHLIGHTER. Its output is one of only two things in this application allowed near
-// `{@html}`, and that is safe for exactly one reason: every branch runs its slice through
-// `escapeHtml()` first. The first block below is therefore not a style check.
-
 import { describe, expect, it } from "vitest";
 import { escapeHtml, highlight } from "../src/lib/domain/highlight";
 
@@ -23,7 +19,6 @@ describe("escaping", () => {
       expect(out, source).not.toMatch(/<script/i);
       expect(out, source).not.toMatch(/<img/i);
       expect(out, source).not.toMatch(/<svg/i);
-      // The only tags in the output are our own colour spans.
       for (const tag of out.match(/<[a-z/][^>]*>/gi) ?? []) {
         expect(tag, source).toMatch(/^<(span class="t[a-z]"|\/span)>$/);
       }
@@ -34,7 +29,6 @@ describe("escaping", () => {
     const source = 'int x = 1; /* é */\nprintf("a<b&c>d");';
     const host = document.createElement("div");
     host.innerHTML = highlight(source);
-    // The trailing newline is the overlay's, so the last line's colours are not clipped.
     expect(host.textContent).toBe(source + "\n");
   });
 });
@@ -51,16 +45,12 @@ describe("the grammar", () => {
   });
 
   it("does not mistake the `//` of a URL for a comment", () => {
-    // The string wins, and the whole literal is ONE span -- a comment span would swallow
-    // the rest of the line, including the closing quote and the semicolon.
     const out = highlight('printf("https://exemple.test/a");');
     expect(out).toContain('<span class="ts">"https://exemple.test/a"</span>');
     expect(out).not.toContain('class="tc"');
   });
 
   it("leaves a double quote alone, and that is correct rather than an oversight", () => {
-    // Only `&`, `<` and `>` are escaped. A `"` is harmless in text content, and nothing
-    // here ever builds an ATTRIBUTE value out of the source -- the classes are ours.
     expect(escapeHtml('say "hi"')).toBe('say "hi"');
   });
 
@@ -71,8 +61,6 @@ describe("the grammar", () => {
   });
 
   it("survives a French apostrophe in a comment", () => {
-    // A naive lexer takes it for the start of a character literal and colours the rest of
-    // the file as one string.
     const out = highlight("// on n'affiche rien\nint x = 1;");
     expect(classes("// on n'affiche rien\nint x = 1;")).toContain("tk");
     expect(out).toContain("x = ");

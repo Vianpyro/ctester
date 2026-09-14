@@ -1,18 +1,6 @@
-// THE STATEMENT'S MARKDOWN. The dangerous half is the escaping, so the assertions are
-// on the DOM and not on the text -- exactly as in `markdown.test.ts`, and for the same
-// reason: `&lt;script&gt;` as escaped TEXT is the right outcome, and a substring search
-// would read it as a failure.
-//
-// HALF THE CASES KEEP A SILENCE, and they are the ones that matter. `*` is C's
-// dereference and multiplication operator, and `marked` would eat the asterisks out
-// of `mets *quotient et *reste a 0`; `renderStatement` only emphasises a FLANKED run.
-// A twin test sits next to every construct that could swallow one -- including the
-// `**` pair of a double pointer, and the `_` of every snake_case identifier.
-
 import { describe, expect, it } from "vitest";
 import { renderStatement } from "../src/lib/domain/statement";
 
-/** The output, parsed the way the browser will parse it. */
 function parsed(source: string): HTMLElement {
   const host = document.createElement("div");
   host.innerHTML = renderStatement(source);
@@ -47,8 +35,6 @@ describe("nothing a statement carries can become a tag", () => {
 });
 
 describe("emphasis is flanked, so C's asterisks survive it", () => {
-  // HALF OF THIS BLOCK IS SILENCE, and it is the half that matters: every case that
-  // renders an `<em>` has a twin that must NOT, taken from the real content.
   it("italicises a flanked span", () => {
     expect(parsed("du *texte en italique* ici").querySelector("em")?.textContent).toBe(
       "texte en italique",
@@ -68,8 +54,6 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
   });
 
   it("leaves an INTRAWORD multiplication alone, which CommonMark would not", () => {
-    // `(23*m/9 + d + 4) % 7 ... (23*m/9` is one line of `tp3-ex8`, and the flanking
-    // rule of CommonMark allows an intraword `*` -- so `marked` eats these two.
     const host = parsed("mois >= 3 : (23*m/9 + d + 4) % 7 mois < 3 : (23*m/9 + d)");
     expect(host.querySelector("em")).toBeNull();
     expect(host.textContent).toContain("(23*m/9 + d + 4) % 7 mois < 3 : (23*m/9 + d)");
@@ -86,31 +70,24 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
   });
 
   it("never reads emphasis INSIDE a code span", () => {
-    // `bonus-1` writes exactly this line.
     const host = parsed("* *Rappel* : `P = F * v`");
     expect(host.querySelector("li em")?.textContent).toBe("Rappel");
     expect(host.querySelector("li code")?.textContent).toBe("P = F * v");
   });
 
   it("reads `***les deux***` as both, which is the run the content actually writes", () => {
-    // THE 16 EMPHASES IN BOLD OF THE COURSE ARE ALL `***`, in 11 files -- `tp5-ex7`
-    // writes `le reste n%m, ***dans cet ordre***.` and `tp2-ex6` three of them. Not
-    // one statement writes a plain `**`; they were all rendering their asterisks.
     const host = parsed("affiche le reste n%m, ***dans cet ordre***.");
     expect(host.querySelector("strong > em")?.textContent).toBe("dans cet ordre");
     expect(host.textContent).not.toContain("*");
   });
 
   it("boldens a flanked `**gras**` too, which is what `***` decomposes into", () => {
-    // No statement writes this today. It is here because `***` is `**` plus `*`, and
-    // a teacher who types two will expect bold rather than two asterisks on screen.
     const host = parsed("Saisit DEUX entiers **dans cet ordre**, puis affiche.");
     expect(host.querySelector("strong")?.textContent).toBe("dans cet ordre");
     expect(host.querySelector("em")).toBeNull();
   });
 
   it("leaves a DOUBLE POINTER alone, which is what flanking the closer buys", () => {
-    // Two runs on one line, and neither `**` is followed by a space: no closer.
     const host = parsed("la fonction prend char **argv et double **tab en parametres");
     expect(host.querySelector("strong")).toBeNull();
     expect(host.querySelector("em")).toBeNull();
@@ -128,18 +105,13 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
 });
 
 describe("`$...$` is a formula, and it is OPT-IN", () => {
-  // THE SILENT HALF IS THE POINT HERE TOO. What `$` buys is not the fraction bar --
-  // `domain/math.ts` is tested on its own -- it is that a slash the teacher did NOT
-  // mark stays a slash. C's integer division is the subject of three exercises.
   it("draws a fraction where the statement asks for one", () => {
     const host = parsed("* *Rappel* : $R = V * L / v$");
     expect(host.querySelector("li math mfrac")).not.toBeNull();
-    // The emphasis of the same line still works, and the formula was not italicised.
     expect(host.querySelector("li em")?.textContent).toBe("Rappel");
   });
 
   it("leaves ZELLER alone: an unmarked `/` is C's integer division", () => {
-    // `tp3-ex8` and `tp6-ex3` write this, and the TRUNCATION is what they teach.
     const host = parsed("mois >= 3 : (23*m/9 + d + 4 + z/4 - z/100) % 7");
     expect(host.querySelector("math")).toBeNull();
     expect(host.textContent).toContain("(23*m/9 + d + 4 + z/4 - z/100) % 7");
@@ -164,8 +136,6 @@ describe("`$...$` is a formula, and it is OPT-IN", () => {
   });
 
   it("falls back to a code span when the grammar does not know the formula", () => {
-    // The degradation IS the status quo: this is what the statement showed before
-    // `math.ts` existed, so a formula nobody can parse is never a blank.
     const host = parsed("essaie $a @ b$ ici");
     expect(host.querySelector("math")).toBeNull();
     expect(host.querySelector("code")?.textContent).toBe("a @ b");
@@ -201,7 +171,6 @@ describe("code blocks", () => {
   });
 
   it("removes the common indentation but keeps the inner alignment", () => {
-    // `tp2-ex8` lines its arrows up with tabs INSIDE the line; `tab-size` renders that.
     const host = parsed("\tR < 2000\t-> laminaire\n\tsinon\t\t-> transitoire");
     expect(host.querySelector("pre code")?.textContent).toBe(
       "R < 2000\t-> laminaire\nsinon\t\t-> transitoire",
@@ -217,8 +186,6 @@ describe("code blocks", () => {
 
 describe("prose reflows, and that is not `breaks: true`", () => {
   it("joins the lines of a paragraph with a SPACE, never with a `<br>`", () => {
-    // The statements are hard-wrapped at about sixty columns, wider than the column
-    // they are read in: honouring those newlines would break every line twice.
     const host = parsed("Elle fournit a l'appelant le quotient ET le reste de la\ndivision entiere.");
     expect(host.querySelector("br")).toBeNull();
     expect(host.textContent).toBe("Elle fournit a l'appelant le quotient ET le reste de la division entiere.");
@@ -237,8 +204,6 @@ describe("lists win over the indentation, because they are lists", () => {
   });
 
   it("reads a tab-indented numbered list as an `ol`", () => {
-    // Left as a code block, `highlight()` would colour "l'annee ... de l'usager" as a
-    // character literal -- two French apostrophes on one line.
     const host = parsed("\t1. l'annee actuelle\n\t2. l'annee de naissance de l'usager");
     expect(host.querySelectorAll("ol li").length).toBe(2);
     expect(host.querySelector("span")).toBeNull();

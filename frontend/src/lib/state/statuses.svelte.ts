@@ -1,13 +1,3 @@
-// WHAT THIS ACCOUNT HAS DONE: the per-exercise status and the practice counters.
-//
-// IN THE CORE, and read by the menu, the lab strip and "Mes progrès" alike.
-// Knowing what one has done should not require switching screens -- it used to
-// live only in "Mes exercices", even though the data was already loaded.
-//
-// A READ FAILURE PRODUCES AN EMPTY MAP, NOT A FALSE STATUS. "À faire" on a solved
-// exercise beats the opposite, and the projection screens say plainly when they
-// do not know.
-
 import { fetchPractice, fetchStates } from "../api/account";
 import { session, whenSignedOut } from "../auth/session.svelte";
 import { catalog } from "./catalog.svelte";
@@ -28,9 +18,6 @@ class Statuses {
       if (row && typeof row.exercise_id === "string") map[row.exercise_id] = row.status;
     }
     this.byExercise = map;
-    // THE EARLIEST THE PAGE CAN LEARN THE ROLE. The catalog is loaded before
-    // there is a session at all, so the menu is told afterwards that dates do
-    // not close anything for this account.
     catalog.setStaff(!!answer?.moderator);
   }
 
@@ -65,6 +52,4 @@ class Statuses {
 
 export const statuses = new Statuses();
 
-// MARKS LEAVE WITH THE SESSION: leaving check marks in the menu and the strip
-// would show the progress of somebody who just signed out.
 whenSignedOut(() => statuses.forget());

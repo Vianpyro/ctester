@@ -1,10 +1,4 @@
 <script lang="ts">
-  // A RESULT OPENS THROUGH THE PERMALINK, never by guessing its thread: the whole
-  // conversation arrives from the server, filtered by the same rules as the thread.
-  //
-  // `textContent` FOR AN EXCERPT: it does not go through Markdown, therefore not through
-  // the sanitizer, therefore it must never become HTML.
-
   import { catalog } from "../../lib/state/catalog.svelte";
   import { CHAT_GENERAL, CHAT_PREFIX, bareExercise } from "../../lib/api/forum";
   import { thread } from "./thread.svelte";
@@ -17,8 +11,6 @@
 
   const { rows, empty }: Props = $props();
 
-  /** The word "forum" no longer appears on screen: that thread is what the student knows
-   *  as "his questions to the instructor", and nothing else. */
   function readableThread(key: string): string {
     if (key === CHAT_GENERAL) return "# général";
     const bare = bareExercise(key);

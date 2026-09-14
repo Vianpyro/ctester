@@ -1,16 +1,3 @@
-// THE PAGE ACTUALLY RUNS, AND THIS IS THE CHECK THE OLD HARNESS EXISTED FOR.
-//
-// Its whole reason to be was that `node --check` could not catch the one failure this page
-// ever had in production: a `ReferenceError` at RUN time, in a promise nobody read, which
-// left the button silent and the container's logs empty. Types catch that class now -- but
-// only the class that is expressible in types. Mounting the real component tree against a
-// real DOM is what catches an effect that throws, a store read before it exists, or a
-// template that references something that is not there.
-//
-// IT IS THE ANONYMOUS PATH, deliberately: the default path, and the one that must never
-// depend on a token. What it asserts is what a student sees before touching anything, and
-// which requests that costs.
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount, unmount, flushSync } from "svelte";
 import App from "../src/App.svelte";
@@ -38,8 +25,6 @@ const RELEASE = {
       access: "available",
     },
     { id: "tp2-ex2", title: "ex.2 boucle", mode: "io", access: "available" },
-    // A BONUS WHOSE TITLE DOES NOT SAY SO -- the real one is "Puissance d'un treuil".
-    // The flag is the only thing that may produce the dashes.
     { id: "tp2-ex3", title: "ex.3 treuil", mode: "io", bonus: true, access: "available" },
     {
       id: "tp9-ex1",
@@ -53,7 +38,6 @@ const RELEASE = {
 };
 
 let asked: string[] = [];
-/** What `/oidc.json` answers. `{}` is a deployment with no sign-in at all. */
 let deployment: unknown = {};
 
 function fakeFetch(input: RequestInfo | URL): Promise<Response> {
@@ -74,8 +58,6 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
     );
   }
   if (url === "oidc.json") {
-    // `{}` BY DEFAULT: a deployment with no sign-in, where the whole account block stays
-    // inert -- the anonymous path's most important property.
     return Promise.resolve(new Response(JSON.stringify(deployment), { status: 200 }));
   }
   if (url.startsWith("live?")) {
@@ -84,20 +66,11 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
   return Promise.resolve(new Response("{}", { status: 404 }));
 }
 
-/** Let the startup sequence's awaits resolve. */
 const settle = async () => {
   for (let i = 0; i < 30; i++) await Promise.resolve();
   flushSync();
 };
 
-/**
- * Attend qu'une condition devienne vraie, pour les morceaux chargés à la demande.
- *
- * ON ATTEND LA CONDITION, ON NE DEVINE PAS UN NOMBRE DE TOURS : un `import()`
- * dynamique n'est pas résolu par les micro-tâches, et sous Vitest il faut en
- * plus que le `.svelte` soit transformé à la volée. Un compteur fixe passerait
- * sur une machine et échouerait sur une autre -- c'est-à-dire en CI.
- */
 async function until(what: string, ready: () => boolean): Promise<void> {
   for (let i = 0; i < 200; i++) {
     flushSync();
@@ -115,21 +88,12 @@ beforeEach(() => {
   asked = [];
   deployment = {};
   vi.stubGlobal("fetch", fakeFetch);
-  // MOUNTED ONTO THE BODY, exactly as `main.ts` does it. Wrapping the tree in a div here
-  // would be a suite that passes while the page collapses -- see the structural checks below.
   document.body.innerHTML = "";
   host = document.body;
   app = null;
-  // A FRESH PAGE LOAD, SEEN FROM OUTSIDE. These are per-page-load singletons, which is
-  // right in the application and means one test would otherwise inherit the last one's
-  // state: the drafts (leaving an exercise saves it, so the previous mount's code would
-  // come back as a draft) and what the deployment offers.
   drafts.clearAll();
   session.deployment = null;
   session.setToken(null);
-  // LE DERNIER EXERCICE OUVERT SURVIT À UN DÉMONTAGE, puisqu'il vit dans
-  // `localStorage` : sans cette ligne, le premier test qui ouvre un exercice
-  // choisirait celui du suivant, et l'ordre des tests deviendrait une donnée.
   localStorage.removeItem("ctester.exercice");
 });
 
@@ -145,16 +109,7 @@ async function render() {
 }
 
 describe("the page's structure, which the stylesheet depends on", () => {
-  // THESE ARE THE CHECKS THAT WERE MISSING, and their absence shipped a page that did not
-  // fill the screen with a sign-in button that looked dead. Asserting that an id EXISTS is
-  // not enough: `app.css` is written against a specific NESTING, and every rule below broke
-  // while every id was still present.
-
   it("keeps `#top` and `<main>` as children of BODY, which is the flex column", async () => {
-    // `body { display: flex; flex-direction: column; height: 100dvh }` with `#top` at
-    // `flex: 0 0 auto` and `main` at `flex: 1 1 auto`. A wrapper element between them breaks
-    // the chain at the top: everything collapses to content height and the page stops
-    // filling the screen.
     await render();
     const bar = document.getElementById("top")!;
     const main = document.querySelector("main")!;
@@ -166,16 +121,9 @@ describe("the page's structure, which the stylesheet depends on", () => {
     await render();
     const travail = document.getElementById("travail")!;
     expect(travail.parentElement).toBe(document.querySelector("main"));
-    // `#travail` is the grid; these are its columns.
     for (const id of ["consigne", "droite", "chatdock"]) {
       expect(document.getElementById(id)!.parentElement, id).toBe(travail);
     }
-    // AND THERE ARE EXACTLY THREE OF THEM, IN THIS ORDER. Parenthood alone is not
-    // enough and that gap shipped a broken screen: a banner added as a second ROOT
-    // of `Statement.svelte` was still leaving `#consigne` a child of `#travail`,
-    // but it took the first grid column and pushed every other column one across.
-    // `grid-template-columns` is written against these three children and nothing
-    // else, so the count is the invariant, not the nesting.
     expect([...travail.children].map((el) => el.id)).toEqual([
       "consigne",
       "droite",
@@ -184,19 +132,12 @@ describe("the page's structure, which the stylesheet depends on", () => {
   });
 
   it("keeps the three floating panels INSIDE `#top`, which is what they anchor to", async () => {
-    // Each is `position: absolute; top: 100%` and `#top` is the only `position: relative`
-    // ancestor. Rendered elsewhere, `top: 100%` resolves against the initial containing
-    // block: the panel lands one full viewport down, off-screen, and the button that opened
-    // it looks dead. That is exactly what shipped.
     await render();
     const bar = document.getElementById("top")!;
     expect(document.getElementById("consentement")!.parentElement).toBe(bar);
-    // The other two live in the chat's lazy chunk, so they are only in the DOM once it is
-    // loaded -- `barPanel` is what puts all three here.
   });
 
   it("opens the consent panel where it can be seen, and closes it again", async () => {
-    // A deployment that DOES offer sign-in, which is what puts the button in the bar.
     deployment = { issuer: "https://auth.exemple.test", client_id: "ctester" };
     await render();
     const panel = document.getElementById("consentement")!;
@@ -234,24 +175,13 @@ describe("the anonymous page", () => {
     expect(strip.hidden).toBe(false);
     expect(strip.textContent).toContain("ex.1");
     expect(strip.textContent).toContain("ex.2");
-    // LA LÉGENDE A DISPARU, ET C'EST CE QUI EST ÉPROUVÉ MAINTENANT. Elle expliquait
-    // cinq styles de bordure en permanence à l'écran ; une interface qui a besoin
-    // d'une clé pour lire une rangée de boutons est une interface ratée. Ce qui la
-    // remplace se lit sans clé -- `✓` et fond teinté, `🔒` et sa date, bordure épaisse
-    // pour « ouvert ici » -- et les deux CATÉGORIES qu'aucun symbole ne dit portent
-    // leur mot SUR la tuile, ce qui est la moitié qui rend la suppression gratuite.
     expect(document.getElementById("striplegend")).toBeNull();
-    // `#labcontext` a fondu dans la bande pour la même raison : son nom de labo était
-    // déjà dans `#now`, et ses deux boutons ouvraient le même menu.
     expect(document.getElementById("labcontext")).toBeNull();
     expect(strip.textContent).toContain("Tous les exercices");
   });
 
   it("porte le mot des deux catégories sur la tuile, puisqu'il n'y a plus de légende", async () => {
     await render();
-    // LE CONTRÔLE QUI REMPLACE LA LÉGENDE. Sans ce mot, supprimer `#striplegend` était
-    // une perte : les tirets d'un bonus ne se devinent pas. Avec lui, ils sont une
-    // redondance utile plutôt que le seul porteur de l'information.
     const strip = document.getElementById("bandelabo")!;
     const bonus = [...strip.querySelectorAll<HTMLElement>(".tile")].find((b) =>
       b.title.startsWith("ex.3"),
@@ -261,21 +191,10 @@ describe("the anonymous page", () => {
 
   it("dashes the bonus tile from the flag, layered over its progress class", async () => {
     await render();
-    // THE WIRING, WHICH IS WHERE THIS BROKE. `catalog.test.ts` proves the flag survives
-    // `normalize`; only a mounted strip proves it reaches the class that draws the dashes.
-    // It did not: the class was guessed from the title, and the one exercise carrying the
-    // flag is called "Puissance d'un treuil".
-    // `.tile` ET PAS `button` : la bande porte aussi le bouton « Tous les exercices »
-    // depuis que `#labcontext` a fondu dedans. Un sélecteur sur `button` le ramasserait,
-    // et les deux `find` ci-dessous ne tiendraient plus que par le fait que son `title`
-    // ne commence pas par « ex. » -- c'est-à-dire par chance.
     const tiles = [...document.getElementById("bandelabo")!.querySelectorAll<HTMLElement>(".tile")];
     const bonus = tiles.find((b) => b.title.startsWith("ex.3"))!;
     expect([...bonus.classList]).toContain("bonus");
-    // LAYERED LIKE `courant`, never instead of: a solved bonus must keep its tinted
-    // ground, which the old exclusive class took away.
     expect([...bonus.classList]).toContain("afaire");
-    // AND THE WORD TRAVELS WITH THE BORDER. A legend is not read by a screen reader.
     expect(bonus.title).toContain("bonus facultatif");
     const ordinary = tiles.find((b) => b.title.startsWith("ex.2"))!;
     expect([...ordinary.classList]).not.toContain("bonus");
@@ -288,10 +207,6 @@ describe("the anonymous page", () => {
     view.show("progres");
     flushSync();
     expect(document.getElementById("travail")!.hidden).toBe(true);
-    // LE GESTE QUE TOUT LE MONDE ESSAIE DEJA : cliquer le nom du site pour rentrer.
-    // Avant, le seul retour etait de recliquer le bouton par lequel on etait venu --
-    // c'est-a-dire de se souvenir d'ou on venait, ce qu'on ne fait pas quand on
-    // s'est perdu.
     (document.getElementById("accueil") as HTMLButtonElement).click();
     flushSync();
     expect(document.getElementById("travail")!.hidden).toBe(false);
@@ -299,18 +214,10 @@ describe("the anonymous page", () => {
   });
 
   it("rouvre le dernier exercice au rechargement, et le lien profond le bat", async () => {
-    // CE QUE ÇA RÉPARE : `catalog.load` retombait sur `catalog[0]`, donc un
-    // rechargement ramenait TOUJOURS au premier exercice publié -- même après une
-    // heure passée sur ex.3. Un rechargement est fréquent (une connexion qui revient,
-    // un onglet rouvert le mardi suivant), et repartir de zéro à chaque fois est la
-    // définition d'un travail perdu de vue.
     localStorage.setItem("ctester.exercice", "tp2-ex3");
     await render();
     expect(document.getElementById("now")!.textContent).toContain("ex.3");
 
-    // ET LA PRÉCÉDENCE, qui est la moitié qu'on casserait sans s'en apercevoir : un
-    // `?tp=` est une intention écrite À L'INSTANT -- un lien de Moodle, un lien
-    // partagé -- et doit battre ce que cet appareil faisait la dernière fois.
     unmount(app!);
     app = null;
     document.body.innerHTML = "";
@@ -322,8 +229,6 @@ describe("the anonymous page", () => {
   });
 
   it("retombe sur le premier exercice quand le dernier n'est plus ouvrable", async () => {
-    // UN EXERCICE QUI S'EST REFERMÉ NE DOIT PAS ROUVRIR SUR UN 404 : la condition est
-    // la liste des exercices OUVERTS, pas le menu, qui porte aussi les verrouillés.
     localStorage.setItem("ctester.exercice", "tp9-ex1");
     await render();
     expect(document.getElementById("now")!.textContent).toContain("ex.1 conversion");
@@ -334,18 +239,12 @@ describe("the anonymous page", () => {
     const menu = document.getElementById("exliste")!;
     expect(menu.textContent).toContain("TP 9");
     const locked = menu.querySelector('[data-id="tp9-ex1"]')!;
-    // `aria-disabled` AND NOT `disabled`: the opening date is the whole reason the row is
-    // still displayed, and a `disabled` button drops out of the tab order.
     expect(locked.getAttribute("aria-disabled")).toBe("true");
     expect(locked.hasAttribute("disabled")).toBe(false);
     expect(locked.textContent).toContain("ouvre le");
   });
 
   it("unlocks that same row for a moderator, lock and date still shown", async () => {
-    // THE WIRING, NOT THE RULE. `catalog.test.ts` proves `normalize(release, true)` keeps
-    // the locked exercise; this proves the component tree actually reads `catalog.staff`
-    // -- the half that, if it were missing, would leave a "not-allowed" cursor on a
-    // moderator's screen with every test still green.
     await render();
     const { catalog } = await import("../src/lib/state/catalog.svelte");
     catalog.setStaff(true);
@@ -353,7 +252,6 @@ describe("the anonymous page", () => {
     const locked = document.querySelector('#exliste [data-id="tp9-ex1"]')!;
     expect(locked.getAttribute("aria-disabled")).toBeNull();
     expect(locked.className).not.toContain("verrouille");
-    // The date is the information the instructor came for: it stays.
     expect(locked.textContent).toContain("ouvre le");
     catalog.setStaff(false);
     flushSync();
@@ -367,7 +265,6 @@ describe("the anonymous page", () => {
     const out = document.getElementById("out")!;
     expect(out.className).toBe("idle");
     expect(out.textContent).toContain("En attente d'une soumission.");
-    // A strip of three "not reached" before the first submission would announce a failure.
     expect(out.querySelector(".etapes")).toBeNull();
   });
 
@@ -396,13 +293,6 @@ describe("the anonymous page", () => {
 
   it("emits nothing outside four kinds of request", async () => {
     await render();
-    // The catalog, one statement, what the deployment offers, and the heartbeat -- which is
-    // the single deliberate exception to "the anonymous visitor emits no request". The
-    // property worth holding is that NOTHING ELSE leaves: no `etats`, no `pratique`, no
-    // `preferences`, no `forum`.
-    //
-    // The statement may legitimately be absent from the list: its cache lives for the life
-    // of a page load, and a suite mounts several pages in one process.
     const kinds = new Set(asked.map((u) => u.split("?")[0]!.replace(/^tp\/.*/, "tp/")));
     for (const kind of kinds) {
       expect(["catalog.json", "live", "oidc.json", "tp/"], kind).toContain(kind);
@@ -416,14 +306,11 @@ describe("the anonymous page", () => {
     await render();
     const zone = document.getElementById("code") as HTMLTextAreaElement;
     zone.value = 'int main(void){ printf("<b>hi</b>"); }';
-    // SVELTE 5 DELEGATES `input` to the root, so a synthetic event has to BUBBLE to reach
-    // the handler. A non-bubbling one would make this suite green while nothing ran.
     zone.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
     const painted = document.getElementById("hlcode")!;
-    expect(painted.querySelector(".tk")).not.toBeNull(); // `int`
-    expect(painted.querySelector(".tf")).not.toBeNull(); // `printf`
-    // The student's markup is TEXT, and the only elements are our own colour spans.
+    expect(painted.querySelector(".tk")).not.toBeNull();
+    expect(painted.querySelector(".tf")).not.toBeNull();
     expect(painted.querySelector("b")).toBeNull();
     expect(painted.textContent).toContain("<b>hi</b>");
   });
@@ -446,15 +333,6 @@ describe("the anonymous page", () => {
   });
 });
 
-// --- LES RACCOURCIS DE LA PAGE ---------------------------------------------
-//
-// La table est éprouvée en l'appelant (`shortcuts.test.ts`), les commandes
-// aussi (`keys.test.ts`). Ce qui se vérifie ICI, c'est ce que seule la page
-// montée peut dire : que le gestionnaire de fenêtre existe, qu'il RESPECTE le
-// contrat `defaultPrevented` avec la surface, et qu'il tient la portée de vue
-// qui empêche Ctrl+Entrée de soumettre depuis un écran sans éditeur.
-
-/** Une frappe sur le document, comme le navigateur la fait remonter. */
 function key(
   k: string,
   mods: Partial<Record<"ctrlKey" | "shiftKey" | "altKey" | "metaKey", boolean>> = {},
@@ -473,7 +351,6 @@ describe("les raccourcis de la page", () => {
   });
 
   it("l'ouvre AUSSI avec Verr.Maj -- le bogue que la table répare", async () => {
-    // L'ancienne condition comparait `event.key !== "k"` : Verr.Maj le tuait.
     await render();
     expect(key("K", { ctrlKey: true }).defaultPrevented).toBe(true);
     expect(document.querySelector("#menuex")?.hasAttribute("open")).toBe(true);
@@ -487,10 +364,6 @@ describe("les raccourcis de la page", () => {
   });
 
   it("le message de Ctrl+S s'efface tout seul, ET REND LE BANDEAU", async () => {
-    // Sur le chemin anonyme le bandeau porte déjà « il manque ta clé d'accès ».
-    // C'est donc le cas réel de l'invariant : le flash EMPRUNTE le bandeau et le
-    // remet tel qu'il l'a trouvé, au lieu d'effacer un message que personne
-    // n'avait lu.
     await render();
     const banner = () => document.querySelector("#systeme")?.textContent ?? "";
     const before = banner();
@@ -510,8 +383,6 @@ describe("les raccourcis de la page", () => {
   });
 
   it("SILENCE : une frappe déjà prévenue par la surface n'est pas rejouée", async () => {
-    // Le contrat entre les deux écouteurs. Sans le `defaultPrevented` en tête,
-    // une frappe traitée dans l'éditeur serait traitée une seconde fois ici.
     await render();
     const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true });
     event.preventDefault();
@@ -536,7 +407,6 @@ describe("l'aide-mémoire", () => {
     await until("le panneau des raccourcis", () => !!document.querySelector("#raccourcis"));
     const panel = document.querySelector("#raccourcis");
     expect(panel?.hasAttribute("hidden")).toBe(false);
-    // ET IL EST BIEN SOUS LA BARRE : `top: 100%` ne se résout que contre `#top`.
     expect(panel?.parentElement?.id).toBe("top");
 
     key("Escape");
@@ -545,8 +415,6 @@ describe("l'aide-mémoire", () => {
   });
 
   it("dit ce qu'il ne prend PAS au navigateur", async () => {
-    // La première question devant un éditeur dans une page web est « est-ce que
-    // Ctrl+Z marche ici ? », et la seule réponse rassurante est de l'écrire.
     await render();
     key("F1");
     await until("le panneau des raccourcis", () => !!document.querySelector("#raccourcis"));
@@ -559,9 +427,6 @@ describe("l'aide-mémoire", () => {
 
 describe("SILENCE : Échap ne casse pas l'échappatoire clavier", () => {
   it("ne prévient rien quand le curseur est dans le code", async () => {
-    // La non-régression qui compte : `CodeSurface` pose son drapeau `escaped`
-    // pour qu'un Tab suivant SORTE du champ. Si la fenêtre prévenait ici, les
-    // deux se marcheraient dessus et on ne pourrait plus quitter l'éditeur.
     await render();
     const zone = document.querySelector<HTMLTextAreaElement>("#code")!;
     zone.focus();

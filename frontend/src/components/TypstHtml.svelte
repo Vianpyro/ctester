@@ -1,6 +1,4 @@
 <script lang="ts">
-  // UN ÉNONCÉ TYPST EN HTML -- l'essai, à côté des pages SVG. Voir
-  // `lib/typstHtml.ts` pour ce qui est retiré et réécrit avant l'écriture.
   import { api } from "../lib/config";
   import { authFetch } from "../lib/auth/session.svelte";
   import { prepareTypstHtml } from "../lib/typstHtml";
@@ -8,7 +6,6 @@
   interface Props {
     id: string;
     staff: boolean;
-    /** Le HTML n'est pas arrivé : le parent retombe sur les pages SVG. */
     onfail: () => void;
   }
   const { id, staff, onfail }: Props = $props();
@@ -23,8 +20,6 @@
       const reponse = await (staff ? authFetch(chemin) : fetch(api(chemin))).catch(() => null);
       const texte = reponse?.ok ? await reponse.text().catch(() => null) : null;
       if (annule) return;
-      // UN CORPS SANS CONTENU EST UN ÉCHEC AUSSI : un HTML vide afficherait
-      // un panneau blanc au lieu des pages SVG qui, elles, sont là.
       const pret = texte === null ? null : prepareTypstHtml(texte);
       if (!pret || !pret.html.trim()) {
         onfail();
@@ -50,9 +45,6 @@
     });
   }
 
-  // UNE DISSUASION, PAS UNE PROTECTION : le texte reste dans le document. Le
-  // CSS refuse la sélection, ceci refuse la copie et le menu contextuel d'une
-  // sélection qui commencerait ailleurs et déborderait dessus.
   function dansRecopier(event: Event): boolean {
     const cible = event.target as Node | null;
     const sel = document.getSelection();
@@ -64,7 +56,7 @@
   };
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -- le clic est délégué aux vrais <button> « Copier », que le clavier atteint déjà -->
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -- clicks are delegated to the real Copy buttons, which keyboard users reach directly -->
   <div
     class="typsthtml"
     onclick={clic}

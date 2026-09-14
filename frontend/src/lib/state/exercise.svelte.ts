@@ -1,14 +1,3 @@
-// OPENING AN EXERCISE, AND THE ORDER IS THE WHOLE FILE.
-//
-// This is the one transaction that touches several owners at once -- the catalog's
-// selection, the editor's files, the draft store, the submission state, the team
-// room and the chat dock -- so it lives in one place with the sequence written
-// down, rather than spread across the components that trigger it.
-//
-// A LOAD TOKEN GUARDS EVERY STEP. The statement and the templates arrive over the
-// network; without the token, switching exercises twice quickly would let the
-// FIRST answer land last and fill the editor with the wrong exercise.
-
 import { catalog } from "./catalog.svelte";
 import { drafts } from "./drafts.svelte";
 import { editor, type EditorFile } from "./editor.svelte";
@@ -19,50 +8,19 @@ import { localGet, localSet } from "../storage";
 import type { Exercise } from "../domain/catalog";
 import type { ExerciseDetail } from "../api/types";
 
-/**
- * LE DERNIER EXERCICE OUVERT SUR CET APPAREIL.
- *
- * `localStorage` et pas le compte : c'est une commodité par APPAREIL, de la même
- * famille que le thème lu avant la première peinture ou que le dock du chat -- pas
- * un fait à conserver. Quelqu'un qui laisse son laboratoire en plan sur le poste du
- * labo et rouvre son portable le soir reprend là où IL en est sur CE portable, ce
- * qui est ce qu'on veut : c'est l'exercice qu'il regardait, pas une progression.
- *
- * ET C'EST UN IDENTIFIANT, RIEN D'AUTRE. Le brouillon vit déjà à côté, sous sa
- * propre clé ; celle-ci ne fait que dire lequel rouvrir.
- */
 const DERNIER = "ctester.exercice";
 
-/** L'exercice à rouvrir au chargement, ou "" -- lu par la coquille au démarrage. */
 export function dernierExercice(): string {
   return localGet(DERNIER);
 }
 
-/** The statement's states. Four of them are about fetching; one is a format. */
 export type StatementState =
   | { kind: "loading" }
   | { kind: "text"; text: string }
-  /** A TYPST STATEMENT: pages rendered to SVG at publish time, not text. The
-   *  page holds the id and the count and rebuilds the URLs -- no path travels
-   *  over the wire. `staff` says the pages sit under `staff/` and need a token,
-   *  which is why the component has a second loading path. */
   | { kind: "typst"; id: string; pages: number; staff: boolean; title: string; html: boolean }
-  /** "No statement online" is a property of the exercise... */
   | { kind: "none" }
-  /** ...and this is a failure to fetch one. The student used to see them the
-   *  same way, so they never retried -- when a reload would have been enough. */
   | { kind: "failed" };
 
-/**
- * What a fetched detail means for the statement panel. ONE PLACE, because it is
- * read twice -- opening an exercise and retrying a statement that did not
- * arrive -- and the two used to be a copied ternary.
- *
- * THE ORDER MATTERS: a failed fetch comes first. `offline` already answers `""`
- * for the statement, so testing the format first would turn a dead network into
- * "this exercise has no statement online" -- exactly the confusion the three
- * states were introduced to remove.
- */
 function statementOf(ex: Exercise, detail: ExerciseDetail): StatementState {
   if (detail.offline) return { kind: "failed" };
   if (detail.statement_format === "typst" && detail.statement_pages) {
@@ -70,9 +28,6 @@ function statementOf(ex: Exercise, detail: ExerciseDetail): StatementState {
       kind: "typst",
       id: ex.id,
       pages: detail.statement_pages,
-      // PAS ENCORE OUVERT VEUT DIRE `staff/`, et seul un modérateur a pu
-      // recevoir cette entrée : `normalize()` ne garde un exercice verrouillé
-      // dans la liste plate que quand le serveur a dit que ce compte est staff.
       staff: ex.access !== "available",
       title: ex.label,
       html: detail.statement_html === true,
@@ -81,24 +36,10 @@ function statementOf(ex: Exercise, detail: ExerciseDetail): StatementState {
   return detail.statement ? { kind: "text", text: detail.statement } : { kind: "none" };
 }
 
-// --- The two optional features an open exercise can reach ---------------------
-// Both are lazy chunks. The module reference is kept once imported, so LEAVING a
-// room never has to download the room's code -- which would be absurd, and would
-// also mean the anonymous path could pull in Yjs by switching exercises.
-
 type RoomModule = typeof import("../collab/room.svelte");
 
 let roomModule: RoomModule | null = null;
 
-/**
- * WHAT THE CHAT ASKS TO BE TOLD, and only once its chunk exists.
- *
- * The channel follows the editor -- that is what let the second exercise menu be removed
- * from the screen -- but opening an exercise must NEVER fetch the chat's chunk on its own:
- * that is the promise that the anonymous path downloads nothing. So the core holds a
- * nullable callback and the chat registers into it on load, exactly the way a screen
- * registers what a sign-out has to clear. Nothing here imports the chat.
- */
 let followChannel: (() => Promise<void>) | null = null;
 
 export function whenChatReady(follow: () => Promise<void>): void {
@@ -109,19 +50,12 @@ class ExerciseState {
   statement = $state<StatementState>({ kind: "loading" });
   #load = 0;
 
-  /** The one entry point. `id` is what the menu chose. */
   async open(id: string): Promise<void> {
-    // THE OLD ROOM CLOSES BEFORE THE NEW ONE OPENS. Without this, the socket of
-    // the exercise being left would still be applying remote changes into an
-    // editor that now holds a different exercise.
     roomModule?.room.leave();
     drafts.cancel();
     this.saveNow();
     catalog.selectedId = id;
     submission.reset();
-    // `editor.exerciseId` IS WHAT THE EDITOR HOLDS, not what the menu shows.
-    // Filling it in goes through the network: setting it here would attribute the
-    // previous exercise's code, still displayed, to the new id at the next save.
     editor.exerciseId = null;
     editor.lock(false);
     const ex = catalog.selected;
@@ -131,12 +65,6 @@ class ExerciseState {
       this.statement = { kind: "none" };
       return;
     }
-    // ON NE RETIENT QUE CE QUI A RÉSOLU. Écrire l'identifiant plus haut, à côté de
-    // `catalog.selectedId`, retiendrait aussi celui qui ne désigne rien -- et le
-    // rechargement suivant repartirait sur un exercice introuvable, donc sur le
-    // repli, en ayant l'air d'avoir oublié. L'échec d'écriture est muet exprès :
-    // `localSet` rend `false` en navigation privée, et une commodité qui ne peut
-    // pas être retenue ne vaut pas un message.
     localSet(DERNIER, ex.id);
     if (ex.mode === "quiz") quiz.clear();
     const detail = await catalog.detail(ex.id);
@@ -146,21 +74,13 @@ class ExerciseState {
       await quiz.load(ex.id);
       return;
     }
-    // The account's copy first, so work started on another machine is there.
     await drafts.pullFromAccount(ex.id);
     if (thisLoad !== this.#load) return;
     this.#fillEditor(ex, detail.files);
-    // AFTER `#fillEditor`, ALWAYS. The workspace replaces what the editor holds
-    // with the TEAM's document; running it first would have the individual draft
-    // overwrite the shared one a moment later, which is the one bug in this
-    // feature that would destroy other people's work.
     await this.#enterWorkspace(ex, thisLoad);
-    // THE CHANNEL FOLLOWS THE EDITOR, and only if the chat is already there. See
-    // `whenChatReady` above.
     await followChannel?.();
   }
 
-  /** Retry a statement that did not arrive. No reload: unsaved code would go. */
   async retryStatement(): Promise<void> {
     const ex = catalog.selected;
     if (!ex) return;
@@ -169,9 +89,6 @@ class ExerciseState {
   }
 
   #fillEditor(ex: Exercise, templateFiles: { name: string; template?: string }[]): void {
-    // NAMES are authoritative and come from the catalog -- the allow-list the API
-    // checks a submission against. Templates come from the detail and may be
-    // missing: a tab with no template opens empty.
     const templates: Record<string, string> = {};
     for (const f of templateFiles ?? []) templates[f.name] = f.template ?? "";
     const declared = ex.files.length ? ex.files : [{ name: "submission.c" }];
@@ -184,16 +101,8 @@ class ExerciseState {
     editor.open(ex.id, files, held);
   }
 
-  /**
-   * THE TEAM WORKSPACE IS A LAZY CHUNK, and it only comes down when the exercise
-   * being opened says it belongs to an assignment. The anonymous visitor never
-   * fetches it; neither does a signed-in student working an ordinary lab.
-   */
   async #enterWorkspace(ex: Exercise, thisLoad: number): Promise<void> {
     if (!ex.assignment || !session.signedIn) {
-      // LEAVING IS NOT CONDITIONAL ON HAVING ENTERED: switching from an assignment
-      // exercise to an ordinary one must close the socket, and only the room knows
-      // whether one is open.
       roomModule?.room.leave();
       return;
     }
@@ -202,19 +111,16 @@ class ExerciseState {
     await roomModule.room.enter(ex);
   }
 
-  /** Write the editor's current text into the draft store, now. */
   saveNow(): void {
     const id = editor.exerciseId;
     if (id === null || editor.activeFile === null) return;
     drafts.put(id, editor.sources, editor.sharedFor(id));
   }
 
-  /** Typing: repaint is the component's, the debounce is the store's. */
   typed(): void {
     drafts.schedule(() => this.saveNow());
   }
 
-  /** True while a team room holds the exercise the editor is on. */
   get shared(): boolean {
     return editor.sharedFor(editor.exerciseId);
   }

@@ -22,7 +22,6 @@ describe("prepareTypstHtml", () => {
     const [libre, recopier] = host.querySelectorAll("pre");
     expect(libre!.querySelector("button.copier")).not.toBeNull();
     expect(recopier!.querySelector("button.copier")).toBeNull();
-    // Le texte copié est celui du <code>, sans le libellé du bouton.
     expect(libre!.querySelector("code")!.textContent).toBe("int x;");
   });
 

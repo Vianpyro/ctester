@@ -1,12 +1,3 @@
-// LE COMPOSANT D'UNE CONSIGNE TYPST. Ce qu'il y a à éprouver tient en peu de
-// choses, et c'est voulu : il ne décide de rien. Les pages ont été rendues au
-// build, il choisit un thème, écrit des `<img>` et dit ce qui manque.
-//
-// CE QUI N'EST PAS ÉPROUVÉ ICI, EXPRÈS : le rendu lui-même. Un SVG de Typst se
-// vérifie là où il est produit -- `test_ctester.py` compile la fixture pour de
-// vrai. jsdom ne peint rien, donc une assertion sur l'image serait une
-// assertion sur jsdom.
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 import TypstStatement from "../src/components/TypstStatement.svelte";
@@ -50,15 +41,11 @@ describe("a Typst statement is a stack of pre-rendered pages", () => {
   });
 
   it("builds the URL from the id, never from something the server handed it", () => {
-    // Le serveur envoie un NOMBRE, pas un chemin : rien de ce qui vient du fil
-    // ne devient une URL. Un identifiant exotique est donc encodé, pas collé.
     render({ id: "a b/c", pages: 1, staff: false, title: "x" });
     expect(sources()[0]).toBe("statement/a%20b%2Fc/dark-1.svg");
   });
 
   it("loads the first page eagerly and the rest lazily", () => {
-    // La première page est ce qu'on lit ; les suivantes sont sous le pli d'une
-    // colonne qui défile, et un étudiant n'y descend pas toujours.
     render({ id: "x", pages: 3, staff: false, title: "x" });
     expect(images().map((img) => img.getAttribute("loading"))).toEqual([
       "eager",
@@ -76,22 +63,15 @@ describe("a Typst statement is a stack of pre-rendered pages", () => {
   });
 
   it("says which page did not load instead of leaving a hole", () => {
-    // UN TROU BLANC EST LA PIRE RÉPONSE : l'étudiant ne sait pas s'il manque
-    // quelque chose. Même raison que les trois états de `Statement.svelte`.
     render({ id: "x", pages: 2, staff: false, title: "x" });
     images()[0]!.dispatchEvent(new Event("error"));
     flushSync();
     expect(host.textContent).toContain("La page 1 de la consigne n'a pas pu être chargée");
-    // L'autre page reste là : une image ratée n'emporte pas la consigne.
     expect(images()).toHaveLength(1);
     expect(sources()).toEqual(["statement/x/dark-2.svg"]);
   });
 
   it("labels the block and each page", () => {
-    // CE N'EST PAS UNE SOLUTION D'ACCESSIBILITÉ, et la doc le dit : Typst
-    // vectorise ses glyphes, donc le TEXTE de la consigne n'est lisible par
-    // aucune synthèse vocale. Ces étiquettes disent seulement ce que le bloc
-    // est et combien il a de pages -- c'est ce qui reste possible.
     render({ id: "x", pages: 2, staff: false, title: "TP2 : ex.3" });
     const figure = host.querySelector("figure")!;
     expect(figure.getAttribute("aria-label")).toBe("Consigne de TP2 : ex.3, 2 page(s)");
@@ -104,18 +84,11 @@ describe("a Typst statement is a stack of pre-rendered pages", () => {
 
 describe("the instructor's preview needs a token, so it needs a second path", () => {
   it("fetches a staff page and shows it as a blob, never as a bare src", async () => {
-    // UN `<img>` NE PORTE PAS D'`Authorization`. Un exercice pas encore ouvert
-    // n'existe que sous `staff/` et n'est servi qu'à un modérateur : sans ce
-    // second chemin, l'enseignant verrait une image cassée exactement là où il
-    // vient vérifier son rendu.
     const asked: string[] = [];
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
       asked.push(String(input));
       return new Response("<svg/>", { status: 200, headers: { "content-type": "image/svg+xml" } });
     });
-    // UNE SESSION VIVANTE, sinon `authFetch` sort en 401 sans rien demander --
-    // et le test éprouverait le refus, pas le chemin qu'il vise. L'échéance est
-    // posée loin devant pour qu'aucun renouvellement ne parte.
     session.setToken("jeton-de-prof");
     localStorage.setItem(EXPIRY_KEY, String(Math.floor(Date.now() / 1000) + 3600));
 
@@ -137,7 +110,6 @@ describe("the instructor's preview needs a token, so it needs a second path", ()
     }
 
     expect(sources()).toEqual(["blob:fake/0/6", "blob:fake/1/6"]);
-    // Et c'est bien la route de l'énoncé qui a été demandée, avec son thème.
     expect(asked.some((u) => u.includes("statement/ferme/dark-1.svg"))).toBe(true);
   });
 });

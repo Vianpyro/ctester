@@ -1,11 +1,4 @@
 <script lang="ts">
-  // THE ACTION BAR: import a file, the draft's own message slot, clear the drafts,
-  // export the lab, and the one or two "Tester" buttons.
-  //
-  // IT IS A SEPARATE GRID ROW, and never inside the editor or the quiz: those two take
-  // turns, but submitting applies to both -- so hiding a panel can never take the
-  // button down with it.
-
   import { catalog } from "../lib/state/catalog.svelte";
   import { drafts } from "../lib/state/drafts.svelte";
   import { editor } from "../lib/state/editor.svelte";
@@ -20,7 +13,6 @@
   const isQuiz = $derived(here?.mode === "quiz");
   const exportable = $derived(!!here && isGroupExportable(catalog.catalog, here.group));
 
-  /** The idle labels. `submission.busy` replaces them with what is happening. */
   const goLabel = $derived(isQuiz ? "Tester tout le quiz" : "Tester");
   const busyLabel = $derived(
     submission.phase.kind === "cooldown"
@@ -28,40 +20,22 @@
       : "Test en cours…",
   );
 
-  /**
-   * `aria-busy` ONLY WHEN IT IS ACTUALLY WORKING: during a quota countdown nothing is
-   * running, and announcing busy would be false.
-   */
   const working = $derived(
     submission.phase.kind === "sending" ||
       submission.phase.kind === "queued" ||
       submission.phase.kind === "running",
   );
 
-  /**
-   * IMPORT USED TO LOSE THE IMPORTED FILE. `input` DOES NOT FIRE when a script writes
-   * into a `<textarea>`: the file only existed in the DOM, and a reload -- or a tab
-   * closed by mistake -- took it away without a word. It is the easiest way to lose
-   * code on the whole page, so the save is explicit here.
-   */
   async function onFile(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    // LE BOM ET LES CRLF NE PASSENT PAS LA PORTE. C'est le seul endroit du
-    // système où des octets étrangers entrent, et une fois dans le `Y.Doc`
-    // d'une équipe le serveur ne peut plus les reprendre.
     const text = decodeImported(await file.text());
-    // THE FILE GOES INTO THE TAB CARRYING ITS NAME, when there is one. Importing
-    // `calendrier.c` over `calendrier.h` just because that is the open tab is a
-    // silent overwrite, at the exact moment the student is looking elsewhere.
     const target = Object.prototype.hasOwnProperty.call(editor.sources, file.name)
       ? file.name
       : editor.activeFile;
     if (target === null) return;
     if (target !== editor.activeFile) editor.activate(target);
-    // WE ASK BEFORE OVERWRITING WORK: there is no undo in this editor. An empty tab,
-    // or one still at its template, is not worth a question.
     const replaced = (editor.read(target) || "").trim();
     if (
       replaced &&
@@ -80,8 +54,6 @@
     editor.write(target, text);
     drafts.cancel();
     exercise.saveNow();
-    // RESET THE FIELD: without this, re-importing the SAME file after fixing it on
-    // disk does not fire `change`, and the button looks dead.
     input.value = "";
   }
 
@@ -112,18 +84,9 @@
     title="Assemble tous les exercices de ce TP dans un seul main.c"
     onclick={doExport}
   >
-    <!-- UN VERBE, ET IL DIT CE QUI SE PASSE. « Exporter … en main.c » nomme un
-         format ; « Réunir » nomme le geste, qui est ce que l'étudiant cherche la
-         veille de la remise -- il a huit brouillons et le cours attend un fichier. -->
     Réunir le TP dans un seul main.c
   </button>
   <span class="grow"></span>
-  <!-- NOT `disabled`, AND THAT IS DELIBERATE. Disabling the focused button drops
-       focus onto `<body>`: with a keyboard one had to tab through the whole page
-       again after EVERY submission. It stays focusable, it SAYS what it is doing, and
-       it stays clickable -- a poll that never completes used to leave the student in
-       front of a dead button with no way out. The real safeguard against hammering is
-       the server's quota, and it is already there. -->
   <button
     id="go"
     class={(isQuiz ? "secondaire" : "") + (submission.busy ? " occupe" : "")}
@@ -131,16 +94,8 @@
     onclick={() => runTest(false)}
   >
     {submission.busy ? busyLabel : goLabel}
-    <!-- L'INDICE EST CONDITIONNEL, et c'est la moitié qu'on n'aurait vue qu'en
-         production : pendant un cooldown le libellé devient « Nouveau test dans
-         7 s », et un raccourci collé derrière donnerait « Nouveau test dans 7 s
-         Ctrl+↵ » -- c'est-à-dire un raccourci annoncé au moment précis où il ne
-         marche pas. -->
     {#if !submission.busy}<span class="shortcut">Ctrl+↵</span>{/if}
   </button>
-  <!-- Outside a quiz there is one button and it is primary. In a quiz, the current
-       action is the DISPLAYED exercise: testing all 40 questions stays possible but
-       stops being the default landing action. -->
   <button
     type="button"
     id="goex"

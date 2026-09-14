@@ -1,30 +1,11 @@
-// L'AIDE-MÉMOIRE : LE TEXTE, ET RIEN QUE LE TEXTE.
-//
-// POURQUOI CE FICHIER EST SÉPARÉ DE `shortcuts.ts`, alors que « une seule
-// source » est justement la règle de ce lot : `shortcuts.ts` doit être dans le
-// paquet de départ, puisque le matcher tourne à chaque frappe. Les LIBELLÉS,
-// eux, ne servent qu'à quelqu'un qui a pressé F1 -- et ils pèsent plus que la
-// table elle-même. Les garder ensemble ferait payer deux kilo-octets de prose
-// française à un anonyme qui n'ouvrira jamais le panneau, sur un paquet dont le
-// budget est compté (`bundle.test.ts`).
-//
-// ET LA DÉRIVE RESTE IMPOSSIBLE, PAR LE TYPE : `HELP` est un
-// `Record<ShortcutId, …>`, donc OUBLIER UN RACCOURCI LIÉ EST UNE ERREUR DE
-// COMPILATION, pas un test qui rougit plus tard. C'est plus fort que la table
-// unique qu'on visait au départ : le compilateur tient ce qu'une assertion
-// aurait dû surveiller.
-
 import type { ShortcutId } from "./shortcuts";
 
 export interface HelpRow {
-  /** Une touche par case : chacune devient un `<kbd>`. */
   caps: string[];
   label: string;
-  /** La nuance qu'il faut lire AVANT d'essayer. */
   note?: string;
 }
 
-/** Les raccourcis que cette page ajoute. Un par identifiant lié, sans exception. */
 export const HELP: Record<ShortcutId, HelpRow> = {
   commentLine: {
     caps: ["Ctrl", "/"],
@@ -61,7 +42,6 @@ export const HELP: Record<ShortcutId, HelpRow> = {
   escape: { caps: ["Échap"], label: "Fermer un panneau, sinon revenir au code" },
 };
 
-/** L'ordre d'affichage, groupé comme on en parle -- pas comme la table est écrite. */
 export const GROUPS: { title: string; ids: ShortcutId[] }[] = [
   {
     title: "Écrire du code",
@@ -79,15 +59,6 @@ export const GROUPS: { title: string; ids: ShortcutId[] }[] = [
   { title: "Agir", ids: ["save", "run", "help"] },
 ];
 
-/**
- * CE QUE LE NAVIGATEUR FAIT DÉJÀ, ET QU'ON NE LUI PREND PAS.
- *
- * Ça a l'air d'être du remplissage ; c'en est le contraire. La question que se
- * pose quelqu'un devant un éditeur dans une page web, c'est « est-ce que Ctrl+Z
- * marche ici ? » -- et la seule réponse rassurante est de l'écrire. C'est aussi
- * ce qui explique pourquoi Ctrl+F n'ouvre pas un champ à nous : la recherche du
- * navigateur trouve déjà le code, puisqu'il est peint dans la couche colorée.
- */
 export const NATIVE: HelpRow[] = [
   { caps: ["Ctrl", "Z"], label: "Annuler" },
   { caps: ["Ctrl", "Maj", "Z"], label: "Refaire", note: "Ctrl+Y marche aussi." },
@@ -96,7 +67,6 @@ export const NATIVE: HelpRow[] = [
   { caps: ["Ctrl", "←"], label: "Se déplacer d'un mot" },
 ];
 
-/** Ce qui marchait déjà dans l'éditeur, et que personne n'avait écrit nulle part. */
 export const ALREADY: HelpRow[] = [
   { caps: ["Tab"], label: "Indenter la ligne ou le bloc sélectionné" },
   { caps: ["Maj", "Tab"], label: "Désindenter" },

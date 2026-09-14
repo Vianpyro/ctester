@@ -1,76 +1,18 @@
-// THE STATEMENT'S MARKDOWN, AND IT IS DELIBERATELY NOT `marked`.
-//
-// The 77 statements of the course use SIX constructs: an indented code block (56
-// files), inline code (8), emphasis (26 runs, 16 of them bold), a formula (6), a
-// bullet list (5), a heading (1). Nothing else -- no link, no blockquote, no table,
-// no image and no `_underscore_` (see below). `marked` + DOMPurify weigh 74 KB and
-// live in the forum chunk, fetched on a click; the statement sits on the ANONYMOUS
-// path, so wiring them here would hand 74 KB to a student with no account the
-// moment they open an exercise -- exactly the promise `bundle.test.ts` exists to
-// keep. `highlight()` is already in the eager chunk (it colours the editor), and
-// its classes are global, so a code block here costs nothing at all.
-//
-// EMPHASIS IS FLANKED, AND THAT IS THE WHOLE OF THE RULE. `*` is C's dereference
-// and multiplication operator, and `marked` EATS the asterisks out of
-// `mets *quotient et *reste a 0` and out of `(23*m/9 + d + 4) % 7 ... (23*m/9`. So
-// a `*` opens emphasis only when it FOLLOWS the start of the line, a space or a
-// `(` AND is followed by a non-space; it closes only before a space, a closing
-// punctuation mark or the end of the line. That is stricter than CommonMark, which
-// allows an intraword `*` and therefore still eats `23*m/9`.
-//
-// `***les deux***` AND `**gras**` RIDE THAT SAME RULE, because 11 statements write
-// the first already -- `Saisit DEUX entiers m et n, ***dans cet ordre***` -- and it
-// was rendering its asterisks on screen. Measured: 16 such runs over 15 lines, all
-// of them `***`; not one statement writes a plain `**`, which is supported anyway
-// because `***` IS `**` plus `*`. Asking BOTH runs to be flanked is also what spares
-// C's double pointer: `char **argv et double **tab` opens on the first run and then
-// finds no closer, a `**` followed by a letter not being one.
-//
-// NO `_souligne_`, AND THAT ONE STAYS REFUSED. 114 lines of the content carry a
-// snake_case identifier (`nb_elements`, `taille_max`, `_CRT_SECURE_NO_WARNINGS`),
-// no statement asks for it, and Markdown's `_` means ITALIC anyway -- there is no
-// underline to render, so it would buy a second spelling of `*`. A literal `_x_`
-// left on screen is a VISIBLE failure; an identifier silently cut in half is not.
-// (Inside `$...$` a `_` IS a subscript: there an identifier is a symbol, not a C
-// variable name -- which is why a snake_case name has no business between two `$`.)
-//
-// `$...$` IS A FORMULA, AND IT IS OPT-IN FOR ONE REASON: C'S INTEGER DIVISION. The
-// `z/4` of Zeller in `tp3-ex8` and `tp6-ex3` is a TRUNCATION -- it is the subject of
-// the exercise -- and `tp5-ex7` forbids the division operator outright. Drawing
-// either as a fraction bar would teach the opposite of the exercise, so the teacher
-// marks a formula and the renderer never guesses one. See `domain/math.ts` for what
-// the grammar covers and why KaTeX is refused.
-//
-// NO SANITIZER BECAUSE THERE IS NOTHING TO SANITIZE. Every slice of the source
-// goes through `escapeHtml()` before it is placed between tags THIS file writes.
-// That is the same contract `highlight()` already holds, and the reason its output
-// is allowed near `innerHTML`.
-
 import { escapeHtml, highlight } from "./highlight";
 import { renderMath } from "./math";
 
 const FENCE = /^\s*```/;
-/** A tab or four spaces: Markdown's indented code block. */
 const INDENT = /^(\t| {4})/;
-/** A bullet OR a number, at ANY indentation -- see the list branch for why it wins
- *  over INDENT. */
 const MARKER = /^\s*(?:[-*+]|\d+\.) +(?=\S)/;
 const ORDERED = /^\s*\d+\. /;
 const ATX = /^(#{1,6}) +(.*)$/;
-/** The underline of a setext heading. Checked on the NEXT line, never on its own. */
 const SETEXT = /^(-{3,}|={3,})\s*$/;
 
-/**
- * ONE run of asterisks, and only where BOTH ends are flanked -- see the header. The
- * content may not itself hold a `*`, which is what also spares `A = pi * r^2` and
- * `0,5 * rho * pi`: every asterisk there is followed by a space, so none opens.
- */
+// Stricter than CommonMark: "*" is also a pointer and a multiplication in C, so emphasis
+// needs flanking. "_" is never emphasis, because course text is full of snake_case.
 const flanked = (run: string): RegExp =>
   new RegExp(`(^|[\\s(])${run}([^\\s*][^*\\n]*[^\\s*]|[^\\s*])${run}(?=$|[\\s).,;:!?])`, "g");
 
-/** LONGEST RUN FIRST: `***x***` must not be read as a `**` next to a stray `*`. Each
- *  pass leaves no asterisk behind it, so no pass can ever see the previous one's
- *  output -- which is why three plain `replace` calls are enough here. */
 const STRONG_EM = flanked("\\*\\*\\*");
 const STRONG = flanked("\\*\\*");
 const EM = flanked("\\*");
@@ -81,16 +23,6 @@ const emphasis = (s: string): string =>
     .replace(STRONG, "$1<strong>$2</strong>")
     .replace(EM, "$1<em>$2</em>");
 
-/**
- * A CODE SPAN OR A FORMULA FIRST, EMPHASIS LAST, AND NEVER INSIDE EITHER. `split`
- * with ONE alternation puts the tokens at the odd indices, so the precedence is
- * whichever opener comes first in the line rather than an order of calls to keep in
- * mind. Only the halves BETWEEN the tokens are read for emphasis -- which is why
- * `` `P = F * v` `` keeps its asterisk, and why `$2*m*g$` is never italicised.
- *
- * A LONE `$` STAYS LITERAL for want of a closer, the same way an unflanked `*` does.
- * A `$` inside a code span stays literal, and so does a backtick inside a formula.
- */
 const TOKEN = /(`[^`\n]+`|\$[^$\n]+\$)/;
 
 const inline = (s: string): string =>
@@ -99,19 +31,12 @@ const inline = (s: string): string =>
     .map((part, i) => {
       if (i % 2 === 0) return emphasis(escapeHtml(part));
       const body = part.slice(1, -1);
-      // A FORMULA THE GRAMMAR DOES NOT KNOW FALLS BACK TO A CODE SPAN, which is
-      // exactly what the statement shows today: the degradation is the status quo.
+      // Math is opt-in: an unmarked "z/4" is C integer division, not a fraction.
       if (part[0] === "$") return renderMath(body) ?? "<code>" + escapeHtml(body) + "</code>";
       return "<code>" + escapeHtml(body) + "</code>";
     })
     .join("");
 
-/**
- * The common indentation, removed. Counted in CHARACTERS, which is right for both
- * conventions in the content (tabs in some files, four spaces in others) because a
- * block never mixes them. Tabs INSIDE a line are untouched: `tp2-ex8` uses them to
- * line up its arrows, and `tab-size` on the `<pre>` is what renders that.
- */
 function dedent(lines: string[]): string {
   let min = Infinity;
   for (const line of lines) {
@@ -120,12 +45,9 @@ function dedent(lines: string[]): string {
   return lines.map((line) => line.slice(Number.isFinite(min) ? min : 0)).join("\n");
 }
 
-/** `highlight()` ends with a newline -- it keeps the editor's overlay one line
- *  taller than the text. A `<pre>` here would render it as a blank last line. */
 const codeBlock = (lines: string[]): string =>
   "<pre><code>" + highlight(dedent(lines)).replace(/\n$/, "") + "</code></pre>";
 
-/** ESCAPED HTML for a statement. Pure: no DOM, no fetch, no library. */
 export function renderStatement(source: string): string {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const out: string[] = [];
@@ -143,18 +65,11 @@ export function renderStatement(source: string): string {
       const body: string[] = [];
       i++;
       while (i < lines.length && !FENCE.test(lines[i]!)) body.push(lines[i++]!);
-      i++; // the closing fence, or the end of the file
+      i++;
       out.push(codeBlock(body));
       continue;
     }
 
-    // A LIST IS CHECKED BEFORE AN INDENTED BLOCK, and that order is the point:
-    // `tp9-ex6` indents its bullets by four spaces and `tp2-ex0` its numbers by a
-    // tab, which Markdown would both read as code -- and a code block here means
-    // `highlight()`, which colours a pair of French apostrophes ("l'annee ... de
-    // l'usager") as a character literal. A continuation line -- indented further,
-    // not itself a marker -- folds into the item above it, which is how every list
-    // in the content is written.
     if (MARKER.test(line)) {
       const tag = ORDERED.test(line) ? "ol" : "ul";
       const items: string[] = [];
@@ -192,11 +107,6 @@ export function renderStatement(source: string): string {
       continue;
     }
 
-    // A PARAGRAPH REFLOWS: its lines are joined by a SPACE, not by a `<br>`. The
-    // statements are hard-wrapped at about sixty columns, which is wider than the
-    // 25 rem column they are read in -- honouring those newlines would break every
-    // line twice, in the middle of sentences. This is where the forum's
-    // `breaks: true` would have been exactly wrong.
     const para: string[] = [];
     while (
       i < lines.length &&
@@ -209,8 +119,6 @@ export function renderStatement(source: string): string {
     ) {
       para.push(lines[i++]!.trim());
     }
-    // A line that stopped the loop without any text before it is prose that looks
-    // like a marker; take it literally rather than spinning.
     if (!para.length) para.push(lines[i++]!.trim());
     out.push("<p>" + inline(para.join(" ")) + "</p>");
   }

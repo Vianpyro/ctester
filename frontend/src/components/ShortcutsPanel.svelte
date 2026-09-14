@@ -1,20 +1,4 @@
 <script lang="ts">
-  // L'AIDE-MÉMOIRE DES RACCOURCIS, et il existe pour une raison précise : les
-  // raccourcis de cette page ne doivent JAMAIS être nécessaires. Chacun double
-  // un geste faisable à la souris, donc personne n'a à les apprendre -- mais
-  // celui qui arrive de CLion et tente Ctrl+/ doit pouvoir vérifier ce que la
-  // page connaît, sans deviner.
-  //
-  // IL DIT AUSSI CE QU'ON NE PREND PAS. La moitié des lignes décrivent le
-  // navigateur (Ctrl+Z, Ctrl+F) et ce qui marchait déjà (Tab, les paires). Ce
-  // n'est pas du remplissage : « est-ce que Ctrl+Z marche dans cette boîte ? »
-  // est la première question qu'on se pose devant un éditeur dans une page web,
-  // et la seule réponse rassurante est de l'écrire.
-  //
-  // PAS DE `role="dialog"`, comme les trois autres panneaux de la barre : sans
-  // piège à focus ni `aria-modal`, ce rôle promettrait un comportement que rien
-  // ici n'implémente.
-
   import { barPanel } from "../lib/barPanel";
   import { ALREADY, GROUPS, HELP, NATIVE, type HelpRow } from "../lib/domain/shortcutHelp";
 
@@ -28,8 +12,6 @@
   let title: HTMLHeadingElement | undefined = $state();
 
   $effect(() => {
-    // Le focus atterrit sur le titre quand le panneau s'ouvre, comme chaque
-    // écran chargé à la demande le fait déjà avec son `<h2 tabindex="-1">`.
     if (open) title?.focus();
   });
 

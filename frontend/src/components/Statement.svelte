@@ -1,23 +1,4 @@
 <script lang="ts">
-  // THE STATEMENT, AND IT HAS THREE STATES, NOT TWO. "No statement online" and "the
-  // statement has not arrived" used to display identically: the student believed it
-  // was a property of the exercise, so they never retried -- when a reload would have
-  // been enough. The retry is a BUTTON and not an invitation to reload the page:
-  // reloading would lose the not-yet-saved code of somebody who just pasted a file.
-  //
-  // THE TEXT IS MARKDOWN, AND IT IS RENDERED. The files are called `statement.md` and
-  // 56 of the 77 carry an indented C block; they used to be shown raw, backticks and
-  // setext underlines included. `renderStatement` escapes every slice before placing
-  // it between tags it writes itself, so this `{@html}` is safe for the same reason
-  // `highlight()`'s output is -- see `lib/domain/statement.ts`. No `marked`, no
-  // DOMPurify: those two are 74 KB and the statement is on the ANONYMOUS path.
-  //
-  // AND SINCE A STATEMENT CAN ALSO BE TYPST, there is a fifth branch. It is a
-  // FORMAT, not a fetch state: the pages were rendered to SVG at publish time
-  // and arrive as images. Nothing about the Markdown path changed -- the 77
-  // existing statements take exactly the branch they always took, and
-  // `statement.test.ts` proves it.
-
   import { exercise } from "../lib/state/exercise.svelte";
   import { catalog } from "../lib/state/catalog.svelte";
   import { lockNote } from "../lib/domain/catalog";
@@ -26,24 +7,13 @@
   import TypstHtml from "./TypstHtml.svelte";
 
   const etat = $derived(exercise.statement);
-  // ONLY A MODERATOR CAN REACH THIS STATE, so there is no role to test here:
-  // `catalog.selected` reads the flat list, and a locked exercise is only in it
-  // when the server said this account is staff. Said HERE, above the statement,
-  // because that is where the instructor is looking when they check the render.
   const ferme = $derived(lockNote(catalog.selected));
 
-  // LE HTML D'ABORD, LE SVG EN REPLI, ET PERSONNE N'A À CHOISIR. Le HTML est
-  // essayé quand la publication l'a produit ; s'il ne se charge pas, la page
-  // retombe sur les pages SVG pour CET énoncé. L'échec est clé sur
-  // l'identifiant : ouvrir un autre exercice réessaie son propre HTML.
   let htmlRate = $state<string | null>(null);
 </script>
 
 <details id="consigne" open>
   <summary class="phead">Consigne</summary>
-  <!-- DEDANS, PAS À CÔTÉ. `#travail` est une grille dont les enfants DIRECTS sont
-       les colonnes : un second élément racine ici prend la première colonne et
-       pousse tout le reste d'un cran. Même piège que `#chatdock`. -->
   {#if ferme}
     <p class="apercu">🔒 Invisible pour les étudiants — {ferme}.</p>
   {/if}
@@ -77,9 +47,6 @@
 </details>
 
 <style>
-  /* Not a warning and not an error: a statement of fact about who can see this.
-     `--wait` is already the page's "not yet" colour (the syntax checker's hints,
-     the queued verdict), so it costs no new token. */
   .apercu {
     margin: 0.6rem 0.6rem 0;
     padding: 0.35rem 0.6rem;

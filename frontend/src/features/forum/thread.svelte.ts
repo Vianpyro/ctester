@@ -1,21 +1,3 @@
-// THE THREAD, AND THERE IS ONE STATE FOR THREE SURFACES: the chat dock, the wide view
-// and the moderation screen. Two states would have diverged at the first message
-// posted from one while the other was open.
-//
-// `messages === null` WITH AN ERROR MEANS "WE DO NOT KNOW". It must never display as
-// an empty thread: announcing "nobody has written here" during an outage tells
-// somebody nobody answered them, and that would be false.
-//
-// THIS MODULE DECIDES NOTHING about permissions. Who is a moderator, which messages
-// are visible, who may delete or hide: the API settles all of it from the
-// authenticated `sub`, and every route recomputes it.
-//
-// TWO CHANNELS AND A CHECKBOX. `# général` and `# <exercice>` are the channels; asking
-// the instructor privately is a BOX UNDER THE FIELD, and it does not ask the server for
-// an exception -- it changes the THREAD KEY sent (`tp2-ex3` instead of
-// `@chat:tp2-ex3`), which `threadKey()` already knows how to produce. Zero routes, zero
-// schema, and "in the chat everything is public" stays true to the letter.
-
 import {
   CHAT_GENERAL,
   CHAT_PREFIX,
@@ -57,36 +39,26 @@ const UNREACHABLE =
   "« Tester », eux, fonctionnent normalement.";
 
 class Thread {
-  /** The thread key being read: `@chat:general`, `@chat:<id>` or a bare exercise id. */
   key = $state("");
   mode = $state<ChannelMode>("chat-ex");
-  /** `null` means "we do not know". Never render it as an empty thread. */
   messages = $state<ForumMessage[] | null>(null);
   error = $state("");
-  /** The server says which space this is; the page never re-derives it. */
   isChat = $state(true);
   moderator = $state(false);
   max = $state(0);
   steps = $state<Legend[]>([]);
   blockedKinds = $state<Legend[]>([]);
   state = $state<ThreadState | null>(null);
-  /** What just happened, or its refusal. The only link between click and outcome. */
   said = $state("");
 
-  /** The root being replied to, or null. */
   replyTo = $state<string | null>(null);
-  /** A conversation opened from the search: one thread, out of any window. */
   permalink = $state<string | null>(null);
   results = $state<SearchResult[] | null>(null);
   duplicates = $state<SearchResult[] | null>(null);
-  /** The exercise chosen IN the view, if it was. `currentExercise` is sticky. */
   forcedExercise = $state("");
-  /** The draft in the composer, kept across redraws. */
   typing = $state("");
   renderable = $state(false);
 
-  // The moderator's own reads. `null` is NOT "nobody": during an outage those are
-  // opposite claims, and the wrong one sends an instructor home.
   reports = $state<ModerationPayload["reports"] | null>(null);
   reportedNames = $state<ModerationPayload["reported_names"] | null>(null);
   help = $state<HelpPayload | null>(null);
@@ -95,20 +67,8 @@ class Thread {
   #socket: WebSocket | null = null;
   #backoff = 1000;
   #reauth = false;
-  /**
-   * HOW MANY SURFACES ARE WATCHING. The dock and the wide view each claim one while
-   * they are on screen, and the socket only reconnects while at least one does -- a
-   * room held per open tab and per thread while somebody codes would be the load the
-   * presence counter already refused. It is a COUNT rather than a reference to the
-   * dock: this module then needs to know nothing about who is watching.
-   */
   #watchers = 0;
 
-  /**
-   * THE EXERCISE THE THREAD IS ABOUT, never the thread key. `key` carries
-   * `@chat:tp2-ex3` as well as `tp2-ex3`: looking it up as-is would find nothing and
-   * fall silently back to the first exercise in the list.
-   */
   get currentExercise(): string {
     const bare = bareExercise(this.key);
     const target =
@@ -117,7 +77,6 @@ class Thread {
     return found ? found.id : "";
   }
 
-  /** THE THREAD KEY IS COMPUTED IN ONE PLACE, so no prefix is ever built elsewhere. */
   threadKey(): string {
     if (this.mode === "chat-general") return CHAT_GENERAL;
     const ex = this.currentExercise;
@@ -125,25 +84,14 @@ class Thread {
     return this.mode === "forum" ? ex : CHAT_PREFIX + ex;
   }
 
-  /** THE BOX IS ONLY OFFERED WHERE IT WORKS: `# général` has no exercise to attach a
-   *  private question to, and one that worked half the time is worse than absent. */
   get canAskPrivately(): boolean {
     return this.isChat && !this.replyTo && this.mode === "chat-ex" && !!this.currentExercise;
   }
 
-  // --- Reading -----------------------------------------------------------------
-
-  /** THE THREAD ALONE, without the profile or the moderator's queues: the full open
-   *  adds up to five requests, acceptable once, not on EVERY exercise change with the
-   *  dock open. */
   async loadThread(key: string): Promise<boolean> {
     this.messages = null;
     this.reports = null;
     this.reportedNames = null;
-    // ONE DOES NOT REPLY TO A MESSAGE IN ANOTHER THREAD. Changing threads drops the
-    // target: without this, `reply_to` would name a root the server refuses (its
-    // `WHERE` requires the same thread) and the student would read "message
-    // introuvable" without understanding why.
     if (key !== this.key) {
       this.replyTo = null;
       this.permalink = null;
@@ -173,17 +121,12 @@ class Thread {
     return true;
   }
 
-  /** The report queue is only ever requested BY a moderator, and the server refuses
-   *  everyone else: this check just avoids a needless 403, it protects nothing. */
   async loadExtras(): Promise<void> {
     if (this.moderator) {
       const queue = await fetchModeration();
       this.reports = queue && Array.isArray(queue.reports) ? queue.reports : null;
       this.reportedNames =
         queue && Array.isArray(queue.reported_names) ? queue.reported_names : null;
-      // "QUI A BESOIN D'AIDE" IS READ WITH THE QUEUE, not on its own tab: an
-      // instructor opening moderation during a lab wants both, and two clicks for two
-      // halves of the same question is one click too many.
       const helped = await fetchHelp();
       this.help = helped && Array.isArray(helped.rows) ? helped : null;
       const topped = await fetchTop();
@@ -198,7 +141,6 @@ class Thread {
     await this.loadExtras();
   }
 
-  /** Open a channel. `base` forces which exercise the channel is about. */
   async openChannel(mode: ChannelMode, base?: string): Promise<void> {
     this.mode = mode;
     this.said = "";
@@ -208,8 +150,6 @@ class Thread {
     void this.connect();
   }
 
-  // --- Writing -----------------------------------------------------------------
-
   async #write(
     call: () => Promise<ApiResult<{ ok: boolean }>>,
     good: string,
@@ -217,9 +157,6 @@ class Thread {
   ): Promise<boolean> {
     const answer = await call();
     const ok = !!answer?.ok;
-    // THE API'S MESSAGE IS REUSED AS-IS when there is one -- "message trop long",
-    // "trop de messages d'un coup". Replacing it with "échec" makes somebody try the
-    // exact same thing again.
     this.said = ok ? good : bad + " : " + refusal(answer, "refusé");
     if (ok) await this.load(this.key);
     return ok;
@@ -231,9 +168,6 @@ class Thread {
       "Message publié.",
       "Message non publié",
     );
-    // CLEARED AFTERWARD, AND ONLY IF IT WENT THROUGH. A refusal -- too long, quota --
-    // must leave the text on screen: losing it makes somebody retype the same thing
-    // with the rule no longer in front of them.
     if (ok) this.typing = "";
     return ok;
   }
@@ -255,8 +189,6 @@ class Thread {
       "Signalement impossible",
     );
 
-  /** THE ONE TRANSITION: private -> group, on one's own message. The server holds the
-   *  rule in its `WHERE`; this only asks. */
   openToGroup = (id: string) =>
     this.#write(
       () => openToGroupCall(id),
@@ -264,7 +196,6 @@ class Thread {
       "Impossible de l'ouvrir à ton groupe",
     );
 
-  /** IT GRANTS NOTHING: no XP, no achievement, no card. */
   vote = (id: string, value: -1 | 0 | 1) =>
     this.#write(
       () => voteCall(id, value),
@@ -282,8 +213,6 @@ class Thread {
   clearName = (id: string) =>
     this.#write(() => moderateCall(id, "clear-name"), "Nom effacé.", "Action impossible");
 
-  // --- Search and permalinks ---------------------------------------------------
-
   async search(terms: string): Promise<SearchResult[]> {
     return await searchCall(terms);
   }
@@ -292,8 +221,6 @@ class Thread {
     this.results = await this.search(terms);
   }
 
-  /** THE PERMALINK: a search result three thousand messages old is in the window of no
-   *  thread, so without it the search shows excerpts one cannot open. */
   async openPermalink(id: string): Promise<void> {
     const answer = await fetchConversation(id);
     if (!answer || !Array.isArray(answer.messages)) {
@@ -311,17 +238,6 @@ class Thread {
     await this.load(this.threadKey());
   }
 
-  // --- The bell -----------------------------------------------------------------
-  // THE SOCKET IS A DOORBELL, NOT A TRANSPORT. It sends `{"t":"new"}` and nothing
-  // else; the client re-reads `GET /forum`. That is what keeps `can_see()`, the quota,
-  // the length bound, the closed lists and the alias draw in ONE place. Free
-  // consequence: a reader with no right on a message gets the bell and redraws the same
-  // thing -- even the EXISTENCE of the message does not leak.
-  //
-  // DEGRADE, NEVER BLOCK: a dead socket means the thread reloads on action, as before.
-  // That is the opposite of the team room, where a missing Yjs must LOCK the editor --
-  // there a "best effort" would destroy work, here it costs a click.
-
   get socketOpen(): boolean {
     return !!this.#socket;
   }
@@ -333,22 +249,16 @@ class Thread {
       try {
         old.close();
       } catch {
-        /* already closed */
       }
     }
   }
 
-  /** `resumed` tells a reconnection from a gesture, and that is what bounds the token
-   *  renewal to one per chain: a student's action starts from a clean slate, an
-   *  automatic reconnection inherits the previous attempt. */
   async connect(resumed = false): Promise<void> {
     this.disconnect();
     if (!resumed) this.#reauth = false;
     if (!session.signedIn || !this.key) return;
     const { socketUrl } = await import("../../lib/config");
     const { ensureValid, renew } = await import("../../lib/auth/session.svelte");
-    // THE TOKEN GOES IN THE FIRST FRAME, so it has to still be good before opening --
-    // otherwise the bell is refused on 4401 and the panel stays mute for a reconnection.
     await ensureValid();
     const aimedAt = this.key;
     if (this.#socket || !session.signedIn || aimedAt !== this.key) return;
@@ -356,18 +266,14 @@ class Thread {
     try {
       socket = new WebSocket(socketUrl("/forum/live"));
     } catch {
-      return; // no live updates: everything else works
+      return;
     }
     this.#socket = socket;
     socket.onopen = () => {
       this.#backoff = 1000;
-      // IN THE FIRST FRAME, NEVER IN THE URL: a browser cannot set an `Authorization`
-      // header on a WebSocket, and a token in a query string is a token in every proxy
-      // log on the path.
       try {
         socket.send(JSON.stringify({ t: "hello", token: session.token, thread: aimedAt }));
       } catch {
-        /* closed in between */
       }
     };
     socket.onmessage = (event) => {
@@ -380,10 +286,8 @@ class Thread {
       if (frame?.t === "new") void this.refresh();
     };
     socket.onclose = (event) => {
-      if (this.#socket !== socket) return; // replaced: nothing to reconnect
+      if (this.#socket !== socket) return;
       this.#socket = null;
-      // THE DOCK COUNTS AS MUCH AS THE VIEW. Without this half, a one-second outage
-      // left the side panel mute for the rest of the session, with nothing saying so.
       if (this.#watchers === 0) return;
       if (event.code === UNAUTHORIZED && !this.#reauth) {
         this.#reauth = true;
@@ -397,11 +301,6 @@ class Thread {
     };
   }
 
-  /**
-   * THE SIGNATURE AVOIDS REDRAWING FOR NOTHING. Without it, every bell would recreate
-   * the composer and throw the caret to the end while somebody is typing. It carries
-   * what changes on screen: the ids, the hiding and the votes.
-   */
   static signature(messages: ForumMessage[] | null): string {
     return (messages ?? [])
       .map(
@@ -412,8 +311,6 @@ class Thread {
       .join(",");
   }
 
-  /** THE THREAD ALONE, not `load()`: that one chains the moderation queue and the help
-   *  aggregate for a moderator -- two extra requests per message posted in the room. */
   async refresh(): Promise<void> {
     if (this.permalink || !session.signedIn || !this.key) return;
     const before = Thread.signature(this.messages);
@@ -424,8 +321,6 @@ class Thread {
     this.state = answer.state ?? null;
   }
 
-  /** A surface starts watching. Returns the release, so a component can call it from
-   *  its own teardown and cannot forget. */
   watch(): () => void {
     this.#watchers++;
     return () => {
@@ -439,8 +334,6 @@ class Thread {
   }
 
   forget(): void {
-    // THE SOCKET LEAVES WITH THE SESSION. Without this, signing out would leave a room
-    // open on a token that is no longer valid.
     this.disconnect();
     this.messages = null;
     this.reports = null;

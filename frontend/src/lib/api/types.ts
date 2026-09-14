@@ -1,26 +1,10 @@
-// THE WIRE, WRITTEN DOWN. These types describe what the API actually returns,
-// read off `app/routers/` -- not what would be convenient here. Where the
-// server can answer "it is unknown" (a mute database), the field is nullable
-// and the page has to say so rather than show a zero.
-//
-// NOTHING HERE CARRIES AN IDENTITY. No `sub`, no `account`, no `owner`: the
-// server refuses to send one and no request may claim one. That is the same
-// invariant `app/schemas.py` holds on the way in, stated on the way out.
-
-// --- /oidc.json --------------------------------------------------------------
-
-/** What this deployment offers. An empty object means "nothing more". */
 export interface Deployment {
   issuer?: string;
   client_id?: string;
-  /** False or absent: the button does not exist, so the module is never fetched. */
   forum?: boolean;
   scratch?: boolean;
-  /** The course Discord's invitation, independent of the bridge. */
   discord?: string;
 }
-
-// --- /catalog.json -----------------------------------------------------------
 
 export type Access = "available" | "scheduled" | "archived";
 
@@ -48,11 +32,8 @@ export interface PublishedExercise {
   skills?: string[];
   contexts?: string[];
   difficulty?: string;
-  /** Absent from the published catalog when false -- hence every double bang. */
   verification?: boolean;
-  /** Same: absent when false. Keeps the exercise out of the one-piece main.c. */
   bonus?: boolean;
-  /** Which assignment this exercise belongs to, or absent. */
   assignment?: string;
   access?: Access;
   release?: { available_from?: string };
@@ -75,31 +56,18 @@ export interface PublishedAssignment {
   access?: Access;
 }
 
-/** `/tp/<id>.json`: the statement and the templates, fetched when opened. */
 export interface ExerciseDetail {
-  /** THE MARKDOWN, AND IT STAYS A STRING. A Typst statement answers `""` here
-   *  and carries the two fields below instead -- so a page still sitting in a
-   *  student's cache reads an empty statement and says "no statement online",
-   *  rather than throwing on an object where it expected text. */
   statement: string;
-  /** Absent for Markdown. `"typst"` means the statement is N rendered pages. */
   statement_format?: "typst";
-  /** A COUNT, never a path: the page rebuilds
-   *  `/statement/<id>/<theme>-<n>.svg` from the id it already holds. */
   statement_pages?: number;
-  /** A Typst statement ALSO published as `statement.html` (experimental). */
   statement_html?: boolean;
   files: { name: string; template?: string }[];
-  /** Set by the client when the fetch failed: NOT a property of the exercise. */
   offline?: boolean;
 }
 
-/** `/quiz/<id>.json` */
 export interface QuizPayload {
   questions: { id: string; label: string; group: string }[];
 }
-
-// --- /submit and /r/<id> -----------------------------------------------------
 
 export interface SubmissionBody {
   key: string;
@@ -124,7 +92,6 @@ export interface FailedCase {
   stdin?: string;
   stdout?: string;
   stderr?: string;
-  /** The numbers the judge actually read out of the output. */
   nombres?: (string | number)[];
 }
 
@@ -135,7 +102,6 @@ export interface WrongAnswer {
   hint?: string;
 }
 
-/** `state: "done"` -- the verdict itself. */
 export interface Verdict {
   state: "done";
   status: VerdictStatus;
@@ -148,7 +114,6 @@ export interface Verdict {
   cases?: FailedCase[];
   failed?: string[];
   wrong?: WrongAnswer[];
-  /** Set by the worker on any verdict it refuses to cache: do not keep it. */
   rejouer?: boolean;
 }
 
@@ -158,15 +123,10 @@ export type PollResult =
   | { state: "queued"; position: number; eta?: number }
   | { state: "error"; error?: string };
 
-// --- Account -----------------------------------------------------------------
-
 export type ExerciseStatus = "solved" | "attempted";
 
 export interface StatesPayload {
   states: { exercise_id: string; status: ExerciseStatus }[];
-  /** A DISPLAY FLAG, said by the server. It decides that the menu lets this
-   * account open a not-yet-published exercise; every route recomputes the role
-   * from the validated `sub` and takes none of this at face value. */
   moderator?: boolean;
 }
 
@@ -181,16 +141,12 @@ export interface PracticePayload {
 }
 
 export interface DraftPayload {
-  /** `null` is a first visit, not an error. */
   sources: Record<string, string> | null;
 }
 
 export interface PreferencesPayload {
-  /** `""` means "no choice recorded", which is NOT the same as a 503. */
   theme: string;
 }
-
-// --- /progres ----------------------------------------------------------------
 
 export interface MasterySkill {
   id: string;
@@ -221,25 +177,19 @@ export interface ProgressPayload {
   practice_days: { date: string; attempts: number }[];
 }
 
-// --- /collection -------------------------------------------------------------
-
 export interface Card {
   id: string;
   name: string;
   condition: string;
   held: boolean;
-  /** `null` means "too few accounts to say" -- never print it as 0. */
   rarity: number | null;
 }
 
 export interface CollectionPayload {
   policy: string;
   cards: Card[];
-  /** False under the minimum cohort: rarities are then withheld entirely. */
   cohort: boolean;
 }
-
-// --- /leaderboard ------------------------------------------------------------
 
 export interface LeaderboardRow {
   rank: number;
@@ -265,15 +215,12 @@ export interface LeaderboardPayload {
   divisions?: { id: string; title: string; accounts: number }[];
 }
 
-// --- Forum -------------------------------------------------------------------
-
 export type Visibility = "thread" | "group" | "private";
 
 export interface ForumMessage {
   id: string;
   text: string;
   created_at: string;
-  /** "Vous", "Enseignant", a chosen name, or the masked alias. Never a `sub`. */
   author: string;
   group: number | null;
   reportable_name: boolean;
@@ -283,7 +230,6 @@ export interface ForumMessage {
   blocked_kind?: string | null;
   visibility: Visibility;
   retained: boolean;
-  /** Always the ROOT: the server flattens, so a thread is one level deep. */
   reply_to: string | null;
   upvotes: number;
   downvotes: number;
@@ -303,7 +249,6 @@ export interface ThreadState {
 
 export interface ThreadPayload {
   exercise_id: string;
-  /** The server says which space this is; the page never re-derives it. */
   chat: boolean;
   moderator: boolean;
   max: number;
@@ -321,16 +266,13 @@ export interface ForumProfile {
   badges_public: boolean;
   leaderboard_opt_in: boolean;
   plate_frame: string | null;
-  /** Drawn from a closed vocabulary server-side: nothing typed can reach it. */
   alias: string | null;
   max_display_name: number;
   group_numbers: number[];
   frames: { id: string; title: string }[];
-  /** Rauthy's `preferred_username`, and it only ever PRE-FILLS. */
   suggestion: string;
 }
 
-/** What `POST /forum/profil` takes. A profile is rewritten IN FULL. */
 export interface ForumProfileIn {
   display_name: string;
   group_number: string;
@@ -392,10 +334,7 @@ export interface TopPayload {
   }[];
 }
 
-// --- Teams -------------------------------------------------------------------
-
 export interface TeamMember {
-  /** THE POSITION, never the account: m1..m4. Presence and carets use it. */
   id: string;
   name: string;
   color: string;
@@ -442,7 +381,6 @@ export interface MyTeam {
 export interface AvailableTeams {
   assignment_id: string;
   group_number: number;
-  /** The number of the team this account is on, or null. */
   mine: number | null;
   teams: {
     number: number;
@@ -465,14 +403,11 @@ export interface TeamRevision {
   bytes: number;
 }
 
-// --- The Console (scratch) ---------------------------------------------------
-
 export interface ScratchDraft {
   code: string;
   error?: string;
 }
 
-/** What `WS /scratch/live` sends. */
 export type ScratchFrame =
   | { t: "queued"; position?: number; eta?: number }
   | { t: "ready" }

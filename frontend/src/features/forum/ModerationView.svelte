@@ -1,17 +1,4 @@
-<script lang="ts">
-  // THE MODERATION SCREEN, KEPT APART. It has no business in a student's path, and the
-  // instructor opening it does not need to go through a thread to get there.
-  //
-  // THE AGGREGATE COMES FIRST: during a lab it is the actionable half, and the report
-  // queue is the one that can wait ten minutes.
-  //
-  // "QUI A BESOIN D'AIDE": COUNTS AND STEPS, NEVER PEOPLE. No name, no text, no code -- a
-  // number is what says where to walk in the room, and six people on the same conversion
-  // is one explanation at the board rather than six replies. PRIVATE QUESTIONS ARE
-  // COUNTED, NOT SHOWN: their author is the only one who can open them, which is exactly
-  // what the student's form promised.
-
-  import { onMount } from "svelte";
+<script lang="ts">  import { onMount } from "svelte";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { localTime } from "../../lib/domain/labels";
   import { CHAT_GENERAL, CHAT_PREFIX, bareExercise } from "../../lib/api/forum";
@@ -39,7 +26,6 @@
     return key.startsWith(CHAT_PREFIX) ? "# " + name : "Mes questions — " + name;
   }
 
-  /** Only what stands out: voted, or unanswered. */
   const topRows = $derived((thread.top?.rows ?? []).filter((r) => r.upvotes || !r.replies));
 
   async function openConversation(id: string) {
@@ -54,10 +40,6 @@
 {#if !thread.moderator}
   <p class="rate">Cette page est réservée à la modération.</p>
 {:else}
-  <!-- THE MOST-VOTED QUESTIONS, AND ONLY FOR THE INSTRUCTOR. Students see NO ranking: a
-       public counter on what each of them asked is the opposite of what the chat is for.
-       "Moi aussi" is what answers "what is blocking the class?" without counting anybody
-       -- it is a number per question, not a number per student. -->
   <div class="bloc">
     <h3 class="soustitre">Questions du moment</h3>
     {#if !thread.top}
@@ -77,8 +59,6 @@
               {#if r.visibility !== "thread"}<span class="tag">privée</span>{/if}
               {#if r.step}<span class="tag">{stepLabel(r.step)}</span>{/if}
             </p>
-            <!-- Text: this comes from a student and does not go through the sanitizer, so
-                 it must never become HTML. -->
             <p class="extrait">{r.text}</p>
             <button type="button" class="nav" onclick={() => openConversation(r.id)}>
               Ouvrir la conversation
@@ -96,8 +76,6 @@
   <div class="bloc">
     <h3 class="soustitre">Qui a besoin d'aide</h3>
     {#if thread.help === null}
-      <!-- NOT "personne n'est bloqué": during an outage those are opposite claims, and
-           the wrong one sends an instructor home. -->
       <p class="rate">Le tableau d'aide n'a pas pu être lu.</p>
     {:else}
       <p class="aide">
@@ -122,9 +100,6 @@
                 {stepLabel(row.step) + (row.blocked_kind ? " — " + blockedLabel(row.blocked_kind) : "")}
               </td>
               <td class="num">{row.people}</td>
-              <!-- "0 ouvertes" IS INFORMATION, not an empty cell: it says every one of
-                   them is private, so nobody in the room can answer them but the
-                   instructor. -->
                 <td class="num">{row.opened} sur {row.people}</td>
                 <td>{localTime(row.since)}</td>
               </tr>
@@ -158,10 +133,6 @@
                   : ""}
               </span>
             </p>
-            <!-- SAME PIPELINE AS EVERYWHERE ELSE. A moderator reads exactly what a student
-                 reads, sanitized the same way: a moderation view that rendered raw HTML
-                 "to see what's inside" would be the site's easiest page to attack, and the
-                 one where an attack would pay off most. -->
             <Markdown source={s.text} />
             <div class="row">
               {#if s.hidden}
@@ -180,8 +151,6 @@
     {/if}
   </div>
 
-  <!-- REPORTED NAMES, next to reported messages but not inside them: it is not the
-       message that is the problem, it is the name, and the action is not the same. -->
   <div class="bloc second">
     <h3 class="soustitre">Noms signalés</h3>
     {#if thread.reportedNames === null}

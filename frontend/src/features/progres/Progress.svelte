@@ -1,18 +1,4 @@
-<script lang="ts">
-  // "MES PROGRÈS". Every number on this screen arrives decided; see
-  // `projection.svelte.ts`.
-  //
-  // A LIST, NOT A CHART. Each row spells out its values: that is what a screen reader
-  // reads, what a 400 % zoom keeps, and what stays true with no colour at all. The gauges
-  // are declared decorative for the same reason -- the same information is right next to
-  // them in words.
-  //
-  // THE LAB GRID DOES NOT DEPEND ON `GET /progres`. A mute database drops the
-  // projection's numbers, not this grid: it draws itself from what the states and practice
-  // reads already returned, and a lab's export must stay reachable on an evening when
-  // Postgres coughs.
-
-  import { onMount } from "svelte";
+<script lang="ts">  import { onMount } from "svelte";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { exercise } from "../../lib/state/exercise.svelte";
   import { statuses } from "../../lib/state/statuses.svelte";
@@ -34,12 +20,8 @@
 
   const p = $derived(projection.payload);
 
-  /** THE PRACTICE CALENDAR, and it REPLACES A STREAK on purpose: there is no counter to
-   *  break, so a bad week takes nothing away and nothing has to be defended. */
   const CALENDAR_DAYS = 91;
 
-  /** FOUR STEPS, and the top one is open-ended: somebody who submitted thirty times in a
-   *  day is not four times darker than somebody who submitted four. */
   function calendarStep(attempts: number): string {
     if (!attempts) return "";
     if (attempts >= 8) return "n4";
@@ -62,8 +44,6 @@
       cells.push({
         key,
         step: calendarStep(n),
-        // THE TOOLTIP CARRIES THE DAY AND THE COUNT: ninety-one unlabelled squares are a
-        // texture, not information, and a texture reads aloud as nothing at all.
         title:
           day.toLocaleDateString(undefined, { day: "numeric", month: "long" }) +
           " — " +
@@ -92,9 +72,6 @@
     view.show("");
   }
 
-  /** THE THEME IS THE LAB'S SKILLS, deduplicated and in order. It comes from the catalog
-   *  rather than a second table of hand-written blurbs, which would go stale the first
-   *  time a lab is reorganized. */
   function labTheme(col: Collection): string {
     const skills: string[] = [];
     for (const ex of col.items) {
@@ -106,17 +83,11 @@
     return skills.slice(0, 4).join(", ");
   }
 
-  /** TWO SOURCES SAY "SOLVED", AND EITHER IS ENOUGH. `/etats` carries the state the server
-   *  wrote from the verdict; `/pratique` carries the attempts it counted. An account that
-   *  practised before `exercise_state` existed only has the second, and must still read as
-   *  solved. */
   function tile(ex: Exercise) {
     const note = lockNote(ex);
     let state = tileState(ex, !!note, statuses.byExercise);
     const count = statuses.practice[ex.id];
     if (!note && count && count.successes) state = { cls: "reussi", word: "réussi" };
-    // THE ATTEMPT COUNT SURVIVED THE GRID, in the tile's own words: it is the only place a
-    // student sees that an exercise took them seven tries.
     const tries = count?.attempts
       ? ", " + count.attempts + " tentative" + (count.attempts > 1 ? "s" : "")
       : "";
@@ -125,14 +96,11 @@
     return { note, state, word };
   }
 
-  /** How far into the current level, as a percentage. A level with no next one is full. */
   function levelProgress(view: NonNullable<typeof p>): number {
     const span = (view.level.next === null ? view.xp : view.level.next) - view.level.since;
     return span ? Math.round(((view.xp - view.level.since) / span) * 100) : 0;
   }
 
-  /** Each row passes its OWN announce slot: the draft's line is not even on screen from
-   *  this view, and a module choosing its own spot would write into the void. */
   const exportNotes = $state<Record<string, { text: string; failed: boolean }>>({});
 
   async function exportLab(group: string) {
@@ -149,13 +117,8 @@
 </p>
 
 {#if !p}
-  <!-- WE DO NOT INVENT A ZERO. A balance shown as zero during a database outage reads as
-       "all my work is gone". BUT THE GRID STAYS: it does not come from the projection. -->
   <p class="rate">{projection.error}</p>
 {:else}
-  <!-- MASTERY BEFORE PRACTICE: it is the subject that answers "could I do this again on
-       my own?". XP stays last and secondary -- it is a count of activity, and the layout
-       says so before the sentence does. -->
   <div class="tableau">
     <div class="bloc plan">
       <div class="kicker">Action suivante</div>
@@ -191,9 +154,6 @@
         <p class="gros">
           {verified} compétence{verified > 1 ? "s" : ""} sur {p.mastery.skills.length}
         </p>
-        <!-- ONE LINE PER BAND, with the skills it holds. Grouping by band is what makes
-             "where are the holes" a glance rather than a read-through -- and the band's
-             WORD is on the line, never a colour on its own. -->
         {#each BAND_ORDER as id}
           {@const named = p.mastery.skills.filter((r) => r.band === id)}
           {#if named.length}
@@ -224,10 +184,6 @@
   </div>
 {/if}
 
-<!-- THE LAB GRID, one row per lab. It replaces a flat list of seventy-three sentences
-     where the eye found no landmark: one glance now says what is done, what is left, and
-     where the holes are. THE WHOLE TREE, locked labs included -- a lab that opens next
-     week must show as locked, not be absent. -->
 <div class="bloc">
   <h3 class="soustitre">Par laboratoire</h3>
   {#if !catalog.collections.some((c) => c.items.length)}
@@ -261,8 +217,6 @@
             {/each}
           </div>
           <div class="compte">
-            <!-- A LAB THAT IS NOT OPEN SAYS SO instead of reading "0 sur 0": the two look
-                 identical in a column of numbers and mean opposite things. -->
             <span>
               {openItems.length
                 ? done + " sur " + openItems.length + " réussi" + (done > 1 ? "s" : "")
@@ -270,9 +224,6 @@
             </span>
             {#if isGroupExportable(catalog.catalog, col.titre)}
               <span class="exportligne">
-                <!-- THE LAB'S NAME STAYS IN THE BUTTON even though the row names it: this
-                     is the button's accessible name, and four rows of "Exporter en main.c"
-                     are four identical buttons to anyone tabbing through them. -->
                 <button type="button" class="nav" onclick={() => exportLab(col.titre)}>
                   Exporter le {col.titre} en main.c
                 </button>
@@ -290,9 +241,6 @@
 </div>
 
 {#if p}
-  <!-- VERIFIED MASTERY IS A SEPARATE SECTION, it does not relabel practice. The two say
-       different things and must keep saying so: the judge is self-service, so a solve only
-       proves something that passes was submitted. -->
   <div class="bloc">
     <h3 class="soustitre">Maîtrise vérifiée</h3>
     {#if !p.mastery.skills.length}
@@ -306,9 +254,6 @@
           <li>
             <span class="nom">{skillLabel(c.id)}</span>
             <span class={"bande " + c.band}>{bandTitles[c.band]?.title ?? c.band}</span>
-            <!-- THE COUNT SPELLED OUT, next to the word: "verified" on one piece of
-                 evidence and "verified" on four are not worth the same, and the student
-                 has the right to know which one they are reading. -->
             <span class="chiffres">
               {c.passed} vérification{c.passed > 1 ? "s" : ""} réussie{c.passed > 1 ? "s" : ""}
               sur {c.total}{c.attempted
@@ -371,8 +316,6 @@
     {/if}
   </div>
 
-  <!-- SECONDARY, and the sentence that follows is not decorative: it is the only thing
-       that keeps an activity counter from reading like a grade. -->
   <div class="bloc second">
     <h3 class="soustitre">Niveau et XP</h3>
     <p>
@@ -396,8 +339,6 @@
         Aucun pour l'instant. Ils arrivent en pratiquant ; aucun n'est obligatoire.
       </p>
     {:else}
-      <!-- TITLE, DESCRIPTION AND DATE, as text. No colour swatch alone, no icon alone: all
-           three read aloud and survive black and white. -->
       <dl class="succes">
         {#each p.achievements as s (s.id)}
           <dt>{s.title}</dt>

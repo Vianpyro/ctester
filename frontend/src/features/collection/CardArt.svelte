@@ -1,17 +1,4 @@
 <script lang="ts">
-  // THE CARD DRAWINGS. Inline SVG, ONE PATH PER PART, in the vocabulary of a schematic --
-  // the same drawing language as the blueprint frames, which is what makes the grid read
-  // as one system rather than as eight pieces of clip art.
-  //
-  // MARKUP, NOT `innerHTML`. These strings are ours and not a student's, so the risk is
-  // nil today -- but the forum's message body holds the page's only other `{@html}` on
-  // purpose, and adding a second one here would make that sentence false for whoever
-  // reads it next.
-  //
-  // THE FAMILY DECIDES THE DRAWING, not the card id: a new card in an existing family
-  // gets a sensible picture with no edit here. An unknown family falls back to the empty
-  // frame, which is honest -- better a plain card than a wrong part.
-
   interface Props {
     id: string;
   }

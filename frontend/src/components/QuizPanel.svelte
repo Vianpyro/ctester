@@ -1,9 +1,4 @@
 <script lang="ts">
-  // THE QUIZ: one page per group of questions, and the browser's own pagination.
-  //
-  // SAME DRAFT CONTRACT AS THE EDITOR: what was typed is there on return, in the same
-  // store, so "Effacer mes brouillons" erases the answers too.
-
   import { quiz } from "../lib/state/quiz.svelte";
 
   let timer: ReturnType<typeof setTimeout> | null = null;

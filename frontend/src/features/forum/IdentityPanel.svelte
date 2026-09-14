@@ -1,21 +1,4 @@
-<script lang="ts">
-  // "MON IDENTITÉ", the floating card in the Compte menu. See `identity.svelte.ts` for
-  // why it lives there and not in the thread.
-  //
-  // THE PREVIEW IS THE POINT. Four checkboxes describing what others see, with no picture
-  // of what others see, is a privacy setting one has to imagine. It redraws on every
-  // keystroke and every tick, FROM THE SAME FIELDS the save button will send -- and it
-  // applies the same rules the server does: an unticked box shows nothing, and a ticked
-  // box over an empty field shows nothing either. A preview promising more than the
-  // server delivers would be worse than no preview.
-  //
-  // THE MASKED NAME IS READ-ONLY AND REDRAWN, never typed: a name carrying
-  // student-written text would need moderating, and this one does not, because nothing
-  // typed can reach it. The block is drawn UNCONDITIONALLY -- it used to be behind
-  // `if (profil.alias)`, which hid the only button that writes one from exactly the
-  // accounts that had none.
-
-  import { barPanel } from "../../lib/barPanel";
+<script lang="ts">  import { barPanel } from "../../lib/barPanel";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { profile as bar } from "../../lib/state/profile.svelte";
   import { groupNumber, initialsOf } from "../../lib/domain/labels";
@@ -24,7 +7,6 @@
 
   const held = $derived(identity.profile);
 
-  // The form's own values, seeded from the profile and then owned by the form.
   let name = $state("");
   let group = $state("");
   let showName = $state(false);
@@ -38,9 +20,6 @@
     const p = identity.profile;
     if (!p || seeded === (p.alias ?? "") + "|" + (p.display_name ?? "")) return;
     seeded = (p.alias ?? "") + "|" + (p.display_name ?? "");
-    // RAUTHY'S SUGGESTION ONLY EVER PRE-FILLS, and only until a name has been chosen. It
-    // is neither saved nor shown to others before a click on "Enregistrer" with the box
-    // ticked: somebody's sign-in name does not get published on its own.
     name = p.display_name || p.suggestion || "";
     group = p.group_number === null || p.group_number === undefined ? "" : String(p.group_number);
     showName = p.display_name_public;
@@ -60,21 +39,15 @@
     plate_frame: frame,
   });
 
-  /** THE FALLBACK IS THE ALIAS, NOT "Participant". The card promises "exactly what others
-   *  will see": showing a word nobody will see would make it a preview that lies. */
   const maskedName = $derived(held?.alias || "Participant");
   const previewName = $derived(showName ? name.trim() : "");
   const previewGroup = $derived(showGroup ? group.trim() : "");
 
-  /** THE FRAMES COME FROM THE SERVER, computed from the level this account actually
-   *  reached. Offering one it has not unlocked would be a form that lies, then a 400 the
-   *  student cannot act on. One frame means no choice, so no picker. */
   const frames = $derived(held?.frames ?? []);
 
   const assignments = $derived(catalog.assignments.filter((a) => a && a.team));
 </script>
 
-<!-- Under the bar, like the consent panel and the charter: see `lib/barPanel.ts`. -->
 <div id="identitepanneau" use:barPanel hidden={!bar.identityOpen}>
   <div>
     <h2>Mon identité</h2>
@@ -90,10 +63,6 @@
         <div class="mesequipes">
           <h3 class="soustitre">{assignments.length > 1 ? "Mes équipes" : "Mon équipe"}</h3>
           {#if identity.teamWord}<p class="rate">{identity.teamWord}</p>{/if}
-          <!-- THREE STATES, NOT TWO. "no team", "the list could not be read" and "there is
-               no team assignment" all looked alike -- that is to say, like nothing at all.
-               A verification screen that stays silent answers "all is well" to every
-               question. -->
           {#if identity.teams === null}
             <p class="rate">La liste de tes équipes n'a pas pu être lue.</p>
             <p class="aide">
@@ -109,9 +78,6 @@
                     <b>{mine.label}</b>
                     <span class="tag">{groupNumber(mine.group_number)}</span>
                     <span class="tag">{mine.assignment_title}</span>
-                    <!-- THE OPENING DATE RATHER THAN NOTHING: without it, a team on a
-                         closed assignment looks like nothing. Same choice as the menu's
-                         dated padlock. -->
                     {#if mine.access !== "available"}
                       {@const when = new Date(mine.available_from ?? "")}
                       <span class="tag">
@@ -141,9 +107,6 @@
                 </div>
               {/if}
               {#if !mine || mine.joinable}
-                <!-- THE LIST, LIKE ON MOODLE: a number, an occupancy, a button. It does NOT
-                     say who is in which team -- "3/4" is enough to choose, and publishing
-                     the compositions would turn that choice into a social sort on a page. -->
                 <div class="equipes">
                   {#if !identity.available}
                     <p class="aide">
@@ -170,14 +133,8 @@
                             onclick={() => identity.leave(assignment.id)}>Quitter</button
                           >
                         {:else if team.full}
-                          <!-- COMPLETE: the button disappears rather than being greyed out.
-                               A greyed button invites a click to see, and the answer is
-                               always no. -->
                           <span class="tag">complète</span>
                         {:else}
-                          <!-- ALREADY IN ONE: leave it first, and the server says so. The
-                               button stays, because the refusal explains -- its absence
-                               would not. -->
                           <button
                             type="button"
                             class={mine ? "nav" : ""}
@@ -207,8 +164,6 @@
 
       <label for="forumgroupe">Groupe (facultatif)</label>
       {#if held.group_numbers.length}
-        <!-- A fixed list for the session: only these groups exist, so nothing else can be
-             typed. -->
         <select id="forumgroupe" bind:value={group}>
           <option value="">— aucun —</option>
           {#each held.group_numbers as g}
@@ -240,10 +195,6 @@
           n'affiches pas le tien. Il est tiré d'une liste fermée — personne ne peut écrire
           ce qu'il veut.
         </p>
-        <!-- WHAT "RETROACTIVE" MEANS, WRITTEN BEFORE THE CLICK. The profile is append-only
-             and the last row IS the profile, so changing the name renames the displayed
-             author of every past message. That is a property -- somebody who feels exposed
-             detaches from their history in one click -- but it surprises if unsaid. -->
         <p class="aide">
           Le changer remplace ton nom partout, y compris sur tes messages déjà publiés.
         </p>
