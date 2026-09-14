@@ -1,0 +1,127 @@
+name: ctester
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  deps:
+    image: ${CTESTER_WEB_IMAGE:-python:3.13-slim}
+    command:
+      - sh
+      - -c
+      - >-
+        cmp -s /requirements.txt /deps/.requirements ||
+        { pip install --no-cache-dir --upgrade --target /deps -r /requirements.txt &&
+        cp /requirements.txt /deps/.requirements; }
+    volumes:
+      - ../requirements.txt:/requirements.txt:ro
+      - deps:/deps
+    logging: *logging
+
+  postgres:
+    image: ${CTESTER_POSTGRES_IMAGE:-postgres:17-alpine}
+    container_name: ctester-postgres
+    restart: unless-stopped
+    env_file: ../../.env
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: ctester
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+  web:
+    image: ${CTESTER_WEB_IMAGE:-python:3.13-slim}
+    restart: unless-stopped
+    command: ["python3", "/app/main.py"]
+    env_file: ../../.env
+    environment:
+      CTESTER_SPOOL: /spool
+      CTESTER_PAGE: /web
+      CTESTER_PUBLISHED: /published
+      PYTHONPATH: /deps
+    extra_hosts:
+      - ${CTESTER_EXTRA_HOST:-host.docker.internal:host-gateway}
+    volumes:
+      - ../app:/app:ro
+      - ../web:/web:ro
+      - ../../published:/published:ro
+      - ../../spool:/spool
+      - deps:/deps:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "65534:65534"
+    tmpfs:
+      - /tmp:size=8m
+    expose:
+      - "8000"
+    networks:
+      - default
+      - ingress
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CTESTER_WEB_CPUS:-0.25}"
+          memory: ${CTESTER_WEB_MEMORY:-512m}
+
+  bridge:
+    profiles: [discord]
+    image: ${CTESTER_WEB_IMAGE:-python:3.13-slim}
+    container_name: ctester-bridge
+    restart: unless-stopped
+    command: ["python3", "/bot/bridge.py"]
+    env_file: ../../.env
+    environment:
+      CTESTER_BRIDGE_URL: http://web:8000
+      CTESTER_BRIDGE_STATE: /state/bridge.json
+    volumes:
+      - ../bot:/bot:ro
+      - bridge_state:/state
+    networks:
+      - default
+    depends_on:
+      web:
+        condition: service_started
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 96M
+
+networks:
+  default:
+  ingress:
+    name: ${CTESTER_NETWORK:-ctester-ingress}
+    external: true
+
+volumes:
+  postgres_data:
+  bridge_state:
+  deps:

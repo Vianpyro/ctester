@@ -2,22 +2,56 @@
 
 ## Deployment model
 
-- **API and worker** run on the Dell. The server clones this repository into `/opt/ctester/src` and
-  follows `main` on its own every five minutes. Everything else (gVisor, systemd units, Compose,
-  PostgreSQL, the Rauthy client, deploy keys) lives in the `VHome` repository, under `roles/ctester`.
-- **The API container** runs the stock `python:3.13-slim` image on read-only mounted code, with the
-  packages from `requirements.txt` in the `ctester_deps` volume (`PYTHONPATH=/deps`). There is no
-  Dockerfile.
+- **Everything needed to run CTester is in `deploy/`:** the Compose stack, the systemd units and the
+  two update scripts. The TCH009 instance is deployed by the `VHome` repository (`roles/ctester`),
+  which only adds gVisor, deploy keys, secrets and the PostgreSQL role.
+- **The API container** runs the stock `python:3.13-slim` image on read-only mounted code. The `deps`
+  service installs `requirements.txt` into a volume whenever the file changes. There is no Dockerfile.
 - **The page** is built by CI (`npm run build` → `frontend/dist`) and published to GitHub Pages.
-  Nothing is ever built on the Dell. `CTESTER_PAGE` may still point at a `dist` directory to serve the
-  page from the API; set it to an empty string to disable that router.
-- **Content** comes from the private test repository. `ctester-tests.timer` pulls it every five minutes
-  and republishes the catalog without restarting anything.
-- **The database schema and its grants** are both in `app/schema.sql`, replayed by Ansible at each
-  converge. `VHome` only creates the `ctester_app` role.
+  `CTESTER_PAGE` may still point at a `dist` directory to serve the page from the API; set it to an
+  empty string to disable that router.
+- **`ctester-pull.timer`** follows the application branch nightly, deploys only when
+  `tests/test_ctester.py` passes, and waits for an empty spool.
+- **`ctester-content.timer`** pulls the content every five minutes and republishes the catalog without
+  restarting anything.
+- **The database schema and its grants** are both in `app/schema.sql`.
 
-All settings are environment variables read in `app/config.py` (API) and at the top of `worker/runner.py`
-(worker).
+All settings are environment variables read in `app/config.py` (API) and at the top of
+`worker/runner.py` (worker). On a server they all live in one file, `/opt/ctester/.env`, read by
+Compose and by every systemd unit.
+
+## Deploying
+
+Requirements: Linux with systemd, Docker with the gVisor runtime (`runsc`), Python 3 and git.
+
+```text
+/opt/ctester/
+  src/          this repository
+  content/      the course content, a git clone or a plain directory
+  .env          configuration, from deploy/env.example
+  spool/        owned by 65534:65534
+  published/
+```
+
+```sh
+git clone https://github.com/Vianpyro/ctester.git /opt/ctester/src
+cd /opt/ctester
+cp src/deploy/env.example .env && chmod 600 .env   # then fill it in
+mkdir -p published spool && chown 65534:65534 spool
+docker network create ctester-ingress               # or set CTESTER_NETWORK to your proxy's network
+ln -s /opt/ctester/src/deploy/systemd/* /etc/systemd/system/
+systemctl daemon-reload
+systemctl start ctester-content
+docker compose up -d
+systemctl enable --now ctester-runner@1 ctester-runner@2 ctester-pull.timer ctester-content.timer
+docker compose exec -T postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1 < src/app/schema.sql
+```
+
+- Start as many `ctester-runner@N` instances as `CTESTER_WORKERS`.
+- Accounts need a `ctester_app` role created before the schema is applied, and `CTESTER_DB_DSN`,
+  `CTESTER_OIDC_ISSUER` and `CTESTER_OIDC_CLIENT_ID` in `.env`.
+- `COMPOSE_PROFILES=discord` starts the Discord bridge.
+- The timers' schedules can be changed with `systemctl edit ctester-pull.timer`.
 
 ## Checks before deploying
 
@@ -60,15 +94,14 @@ python3 worker/publish_content.py   ../unittests/content /tmp/published
 ```
 
 - Pushing to the private test repository is enough; the timer republishes within five minutes.
-  To publish immediately, run `systemctl start ctester-tests`, then check `journalctl -u ctester-tests -n 30`.
+  To publish immediately, run `systemctl start ctester-content`, then check `journalctl -u ctester-content -n 30`.
 - **Rollback** means rewriting `published/current.json` to a previous revision. It is instant. Emptying
   `CTESTER_CONTENT` or `CTESTER_PUBLISHED` causes an outage.
 - Invalid content never replaces the active release. A broken `statement.typ` blocks the whole
   publication until it is fixed.
 - **After every publication**, `grep -rl answer /opt/ctester/published/` must print nothing.
 - **Preview before opening:** `CTESTER_PREVIEW=1` opens every exercise on a local machine. In
-  production, moderators (`CTESTER_FORUM_MODERATORS`) can open and submit closed exercises. The
-  variable must also be set on the `ctester-runner@` unit, or their verdicts read "Exercice inconnu."
+  production, moderators (`CTESTER_FORUM_MODERATORS`) can open and submit closed exercises.
 - **Randomized exercises** must set `"cache": false` in `io.json` or `unity.json`, or a lucky or unlucky
   verdict gets cached.
 - **Unity test names** must match `[A-Za-z0-9_]{1,64}` and are shown to students, so make them readable.
@@ -80,12 +113,12 @@ python3 worker/publish_content.py   ../unittests/content /tmp/published
 | Uvicorn | One worker only. Quotas, presence, the token cache and collaboration rooms are held in memory. |
 | WebSockets | `wsproto` must be in `/deps`, or every handshake returns 501 silently. The NPM proxy host needs "Websockets Support". |
 | Verdict cache | Any change to `worker/runner.py` invalidates it once. Avoid deploying right before a lab. `CTESTER_CACHE_MAX=0` disables it. |
-| Console | Needs `CTESTER_SCRATCH=1` on the API, `CTESTER_BUILD_SCRATCH` on the runner units, and at least two workers. |
+| Console | Needs `CTESTER_SCRATCH=1` and at least two workers. |
 | gVisor | `--pids-limit` counts the sentry's threads: below 64 the sandbox does not start. Fork bombs are stopped by the memory limit. |
 | Compiler | `-std=gnu23`, not `c23` (which hides `M_PI`). `-DUNITY_INCLUDE_DOUBLE` is required, or double assertions always fail. |
 | Rauthy | Enable the `refresh_token` flow on the client. `refresh_token_lifetime` (240 h) must match `SESSION_MAX_DAYS` in `frontend/src/lib/auth/keys.ts`. |
-| Typst | Pull `ctester_typst_image` and create `/opt/ctester/typst-cache`. Emptying the image variable stops publication. |
-| Discord | Off by default (`ctester_discord_enabled`). The webhook, bot token and bridge key belong in the vault. |
+| Typst | Pull the `CTESTER_TYPST_IMAGE` image (default `ghcr.io/typst/typst:0.15.1`) before the first publication. |
+| Discord | Off by default (`COMPOSE_PROFILES=discord`). The webhook, bot token and bridge key are secrets. |
 | Docs | Never set `CTESTER_DOCS=1` in production: it makes `/docs` and `/openapi.json` public. |
 | Schema | Every statement must stay idempotent, and an index must follow the `ALTER` that adds its column. |
 
@@ -105,9 +138,8 @@ Replay these after any change to the sandbox, on both the graded path and the Co
 Rotate the session key:
 
 ```sh
-openssl rand -hex 24
-ansible-vault edit inventory/group_vars/ctester_hosts/vault.yml   # in VHome
-ansible-playbook playbooks/ctester.yml --ask-vault-pass
+sed -i "s/^CTESTER_KEY=.*/CTESTER_KEY=$(openssl rand -hex 24)/" /opt/ctester/.env
+cd /opt/ctester && docker compose up -d
 ```
 
 Diagnose, roughly in the order things break:
@@ -116,7 +148,7 @@ Diagnose, roughly in the order things break:
 docker info --format '{{json .Runtimes}}'       # runsc registered?
 systemctl status 'ctester-runner@*'
 journalctl -u 'ctester-runner@*' -n 50
-journalctl -u ctester-tests -n 30
+journalctl -u ctester-content -n 30
 journalctl -u ctester-pull  -n 30
 docker logs ctester-web-1
 ls /opt/ctester/spool                            # empty when idle
@@ -150,5 +182,5 @@ CTESTER_KEY=... CTESTER_LOAD_EXERCISE=tp2-ex3 CTESTER_LOAD_TOKEN=... \
   python3 scripts/load_test.py http://ctester-web-1:8000
 ```
 
-Watch `docker stats`, `uptime` and the spool length while it runs. Raise `ctester_workers` only if
+Watch `docker stats`, `uptime` and the spool length while it runs. Raise `CTESTER_WORKERS` only if
 the other services on the host leave CPU free.

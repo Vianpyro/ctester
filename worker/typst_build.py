@@ -103,12 +103,12 @@ def fingerprint(exercise_dir, version=None):
     return h.hexdigest()[:16]
 
 
-def cache_dir():
+def cache_dir(published=""):
     # Outside published/, which keeps only the latest releases and would wipe the cache.
     dit = os.environ.get("CTESTER_TYPST_CACHE", "")
     if dit:
         return dit
-    publie = os.environ.get("CTESTER_PUBLISHED", "")
+    publie = published or os.environ.get("CTESTER_PUBLISHED", "")
     if publie:
         return os.path.join(os.path.dirname(os.path.abspath(publie)), "typst-cache")
     return os.path.join(tempfile.gettempdir(), "ctester-typst-cache")
@@ -155,14 +155,16 @@ def _commande(travail, options, sortie):
         dict(os.environ), None
 
 
-def render(exercise_dir, exercise_id, version=None):
+def render(exercise_dir, exercise_id, version=None, published=""):
     cle = fingerprint(exercise_dir, version)
-    magasin = os.path.join(cache_dir(), cle)
+    cache = cache_dir(published)
+    magasin = os.path.join(cache, cle)
     garde = _lire_cache(magasin)
     if garde is not None:
         return garde, True
 
-    travail = tempfile.mkdtemp(prefix="ctester-typst-")
+    os.makedirs(cache, exist_ok=True)
+    travail = tempfile.mkdtemp(prefix="ctester-typst-", dir=cache)
     try:
         _preparer(exercise_dir, travail)
         rendu = {}
@@ -272,7 +274,7 @@ def _ecrire_cache(magasin, rendu):
         shutil.rmtree(temporaire, ignore_errors=True)
 
 
-def render_all(model):
+def render_all(model, published=""):
     typst = [(cle, entree) for cle, entree in sorted(model["exercises"].items())
              if entree.get("statement_format") == "typ"]
     if not typst:
@@ -280,7 +282,7 @@ def render_all(model):
     version = _version()
     rendus, servis = {}, 0
     for exercise_id, entree in typst:
-        pages, du_cache = render(entree["path"], exercise_id, version)
+        pages, du_cache = render(entree["path"], exercise_id, version, published)
         rendus[exercise_id] = pages
         servis += 1 if du_cache else 0
     return rendus, (len(typst), servis)

@@ -13,6 +13,7 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
   is mounted.
 - `worker/`: `runner.py` is the host worker (root). `content_catalog.py`, `publish_content.py` and
   `typst_build.py` form the content pipeline. `build-*.sh` run inside the sandbox.
+- `deploy/`: the Compose stack, systemd units and update scripts, all configured by `/opt/ctester/.env`.
 - `scripts/`: command-line tools. `tests/`: the Python checks.
 
 ## Rules the code depends on

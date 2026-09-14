@@ -1,0 +1,18 @@
+[Unit]
+Description=CTester sandbox worker %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/opt/ctester/.env
+ExecStart=/usr/bin/python3 /opt/ctester/src/worker/runner.py
+Restart=always
+RestartSec=2
+ProtectHome=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

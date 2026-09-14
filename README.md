@@ -56,6 +56,7 @@ scripts/
   render_statement.py         local Typst preview
   import_teams.py             team roster corrections
   load_test.py                load testing
+deploy/                       Compose stack, systemd units, update scripts, env.example
 tests/                        backend, sandbox and PostgreSQL checks
 bot/bridge.py                 Discord bridge
 typst/                        statement template and vendored Typst packages
@@ -85,11 +86,11 @@ Real verdicts also need a worker, which requires Docker and gVisor. See
 
 ## Tech stack
 
-| Layer         | Technology                    |
-| ------------- | ----------------------------- |
-| Backend       | Python 3.13, FastAPI, Uvicorn |
-| Frontend      | Svelte 5, TypeScript, Vite    |
-| Database      | PostgreSQL                    |
-| Execution     | Docker + gVisor               |
-| Collaboration | Yjs over WebSocket            |
-| Deployment    | Ansible, GitHub Pages         |
+| Layer         | Technology                     |
+| ------------- | ------------------------------ |
+| Backend       | Python 3.13, FastAPI, Uvicorn  |
+| Frontend      | Svelte 5, TypeScript, Vite     |
+| Database      | PostgreSQL                     |
+| Execution     | Docker + gVisor                |
+| Collaboration | Yjs over WebSocket             |
+| Deployment    | Compose, systemd, GitHub Pages |

@@ -129,7 +129,7 @@ To see it in the real page, publish locally and start the API (see the README).
 
 A Typst error stops the whole publication: nothing is written, the active release stays in place, and
 the error names the exercise, file and line. Other exercises are blocked too, so fix it right away. On
-the server, the message shows up in `journalctl -u ctester-tests -n 30`.
+the server, the message shows up in `journalctl -u ctester-content -n 30`.
 
 If an element cannot be exported to HTML, students get the SVG version. The publication log then
 contains `rendu HTML incomplet`, naming the lost element.

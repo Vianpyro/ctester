@@ -1,0 +1,10 @@
+[Unit]
+Description=CTester application update
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/opt/ctester/.env
+WorkingDirectory=/opt/ctester
+ExecStart=/bin/sh /opt/ctester/src/deploy/pull.sh

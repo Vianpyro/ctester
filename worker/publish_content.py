@@ -173,7 +173,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         model = content_catalog.discover(args.root)
-        renders, compte = ({}, (0, 0)) if args.no_render else typst_build.render_all(model)
+        renders, compte = ({}, (0, 0)) if args.no_render else typst_build.render_all(model, args.dest)
         rev = publish(model, args.dest, keep=args.keep, renders=renders)
     except typst_build.TypstError as exc:
         print("publish refused, the active release is untouched:", file=sys.stderr)

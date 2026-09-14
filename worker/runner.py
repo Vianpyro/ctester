@@ -24,12 +24,14 @@ import uuid
 
 import content_catalog
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
 SPOOL = os.environ.get("CTESTER_SPOOL", "/opt/ctester/spool")
 
 CONTENT = os.environ.get("CTESTER_CONTENT", "/opt/ctester/content")
 PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "/opt/ctester/published")
-BUILD_UNITY = os.environ.get("CTESTER_BUILD_UNITY", "/opt/ctester/build-unity.sh")
-BUILD_IO = os.environ.get("CTESTER_BUILD_IO", "/opt/ctester/build-io.sh")
+BUILD_UNITY = os.environ.get("CTESTER_BUILD_UNITY", os.path.join(HERE, "build-unity.sh"))
+BUILD_IO = os.environ.get("CTESTER_BUILD_IO", os.path.join(HERE, "build-io.sh"))
 IMAGE = os.environ.get("CTESTER_IMAGE", "gcc:14-bookworm")
 RUNTIME = os.environ.get("CTESTER_RUNTIME", "runsc")
 JOB_TIMEOUT = int(os.environ.get("CTESTER_JOB_TIMEOUT", "60"))
@@ -39,7 +41,7 @@ CPUS = os.environ.get("CTESTER_CPUS", "1")
 SWEEP_AFTER = int(os.environ.get("CTESTER_SWEEP_AFTER", "600"))
 
 BUILD_SCRATCH = os.environ.get("CTESTER_BUILD_SCRATCH",
-                               "/opt/ctester/build-scratch.sh")
+                               os.path.join(HERE, "build-scratch.sh"))
 CONSOLE_MEMORY = os.environ.get("CTESTER_CONSOLE_MEMORY", "192m")
 # Not lower than PIDS: under runsc this cgroup counts the gVisor sentry's own threads,
 # and at 32 the sandbox fails to start.
@@ -179,7 +181,7 @@ def publish_catalogue():
     model = content_catalog.discover(CONTENT)
     maintenant = datetime.datetime(9999, 1, 1, tzinfo=datetime.timezone.utc) if PREVIEW else None
     import typst_build
-    renders, (total, du_cache) = typst_build.render_all(model)
+    renders, (total, du_cache) = typst_build.render_all(model, PUBLISHED)
     if total:
         print("ctester: %d énoncé(s) Typst rendu(s), dont %d depuis le cache"
               % (total, du_cache), file=sys.stderr, flush=True)
@@ -934,8 +936,7 @@ def run_console(job_dir):
     compteur = {"octets": 0, "trop": False, "vu": time.time(), "compile": False}
 
     if not os.path.isfile(BUILD_SCRATCH):
-        print("ctester: console: CTESTER_BUILD_SCRATCH introuvable (%s) --"
-              " l'unite ctester-runner@ ne la pose pas ; rejouer le playbook"
+        print("ctester: console: CTESTER_BUILD_SCRATCH introuvable (%s)"
               % BUILD_SCRATCH, file=sys.stderr, flush=True)
         console_etat(job_dir, "exited", code=-1, reason="build_missing")
         return {"status": "console", "code": -1, "reason": "build_missing"}
