@@ -67,7 +67,7 @@ def read_leaderboard(sub: Sub, scope: str = Query("group"),
     rows = state.leaderboard_rows(wanted, leaderboard.WINDOW_DAYS, staff)
     if rows is None:
         return headers.erreur(503, "la base ne répond pas")
-    payload = leaderboard.leaderboard_view(rows, sub, wanted)
+    payload = leaderboard.leaderboard_view(rows, sub, wanted, reader=moderator)
     payload["scope"] = "course" if wanted is None else "group"
     payload["group"] = wanted
     # PAS D'ALIAS POUR UN MODÉRATEUR : le `WHERE` l'exclut du tableau, donc

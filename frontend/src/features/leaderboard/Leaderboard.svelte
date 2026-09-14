@@ -89,7 +89,7 @@
   <!-- WE DO NOT INVENT AN EMPTY RANKING. "Personne" during an outage says nobody is
        working, and that would be false. -->
   <p class="rate">{error}</p>
-{:else if !payload.participating}
+{:else if !payload.participating && !payload.moderator}
   <div class="bloc plan">
     <div class="kicker">Tu n'y participes pas</div>
     <p>

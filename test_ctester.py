@@ -4209,6 +4209,8 @@ def test_the_leaderboard_never_names_the_last_one():
     # WHO DID NOT OPT IN IS NOT RANKED, and that is not an error: the screen
     # then offers the checkbox, rather than an empty leaderboard that would
     # look broken.
+    # a moderator is excluded by the WHERE, yet still READS the table
+    assert leaderboard.leaderboard_view(rows, "staff", 4, reader=True)["rows"]
     outside = leaderboard.leaderboard_view(rows, "unknown", 4)
     assert outside["participating"] is False
     assert outside["me"] is None and outside["rows"] == []

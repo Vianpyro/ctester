@@ -53,7 +53,7 @@ def _row(entry, rank, mine):
             "solved": entry["recent"], "mine": mine}
 
 
-def leaderboard_view(rows, sub, group_number):
+def leaderboard_view(rows, sub, group_number, reader=False):
     """The payload of GET /leaderboard, or a refusal shaped like a payload.
 
     `rows` is what `state.leaderboard_rows()` returned; `sub` the caller.
@@ -78,6 +78,11 @@ def leaderboard_view(rows, sub, group_number):
         "gap": None,
     }
     if mine is None:
+        # A MODERATOR READS WITHOUT FIGURING: the `WHERE` excludes them, so
+        # `mine` is always None for them -- that is not "opted out".
+        if reader and cohort >= minimum:
+            payload["rows"] = [_row(r, i + 1, False)
+                               for i, r in enumerate(ordered[:policy.visible_rows()])]
         return payload
     mine_row = ordered[mine]
     payload["me"] = _row(mine_row, mine + 1, True)
