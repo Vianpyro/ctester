@@ -18,8 +18,8 @@ import tempfile
 import time
 import types
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [HERE, os.path.join(HERE, "app")]
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app")]
 
 import content_catalog as content_catalogue  # noqa: E402
 import publish_content  # noqa: E402
@@ -665,7 +665,7 @@ def test_typst_mermaid_n_a_qu_une_seule_porte():
 
 
 def test_le_theme_typst_porte_les_couleurs_de_la_page():
-    css = lire(os.path.join(HERE, "frontend", "src", "app.css"))
+    css = lire(os.path.join(ROOT, "frontend", "src", "app.css"))
     classes = ("comment", "string", "pre", "key", "num", "fn", "const")
     for theme, bloc in (("dark", css.split(":root {")[1].split("}")[0]),
                         ("light", css.split(':root[data-theme="light"] {')[1].split("}")[0])):
@@ -726,7 +726,7 @@ def test_typst_la_fixture_compile_vraiment_dans_les_deux_themes():
     garde = os.environ.get("CTESTER_TYPST_CACHE")
     try:
         os.environ["CTESTER_TYPST_CACHE"] = cache
-        fixture = os.path.join(HERE, "typst", "fixture")
+        fixture = os.path.join(ROOT, "typst", "fixture")
         rendu, du_cache = typst_build.render(fixture, "fixture-typst")
         assert du_cache is False, "un cache frais ne peut pas déjà servir"
         assert sorted(rendu) == ["dark", "html", "light"], sorted(rendu)
@@ -1567,7 +1567,7 @@ def test_politique_est_declarative():
     assert set(politique.BANDS) == {b["id"] for b in bandes} == set(
         politique.mastery_band(r, t, n)
         for n in range(0, 4) for t in range(0, n + 1) for r in range(0, t + 1))
-    progression = lire(os.path.join(HERE, "app", "services", "progress.py"))
+    progression = lire(os.path.join(ROOT, "app", "services", "progress.py"))
     for montant in set(politique.POLICY["xp"].values()):
         assert not re.search(r"%d" % montant, progression), montant
     assert not re.search(r"%d" % politique.daily_cap(), progression)
@@ -1722,7 +1722,7 @@ def test_une_verification_ne_compte_pas_comme_une_pratique():
 
 
 def test_aucun_index_ne_precede_la_colonne_qu_il_indexe():
-    schema = lire(os.path.join(HERE, "app", "schema.sql"))
+    schema = lire(os.path.join(ROOT, "app", "schema.sql"))
     instructions = re.sub(r"--[^\n]*", "", schema)
     ajouts = re.findall(
         r"ALTER TABLE\s+(\w+)\s+ADD COLUMN IF NOT EXISTS\s+(\w+)", instructions)
@@ -1751,7 +1751,7 @@ def test_aucun_index_ne_precede_la_colonne_qu_il_indexe():
 
 
 def test_chaque_table_a_ses_droits():
-    schema = lire(os.path.join(HERE, "app", "schema.sql"))
+    schema = lire(os.path.join(ROOT, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
     instructions = re.sub(r"--[^\n]*", "", schema)
@@ -1772,7 +1772,7 @@ def test_chaque_table_a_ses_droits():
 
 
 def test_suppression_couvre_toutes_les_tables():
-    schema = lire(os.path.join(HERE, "app", "schema.sql"))
+    schema = lire(os.path.join(ROOT, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
     assert len(tables) == 19, tables
@@ -1784,7 +1784,7 @@ def test_suppression_couvre_toutes_les_tables():
                    if re.search(r"^\s*account\s+TEXT", corps, re.M)}
     assert avec_compte == tables - {"team", "team_document", "team_submission"}, \
         sorted(avec_compte)
-    efface = lire(os.path.join(HERE, "app", "state.py"))
+    efface = lire(os.path.join(ROOT, "app", "state.py"))
     efface = efface[efface.index("def forget(user):"):]
     assert set(re.findall(r"DELETE FROM (\w+)", efface)) == avec_compte
     assert efface.count("_query(") == 1
@@ -2353,7 +2353,7 @@ def test_forum_texte_borne_et_stocke_la_source():
 
 
 def test_forum_bibliotheques_epinglees():
-    manifeste = json.loads(lire(os.path.join(HERE, "package.json")))
+    manifeste = json.loads(lire(os.path.join(ROOT, "package.json")))
     epingles = manifeste.get("dependencies") or {}
     charge_par = {
         "marked": {"frontend/src/lib/domain/markdown.ts"},
@@ -2367,13 +2367,13 @@ def test_forum_bibliotheques_epinglees():
         assert re.fullmatch(r"\d+\.\d+\.\d+", version), (paquet, version)
         for module in modules:
             assert '"' + paquet + '"' in lire(
-                os.path.join(HERE, *module.split("/"))), (paquet, module)
-    for racine, _, fichiers in os.walk(os.path.join(HERE, "frontend", "src")):
+                os.path.join(ROOT, *module.split("/"))), (paquet, module)
+    for racine, _, fichiers in os.walk(os.path.join(ROOT, "frontend", "src")):
         for nom in fichiers:
             if not nom.endswith((".ts", ".svelte")):
                 continue
             chemin = os.path.join(racine, nom)
-            relatif = os.path.relpath(chemin, HERE).replace(os.sep, "/")
+            relatif = os.path.relpath(chemin, ROOT).replace(os.sep, "/")
             source = lire(chemin)
             for paquet, modules in charge_par.items():
                 if relatif in modules:
@@ -2400,8 +2400,8 @@ def test_csp_without_an_issuer_omits_the_extra_connect_src_origin():
 
 
 def test_csp_du_document():
-    pages = [lire(os.path.join(HERE, "frontend", "index.html")).encode()]
-    construit = os.path.join(HERE, "frontend", "dist", "index.html")
+    pages = [lire(os.path.join(ROOT, "frontend", "index.html")).encode()]
+    construit = os.path.join(ROOT, "frontend", "dist", "index.html")
     if os.path.exists(construit):
         pages.append(lire(construit).encode())
     for page in pages:
@@ -2564,8 +2564,8 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
 
 
 def test_les_deux_sondes_de_verrou_ouvrent_en_LECTURE_SEULE():
-    for chemin, nom in ((os.path.join(HERE, "runner.py"), "verrou_tenu"),
-                        (os.path.join(HERE, "app", "services", "scratch.py"),
+    for chemin, nom in ((os.path.join(ROOT, "worker", "runner.py"), "verrou_tenu"),
+                        (os.path.join(ROOT, "app", "services", "scratch.py"),
                          "_lock_held")):
         source = lire(chemin)
         corps = source[source.index("def " + nom + "("):]
@@ -2590,8 +2590,8 @@ def test_un_constructeur_absent_se_nomme_au_lieu_d_accuser_le_service():
 
 
 def test_chaque_raison_de_console_a_un_message():
-    worker = lire(os.path.join(HERE, "runner.py"))
-    page = lire(os.path.join(HERE, "frontend", "src", "features", "scratch",
+    worker = lire(os.path.join(ROOT, "worker", "runner.py"))
+    page = lire(os.path.join(ROOT, "frontend", "src", "features", "scratch",
                              "session.svelte.ts"))
     bloc = page.split("const REASONS: Record<string, string> = {")[1].split("};")[0]
     connues = set(re.findall("^\\s*(\\w+):", bloc, re.M)) | {"exited"}
@@ -2602,22 +2602,23 @@ def test_chaque_raison_de_console_a_un_message():
 
 
 def test_les_websockets_ont_une_implementation_epinglee():
-    besoin = lire(os.path.join(HERE, "requirements.txt"))
+    besoin = lire(os.path.join(ROOT, "requirements.txt"))
     lignes = [l.split("#")[0].strip() for l in besoin.splitlines()]
     paquets = {l.split("==")[0].strip().lower() for l in lignes if "==" in l}
     assert paquets & {"wsproto", "websockets"}, "requirements.txt pins no WebSocket implementation"
 
 
 def test_le_conteneur_web_n_importe_que_ce_qu_il_monte():
-    racine = {nom[:-3] for nom in os.listdir(HERE) if nom.endswith(".py")}
-    dans_app = {nom[:-3] for nom in os.listdir(os.path.join(HERE, "app"))
+    racine = {nom[:-3] for nom in os.listdir(os.path.join(ROOT, "worker"))
+              if nom.endswith(".py")}
+    dans_app = {nom[:-3] for nom in os.listdir(os.path.join(ROOT, "app"))
                 if nom.endswith(".py")}
     interdits = racine - dans_app
     assert "content_catalog" in interdits and "runner" in interdits, interdits
     motif = re.compile(r"^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)",
                        re.M)
     fautes = []
-    for dossier, _sous, fichiers in os.walk(os.path.join(HERE, "app")):
+    for dossier, _sous, fichiers in os.walk(os.path.join(ROOT, "app")):
         if "__pycache__" in dossier:
             continue
         for nom in sorted(fichiers):
@@ -2626,7 +2627,7 @@ def test_le_conteneur_web_n_importe_que_ce_qu_il_monte():
             chemin = os.path.join(dossier, nom)
             for module in motif.findall(lire(chemin)):
                 if module in interdits:
-                    fautes.append(os.path.relpath(chemin, HERE) + " -> " + module)
+                    fautes.append(os.path.relpath(chemin, ROOT) + " -> " + module)
     assert not fautes, (
         "ces modules de la racine ne sont pas montés dans le conteneur web : "
         + ", ".join(fautes))
@@ -2665,7 +2666,7 @@ def test_duree_moyenne_glissante_par_exercice():
 
 
 def _cas_canoniques():
-    chemin = os.path.join(HERE, "frontend", "tests", "fixtures", "source.json")
+    chemin = os.path.join(ROOT, "frontend", "tests", "fixtures", "source.json")
     with open(chemin, encoding="utf-8") as fh:
         return json.load(fh)
 
@@ -2734,7 +2735,7 @@ def test_la_console_canonise_par_la_meme_porte():
 def test_le_forum_ne_canonise_rien():
     texte = "regarde ici  \net puis là  \n"
     assert source.canonicalize(texte) != texte, "le cas ne prouverait rien"
-    with open(os.path.join(HERE, "app", "services", "forum.py"),
+    with open(os.path.join(ROOT, "app", "services", "forum.py"),
               encoding="utf-8") as fh:
         assert "canonicalize" not in fh.read()
 
@@ -3544,9 +3545,9 @@ def test_un_exercice_de_devoir_ne_compte_dans_aucune_pratique():
                {"id": "dev-a", "skills": ["variables"], "assignment": "devoir"},
                {"id": "verif", "skills": ["variables"], "verification": True}]
     assert [e["id"] for e in progression.practice_exercises(entrees)] == ["solo"]
-    source = lire(os.path.join(HERE, "app", "routers", "submission.py"))
+    source = lire(os.path.join(ROOT, "app", "routers", "submission.py"))
     assert 'entry.get("assignment")' in source
-    page = lire(os.path.join(HERE, "frontend", "src", "lib", "domain",
+    page = lire(os.path.join(ROOT, "frontend", "src", "lib", "domain",
                              "catalog.ts"))
     assert "!t.assignment" in page
 
@@ -3554,7 +3555,7 @@ def test_un_exercice_de_devoir_ne_compte_dans_aucune_pratique():
 def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
     import importlib.util
 
-    chemin = os.path.join(HERE, "import_teams.py")
+    chemin = os.path.join(ROOT, "scripts", "import_teams.py")
     spec = importlib.util.spec_from_file_location("import_teams", chemin)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -3819,7 +3820,7 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
     garde = runner.subprocess
     garde_build = runner.BUILD_SCRATCH
     try:
-        runner.BUILD_SCRATCH = os.path.join(HERE, "build-scratch.sh")
+        runner.BUILD_SCRATCH = os.path.join(ROOT, "worker", "build-scratch.sh")
         runner.subprocess = FauxSubprocess
         fil = _fils.Thread(target=runner.run_console, args=(job,), daemon=True)
         fil.start()
@@ -3865,7 +3866,7 @@ def test_console_une_session_ne_peut_pas_survivre_a_son_propre_balayage():
 
 
 def test_console_n_a_pas_de_liste_d_includes():
-    source = lire(os.path.join(HERE, "runner.py"))
+    source = lire(os.path.join(ROOT, "worker", "runner.py"))
     corps = source[source.index("def run_console("):]
     corps = corps[:corps.index("\ndef ")]
     assert "read_allowed" not in corps
@@ -3873,7 +3874,7 @@ def test_console_n_a_pas_de_liste_d_includes():
 
 
 def test_le_bot_du_pont_tourne_sans_aucun_tiers_et_saute_ses_propres_messages():
-    chemin = os.path.join(HERE, "bot", "bridge.py")
+    chemin = os.path.join(ROOT, "bot", "bridge.py")
     assert os.path.exists(chemin), chemin
     sortie = subprocess.run([sys.executable, chemin, "--autotest"],
                             capture_output=True, text=True)

@@ -9,12 +9,12 @@ import shutil
 import subprocess
 import tempfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-PACKAGES = os.path.join(HERE, "typst", "packages")
+PACKAGES = os.path.join(ROOT, "typst", "packages")
 LIB = os.path.join(PACKAGES, "local", "ctester", "1.0.0")
 
-FONTS = os.path.join(HERE, "typst", "fonts")
+FONTS = os.path.join(ROOT, "typst", "fonts")
 
 IMAGE = os.environ.get("CTESTER_TYPST_IMAGE", "ghcr.io/typst/typst:0.15.1")
 BIN = os.environ.get("CTESTER_TYPST_BIN", "")
@@ -70,7 +70,7 @@ def _version():
     if trouve.group(1) != VERSION:
         raise TypstError(
             "typst %s attendu, %s trouvé. La version est épinglée dans "
-            "typst_build.py (VERSION) et dans le rôle Ansible "
+            "worker/typst_build.py (VERSION) et dans le rôle Ansible "
             "(ctester_typst_image) : un énoncé doit se rendre pareil dans six "
             "mois." % (VERSION, trouve.group(1)))
     return trouve.group(1)

@@ -7,7 +7,8 @@ import subprocess
 import sys
 import tempfile
 
-import typst_build
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "worker"))
+import typst_build  # noqa: E402
 
 
 def main(argv=None):

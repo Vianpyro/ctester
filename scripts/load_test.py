@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 CIBLE = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CTESTER_LOAD_URL", "")
 if not CIBLE:
-    raise SystemExit("usage: python3 load_test.py http://ctester-web-1:8000"
+    raise SystemExit("usage: python3 scripts/load_test.py http://ctester-web-1:8000"
                      "  (writes to the database: never during a lab)")
 
 ETUDIANTS = int(os.environ.get("CTESTER_LOAD_STUDENTS", "200"))
