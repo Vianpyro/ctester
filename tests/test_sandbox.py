@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import importlib.util
 import os
 import select
 import pathlib
@@ -9,9 +8,10 @@ import sys
 import tempfile
 import time
 
-ICI = pathlib.Path(__file__).resolve().parent
+RACINE = pathlib.Path(__file__).resolve().parents[1]
+WORKER = RACINE / "worker"
 CONTENU = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
-                       else ICI.parent / "unittests" / "content").resolve()
+                       else RACINE.parent / "unittests" / "content").resolve()
 SOLUTIONS = pathlib.Path(os.environ.get("CTESTER_SOLUTIONS") or next(
     (c for c in (CONTENU.parent / "solutions",
                  CONTENU.parent.parent / "solutions") if c.is_dir()),
@@ -31,9 +31,8 @@ def corrige(exercice):
     raise SystemExit("no reference solution found for " + exercice
                      + " under " + str(SOLUTIONS))
 
-spec = importlib.util.spec_from_file_location("runner", ICI / "runner.py")
-runner = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(runner)
+sys.path.insert(0, str(WORKER))
+import runner  # noqa: E402
 
 NONCE = "e2e0123456789abcdef0123456789abc"
 
@@ -53,7 +52,7 @@ REGLAGES = {
 
 
 def rendre(nom, racine):
-    texte = (ICI / nom).read_text(encoding="utf-8")
+    texte = (WORKER / nom).read_text(encoding="utf-8")
     texte = texte.replace("/in/", f"{racine}/in/").replace("/work", f"{racine}/work")
     script = racine / nom
     script.write_text(texte, encoding="utf-8")
@@ -198,7 +197,7 @@ check(apres == b"", "et rien n'a tourne")
 
 print("\n--- 0e. build-scratch.sh ne connait NI cas, NI test ---")
 _texte_scratch = "\n".join(
-    ligne for ligne in (ICI / "build-scratch.sh").read_text(encoding="utf-8").splitlines()
+    ligne for ligne in (WORKER / "build-scratch.sh").read_text(encoding="utf-8").splitlines()
     if not ligne.lstrip().startswith("#"))
 for _interdit in ("/in/cases", "/in/tests", "/in/unity", "io.json",
                   "unity.json", "expect"):

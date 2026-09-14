@@ -4,8 +4,8 @@ import os
 import sys
 import uuid
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [HERE, os.path.join(HERE, "app")]
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app")]
 
 DSN = os.environ.get("CTESTER_DB_DSN", "")
 ADMIN_DSN = os.environ.get("CTESTER_DB_ADMIN_DSN", "") or DSN
@@ -38,7 +38,7 @@ def count(table, user):
 
 def apply_schema():
     import psycopg
-    with open(os.path.join(HERE, "app", "schema.sql"), encoding="utf-8") as fh:
+    with open(os.path.join(ROOT, "app", "schema.sql"), encoding="utf-8") as fh:
         sql = fh.read()
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
         for _ in range(2):
@@ -57,7 +57,7 @@ def schema_repairs_an_older_database():
         "forum_profile": ("alias", "plate_frame", "badges_public",
                           "leaderboard_opt_in"),
     }
-    with open(os.path.join(HERE, "app", "schema.sql"), encoding="utf-8") as fh:
+    with open(os.path.join(ROOT, "app", "schema.sql"), encoding="utf-8") as fh:
         sql = fh.read()
 
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
@@ -123,7 +123,7 @@ def schema_repairs_an_older_database():
 
 def schema_renames_legacy_solve_events():
     import psycopg
-    with open(os.path.join(HERE, "app", "schema.sql"), encoding="utf-8") as fh:
+    with open(os.path.join(ROOT, "app", "schema.sql"), encoding="utf-8") as fh:
         sql = fh.read()
     legacy, doubled = "legacy-a", "legacy-b"
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
