@@ -429,7 +429,10 @@ main {
   border-radius: var(--coin);
 }
 .typsthtml .copier:hover, .typsthtml .copier:focus-visible { color: var(--ink); border-color: var(--ink); }
-.typsthtml aside, .typsthtml .typ-signature, .typsthtml .typ-recopier {
+/* Une boîte pour les encadrés de TEXTE seulement : le code de `.typ-signature`
+   et `.typ-recopier` est un <pre>, qui a déjà la sienne -- les deux faisaient
+   une double boîte. */
+.typsthtml aside {
   margin: 0 0 .7rem; padding: .5rem .65rem; background: var(--panel);
   border: 1px solid var(--line); border-left: 2px solid var(--ink);
 }
@@ -437,12 +440,11 @@ main {
   display: block; font-size: .8em; letter-spacing: .03em; text-transform: uppercase;
   color: var(--ink);
 }
-.typsthtml aside > p:last-child, .typsthtml :is(.typ-signature, .typ-recopier) pre { margin-bottom: 0; }
+.typsthtml aside > p:last-child { margin-bottom: 0; }
 .typsthtml .typ-attention { border-left-color: var(--bad); }
 .typsthtml .typ-attention > strong:first-child { color: var(--bad); }
 .typsthtml .typ-exemple { border-left-color: var(--ok); }
 .typsthtml .typ-exemple > strong:first-child { color: var(--ok); }
-.typsthtml .typ-signature { background: var(--ink-wash); border-left-color: var(--ink-fill); }
 .typsthtml :is(.typ-signature, .typ-recopier) small { color: var(--muted); font-family: var(--mono); }
 /* À RETAPER À LA MAIN : ni sélection, ni copie (voir TypstHtml.svelte). */
 .typsthtml .typ-recopier { user-select: none; -webkit-user-select: none; }
