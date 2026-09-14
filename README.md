@@ -21,73 +21,36 @@ Students write C code in the browser, run it in an isolated environment, submit 
 
 ## Architecture
 
-```text
-                           ┌──────────────────────┐
-                           │      Student         │
-                           │  Browser / Editor    │
-                           └──────────┬───────────┘
-                                      │
-                           HTTP / WebSocket
-                                      │
-                                      ▼
-                    ┌─────────────────────────────────┐
-                    │             API                 │
-                    │          FastAPI                │
-                    │                                 │
-                    │  Auth · Catalog · Drafts        │
-                    │  Submissions · Progress         │
-                    │  Forum · Teams · Console        │
-                    └──────────────┬──────────────────┘
-                                   │
-                            submission spool
-                                   │
-                                   ▼
-                    ┌─────────────────────────────────┐
-                    │          Host worker            │
-                    │                                 │
-                    │  reads submissions              │
-                    │  reads private tests            │
-                    │  launches sandbox               │
-                    └──────────────┬──────────────────┘
-                                   │
-                              Docker + gVisor
-                                   │
-                                   ▼
-                    ┌─────────────────────────────────┐
-                    │        Disposable sandbox       │
-                    │                                 │
-                    │       C compiler + tests        │
-                    └─────────────────────────────────┘
+```mermaid
+flowchart LR
+    B["Student<br/>Browser / Editor"]
+    A["API — FastAPI<br/>Auth · Catalog · Drafts<br/>Submissions · Progress<br/>Forum · Teams · Console"]
+    W["Host worker<br/>reads submissions<br/>reads private tests<br/>launches sandbox"]
+    S["Disposable sandbox<br/>C compiler + tests"]
+
+    B -->|HTTP / WebSocket| A
+    A -->|submission spool| W
+    W -->|Docker + gVisor| S
 ```
 
 ### Security boundary
 
 The web application **cannot compile or execute student code** and does not have access to the private grading suite.
 
-```text
-┌─────────────────────────────── Web tier ───────────────────────────────┐
-│                                                                        │
-│  Browser ──► FastAPI ──► spool                                         │
-│                 │                                                      │
-│                 └── no Docker socket                                   │
-│                 └── no private tests                                   │
-│                 └── no code execution                                  │
-│                                                                        │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                         filesystem / job queue
-                                   │
-┌─────────────────────────────── Worker host ────────────────────────────┐
-│                                   │                                    │
-│                         private content                                │
-│                                   │                                    │
-│                                   ▼                                    │
-│                         Docker + gVisor                                │
-│                                   │                                    │
-│                                   ▼                                    │
-│                            student code                                │
-│                                                                        │
-└────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph web["Web tier"]
+        BR[Browser] --> API[FastAPI] --> SP[spool]
+        API --- N["no Docker socket<br/>no private tests<br/>no code execution"]
+    end
+
+    subgraph host["Worker host"]
+        PC[private content] --> DG["Docker + gVisor"] --> SC[student code]
+    end
+
+    SP -->|filesystem / job queue| PC
+
+    style N stroke-dasharray: 4 4
 ```
 
 Each submission gets a fresh sandbox with bounded resources.
@@ -192,61 +155,36 @@ No compilation or sandbox is required.
 
 ### stdin/stdout
 
-```text
-student program
-      │
-      ▼
-   compile
-      │
-      ▼
- sandbox
-      │
-      ▼
- input ──► program ──► stdout
-                       │
-                       ▼
-                 expected output
+```mermaid
+flowchart LR
+    S[Student program] --> C[compile] --> SB[sandbox]
+    I[input] --> P[program] --> O[stdout] --> EX[expected output]
+    SB --> P
 ```
 
 ### Unity
 
-```text
-Student source
-      │
-      ├── student functions
-      │
-      ▼
-┌───────────────┐
-│ Unity tests   │
-└───────┬───────┘
-        │
-        ▼
-   compile + run
-        │
-        ▼
-     verdict
+```mermaid
+flowchart LR
+    S[Student source] --> SF[student functions]
+    SF --> U[Unity tests]
+    U --> C["compile + run"] --> V[verdict]
 ```
 
 ## Verdicts
 
 A submission is reduced to a structured verdict rather than exposing the private test suite.
 
-```text
-Submission
-    │
-    ▼
-Compilation
-    ├── failed ───────────────► Compilation error
-    │
-    ▼
-Execution
-    ├── timeout ──────────────► Timeout
-    ├── runtime failure ──────► Runtime error
-    │
-    ▼
-Tests
-    ├── passed ───────────────► Accepted
-    └── failed ───────────────► Wrong answer / test failure
+```mermaid
+flowchart LR
+    S[Submission] --> C{Compilation}
+    C -->|failed| CE[Compilation error]
+    C -->|ok| E{Execution}
+    E -->|timeout| T[Timeout]
+    E -->|runtime failure| RE[Runtime error]
+    E -->|ok| TS{Tests}
+    TS -->|passed| A[Accepted]
+    TS -->|failed| WA["Wrong answer / test failure"]
 ```
 
 The worker also limits compiler output, test output, failed-test details and execution resources.
@@ -255,23 +193,11 @@ The worker also limits compiler output, test output, failed-test details and exe
 
 The **Console** is a separate interactive execution path using the same worker infrastructure.
 
-```text
-Student
-   │
-   ▼
-Console session
-   │
-   ▼
-submission spool
-   │
-   ▼
-worker
-   │
-   ▼
-interactive sandbox
-   │
-   ├── stdin  ◄──────── Student
-   └── stdout ────────► Student
+```mermaid
+flowchart LR
+    ST[Student] --> CS[Console session] --> SP[submission spool] --> W[worker] --> IS[interactive sandbox]
+    ST -->|stdin| IS
+    IS -->|stdout| ST
 ```
 
 Console sessions are resource-limited and do not use the normal exercise verdict path.
@@ -307,21 +233,11 @@ Teams also provide:
 
 Course content is maintained separately from the application.
 
-```text
-Course content repository
-          │
-          ▼
-   content validation
-          │
-          ▼
-      publication
-          │
-          ▼
-   versioned release
-          │
-          ├────────► Web application
-          │
-          └────────► Execution worker
+```mermaid
+flowchart LR
+    R[Course content repository] --> V[content validation] --> P[publication] --> VR[versioned release]
+    VR --> WA[Web application]
+    VR --> EW[Execution worker]
 ```
 
 A release is selected through a `current.json` pointer, making rollback a publication operation rather than an application-state change.
@@ -330,25 +246,10 @@ A release is selected through a `current.json` pointer, making rollback a public
 
 The frontend is a static Svelte application.
 
-```text
-                    ┌─────────────────┐
-                    │  Git repository │
-                    └────────┬────────┘
-                             │
-                         Vite build
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │  Static bundle  │
-                    └────────┬────────┘
-                             │
-                             ▼
-                       GitHub Pages
-                             │
-                     HTTP / WebSocket
-                             │
-                             ▼
-                          FastAPI
+```mermaid
+flowchart LR
+    G[Git repository] -->|Vite build| S[Static bundle] --> GP[GitHub Pages]
+    GP -->|HTTP / WebSocket| F[FastAPI]
 ```
 
 There is no frontend server or Node.js process in production.
