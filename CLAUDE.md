@@ -94,7 +94,8 @@ frontend/src/lib/api/          le client typé et LES TYPES DU FIL
 frontend/src/lib/auth/         la session OIDC, coupée en deux (noyau / à la demande)
 frontend/src/lib/collab/       le document partagé et la géométrie des curseurs
 frontend/src/components/       l'atelier : éditeur, verdict, barre, actions
-                               (dont TypstStatement : des <img>, rien de plus)
+                               (dont TypstHtml, et TypstStatement : des <img>
+                               en repli)
 frontend/src/features/         les écrans chargés à la demande, un répertoire chacun
 frontend/tests/                les suites Vitest
 ```
@@ -1264,13 +1265,28 @@ non-régression Markdown, la CSP), `typstStatement.test.ts` et
 de détails de `catalog` est un singleton de chargement de page : un exercice
 déjà ouvert par un test voisin reviendrait en Markdown.
 
-**L'ESSAI HTML : `statement.html` EST PUBLIÉ À CÔTÉ DES SVG**, par
-`--features html` (expérimental en 0.15). La page propose une bascule SVG/HTML
-(`ctester.typst.vue` en `localStorage`, SVG par défaut) quand le détail porte
-`statement_html: true`. Quatre choses à savoir :
+**LE HTML D'ABORD, LE SVG EN REPLI, ET L'ÉTUDIANT NE CHOISIT RIEN.**
+`statement.html` est publié à côté des SVG, par `--features html`
+(expérimental en 0.15). Quand le détail porte `statement_html: true`, la page
+l'affiche ; sinon, ou s'il ne se charge pas, elle montre les pages SVG. Il n'y a
+PAS de bouton : un réglage exposé à l'étudiant serait un second rendu à
+maintenir en vue, pour une question qu'il n'a aucun moyen de trancher.
 
+- **« Incomplet » est décidé AU BUILD.** Typst annonce ce qu'il laisse tomber
+  par `… was ignored during HTML export` ; `render()` ne publie alors PAS le
+  HTML (`rendu HTML incomplet, SVG seul` dans `journalctl -u ctester-tests`).
+  **`#pagebreak()` est la seule perte tolérée** : le HTML défile, il n'a pas de
+  pages. Ce contrôle ne juge pas le rendu à l'œil — un HTML complet mais moins
+  joli sera servi.
+- **« Injoignable » est décidé DANS LA PAGE.** 404, réseau, corps vide :
+  `TypstHtml` appelle `onfail()`, et `Statement.svelte` retombe sur le SVG
+  **pour cet identifiant seulement** — ouvrir un autre exercice réessaie le sien.
 - **Un échec HTML NE BLOQUE PAS la publication** (`ponytail:` dans `render()`),
-  contrairement au SVG. À durcir si le HTML devient le défaut.
+  contrairement au SVG : le repli existe, donc le HTML n'est jamais la seule
+  consigne disponible.
+- **La route doit être redémarrée pour le servir.** Un conteneur web qui tourne
+  avec l'ancien `PAGE_RE` répond 404 à `statement.html` — le repli cache alors
+  la panne, et la page montre le SVG sans rien dire. Vu au premier déploiement.
 - **Servi en `text/plain`**, lu par `fetch`, préparé par `lib/typstHtml.ts`
   (`DOMParser`, qui n'exécute ni ne charge rien) puis écrit par `{@html}`. Même
   confiance que `statement.md` : le fichier vient du dépôt privé relu.

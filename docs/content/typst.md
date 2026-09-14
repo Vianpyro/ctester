@@ -12,12 +12,13 @@ dans le navigateur, donc son texte est sélectionnable, copiable, trouvable au
 `Ctrl+F` et lisible par un lecteur d'écran. Les 77 énoncés du cours sont en
 Markdown et n'ont aucune raison de bouger.
 
-**`statement.typ` quand la mise en page fait partie de l'explication** — et
-acceptez ce que ça coûte : Typst rend un SVG où **les lettres sont des tracés**,
-pas du texte. Sur une consigne Typst, l'étudiant ne peut ni sélectionner, ni
-copier, ni faire chercher un mot par son navigateur ; une synthèse vocale ne lit
-rien. C'est une vraie perte, et c'est la raison pour laquelle ce n'est pas le
-défaut.
+**`statement.typ` quand la mise en page fait partie de l'explication.** Il est
+publié deux fois : en HTML, affiché quand c'est possible, et en SVG, le repli.
+Le HTML se lit, se copie et se cherche comme le Markdown. **Le SVG, non** : ses
+lettres sont des tracés, donc l'étudiant ne peut ni sélectionner, ni copier, ni
+faire chercher un mot, et une synthèse vocale ne lit rien. Un énoncé qui
+retombe sur le SVG (voir §10) paie cette perte, et c'est la raison pour laquelle
+`statement.typ` n'est pas le défaut.
 
 | Vous voulez | Écrivez |
 |---|---|
@@ -58,7 +59,9 @@ C'est tout. **Vous n'écrivez aucun préambule** : la mise en page, la palette, 
 largeur de colonne et la coloration du C sont appliquées par le build.
 
 Ajoutez la ligne d'import **seulement si vous voulez les helpers** (`#note`,
-`#mermaid`, `#signature`, `#exemple`, `#attention`) :
+`#mermaid`, `#signature`, `#recopier`, `#exemple`, `#attention`). **Sans elle,
+Typst répond `unknown variable`** et la publication de tout le cours s'arrête
+jusqu'à la correction :
 
 ```typst
 #import "@local/ctester:1.0.0": *
@@ -223,15 +226,22 @@ Un bloc ```` ```c ```` passé directement, SANS guillemets autour : rien à
 échapper, les `"` et les `\n` du programme restent tels quels. Une chaîne
 (`#recopier("int x;")`) marche aussi pour une ligne courte.
 
-Dans la version HTML de la consigne (essai, bouton « HTML » au-dessus de
-l'énoncé), les blocs de code ont un bouton « Copier », **sauf** ceux-là : ils
-refusent la sélection et la copie. C'est une dissuasion, pas une protection —
-le texte reste dans la page. En SVG, rien n'est copiable de toute façon.
+La consigne est affichée en HTML quand c'est possible : les blocs de code y ont
+un bouton « Copier », **sauf** ceux-là, qui refusent la sélection et la copie.
+C'est une dissuasion, pas une protection — le texte reste dans la page.
+
+**Le HTML n'est pas garanti, et vous n'avez rien à faire pour ça.** Si Typst ne
+sait pas rendre un élément en HTML, ou si le fichier ne se charge pas, les
+étudiants voient automatiquement la version SVG, où rien n'est copiable. Pour
+savoir laquelle un énoncé reçoit, cherchez `rendu HTML incomplet` dans le
+journal de publication (`journalctl -u ctester-tests`) : la ligne nomme
+l'élément perdu.
 
 ## 11. Plusieurs pages
 
-Un `#pagebreak()` et rien d'autre. La page affiche les images l'une sous l'autre
-dans la colonne de la consigne, qui défile.
+Un `#pagebreak()` et rien d'autre. En SVG, la page affiche les images l'une sous
+l'autre dans la colonne de la consigne, qui défile. En HTML, le saut est ignoré :
+le texte se suit d'un bloc, sans séparation.
 
 N'en abusez pas : une consigne d'exercice tient presque toujours sur une page, et
 seize est le maximum accepté.
