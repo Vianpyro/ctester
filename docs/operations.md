@@ -16,7 +16,7 @@
 - **The database schema and its grants** are both in `app/schema.sql`, replayed by Ansible at each
   converge. `VHome` only creates the `ctester_app` role.
 
-All settings are environment variables read in `app/config.py` (API) and at the top of `runner.py`
+All settings are environment variables read in `app/config.py` (API) and at the top of `worker/runner.py`
 (worker).
 
 ## Checks before deploying
@@ -27,36 +27,36 @@ Run these on a development machine; the last three need gcc.
 npm run check                      # TypeScript and Svelte, warnings are errors
 npm run build                      # must come before the next two: they read frontend/dist
 npm test
-python3 test_ctester.py
-python3 test_api.py
-python3 validate_content.py ../unittests/content
-python3 verify_content.py   ../unittests/content   # every reference solution passes its tests
-python3 test_sandbox.py     ../unittests/content   # the build scripts with a real gcc
+python3 tests/test_ctester.py
+python3 tests/test_api.py
+python3 scripts/validate_content.py ../unittests/content
+python3 scripts/verify_content.py   ../unittests/content   # every reference solution passes its tests
+python3 tests/test_sandbox.py       ../unittests/content   # the build scripts with a real gcc
 ```
 
 - Without `frontend/dist`, the bundle and CSP document checks skip instead of failing.
 - Without Docker or `CTESTER_TYPST_BIN`, the Typst rendering checks skip. CI sets `CTESTER_TYPST_BIN`.
-- `test_postgres.py` needs a real PostgreSQL and is not part of the Ansible verification because it
+- `tests/test_postgres.py` needs a real PostgreSQL and is not part of the Ansible verification because it
   writes. Run it before a cohort, with both roles:
 
 ```sh
 docker run -d --rm --name pg -e POSTGRES_PASSWORD=x -e POSTGRES_DB=ctester -p 55432:5432 postgres:16-alpine
-CTESTER_DB_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester python3 test_postgres.py
+CTESTER_DB_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester python3 tests/test_postgres.py
 docker exec -i pg psql -U postgres -d ctester -c "CREATE ROLE ctester_app LOGIN PASSWORD 'y'"
 CTESTER_DB_ADMIN_DSN=postgresql://postgres:x@127.0.0.1:55432/ctester \
-CTESTER_DB_DSN=postgresql://ctester_app:y@127.0.0.1:55432/ctester python3 test_postgres.py
+CTESTER_DB_DSN=postgresql://ctester_app:y@127.0.0.1:55432/ctester python3 tests/test_postgres.py
 docker stop pg
 ```
 
-- `test_ctester.py` also runs on the Dell with the host Python, which has no third-party packages.
+- `tests/test_ctester.py` also runs on the Dell with the host Python, which has no third-party packages.
   Anything it imports must stay standard-library only, or the automatic deployment stops on an
   `ImportError`.
 
 ## Content
 
 ```sh
-python3 validate_content.py ../unittests/content
-python3 publish_content.py  ../unittests/content /tmp/published
+python3 scripts/validate_content.py ../unittests/content
+python3 worker/publish_content.py   ../unittests/content /tmp/published
 ```
 
 - Pushing to the private test repository is enough; the timer republishes within five minutes.
@@ -79,7 +79,7 @@ python3 publish_content.py  ../unittests/content /tmp/published
 |---|---|
 | Uvicorn | One worker only. Quotas, presence, the token cache and collaboration rooms are held in memory. |
 | WebSockets | `wsproto` must be in `/deps`, or every handshake returns 501 silently. The NPM proxy host needs "Websockets Support". |
-| Verdict cache | Any change to `runner.py` invalidates it once. Avoid deploying right before a lab. `CTESTER_CACHE_MAX=0` disables it. |
+| Verdict cache | Any change to `worker/runner.py` invalidates it once. Avoid deploying right before a lab. `CTESTER_CACHE_MAX=0` disables it. |
 | Console | Needs `CTESTER_SCRATCH=1` on the API, `CTESTER_BUILD_SCRATCH` on the runner units, and at least two workers. |
 | gVisor | `--pids-limit` counts the sentry's threads: below 64 the sandbox does not start. Fork bombs are stopped by the memory limit. |
 | Compiler | `-std=gnu23`, not `c23` (which hides `M_PI`). `-DUNITY_INCLUDE_DOUBLE` is required, or double assertions always fail. |
@@ -122,7 +122,7 @@ docker logs ctester-web-1
 ls /opt/ctester/spool                            # empty when idle
 cat /opt/ctester/published/current.json          # served revision
 grep -rl answer /opt/ctester/published/          # must print nothing
-python3 /opt/ctester/src/test_ctester.py
+python3 /opt/ctester/src/tests/test_ctester.py
 ```
 
 Verdict cache activity is logged by the workers:
@@ -138,7 +138,7 @@ Team rosters: students pick teams themselves until the assignment opens. To move
 afterwards, load a CSV of `group_number,number,account`:
 
 ```sh
-python3 import_teams.py devoir roster.csv --sql \
+python3 scripts/import_teams.py devoir roster.csv --sql \
   | docker exec -i ctester-postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1
 ```
 
@@ -147,7 +147,7 @@ origin on the LAN, not through Cloudflare:
 
 ```sh
 CTESTER_KEY=... CTESTER_LOAD_EXERCISE=tp2-ex3 CTESTER_LOAD_TOKEN=... \
-  python3 load_test.py http://ctester-web-1:8000
+  python3 scripts/load_test.py http://ctester-web-1:8000
 ```
 
 Watch `docker stats`, `uptime` and the spool length while it runs. Raise `ctester_workers` only if
