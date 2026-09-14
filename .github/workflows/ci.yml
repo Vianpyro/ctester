@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -41,8 +41,8 @@ jobs:
       - run: npx svelte-check --tsconfig ./tsconfig.json --fail-on-warnings
       - run: npm run build
       - run: npm test
-      - run: python3 test_ctester.py
-      - run: python3 test_api.py
+      - run: python3 tests/test_ctester.py
+      - run: python3 tests/test_api.py
       - uses: actions/upload-artifact@v4
         with:
           name: page

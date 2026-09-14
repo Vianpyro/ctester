@@ -12,8 +12,8 @@ import sys
 import tempfile
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path[:0] = [HERE, os.path.join(HERE, "app")]
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app")]
 
 os.environ.setdefault("CTESTER_ORIGINS",
                       "https://tch009.thevhome.com,https://vianpyro.github.io")
@@ -21,7 +21,7 @@ os.environ.setdefault("CTESTER_ORIGINS",
 try:
     from fastapi.testclient import TestClient
 except ImportError:  # pragma: no cover -- message, pas trace
-    sys.exit("test_api.py a besoin de httpx2 : pip install -r requirements-dev.txt")
+    sys.exit("tests/test_api.py a besoin de httpx2 : pip install -r requirements-dev.txt")
 
 import config      # noqa: E402
 import deps        # noqa: E402
@@ -923,7 +923,7 @@ def test_no_store_par_defaut_sur_les_donnees():
 
 
 def test_pas_d_annonce_de_version_de_serveur():
-    with open(os.path.join(HERE, "app", "main.py"), encoding="utf-8") as fh:
+    with open(os.path.join(ROOT, "app", "main.py"), encoding="utf-8") as fh:
         source = fh.read()
     assert "server_header=False" in source
     assert "workers=1" in source
@@ -1514,7 +1514,7 @@ def test_entier_falls_back_to_the_default_when_the_variable_is_unreadable():
 
 
 def test_304_garde_la_csp_et_le_cache():
-    page = os.path.join(HERE, "web")
+    page = os.path.join(ROOT, "web")
     if not os.path.isdir(page):
         return
     with contexte() as (c, _, _tmp):

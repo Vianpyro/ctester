@@ -20,7 +20,7 @@ flowchart LR
     B["Browser<br/>Svelte (GitHub Pages)"]
     A["API<br/>FastAPI"]
     Q[("Spool")]
-    W["Host worker<br/>runner.py"]
+    W["Host worker<br/>worker/runner.py"]
     S["Sandbox<br/>Docker + gVisor"]
     DB[("PostgreSQL")]
 
@@ -35,25 +35,31 @@ The API never compiles or runs code and cannot read the tests. It writes a job t
 returns immediately. A worker on the host claims the job, judges it in a disposable container with no
 network, and writes the verdict back for the browser to poll.
 
-Course content lives in a separate private repository. `publish_content.py` validates it and writes a
+Course content lives in a separate private repository. `worker/publish_content.py` validates it and writes a
 versioned public projection. `current.json` points at the active release, so a rollback is a pointer
 change.
 
 ## Repository layout
 
 ```text
-app/                  FastAPI application (routers = HTTP, services = logic, state.py = SQL)
-frontend/             Svelte 5 + TypeScript page, built with Vite
-runner.py             host worker: queue, sandbox, verdicts, verdict cache, console sessions
-content_catalog.py    content validation and access rules
-publish_content.py    release publication and rollback
-typst_build.py        Typst statement rendering
-build-*.sh            what runs inside the sandbox for each mode
-bot/bridge.py         Discord bridge
-import_teams.py       team roster corrections
-typst/                statement template and vendored Typst packages
-test_*.py             backend, sandbox and PostgreSQL checks
-docs/                 operations runbook and the Typst authoring guide
+app/                          FastAPI application (routers = HTTP, services = logic, state.py = SQL)
+frontend/                     Svelte 5 + TypeScript page, built with Vite
+worker/
+  runner.py                   host worker: queue, sandbox, verdicts, verdict cache, console sessions
+  content_catalog.py          content validation and access rules
+  publish_content.py          release publication and rollback
+  typst_build.py              Typst statement rendering
+  build-*.sh                  what runs inside the sandbox for each mode
+scripts/
+  validate_content.py         content validation
+  verify_content.py           reference solutions against their tests
+  render_statement.py         local Typst preview
+  import_teams.py             team roster corrections
+  load_test.py                load testing
+tests/                        backend, sandbox and PostgreSQL checks
+bot/bridge.py                 Discord bridge
+typst/                        statement template and vendored Typst packages
+docs/                         operations runbook and the Typst authoring guide
 ```
 
 ## Development
@@ -63,14 +69,14 @@ pip install -r requirements-dev.txt
 npm ci
 
 npm run check && npm run build && npm test
-python3 test_ctester.py
-python3 test_api.py
+python3 tests/test_ctester.py
+python3 tests/test_api.py
 ```
 
 Run the page and API locally against published content:
 
 ```sh
-python3 publish_content.py ../unittests/content /tmp/published
+python3 worker/publish_content.py ../unittests/content /tmp/published
 CTESTER_KEY=dev CTESTER_PUBLISHED=/tmp/published CTESTER_PAGE=frontend/dist python3 app/main.py
 ```
 

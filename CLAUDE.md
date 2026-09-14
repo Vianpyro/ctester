@@ -11,8 +11,9 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - `frontend/`: Svelte 5 + TypeScript. `lib/domain/` is pure logic with no DOM, `lib/state/` has one
   small module per owner, `features/` are lazily loaded screens, and `App.svelte` alone decides what
   is mounted.
-- `runner.py`: host worker (root). `content_catalog.py`, `publish_content.py` and `typst_build.py` form
-  the content pipeline.
+- `worker/`: `runner.py` is the host worker (root). `content_catalog.py`, `publish_content.py` and
+  `typst_build.py` form the content pipeline. `build-*.sh` run inside the sandbox.
+- `scripts/`: command-line tools. `tests/`: the Python checks.
 
 ## Rules the code depends on
 
@@ -23,7 +24,7 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **Student-facing messages are French** and come from `services/`, not from Pydantic errors.
 - **`find_exercise()` is the only gate** to an exercise, in the API and in the worker.
 - **Anything `test_ctester.py` imports must be standard-library only.** It runs with the host Python on
-  the Dell. The same goes for `csp.py`, `services/source.py`, `typst_build.py` and `bot/bridge.py`.
+  the Dell. The same goes for `csp.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares
   them. No inline scripts.
 - **The anonymous bundle stays small.** Anything that needs an account is loaded lazily, and
@@ -45,11 +46,11 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 
 ```sh
 npm run check && npm run build && npm test
-python3 test_ctester.py
-python3 test_api.py
-python3 validate_content.py ../unittests/content
-python3 verify_content.py   ../unittests/content
-python3 test_sandbox.py     ../unittests/content
+python3 tests/test_ctester.py
+python3 tests/test_api.py
+python3 scripts/validate_content.py ../unittests/content
+python3 scripts/verify_content.py   ../unittests/content
+python3 tests/test_sandbox.py       ../unittests/content
 ```
 
 `test_postgres.py` needs a real PostgreSQL; see the operations guide.
