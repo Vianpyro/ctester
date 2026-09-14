@@ -2249,6 +2249,9 @@ def test_rang_dans_la_file_et_job_disparu():
                   "files": {"submission.c": "int main(){}"}}
         premier = c.post("/submit", json=charge).json()["id"]
         second = c.post("/submit", json=charge).json()["id"]
+        # Same mtime on both, as when two jobs land within one kernel tick.
+        for job in (premier, second):
+            os.utime(os.path.join(config.SPOOL, job, "job.json"), (1e9, 1e9))
         for job, rang in ((premier, 1), (second, 2)):
             corps = c.get("/r/" + job).json()
             assert corps["state"] == "queued" and corps["position"] == rang, corps

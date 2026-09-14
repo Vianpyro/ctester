@@ -1,10 +1,10 @@
 import codecs
 import json
 import os
-import uuid
 
 import config
 from services.source import canonicalize
+from services.spool import new_job_id
 
 try:
     import fcntl
@@ -90,7 +90,7 @@ def open_session(code):
     if fcntl is None:
         raise RuntimeError("the console needs flock (POSIX only)")
 
-    job_id = uuid.uuid4().hex
+    job_id = new_job_id()
     path = os.path.join(config.SPOOL, job_id)
     os.mkdir(path, 0o755)
     os.mkdir(os.path.join(path, "src"), 0o755)

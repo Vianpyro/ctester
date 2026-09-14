@@ -282,6 +282,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS team_number_idx
     ON team (assignment_id, group_number, number);
 DROP INDEX IF EXISTS team_invite_code_idx;
 
+-- Solve events used to be keyed 'reussite:<exercise>', and that key is what
+-- prevents a second XP grant. Rows are renamed unless the account already has
+-- the new id, in which case both stay untouched.
+UPDATE progress_event p SET event_id = 'solved:' || substr(p.event_id, 10)
+ WHERE p.event_id LIKE 'reussite:%'
+   AND NOT EXISTS (SELECT 1 FROM progress_event q
+                    WHERE q.account = p.account
+                      AND q.event_id = 'solved:' || substr(p.event_id, 10));
+UPDATE xp_transaction x SET event_id = 'solved:' || substr(x.event_id, 10)
+ WHERE x.event_id LIKE 'reussite:%'
+   AND NOT EXISTS (SELECT 1 FROM xp_transaction y
+                    WHERE y.account = x.account
+                      AND y.event_id = 'solved:' || substr(x.event_id, 10));
+UPDATE achievement_unlocked SET event_id = 'solved:' || substr(event_id, 10)
+ WHERE event_id LIKE 'reussite:%';
+
 -- Grants are listed table by table, never schema-wide, so a new table without
 -- its grant is caught by the checks. Append-only tables get no UPDATE, and forum
 -- messages are immutable apart from the two moderated columns.

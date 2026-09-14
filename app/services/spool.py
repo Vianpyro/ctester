@@ -1,7 +1,8 @@
 import json
 import math
 import os
-import uuid
+import secrets
+import time
 
 import config
 from services.catalog import validate_files
@@ -92,8 +93,14 @@ def job_sources(job_id, entry):
     return files if message is None else {}
 
 
+def new_job_id():
+    # Jobs are queued by mtime, which is only as fine as a kernel tick, then by id.
+    # A time prefix keeps submission order on ties; the random half stays unguessable.
+    return "%016x%s" % (time.time_ns(), secrets.token_hex(8))
+
+
 def write_job(exercise_id, name, blob, owner=None):
-    job_id = uuid.uuid4().hex
+    job_id = new_job_id()
     path = os.path.join(config.SPOOL, job_id)
     os.mkdir(path, 0o755)
     with open(os.path.join(path, name), "wb") as fh:

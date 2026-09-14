@@ -220,6 +220,46 @@ def schema_repairs_an_older_database():
     print("ok   schema.sql repairs an older database, and stays idempotent")
 
 
+def schema_renames_legacy_solve_events():
+    import psycopg
+    with open(os.path.join(HERE, "app", "schema.sql"), encoding="utf-8") as fh:
+        sql = fh.read()
+    legacy, doubled = "legacy-a", "legacy-b"
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
+        def add_solve(account, event_id):
+            cx.execute("INSERT INTO progress_event (account, event_id, type, exercise_id,"
+                       " policy) VALUES (%s, %s, 'ExerciceReussi', 'tp9-ex1', 'p')",
+                       (account, event_id))
+            cx.execute("INSERT INTO xp_transaction (account, event_id, amount, reason,"
+                       " exercise_id, policy) VALUES (%s, %s, 10, 'r', 'tp9-ex1', 'p')",
+                       (account, event_id))
+
+        add_solve(legacy, "reussite:tp9-ex1")
+        cx.execute("INSERT INTO achievement_unlocked (account, achievement_id, event_id,"
+                   " policy) VALUES (%s, 'premiere-reussite', 'reussite:tp9-ex1', 'p')",
+                   (legacy,))
+        add_solve(doubled, "reussite:tp9-ex1")
+        add_solve(doubled, "solved:tp9-ex1")
+        cx.execute(sql)
+
+        def ids(table, account):
+            return sorted(row[0] for row in cx.execute(
+                "SELECT event_id FROM %s WHERE account = %%s" % table, (account,)))
+
+        for table in ("progress_event", "xp_transaction", "achievement_unlocked"):
+            assert ids(table, legacy) == ["solved:tp9-ex1"], (table, ids(table, legacy))
+        for table in ("progress_event", "xp_transaction"):
+            assert ids(table, doubled) == ["reussite:tp9-ex1", "solved:tp9-ex1"], table
+        # Solving the same exercise again after the rename grants nothing.
+        assert state.grant_first_solve(legacy, "tp9-ex1", "solved:tp9-ex1", 10, "r",
+                                       "p", {}, 100) is None
+        assert ids("xp_transaction", legacy) == ["solved:tp9-ex1"]
+        for table in ("progress_event", "xp_transaction", "achievement_unlocked"):
+            cx.execute("DELETE FROM %s WHERE account IN (%%s, %%s)" % table,
+                       (legacy, doubled))
+    print("ok   legacy 'reussite:' events are renamed, never duplicated")
+
+
 def schema_migrates_a_roster_shaped_team_table():
     """LA FORME QU'AVAIT `team` AVANT QUE LES ÉQUIPES NE SE CHOISISSENT.
 
@@ -342,14 +382,14 @@ def practice_attempts():
 def grants():
     """THE HEART OF THIS FILE: the data-modifying CTE feeding the INSERT."""
     granted = state.grant_first_solve(
-        ALICE, "tp2-ex3", "reussite:tp2-ex3", 15, "first solve",
+        ALICE, "tp2-ex3", "solved:tp2-ex3", 15, "first solve",
         "policy-1", {"job": "job-1", "difficulte": "foundation"}, 100)
     assert granted == 15, granted
     # REPLAYING THE SAME FACT GRANTS NOTHING. That is the one thing that makes
     # a replayed HTTP poll, a restarted worker and a redone exercise harmless.
     for _ in range(3):
         assert state.grant_first_solve(
-            ALICE, "tp2-ex3", "reussite:tp2-ex3", 15, "first solve",
+            ALICE, "tp2-ex3", "solved:tp2-ex3", 15, "first solve",
             "policy-1", {"job": "job-9"}, 100) is None
     assert count("xp_transaction", ALICE) == 1
     assert count("progress_event", ALICE) == 1
@@ -357,10 +397,10 @@ def grants():
     # THE CAP IS COMPUTED WITHIN THE STATEMENT. Past it, the fact is recorded
     # at zero rather than disappearing -- and the CHECK (amount >= 0) accepts it.
     assert state.grant_first_solve(
-        ALICE, "tp2-ex0", "reussite:tp2-ex0", 30, "first solve",
+        ALICE, "tp2-ex0", "solved:tp2-ex0", 30, "first solve",
         "policy-1", {"job": "job-4"}, 20) == 5           # 20 - 15 already granted
     assert state.grant_first_solve(
-        ALICE, "tp7-ex1", "reussite:tp7-ex1", 30, "first solve",
+        ALICE, "tp7-ex1", "solved:tp7-ex1", 30, "first solve",
         "policy-1", {"job": "job-5"}, 20) == 0           # cap reached
     assert count("xp_transaction", ALICE) == 3
     print("ok   grant: once per fact, cap applied within the same statement")
@@ -370,11 +410,11 @@ def achievements_and_reading():
     # `unnest(%s::text[])`: a parameterized array, not a list of VALUES built
     # in Python. This is the shape that only exists in real SQL.
     assert state.unlock(ALICE, ["premiere-reussite", "premiere-competence"],
-                       "reussite:tp2-ex3", "policy-1")
+                       "solved:tp2-ex3", "policy-1")
     assert state.unlock(ALICE, ["premiere-reussite", "cinq-reussites"],
-                       "reussite:tp2-ex0", "policy-1")
+                       "solved:tp2-ex0", "policy-1")
     assert count("achievement_unlocked", ALICE) == 3     # not 4: one duplicate
-    assert state.unlock(ALICE, [], "reussite:tp2-ex3", "policy-1")
+    assert state.unlock(ALICE, [], "solved:tp2-ex3", "policy-1")
 
     view = state.read_progress(ALICE)
     assert view["xp"] == 20, view                        # 15 + 5 + 0
@@ -446,12 +486,12 @@ def account_isolation():
     """WHAT ACTUALLY MATTERS: nobody sees or erases a neighbor's data."""
     assert state.write_draft(BOB, "tp2-ex3", {"submission.c": "// bob"})
     assert state.grant_first_solve(
-        BOB, "tp2-ex3", "reussite:tp2-ex3", 15, "first solve",
+        BOB, "tp2-ex3", "solved:tp2-ex3", 15, "first solve",
         "policy-1", {"job": "job-b"}, 100) == 15
     # THE SAME EVENT ID FOR TWO STUDENTS: the primary key carries `account`, so
-    # "reussite:tp2-ex3" belongs to nobody. A primary key on the id alone would
+    # "solved:tp2-ex3" belongs to nobody. A primary key on the id alone would
     # have given Bob Alice's XP.
-    assert state.unlock(BOB, ["premiere-reussite"], "reussite:tp2-ex3", "policy-1")
+    assert state.unlock(BOB, ["premiere-reussite"], "solved:tp2-ex3", "policy-1")
     assert state.read_progress(BOB)["xp"] == 15
     assert state.read_progress(ALICE)["xp"] == 20
     print("ok   two accounts, the same fact, no mixing")
@@ -1174,6 +1214,7 @@ def _rows(sql, params=()):
 def main():
     apply_schema()
     schema_repairs_an_older_database()
+    schema_renames_legacy_solve_events()
     schema_migrates_a_roster_shaped_team_table()
     append_only()
     for user in (ALICE, BOB, CLEO):
