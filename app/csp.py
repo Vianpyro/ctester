@@ -1,96 +1,31 @@
-"""The content security policy. STANDARD LIBRARY ONLY.
-
-THIS MODULE IMPORTS NOTHING BESIDES `re` AND `config`, AND THAT IS NOT AN
-ACCIDENT. `test_ctester.py` is run by `pull.sh` and by the Ansible
-verification with the HOST'S PYTHON -- not the container's, so without
-`PYTHONPATH=/deps` and without starlette. Leaving it in `headers.py` made the
-automatic deployment fail every five minutes, on an `ImportError`, with
-nothing deployed.
-
-The rule to keep: whatever `test_ctester.py` imports must stay runnable on
-the Dell without installing anything.
-"""
-
+# Standard library only: test_ctester.py imports this on the host, without /deps.
 import re
 
 import config
 
 
-# NO INLINE SCRIPT ANYWHERE IN THE PAGE, so no hash to keep up to date. That
-# is what lets the same policy hold in a header here AND in `index.html`'s
-# `<meta>`, which GitHub Pages serves with no way to set a header. The theme
-# bootstrap lives in `frontend/public/theme.js`, loaded at the top of `<head>` with no
-# `defer`: it therefore runs before the first paint, like the inline script
-# it replaces. An inline script added back by mistake is then blocked loudly,
-# instead of going through a copied hash that silently goes stale.
 _INLINE_SCRIPT_RE = re.compile(rb"<script(?![^>]*\ssrc=)[^>]*>(.*?)</script>",
                                re.DOTALL | re.IGNORECASE)
 
+
 def csp(body, issuer=""):
-    """The content security policy for THIS HTML document.
-
-    IT MUST SAY THE SAME THING AS `index.html`'s `<meta>`, except for
-    `frame-ancestors`: a `<meta>` cannot carry it, and that is the only real
-    loss from the move to GitHub Pages (to be restored by a Cloudflare
-    Transform Rule, `X-Frame-Options: DENY`). Here it stays, since this
-    server can set headers.
-
-    `style-src` keeps `'unsafe-inline'`: the page sets computed `style`
-    attributes (a gauge's width, a verdict check's rank). These are styles,
-    not scripts, and removing them would require rewriting three components
-    for zero gain against the threat this targets.
-
-    `connect-src` must contain the OIDC issuer: the page's OIDC module fetches the
-    discovery document there, then the token. Without it, sign-in fails
-    silently -- exactly the kind of failure a CSP produces without saying so.
-    It must also contain the API: during the move, this server still serves
-    the page while its own config already calls `tch099`.
-
-    `body` IS READ ONLY TO REFUSE AN INLINE SCRIPT. The page no longer has
-    any; one that came back would not be hashed on the sly, it would fail
-    `test_csp_du_document`.
-    """
-    if any(bloc.strip() for bloc in _INLINE_SCRIPT_RE.findall(body)):
+    if any(block.strip() for block in _INLINE_SCRIPT_RE.findall(body)):
         raise ValueError(
-            "un <script> inline est apparu dans la page : `script-src 'self'` "
-            "le bloque, ici comme dans le <meta> servi par GitHub Pages. "
-            "Sortir le code dans un fichier, comme frontend/public/theme.js.")
-    origines = []
+            "inline <script> found: `script-src 'self'` blocks it here and in the "
+            "<meta> copy served by GitHub Pages. Move it to a file like public/theme.js.")
+    origins = []
     if config.API_ORIGIN:
-        # L'API, ET LA MEME EN `wss://`. La collaboration d'equipe ouvre une
-        # WebSocket vers cette origine-la, et une CSP qui l'oublie la bloque
-        # EN SILENCE -- exactement le genre de panne que ce fichier existe
-        # pour eviter. CSP niveau 3 fait deja correspondre `https:` a `wss:`,
-        # mais l'ecrire coute vingt-cinq octets et ne depend plus de la
-        # version du navigateur qu'un etudiant a sur son portable.
-        origines.append(config.API_ORIGIN)
-        origines.append("wss://" + config.API_ORIGIN.split("://", 1)[-1])
+        origins.append(config.API_ORIGIN)
+        origins.append("wss://" + config.API_ORIGIN.split("://", 1)[-1])
     if issuer.startswith("https://"):
-        # PAS DE `wss://` POUR L'EMETTEUR : on ne lui parle qu'en HTTP (la
-        # decouverte, puis le jeton). Une origine de plus dans une CSP est une
-        # origine de plus a laquelle la page a le droit de parler.
-        origines.append("/".join(issuer.split("/")[:3]))
-    # `img-src` PORTE L'API ET `blob:`, ET LES DEUX SONT DUS AUX ÉNONCÉS TYPST.
-    #
-    # L'ORIGINE DE L'API : la page est servie par GitHub Pages (`tch009`) et les
-    # pages d'énoncé rendues vivent dans la release, servie par le Dell
-    # (`tch099`). Un `<img>` vers une autre origine est refusé par
-    # `img-src 'self'` -- en silence, comme tout ce que bloque une CSP. C'est la
-    # même origine que `connect-src` autorise déjà deux lignes plus bas.
-    #
-    # `blob:` : un `<img src>` ne porte PAS d'en-tête `Authorization`. L'aperçu
-    # enseignant d'un énoncé pas encore ouvert est servi `no-store` derrière un
-    # jeton ; la page le récupère donc par `fetch` et le pose en `blob:`. Sans
-    # ça, l'enseignant verrait une image cassée exactement là où il vient
-    # vérifier son rendu. Un `blob:` est fabriqué par la page elle-même, à
-    # partir d'octets qu'elle vient de recevoir : il n'ouvre aucune origine.
+        origins.append("/".join(issuer.split("/")[:3]))
     return "; ".join([
         "default-src 'none'",
         "script-src 'self'",
         "style-src 'self' 'unsafe-inline'",
         " ".join(["img-src 'self'"] + ([config.API_ORIGIN] if config.API_ORIGIN else [])
                  + ["blob:"]),
-        " ".join(["connect-src 'self'"] + origines),
+        " ".join(["connect-src 'self'"] + origins),
         "base-uri 'none'",
         "form-action 'none'",
         "frame-ancestors 'none'",

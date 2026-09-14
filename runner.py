@@ -1910,7 +1910,7 @@ def write_result(job_dir, payload):
 # host and has no database connection; the spool is already the only channel
 # between it and the API, and a display statistic is not a fact to keep --
 # losing it at a sweep only costs the first estimate.
-DUREES = "durees.json"
+DURATIONS = "durees.json"
 
 # Every exercise has its own cost: a quiz is instant, a ten-case io exercise
 # pays for ten runs. The average is therefore PER EXERCISE, and sliding over
@@ -1925,7 +1925,7 @@ DUREE_MIN = 0.5
 
 def lire_durees():
     try:
-        with open(os.path.join(SPOOL, DUREES), encoding="utf-8") as fh:
+        with open(os.path.join(SPOOL, DURATIONS), encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
         return {}
@@ -1951,7 +1951,7 @@ def enregistrer_duree(exercise_id, secondes):
     n += 1
     durees[exercise_id] = [round(moyenne + (secondes - moyenne) / n, 2), n]
     try:
-        write_json(os.path.join(SPOOL, DUREES), durees)
+        write_json(os.path.join(SPOOL, DURATIONS), durees)
     except OSError:
         pass  # a lost estimate is not a judge failure
 

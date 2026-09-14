@@ -1961,23 +1961,23 @@ def test_politique_est_declarative():
     politique decorative, et c'est exactement ce que D-005 interdit.
     """
     assert politique.VERSION
-    seuils = politique.POLICY["niveaux"]
+    seuils = politique.POLICY["levels"]
     assert seuils[0] == 0 and seuils == sorted(seuils) == list(dict.fromkeys(seuils))
     # Chaque succes a de quoi s'afficher SANS couleur ni icone : un titre et une
     # description, plus le fait dont il derive.
     ids = set()
-    for succes in politique.POLICY["succes"]:
+    for succes in politique.POLICY["achievements"]:
         assert succes["title"] and succes["description"]
-        assert succes["sur"] and succes["seuil"] >= 1
+        assert succes["on"] and succes["threshold"] >= 1
         assert succes["id"] not in ids
         ids.add(succes["id"])
-    assert set(politique.SUCCES) == ids
+    assert set(politique.ACHIEVEMENTS) == ids
     # Les bandes de maitrise s'affichent comme les succes : en toutes lettres.
-    bandes = politique.POLICY["maitrise"]["bandes"]
+    bandes = politique.POLICY["mastery"]["bands"]
     for bande in bandes:
         assert bande["title"] and bande["description"]
-    assert set(politique.BANDES) == {b["id"] for b in bandes} == set(
-        politique.bande_maitrise(r, t, n)
+    assert set(politique.BANDS) == {b["id"] for b in bandes} == set(
+        politique.mastery_band(r, t, n)
         for n in range(0, 4) for t in range(0, n + 1) for r in range(0, t + 1))
     # AUCUNE VALEUR D'EQUILIBRAGE NE S'ECRIT EN DUR DANS L'API. Sans ce
     # controle la politique deviendrait decorative : deux endroits ou changer un
@@ -1985,35 +1985,35 @@ def test_politique_est_declarative():
     progression = lire(os.path.join(HERE, "app", "services", "progress.py"))
     for montant in set(politique.POLICY["xp"].values()):
         assert not re.search(r"%d" % montant, progression), montant
-    assert not re.search(r"%d" % politique.plafond_quotidien(), progression)
+    assert not re.search(r"%d" % politique.daily_cap(), progression)
 
 
 def test_niveau_derive_du_solde():
-    seuils = politique.POLICY["niveaux"]
-    assert politique.niveau(0)["rank"] == 1
-    assert politique.niveau(-5)["rank"] == 1          # un solde ne recule pas
-    assert politique.niveau(seuils[1])["rank"] == 2
-    assert politique.niveau(seuils[1] - 1)["rank"] == 1
-    au_bout = politique.niveau(seuils[-1] + 1000)
+    seuils = politique.POLICY["levels"]
+    assert politique.level(0)["rank"] == 1
+    assert politique.level(-5)["rank"] == 1          # un solde ne recule pas
+    assert politique.level(seuils[1])["rank"] == 2
+    assert politique.level(seuils[1] - 1)["rank"] == 1
+    au_bout = politique.level(seuils[-1] + 1000)
     assert au_bout["rank"] == len(seuils) and au_bout["next"] is None
     # `remaining` est un nombre d'XP, pas un pourcentage : l'interface en fait
     # une phrase, et une barre sans phrase ne se lit pas a voix haute.
-    assert politique.niveau(seuils[1] - 4)["remaining"] == 4
+    assert politique.level(seuils[1] - 4)["remaining"] == 4
 
 
 def test_succes_derives_de_faits():
-    assert politique.succes_atteints({}) == []
-    assert politique.succes_atteints({"solved": 1}) == ["premiere-reussite"]
-    beaucoup = politique.succes_atteints({"solved": 10, "skills": 3,
-                                          "verifications": 1})
-    assert set(beaucoup) == set(politique.SUCCES)
+    assert politique.achievements_reached({}) == []
+    assert politique.achievements_reached({"solved": 1}) == ["premiere-reussite"]
+    beaucoup = politique.achievements_reached({"solved": 10, "skills": 3,
+                                               "verifications": 1})
+    assert set(beaucoup) == set(politique.ACHIEVEMENTS)
     # UNE VERIFICATION N'EST PAS UNE PRATIQUE : dix exercices reussis ne
     # debloquent pas le succes de verification.
-    assert "premiere-verification" not in politique.succes_atteints(
+    assert "premiere-verification" not in politique.achievements_reached(
         {"solved": 10, "skills": 3})
     # Un fait inconnu de l'appelant vaut zero : ajouter un critere ne doit pas
     # faire lever sur un appelant plus ancien.
-    assert politique.succes_atteints({"inconnu": 99}) == []
+    assert politique.achievements_reached({"inconnu": 99}) == []
 
 
 # LA FORME DU CATALOGUE PUBLIE, celle que `exercices_ouverts()` rend :
@@ -2068,15 +2068,15 @@ def test_recommandation_deterministe():
     touches, reussis = progression.exercise_facts(etats, [])
     # Deja pratique `variables` : on repart sur l'exercice non reussi qui la
     # reprend, pas sur le premier venu.
-    assert progression.recommander(CATALOGUE_DEMO, touches, reussis) == {
+    assert progression.recommend(CATALOGUE_DEMO, touches, reussis) == {
         "exercise_id": "tp2-ex3", "skill": "variables"}
     # Aucune competence en commun : le premier non reussi, dans l'ordre du cours.
-    assert progression.recommander(CATALOGUE_DEMO, set(), set()) == {
+    assert progression.recommend(CATALOGUE_DEMO, set(), set()) == {
         "exercise_id": "tp2-ex0", "skill": None}
     # Tout reussi : rien a proposer, et on le dit au lieu d'inventer.
     tout = {e["id"] for e in CATALOGUE_DEMO}
-    assert progression.recommander(CATALOGUE_DEMO, tout, tout) is None
-    assert progression.recommander([], set(), set()) is None
+    assert progression.recommend(CATALOGUE_DEMO, tout, tout) is None
+    assert progression.recommend([], set(), set()) is None
 
 
 def test_progression_ne_publie_rien_de_secret():
@@ -2100,7 +2100,7 @@ def test_progression_ne_publie_rien_de_secret():
     # La legende des bandes voyage meme quand aucune competence n'est
     # verifiable : la page doit pouvoir expliquer ce qu'elle n'affiche pas
     # encore, plutot que de reecrire les libelles de son cote.
-    assert [b["id"] for b in charge["mastery"]["bands"]] == list(politique.BANDES)
+    assert [b["id"] for b in charge["mastery"]["bands"]] == list(politique.BANDS)
     assert charge["mastery"]["skills"] == []
     # RIEN DE SECRET NE TRAVERSE : ni chemin de tests, ni code soumis, ni
     # detail de verdict. Meme frontiere que publish_catalogue.
@@ -2116,26 +2116,26 @@ def test_bandes_de_maitrise_par_couverture():
     verifications ouvertes de la competence, et pas « une », sinon la phase 2
     promettrait une capacite demontree sur une seule preuve.
     """
-    vide = progression.maitrise_view(CATALOGUE_VERIF, [])
+    vide = progression.mastery_view(CATALOGUE_VERIF, [])
     # Une competence qu'aucune verification ne porte n'y figure pas : lui
     # reprocher « pas encore verifie » serait reprocher une lacune du contenu.
     assert [c["id"] for c in vide] == ["variables", "arithmetic-operators"]
     assert vide[0] == {"id": "variables", "total": 2, "attempted": 0,
                        "passed": 0, "band": "non-verifie"}
 
-    une = progression.maitrise_view(CATALOGUE_VERIF, [evidence("verif-a", True)])
+    une = progression.mastery_view(CATALOGUE_VERIF, [evidence("verif-a", True)])
     par_id = {c["id"]: c for c in une}
     # `variables` est portee par DEUX verifications : une seule reussie ne la
     # verifie pas. `arithmetic-operators` n'en a qu'une, donc elle est complete.
     assert par_id["variables"]["band"] == "en-progression"
     assert par_id["arithmetic-operators"]["band"] == "verifie"
 
-    deux = progression.maitrise_view(
+    deux = progression.mastery_view(
         CATALOGUE_VERIF, [evidence("verif-b", True), evidence("verif-a", True)])
     assert {c["id"]: c["band"] for c in deux} == {
         "variables": "verifie", "arithmetic-operators": "verifie"}
 
-    rate = progression.maitrise_view(CATALOGUE_VERIF, [evidence("verif-a", False)])
+    rate = progression.mastery_view(CATALOGUE_VERIF, [evidence("verif-a", False)])
     # Tentee sans succes : une bande a consolider, PAS le silence d'une
     # competence jamais abordee. C'est pour ca qu'un echec s'ecrit aussi.
     assert {c["id"]: c["band"] for c in rate} == {
@@ -2148,12 +2148,12 @@ def test_maitrise_retient_la_derniere_tentative():
     # `read_events` rend du plus recent au plus ancien : ici, un echec APRES
     # une reussite.
     journal = [evidence("verif-a", False), evidence("verif-a", True)]
-    assert progression.dernieres_tentatives(journal) == {"verif-a": False}
-    vue = {c["id"]: c for c in progression.maitrise_view(CATALOGUE_VERIF, journal)}
+    assert progression.latest_attempts(journal) == {"verif-a": False}
+    vue = {c["id"]: c for c in progression.mastery_view(CATALOGUE_VERIF, journal)}
     assert vue["arithmetic-operators"]["band"] == "a-consolider"
     # MAIS UN SUCCES NE SE RETIRE PAS : ce que la bande perd, le journal le
     # garde, et le compteur des succes est monotone.
-    assert progression.verifications_reussies(journal) == {"verif-a"}
+    assert progression.solved_verifications(journal) == {"verif-a"}
 
 
 def test_une_pratique_ne_fait_bouger_aucune_bande():
@@ -2186,8 +2186,8 @@ def test_une_verification_ne_compte_pas_comme_une_pratique():
     assert "arrays-1d" in par_id
     # Et rien ne recommande une verification, meme quand tout le reste est fait.
     tout = {e["id"] for e in CATALOGUE_DEMO}
-    assert progression.recommander(
-        progression.exercices_pratique(CATALOGUE_VERIF), tout, tout) is None
+    assert progression.recommend(
+        progression.practice_exercises(CATALOGUE_VERIF), tout, tout) is None
 
 
 def test_aucun_index_ne_precede_la_colonne_qu_il_indexe():
@@ -2383,26 +2383,26 @@ def test_every_persistence_function_degrades_without_a_database():
         (state.read_practice_days, ("u", 30), None),
         (state.read_unlock_rates, (), None),
         (state.leaderboard_rows, (None, 7), None),
-        (state.forum_fil, ("ex", 10), None),
-        (state.forum_publier, ("m", "ex", "u", "x"), False),
+        (state.forum_thread, ("ex", 10), None),
+        (state.forum_post, ("m", "ex", "u", "x"), False),
         (state.forum_open_to_group, ("m", "u"), None),
-        (state.forum_voter, ("m", "u", 1), None),
-        (state.forum_devoter, ("m", "u"), None),
-        (state.forum_repondre, ("m", "ex", "u", "x", "r"), None),
+        (state.forum_vote, ("m", "u", 1), None),
+        (state.forum_unvote, ("m", "u"), None),
+        (state.forum_reply, ("m", "ex", "u", "x", "r"), None),
         (state.forum_search, ("quoi", "u", 5), None),
         (state.forum_top, (8, 10), None),
-        (state.forum_supprimer, ("m", "u"), None),
-        (state.forum_signaler, ("m", "u"), None),
-        (state.forum_signalements, (10,), None),
-        (state.forum_moderer, ("a", "m", "u", "hide"), None),
-        (state.forum_profils, (["u"],), None),
-        (state.forum_profil, ("u",), None),
-        (state.forum_profil_ecrire, ("p", "u", None, None, False, False), False),
+        (state.forum_delete, ("m", "u"), None),
+        (state.forum_report, ("m", "u"), None),
+        (state.forum_reports, (10,), None),
+        (state.forum_moderate, ("a", "m", "u", "hide"), None),
+        (state.forum_profiles, (["u"],), None),
+        (state.forum_profile, ("u",), None),
+        (state.forum_write_profile, ("p", "u", None, None, False, False), False),
         (state.forum_taken_aliases, (), None),
-        (state.forum_nom_signaler, ("m", "u"), None),
-        (state.forum_noms_signales, (10,), None),
+        (state.forum_report_name, ("m", "u"), None),
+        (state.forum_reported_names, (10,), None),
         (state.forum_help_rows, (10, 8), None),
-        (state.forum_auteur, ("m",), None),
+        (state.forum_author, ("m",), None),
     ]
     for function, args, expected in cases:
         assert function(*args) == expected, function.__name__
@@ -2429,9 +2429,9 @@ def test_forum_moderer_and_profils_refuse_without_touching_the_database():
     """Two guards that short-circuit BEFORE the query, and are therefore
     testable without a database: an unknown action, an empty account list.
     """
-    assert state.forum_moderer("a", "m", "u", "bogus") == []
-    assert state.forum_profils([]) == {}
-    assert state.forum_profils([None, ""]) == {}   # nothing usable either
+    assert state.forum_moderate("a", "m", "u", "bogus") == []
+    assert state.forum_profiles([]) == {}
+    assert state.forum_profiles([None, ""]) == {}   # nothing usable either
 
 
 def test_minute_falls_back_to_a_string_for_what_is_not_a_date():
@@ -2479,8 +2479,8 @@ def test_recompenser_and_verification_survive_an_outage_between_write_and_reread
     try:
         progression.state = _PartialOutage()
         entry = {"id": "tp2-ex0", "difficulty": "foundation"}
-        progression.recompenser("u", entry, "job1")            # must not raise
-        progression.enregistrer_verification("u", entry, "job2", True)
+        progression.reward("u", entry, "job1")            # must not raise
+        progression.record_verification("u", entry, "job2", True)
     finally:
         progression.state = guard
 
@@ -2509,9 +2509,9 @@ def test_durees_moyennes_ignores_a_file_that_is_not_an_object():
     guard = config.SPOOL
     try:
         config.SPOOL = tempfile.mkdtemp(prefix="ctester-spool-")
-        with open(os.path.join(config.SPOOL, spool.DUREES), "w", encoding="utf-8") as fh:
+        with open(os.path.join(config.SPOOL, spool.DURATIONS), "w", encoding="utf-8") as fh:
             json.dump([1, 2, 3], fh)              # JSON, but not an object
-        assert spool.durees_moyennes() == {}
+        assert spool.average_durations() == {}
     finally:
         shutil.rmtree(config.SPOOL, ignore_errors=True)
         config.SPOOL = guard
@@ -2519,8 +2519,8 @@ def test_durees_moyennes_ignores_a_file_that_is_not_an_object():
 
 def test_eta_secondes_returns_zero_for_an_already_finished_or_unknown_job():
     jobs = [("aaa", 100.0, False), ("bbb", 101.0, True)]
-    assert spool.eta_secondes(jobs, "bbb") == 0      # already done: no longer in the queue
-    assert spool.eta_secondes(jobs, "unknown") == 0  # never existed
+    assert spool.eta_seconds(jobs, "bbb") == 0      # already done: no longer in the queue
+    assert spool.eta_seconds(jobs, "unknown") == 0  # never existed
 
 
 def test_job_metadata_refuses_a_job_json_that_is_not_an_object():
@@ -2970,24 +2970,24 @@ def test_forum_texte_borne_et_stocke_la_source():
     assainir a l'ecriture seulement laisserait les messages deja en base hors de
     portee d'une regle resserree ensuite.
     """
-    assert forum.forum_texte("  Pourquoi mon while ne s'arrete pas ?  ") == (
+    assert forum.forum_text("  Pourquoi mon while ne s'arrete pas ?  ") == (
         "Pourquoi mon while ne s'arrete pas ?", None)
-    assert forum.forum_texte("")[0] is None
-    assert forum.forum_texte("   \n  ")[0] is None
-    assert forum.forum_texte(None)[0] is None
-    assert forum.forum_texte(42)[0] is None
-    assert forum.forum_texte("x" * (config.FORUM_MAX_CHARS + 1))[0] is None
-    assert forum.forum_texte("x" * config.FORUM_MAX_CHARS)[0] is not None
+    assert forum.forum_text("")[0] is None
+    assert forum.forum_text("   \n  ")[0] is None
+    assert forum.forum_text(None)[0] is None
+    assert forum.forum_text(42)[0] is None
+    assert forum.forum_text("x" * (config.FORUM_MAX_CHARS + 1))[0] is None
+    assert forum.forum_text("x" * config.FORUM_MAX_CHARS)[0] is not None
     # LA SOURCE PASSE INTACTE, y compris ce qui ressemble a du HTML : c'est le
     # rendu qui l'echappe, et il le fera a chaque affichage.
     hostile = "<script>alert(1)</script> et **gras**"
-    assert forum.forum_texte(hostile)[0] == hostile
-    assert forum.forum_texte("[doc](https://exemple.test)")[0] \
+    assert forum.forum_text(hostile)[0] == hostile
+    assert forum.forum_text("[doc](https://exemple.test)")[0] \
         == "[doc](https://exemple.test)"
     # Les caracteres de controle partent : ils ne servent a rien dans du
     # Markdown et compliquent une relecture humaine pour rien.
-    assert forum.forum_texte("a\x00b\x07c")[0] == "abc"
-    assert forum.forum_texte("ligne 1\r\nligne 2")[0] == "ligne 1\nligne 2"
+    assert forum.forum_text("a\x00b\x07c")[0] == "abc"
+    assert forum.forum_text("ligne 1\r\nligne 2")[0] == "ligne 1\nligne 2"
 
 
 def test_forum_bibliotheques_epinglees():
@@ -3168,7 +3168,7 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
                 "hidden": False, "created_at": "2026-09-03 10:02"},
                {"id": "d" * 32, "account": "sub-bob", "text": "cache",
                 "hidden": True, "created_at": "2026-09-03 10:03"}]
-        vu = forum.forum_vue(fil, "sub-alice", False)
+        vu = forum.forum_view(fil, "sub-alice", False)
         assert [m["author"] for m in vu] == [
             "Vous", "Participant", "Enseignant"], vu
         assert [m["mine"] for m in vu] == [True, False, False]
@@ -3179,7 +3179,7 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
             assert interdit not in texte, interdit
         # Un moderateur, LUI, voit le masque -- sinon il ne pourrait pas le
         # retablir -- et pas davantage d'identite pour autant.
-        vu_mod = forum.forum_vue(fil, "sub-mod", True)
+        vu_mod = forum.forum_view(fil, "sub-mod", True)
         assert len(vu_mod) == 4 and vu_mod[3]["hidden"] is True
         assert vu_mod[2]["author"] == "Vous"      # son propre message
         assert "sub-bob" not in json.dumps(vu_mod, ensure_ascii=False)
@@ -3194,31 +3194,31 @@ def test_forum_identite_bornes_et_visibilite():
     rendu visible -- sauf le numero de groupe pour l'enseignant, en tout
     temps, et c'est ecrit dans le formulaire.
     """
-    assert forum.forum_pseudo(None) == (None, None)
+    assert forum.forum_display_name(None) == (None, None)
     # Pydantic bloque déjà un non-texte à la frontière HTTP, mais la fonction
     # reste appelable directement et doit refuser plutôt que planter.
-    assert forum.forum_pseudo(42) == (None, "nom invalide")
-    assert forum.forum_pseudo("   ") == (None, None)
-    assert forum.forum_pseudo("  Lea   B ") == ("Lea B", None)
-    assert forum.forum_pseudo("Lea" + chr(10) + "B")[0] == "Lea B"   # une ligne
+    assert forum.forum_display_name(42) == (None, "nom invalide")
+    assert forum.forum_display_name("   ") == (None, None)
+    assert forum.forum_display_name("  Lea   B ") == ("Lea B", None)
+    assert forum.forum_display_name("Lea" + chr(10) + "B")[0] == "Lea B"   # une ligne
     for reserve in ("Vous", "participant", "Enseignant", "Équipe du cours",
                     "Anonyme"):
-        assert forum.forum_pseudo(reserve)[0] is None, reserve
-    assert forum.forum_pseudo("x" * (config.FORUM_PSEUDO_MAX + 1))[0] is None
+        assert forum.forum_display_name(reserve)[0] is None, reserve
+    assert forum.forum_display_name("x" * (config.FORUM_PSEUDO_MAX + 1))[0] is None
     # La session n'ouvre que certains groupes (CTESTER_FORUM_GROUPES) ; hors
     # liste, rien ne passe -- pas même un numero valide 1..99.
-    garde_g = config.FORUM_GROUPES
+    garde_g = config.FORUM_GROUPS
     try:
-        config.FORUM_GROUPES = (4, 6)
-        assert forum.forum_groupe("04") == (4, None)
+        config.FORUM_GROUPS = (4, 6)
+        assert forum.forum_group("04") == (4, None)
         for mauvais in (0, 100, -1, "sept", True, 7):
-            assert forum.forum_groupe(mauvais)[0] is None, mauvais
-        config.FORUM_GROUPES = ()
-        assert forum.forum_groupe("07") == (7, None)
+            assert forum.forum_group(mauvais)[0] is None, mauvais
+        config.FORUM_GROUPS = ()
+        assert forum.forum_group("07") == (7, None)
         for mauvais in (0, 100, -1, "sept", True):
-            assert forum.forum_groupe(mauvais)[0] is None, mauvais
+            assert forum.forum_group(mauvais)[0] is None, mauvais
     finally:
-        config.FORUM_GROUPES = garde_g
+        config.FORUM_GROUPS = garde_g
 
     garde = config.FORUM_MODERATORS
     try:
@@ -3227,18 +3227,18 @@ def test_forum_identite_bornes_et_visibilite():
                 "hidden": False, "created_at": "2026-09-03T10:00Z"}]
         cache = {"sub-bob": {"display_name": "Bob", "group_number": 7,
                              "display_name_public": False, "group_number_public": False}}
-        vu = forum.forum_vue(fil, "sub-alice", False, cache)[0]
+        vu = forum.forum_view(fil, "sub-alice", False, cache)[0]
         assert vu["author"] == "Participant" and vu["group"] is None
         assert vu["reportable_name"] is False
         # Le modérateur voit le groupe SANS que le nom devienne public pour
         # autant : deux cases, deux effets.
-        vu_mod = forum.forum_vue(fil, "sub-mod", True, cache)[0]
+        vu_mod = forum.forum_view(fil, "sub-mod", True, cache)[0]
         assert vu_mod["author"] == "Participant" and vu_mod["group"] == 7
         montre = {"sub-bob": dict(cache["sub-bob"], display_name_public=True)}
-        vu2 = forum.forum_vue(fil, "sub-alice", False, montre)[0]
+        vu2 = forum.forum_view(fil, "sub-alice", False, montre)[0]
         assert vu2["author"] == "Bob" and vu2["reportable_name"] is True
         # Son propre nom reste « Vous » : on ne se signale pas soi-meme.
-        a_moi = forum.forum_vue(fil, "sub-bob", False, montre)[0]
+        a_moi = forum.forum_view(fil, "sub-bob", False, montre)[0]
         assert a_moi["author"] == "Vous" and a_moi["reportable_name"] is False
         assert "sub-bob" not in json.dumps(
             [vu, vu_mod, vu2, a_moi], ensure_ascii=False)
@@ -3362,9 +3362,9 @@ def test_les_deux_sondes_de_verrou_ouvrent_en_LECTURE_SEULE():
     """
     for chemin, nom in ((os.path.join(HERE, "runner.py"), "verrou_tenu"),
                         (os.path.join(HERE, "app", "services", "scratch.py"),
-                         "_verrou_tenu")):
+                         "_lock_held")):
         source = lire(chemin)
-        corps = source[source.index("def " + nom + "(chemin):"):]
+        corps = source[source.index("def " + nom + "("):]
         corps = corps[:corps.index("os.close(fd)")]
         assert "os.O_RDONLY" in corps, (
             nom + " sonde le verrou sans O_RDONLY : il demandera le droit "
@@ -3539,7 +3539,7 @@ def test_duree_moyenne_glissante_par_exercice():
         assert 19.0 < moyenne <= 20.0, moyenne
 
         # Un fichier corrompu repart de zéro plutôt que de faire échouer un job.
-        with open(os.path.join(spool, runner.DUREES), "w", encoding="utf-8") as fh:
+        with open(os.path.join(spool, runner.DURATIONS), "w", encoding="utf-8") as fh:
             fh.write("{ pas du json")
         assert runner.lire_durees() == {}
         runner.enregistrer_duree("tp1", 3.0)
@@ -3670,12 +3670,12 @@ def test_la_console_canonise_par_la_meme_porte():
     fois dans `routers/scratch.py` -- une par `PUT /scratch/draft`, une par la
     trame `hello` -- et de deux copies d'une borne, c'est celle qu'on oublie de
     corriger qui devient la borne réelle."""
-    code, message, statut = scratch.valider_bloc_notes("int x;   \r\n")
+    code, message, statut = scratch.validate_scratch("int x;   \r\n")
     assert (code, message, statut) == ("int x;\n", None, 200)
-    _, message, statut = scratch.valider_bloc_notes("x" * (config.MAX_CODE + 1))
+    _, message, statut = scratch.validate_scratch("x" * (config.MAX_CODE + 1))
     assert statut == 413 and message, (statut, message)
     # La borne porte sur la forme canonique : ces espaces morts ne comptent pas.
-    code, message, _ = scratch.valider_bloc_notes("x" * config.MAX_CODE + "   ")
+    code, message, _ = scratch.validate_scratch("x" * config.MAX_CODE + "   ")
     assert message is None and len(code) == config.MAX_CODE, message
 
 
@@ -4102,7 +4102,7 @@ def test_private_question_only_reaches_its_author_and_the_moderator():
                "carol": {"group_number": 4}}
 
     seen = lambda who, mod=False: [v["id"] for v in
-                                   forum.forum_vue(thread, who, mod, profiles)]
+                                   forum.forum_view(thread, who, mod, profiles)]
     # Its own author sees everything they wrote, private included.
     assert seen("alice") == ["m1", "m2", "m3"]
     # Bob is NOT in group 4: neither the private one nor the group one.
@@ -4114,7 +4114,7 @@ def test_private_question_only_reaches_its_author_and_the_moderator():
     # AND NO `sub` CROSSES THE BOUNDARY, even in the most detailed view. Same
     # check as an ordinary thread, redone here because these three fields
     # are new.
-    payload = json.dumps(forum.forum_vue(thread, "zoe", True, profiles))
+    payload = json.dumps(forum.forum_view(thread, "zoe", True, profiles))
     for account in ("alice", "bob", "carol"):
         assert account not in payload, payload
 
@@ -4128,8 +4128,8 @@ def test_an_author_with_no_group_opens_to_nobody():
     """
     thread = [_message("m1", "alice", "group")]
     profiles = {"alice": {}, "bob": {}}
-    assert [v["id"] for v in forum.forum_vue(thread, "bob", False, profiles)] == []
-    assert [v["id"] for v in forum.forum_vue(thread, "alice", False, profiles)] == ["m1"]
+    assert [v["id"] for v in forum.forum_view(thread, "bob", False, profiles)] == []
+    assert [v["id"] for v in forum.forum_view(thread, "alice", False, profiles)] == ["m1"]
 
 
 def test_the_closed_lists_of_stuck_here():
@@ -4166,12 +4166,12 @@ def test_thread_state_reads_on_what_one_can_see():
     """
     # ON VIEWS, not on raw rows: it is `forum_vue`'s output that the state
     # counts, so it is what the reader sees.
-    alone = forum.forum_vue([_message("m1", "alice")], "alice", False, {})
+    alone = forum.forum_view([_message("m1", "alice")], "alice", False, {})
     assert forum.thread_state(alone)["unanswered"] == 1
     answered = [_message("m1", "alice"), _message("m2", "bob")]
-    views = forum.forum_vue(answered, "alice", False, {})
+    views = forum.forum_view(answered, "alice", False, {})
     assert forum.thread_state(views)["answered"] == 1
-    resolved = forum.forum_vue(
+    resolved = forum.forum_view(
         answered[:1] + [_message("m2", "bob", retained=True)], "alice", False, {})
     assert forum.thread_state(resolved)["resolved"] == 1
     assert forum.thread_state([])["unanswered"] == 0
@@ -4275,7 +4275,7 @@ def test_a_card_drops_on_a_whole_family_and_its_rarity_is_measured():
     for card in politique.POLICY["cards"]:
         assert card["name"] and card["condition"] and card["exercises"]
     # And a card id can never be mistaken for an achievement's.
-    assert not set(politique.CARDS) & set(politique.SUCCES)
+    assert not set(politique.CARDS) & set(politique.ACHIEVEMENTS)
 
     # RARITY IS MEASURED, and withheld under the minimum cohort: a percentage
     # over four accounts describes those four accounts.
@@ -4800,11 +4800,11 @@ def test_un_exercice_de_devoir_ne_compte_dans_aucune_pratique():
     entrees = [{"id": "solo", "skills": ["variables"]},
                {"id": "dev-a", "skills": ["variables"], "assignment": "devoir"},
                {"id": "verif", "skills": ["variables"], "verification": True}]
-    assert [e["id"] for e in progression.exercices_pratique(entrees)] == ["solo"]
+    assert [e["id"] for e in progression.practice_exercises(entrees)] == ["solo"]
     # ET LA REGLE EST DANS LE SERVICE, pas recopiee dans le routeur : la
     # branche qui refuse l'XP nomme le meme champ.
     source = lire(os.path.join(HERE, "app", "routers", "submission.py"))
-    assert 'entree.get("assignment")' in source
+    assert 'entry.get("assignment")' in source
     # LA PAGE PORTE LE MEME FILTRE POUR L'EXPORT, et a un seul endroit :
     # `exportableExercises()`. Sans lui, six modules partages tomberaient dans
     # le `main.c` personnel de quelqu'un.
@@ -5105,21 +5105,21 @@ def test_console_le_job_ne_porte_aucune_identite():
     garde = config.SPOOL
     try:
         config.SPOOL = dossier
-        session = scratch.ouvrir("int main(void){return 0;}")
-        job = json.loads(lire(os.path.join(session.chemin, "job.json")))
+        session = scratch.open_session("int main(void){return 0;}")
+        job = json.loads(lire(os.path.join(session.path, "job.json")))
         assert job == {"kind": "console"}, job
         for interdit in ("owner", "sub", "account", "exercise_id", "utilisateur"):
             assert interdit not in job
         # Le code de l'etudiant est bien la, sous le nom que le script attend.
-        assert lire(os.path.join(session.chemin, "src", "main.c")) \
+        assert lire(os.path.join(session.path, "src", "main.c")) \
             == "int main(void){return 0;}"
         # `job.json` EST ECRIT EN DERNIER : le verrou de vivacite le precede,
         # donc un worker ne peut pas voir une session avant que l'API n'ait
         # prouve qu'elle est vivante.
-        assert session.worker_vivant() is False
-        assert scratch._verrou_tenu(os.path.join(session.chemin, "alive")) is True
-        session.fermer()
-        assert scratch._verrou_tenu(os.path.join(session.chemin, "alive")) is False
+        assert session.worker_alive() is False
+        assert scratch._lock_held(os.path.join(session.path, "alive")) is True
+        session.close()
+        assert scratch._lock_held(os.path.join(session.path, "alive")) is False
     finally:
         config.SPOOL = garde
         shutil.rmtree(dossier)
@@ -5220,7 +5220,7 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
         fin = time.time() + 20
         vu = False
         while time.time() < fin:
-            if scratch._verrou_tenu(os.path.join(job, "claim")):
+            if scratch._lock_held(os.path.join(job, "claim")):
                 vu = True
                 break
             if not fil.is_alive():
@@ -5242,7 +5242,7 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
         # tour ou elle sonde le verrou.
         etat = json.loads(lire(os.path.join(job, "state.json")))
         assert etat["state"] == "exited", etat
-        assert scratch._verrou_tenu(os.path.join(job, "claim")) is False
+        assert scratch._lock_held(os.path.join(job, "claim")) is False
     finally:
         runner.subprocess = garde
         runner.BUILD_SCRATCH = garde_build
@@ -5327,51 +5327,51 @@ def test_le_pont_discord_ne_laisse_sortir_que_le_chat_public():
     """
     garde = (config.DISCORD_WEBHOOK, config.DISCORD_TIMEOUT)
     partis = []
-    vrai_poster = discord._poster
+    vrai_poster = discord._post
     try:
         config.DISCORD_WEBHOOK = "https://discord.invalide/webhook"
-        discord._poster = partis.append
+        discord._post = partis.append
 
         # ÉTEINT PAR L'ABSENCE D'UNE VARIABLE, comme le forum lui-même.
         config.DISCORD_WEBHOOK = ""
-        assert discord.actif() is False
-        assert discord.annoncer("@chat:general", "sub-a", "X", "salut") is False
+        assert discord.enabled() is False
+        assert discord.announce("@chat:general", "sub-a", "X", "salut") is False
         config.DISCORD_WEBHOOK = "https://discord.invalide/webhook"
 
         # LE CHAT PUBLIC SORT.
-        assert discord.annoncer("@chat:general", "sub-a", "Arbre", "salut") is True
-        assert discord.annoncer("@chat:tp2-ex3", "sub-a", "Arbre", "salut") is True
+        assert discord.announce("@chat:general", "sub-a", "Arbre", "salut") is True
+        assert discord.announce("@chat:tp2-ex3", "sub-a", "Arbre", "salut") is True
 
         # RIEN D'AUTRE NE SORT. Un fil de forum peut porter une question
         # privée : le pont ne le lit même pas pour décider.
         for fil in ("tp2-ex3", "tp1", "", None):
-            assert discord.annoncer(fil, "sub-a", "Arbre", "salut") is False, fil
+            assert discord.announce(fil, "sub-a", "Arbre", "salut") is False, fil
 
         # L'ANTI-BOUCLE, MOITIÉ SERVEUR : ce qui vient de Discord n'y retourne
         # pas. L'autre moitié est dans le bot, qui saute les `webhook_id`.
-        assert discord.annoncer("@chat:general", "@discord:4711",
+        assert discord.announce("@chat:general", "@discord:4711",
                                 "Vianney", "salut") is False
         # Un message vide ne fait pas un message Discord vide.
-        assert discord.annoncer("@chat:general", "sub-a", "Arbre", "   ") is False
+        assert discord.announce("@chat:general", "sub-a", "Arbre", "   ") is False
 
         # `allowed_mentions` VIDE N'EST PAS OPTIONNEL : sans lui un étudiant
         # tape `@everyone` dans CTester et réveille tout le serveur Discord,
         # depuis une page où il n'a jamais consenti à faire ça.
-        corps = discord.charge("Arbre", "@everyone @here salut", "# ex.3")
+        corps = discord.payload("Arbre", "@everyone @here salut", "# ex.3")
         assert corps["allowed_mentions"] == {"parse": []}, corps
         assert corps["content"] == "@everyone @here salut"
         assert corps["username"] == "Arbre — # ex.3"
         # Et les deux champs sont bornés : un webhook refuse au-delà, et un
         # refus silencieux serait un message perdu sans que personne le sache.
-        long = discord.charge("n" * 400, "t" * 5000, "")
+        long = discord.payload("n" * 400, "t" * 5000, "")
         assert len(long["username"]) <= 80 and len(long["content"]) <= 1900
 
         # AUCUN `sub` NE PART. `annoncer()` reçoit le compte pour décider, et
         # ne le met jamais dans la charge utile.
-        corps = discord.charge("Arbre hélicoïdal", "ma question", "# ex.3")
+        corps = discord.payload("Arbre hélicoïdal", "ma question", "# ex.3")
         assert "sub-" not in json.dumps(corps), corps
     finally:
-        discord._poster = vrai_poster
+        discord._post = vrai_poster
         config.DISCORD_WEBHOOK, config.DISCORD_TIMEOUT = garde
 
 
@@ -5387,9 +5387,9 @@ def test_le_chat_force_le_public_et_le_prefixe_est_toute_la_distinction():
     que le forum continue d'accepter.
     """
     salon = forum.CHAT_GENERAL
-    assert forum.est_chat(salon) and forum.est_chat("@chat:tp2-ex3")
-    assert not forum.est_chat("tp2-ex3")
-    assert not forum.est_chat("") and not forum.est_chat(None)
+    assert forum.is_chat(salon) and forum.is_chat("@chat:tp2-ex3")
+    assert not forum.is_chat("tp2-ex3")
+    assert not forum.is_chat("") and not forum.is_chat(None)
 
     # Dans un chat : `thread`, quoi qu'on demande, et un refus explicite.
     assert forum.forum_visibility(None, False, salon) == ("thread", None)
@@ -5435,7 +5435,7 @@ def test_un_auteur_masque_reste_suivable():
         profils = {"sub-bob": {"alias": "Rotor cuivré"},
                    "sub-carl": {"alias": "Piston lisse"},
                    "sub-mod": {"alias": "Came trempée"}}
-        vus = forum.forum_vue(fil, "sub-alice", False, profils)
+        vus = forum.forum_view(fil, "sub-alice", False, profils)
         noms = [v["author"] for v in vus]
         # DEUX ANONYMES SONT DISTINGUABLES : c'est tout l'objet du changement.
         assert noms[0] == "Rotor cuivré" and noms[1] == "Piston lisse"
@@ -5451,17 +5451,17 @@ def test_un_auteur_masque_reste_suivable():
         choisi = dict(profils, **{"sub-bob": {"alias": "Rotor cuivré",
                                               "display_name": "Bob",
                                               "display_name_public": True}})
-        vu = forum.forum_vue(fil, "sub-alice", False, choisi)[0]
+        vu = forum.forum_view(fil, "sub-alice", False, choisi)[0]
         assert vu["author"] == "Bob" and vu["reportable_name"] is True
 
         # SOI-MÊME : « Vous », plus le nom masqué -- quelqu'un qui écrit
         # masqué doit pouvoir se reconnaître dans le fil.
-        moi = forum.forum_vue(fil, "sub-bob", False, profils)[0]
+        moi = forum.forum_view(fil, "sub-bob", False, profils)[0]
         assert moi["author"] == "Vous (Rotor cuivré)"
 
         # SANS ALIAS, « Participant » reste : un nom manquant n'empêche pas
         # d'afficher un message.
-        assert forum.forum_vue(fil, "sub-alice", False, {})[0]["author"] == "Participant"
+        assert forum.forum_view(fil, "sub-alice", False, {})[0]["author"] == "Participant"
 
         # ET TOUJOURS AUCUN `sub` DANS LA CHARGE.
         assert "sub-bob" not in json.dumps(vus + [vu, moi], ensure_ascii=False)
@@ -5484,7 +5484,7 @@ def test_une_reponse_voyage_avec_son_lien_et_ses_deux_compteurs():
            {"id": "b" * 32, "account": "sub-carl", "text": "r", "hidden": False,
             "created_at": "2026-09-03T10:01Z", "reply_to": "a" * 32,
             "upvotes": 1, "downvotes": 2, "my_vote": -1}]
-    vus = forum.forum_vue(fil, "sub-alice", False, {})
+    vus = forum.forum_view(fil, "sub-alice", False, {})
     assert vus[0]["reply_to"] is None and vus[1]["reply_to"] == "a" * 32
     assert vus[0]["upvotes"] == 3 and vus[0]["my_vote"] == 1
     assert vus[1]["downvotes"] == 2 and vus[1]["my_vote"] == -1

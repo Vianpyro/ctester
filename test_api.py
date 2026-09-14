@@ -388,7 +388,7 @@ class BaseSimulee:
                                   if i == m["id"] and v == -1),
                     my_vote=self.utiles.get((m["id"], reader or ""), 0))
 
-    def forum_fil(self, ex, limite, reader=None):
+    def forum_thread(self, ex, limite, reader=None):
         # THE LIMIT BOUNDS ROOTS, like the SQL: replies ride along with their
         # root, so a question and its answers enter and leave together.
         racines = [m["id"] for m in self.messages
@@ -398,7 +398,7 @@ class BaseSimulee:
                 if m["exercise_id"] == ex
                 and (m["id"] in gardes or m.get("reply_to") in gardes)]
 
-    def forum_fil_de(self, mid):
+    def forum_thread_of(self, mid):
         for m in self.messages:
             if m["id"] == mid:
                 return m["exercise_id"]
@@ -448,8 +448,8 @@ class BaseSimulee:
                 for m in roots]
         return sorted(rows, key=lambda r: -r["upvotes"])[:limit]
 
-    def forum_publier(self, mid, ex, user, texte, step=None, blocked_kind=None,
-                      visibility="thread"):
+    def forum_post(self, mid, ex, user, texte, step=None, blocked_kind=None,
+                   visibility="thread"):
         self.messages.append({"id": mid, "exercise_id": ex, "account": user,
                               "text": texte, "hidden": False,
                               "step": step, "blocked_kind": blocked_kind,
@@ -457,7 +457,7 @@ class BaseSimulee:
                               "created_at": "2026-09-04"})
         return True
 
-    def forum_repondre(self, mid, ex, user, texte, target):
+    def forum_reply(self, mid, ex, user, texte, target):
         # THE SAME `WHERE` AS THE SQL: the target must exist AND live in this
         # thread; the stored link is always the ROOT.
         for m in self.messages:
@@ -480,7 +480,7 @@ class BaseSimulee:
                 return [mid]
         return []
 
-    def forum_voter(self, mid, user, value):
+    def forum_vote(self, mid, user, value):
         value = 1 if int(value) >= 0 else -1
         for m in self.messages:
             # THE FOUR CLAUSES OF THE SQL, in the same order: the id exists,
@@ -492,7 +492,7 @@ class BaseSimulee:
                 return [mid]
         return []
 
-    def forum_devoter(self, mid, user):
+    def forum_unvote(self, mid, user):
         return [mid] if self.utiles.pop((mid, user), None) is not None else []
 
     def forum_help_rows(self, limit, hours):
@@ -512,25 +512,25 @@ class BaseSimulee:
                for row in groups.values()]
         return sorted(rows, key=lambda row: -row["people"])[:limit]
 
-    def forum_supprimer(self, mid, user):
+    def forum_delete(self, mid, user):
         avant = len(self.messages)
         self.messages = [m for m in self.messages
                          if not (m["id"] == mid and m["account"] == user)]
         return len(self.messages) < avant
 
-    def forum_signaler(self, mid, user):
+    def forum_report(self, mid, user):
         return True
 
-    def forum_nom_signaler(self, mid, user):
+    def forum_report_name(self, mid, user):
         return True
 
-    def forum_signalements(self, limite):
+    def forum_reports(self, limite):
         return []
 
-    def forum_noms_signales(self, limite):
+    def forum_reported_names(self, limite):
         return []
 
-    def forum_moderer(self, aid, mid, moderateur, action):
+    def forum_moderate(self, aid, mid, moderateur, action):
         for m in self.messages:
             if m["id"] == mid:
                 # RETAINING EDITS NOTHING: the message stays identical, only
@@ -542,19 +542,19 @@ class BaseSimulee:
                 return True
         return False
 
-    def forum_auteur(self, mid):
+    def forum_author(self, mid):
         for m in self.messages:
             if m["id"] == mid:
                 return m["account"]
         return None
 
-    def forum_profil(self, user):
+    def forum_profile(self, user):
         return self.profils.get(user, dict(self.EMPTY_PROFILE))
 
-    def forum_profils(self, users):
+    def forum_profiles(self, users):
         return {u: self.profils[u] for u in users if u in self.profils}
 
-    def forum_profil_ecrire(self, pid, user, pseudo, groupe, pseudo_public,
+    def forum_write_profile(self, pid, user, pseudo, groupe, pseudo_public,
                             groupe_public, set_by_moderator=False, alias=None,
                             plate_frame=None, badges_public=False,
                             leaderboard_opt_in=False):
@@ -688,10 +688,10 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     garde_etat = [(m, m.state) for m in modules]
     garde_config = {n: getattr(config, n) for n in
                     ("PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
-                     "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPES",
+                     "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPS",
                      "SCRATCH", "DISCORD_BRIDGE_KEY", "DISCORD_WEBHOOK")}
     garde_secu = (security.current_user, security.current_name)
-    garde_quotas = (deps.quota, deps.quota_connecte, deps.state_quota,
+    garde_quotas = (deps.quota, deps.signed_in_quota, deps.state_quota,
                     deps.forum_quota, deps.presence, deps.scratch_quota)
 
     for m in modules:
@@ -705,7 +705,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     config.OIDC_ISSUER = "https://auth.exemple.com"
     config.OIDC_CLIENT_ID = "ctester"
     config.FORUM_MODERATORS = frozenset(moderateurs) if forum_actif else frozenset()
-    config.FORUM_GROUPES = tuple(groupes)
+    config.FORUM_GROUPS = tuple(groupes)
     config.SCRATCH = console
     # LE PONT DISCORD EST ÉTEINT PAR DÉFAUT dans les tests comme en
     # production : sans clé, la route n'existe pas ; sans webhook, rien ne sort.
@@ -718,7 +718,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     # Des quotas neufs et larges : ces contrôles éprouvent des bornes précises,
     # et ceux qui éprouvent un quota posent le leur.
     deps.quota = quotas.Quota(cooldown=0, hourly=100000)
-    deps.quota_connecte = quotas.Quota(cooldown=0, hourly=100000)
+    deps.signed_in_quota = quotas.Quota(cooldown=0, hourly=100000)
     deps.state_quota = quotas.Quota(cooldown=0, hourly=100000)
     deps.forum_quota = quotas.Quota(cooldown=0, hourly=100000)
     deps.presence = quotas.Presence()
@@ -732,7 +732,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
         for nom, valeur in garde_config.items():
             setattr(config, nom, valeur)
         security.current_user, security.current_name = garde_secu
-        (deps.quota, deps.quota_connecte, deps.state_quota, deps.forum_quota,
+        (deps.quota, deps.signed_in_quota, deps.state_quota, deps.forum_quota,
          deps.presence, deps.scratch_quota) = garde_quotas
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1393,7 +1393,7 @@ def test_identifiant_d_exercice_hors_forme():
         assert c.get("/tp/..%2Fcatalog.json").status_code == 404
         assert c.get("/quiz/tp2-ex3.json").status_code == 404  # pas un quiz
         # L'entrée trouvée, elle, donne un chemin sous la release et rien d'autre.
-        base, nom = catalogue.source_publiee(
+        base, nom = catalogue.published_source(
             catalogue.find_exercise("tp2-ex3"), "detail")
         assert base == catalogue.release_dir()
         assert nom == os.path.join("exercises", "tp2-ex3.json"), nom
@@ -1427,7 +1427,7 @@ def test_quota_par_compte_pas_par_ip_derriere_un_nat():
     """
     with contexte(jetons={"alice": "sub-alice", "bob": "sub-bob"}) as (c, _, _tmp):
         deps.quota = quotas.Quota(cooldown=0, hourly=1)
-        deps.quota_connecte = quotas.Quota(cooldown=0, hourly=1)
+        deps.signed_in_quota = quotas.Quota(cooldown=0, hourly=1)
         charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
                   "files": {"submission.c": "int main(){return 0;}"}}
         nat = {"CF-Connecting-IP": "10.0.0.1"}
@@ -1451,7 +1451,7 @@ def test_quota_anonyme_par_poste_et_cadran_plus_court_connecte():
     """
     with contexte(jetons={"alice": "sub-alice"}) as (c, _, _tmp):
         deps.quota = quotas.Quota(cooldown=30, hourly=100)
-        deps.quota_connecte = quotas.Quota(cooldown=0, hourly=100)
+        deps.signed_in_quota = quotas.Quota(cooldown=0, hourly=100)
         charge = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
                   "files": {"submission.c": "int main(){return 0;}"}}
         nat = {"CF-Connecting-IP": "10.0.0.1"}
@@ -1629,11 +1629,11 @@ def test_aucun_sub_ne_franchit_la_frontiere_du_forum():
 def test_forum_texte_des_deux_cotes_de_la_borne():
     """1 caractère passe, `FORUM_MAX_CHARS` passe, un de plus ne passe pas."""
     from services import forum
-    assert forum.forum_texte("")[0] is None
-    assert forum.forum_texte("   \n ")[0] is None
-    assert forum.forum_texte("a")[0] == "a"
-    assert forum.forum_texte("a" * config.FORUM_MAX_CHARS)[0] is not None
-    trop, message = forum.forum_texte("a" * (config.FORUM_MAX_CHARS + 1))
+    assert forum.forum_text("")[0] is None
+    assert forum.forum_text("   \n ")[0] is None
+    assert forum.forum_text("a")[0] == "a"
+    assert forum.forum_text("a" * config.FORUM_MAX_CHARS)[0] is not None
+    trop, message = forum.forum_text("a" * (config.FORUM_MAX_CHARS + 1))
     assert trop is None and str(config.FORUM_MAX_CHARS) in message, message
 
 
@@ -1644,12 +1644,12 @@ def test_forum_pseudo_bornes_et_noms_reserves():
     aucune couleur.
     """
     from services import forum
-    assert forum.forum_pseudo("a")[0] == "a"
-    assert forum.forum_pseudo("a" * config.FORUM_PSEUDO_MAX)[0] is not None
-    assert forum.forum_pseudo("a" * (config.FORUM_PSEUDO_MAX + 1))[0] is None
+    assert forum.forum_display_name("a")[0] == "a"
+    assert forum.forum_display_name("a" * config.FORUM_PSEUDO_MAX)[0] is not None
+    assert forum.forum_display_name("a" * (config.FORUM_PSEUDO_MAX + 1))[0] is None
     for reserve in ("Vous", "PARTICIPANT", "Enseignant", "Équipe du cours",
                     "modérateur"):
-        nom, message = forum.forum_pseudo(reserve)
+        nom, message = forum.forum_display_name(reserve)
         assert nom is None and message, reserve
 
 
@@ -1657,16 +1657,16 @@ def test_forum_groupe_liste_fermee_et_champ_libre():
     """Liste non vide : seuls ses numéros. Liste vide : 1..99, bornes comprises."""
     from services import forum
     with contexte(groupes=(4, 6)) as (_c, _b, _tmp):
-        assert forum.forum_groupe(4)[0] == 4
-        assert forum.forum_groupe("6")[0] == 6
-        assert forum.forum_groupe(5)[0] is None
-        assert forum.forum_groupe(0)[0] is None
+        assert forum.forum_group(4)[0] == 4
+        assert forum.forum_group("6")[0] == 6
+        assert forum.forum_group(5)[0] is None
+        assert forum.forum_group(0)[0] is None
     with contexte(groupes=()) as (_c, _b, _tmp):
-        assert forum.forum_groupe(1)[0] == 1
-        assert forum.forum_groupe(99)[0] == 99
-        assert forum.forum_groupe(0)[0] is None
-        assert forum.forum_groupe(100)[0] is None
-        assert forum.forum_groupe("douze")[0] is None
+        assert forum.forum_group(1)[0] == 1
+        assert forum.forum_group(99)[0] == 99
+        assert forum.forum_group(0)[0] is None
+        assert forum.forum_group(100)[0] is None
+        assert forum.forum_group("douze")[0] is None
 
 
 def test_identifiant_de_message_et_de_job_hors_forme():
@@ -1763,7 +1763,7 @@ def test_release_dir_and_load_catalog_survive_a_broken_pointer():
         config.PUBLISHED = tmp
         assert catalogue.release_dir() is None                 # nothing published
         assert catalogue.load_catalog() is None
-        assert catalogue.source_publiee({"id": "x"}, "detail") == (None, None)
+        assert catalogue.published_source({"id": "x"}, "detail") == (None, None)
 
         with open(os.path.join(tmp, "current.json"), "w", encoding="utf-8") as fh:
             fh.write("{ this is not JSON")
@@ -1808,16 +1808,16 @@ def test_detail_and_quiz_survive_a_rollback_mid_request():
     a clean 404, never a stack trace.
     """
     import routers.catalog as catalog_router
-    guard = catalog_router.source_publiee
+    guard = catalog_router.published_source
     try:
         with contexte() as (c, _base, _tmp):
-            catalog_router.source_publiee = lambda entry, quoi: (None, None)
+            catalog_router.published_source = lambda entry, quoi: (None, None)
             r = c.get("/tp/tp2-ex3.json")
             assert r.status_code == 404 and r.json() == {"error": "inconnu"}, r.text
             r = c.get("/quiz/quiz1.json")
             assert r.status_code == 404 and r.json() == {"error": "pas un quiz"}, r.text
     finally:
-        catalog_router.source_publiee = guard
+        catalog_router.published_source = guard
 
 
 def test_etats_and_pratique_during_a_database_outage():
@@ -1940,15 +1940,15 @@ def test_gzip_pile_a_la_borne_de_1024_octets():
                 self.headers = entetes
 
         gzip_ok = FausseRequete({"accept-encoding": "gzip"})
-        petit = h.fichier(gzip_ok, b"a" * 1023, "application/json")
-        gros = h.fichier(gzip_ok, b"a" * 1024, "application/json")
+        petit = h.file_response(gzip_ok, b"a" * 1023, "application/json")
+        gros = h.file_response(gzip_ok, b"a" * 1024, "application/json")
         assert "content-encoding" not in petit.headers, dict(petit.headers)
         assert gros.headers["content-encoding"] == "gzip", dict(gros.headers)
         assert not petit.headers["etag"].endswith('-gz"')
         assert gros.headers["etag"].endswith('-gz"')
         # Sans `Accept-Encoding: gzip`, la même ressource garde une AUTRE
         # étiquette : deux corps, deux étiquettes.
-        nu = h.fichier(FausseRequete({}), b"a" * 1024, "application/json")
+        nu = h.file_response(FausseRequete({}), b"a" * 1024, "application/json")
         assert nu.headers["etag"] != gros.headers["etag"]
 
 
@@ -1961,8 +1961,8 @@ def test_fichier_du_disque_responds_500_when_the_file_is_missing():
     class FakeRequest:
         headers = {}
 
-    r = h.fichier_du_disque(FakeRequest(), "/path/that/does/not/exist",
-                            "missing.json", "application/json")
+    r = h.file_from_disk(FakeRequest(), "/path/that/does/not/exist",
+                         "missing.json", "application/json")
     assert r.status_code == 500 and json.loads(r.body) == {"error": "fichier manquant"}
 
 
@@ -1977,7 +1977,7 @@ def test_the_middleware_ignores_non_http_scopes():
 def test_entier_falls_back_to_the_default_when_the_variable_is_unreadable():
     os.environ["CTESTER_TEST_ENTIER_INVALIDE"] = "not-a-number"
     try:
-        assert config._entier("CTESTER_TEST_ENTIER_INVALIDE", "42") == 42
+        assert config._int("CTESTER_TEST_ENTIER_INVALIDE", "42") == 42
     finally:
         del os.environ["CTESTER_TEST_ENTIER_INVALIDE"]
 
@@ -2048,7 +2048,7 @@ def test_page_sert_une_liste_close_pas_un_repertoire():
         # La racine reste une liste écrite en clair.
         assert c2.get("/secret.txt").status_code == 404
         assert c2.get("/../app/catalog.json").status_code in (404, 400)
-        assert "secret.txt" not in routeur_page.SERVIS
+        assert "secret.txt" not in routeur_page.SERVED
         # Un actif que le build a écrit passe...
         r = c2.get("/assets/index-abc123.js")
         assert r.status_code == 200, r.status_code
@@ -2961,7 +2961,7 @@ def test_delete_ones_own_message_never_someone_elses():
         assert not fake.messages
 
     base = BaseSimulee()
-    base.forum_supprimer = lambda *a: None
+    base.forum_delete = lambda *a: None
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.delete("/forum?id=" + "0" * 32, headers=auth("alice"))
@@ -2986,8 +2986,8 @@ def test_report_a_message_or_a_name():
         assert r.status_code == 200, r.text
 
     base = BaseSimulee()
-    base.forum_signaler = lambda *a: None
-    base.forum_nom_signaler = lambda *a: None
+    base.forum_report = lambda *a: None
+    base.forum_report_name = lambda *a: None
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         for body in ({"id": "0" * 32, "kind": "message"},
@@ -3023,7 +3023,7 @@ def test_moderation_clears_a_reported_name_without_touching_the_rest_of_the_prof
         assert r.status_code == 404, r.text
 
     base = BaseSimulee()
-    base.forum_profil = lambda user: None
+    base.forum_profile = lambda user: None
     with contexte(jetons={"alice": "sub-alice", "prof": "sub-prof"}, base=base,
                  moderateurs=["sub-prof"]) as (c, fake, _tmp):
         fake.messages.append({"id": "1" * 32, "exercise_id": "tp2-ex3",
@@ -3035,7 +3035,7 @@ def test_moderation_clears_a_reported_name_without_touching_the_rest_of_the_prof
         assert r.status_code == 503, r.text
 
     base2 = BaseSimulee()
-    base2.forum_profil_ecrire = lambda *a, **k: False
+    base2.forum_write_profile = lambda *a, **k: False
     with contexte(jetons={"alice": "sub-alice", "prof": "sub-prof"}, base=base2,
                  moderateurs=["sub-prof"]) as (c, fake, _tmp):
         fake.messages.append({"id": "2" * 32, "exercise_id": "tp2-ex3",
@@ -3071,7 +3071,7 @@ def test_visibility_and_helpful_report_a_database_outage():
         assert r.status_code == 503, r.text
 
     base = BaseSimulee()
-    base.forum_voter = lambda *a: None
+    base.forum_vote = lambda *a: None
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.post("/forum/helpful", json={"id": "0" * 32}, headers=auth("alice"))
@@ -3096,7 +3096,7 @@ def test_moderer_hide_restore_retain_report_an_outage_and_an_unknown_id():
         assert r.status_code == 404, r.text
 
     base = BaseSimulee()
-    base.forum_moderer = lambda *a: None
+    base.forum_moderate = lambda *a: None
     with contexte(jetons=tokens, base=base, moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.post("/forum/moderation", json={"id": "0" * 32, "action": "hide"},
                    headers=auth("prof"))
@@ -3106,14 +3106,14 @@ def test_moderer_hide_restore_retain_report_an_outage_and_an_unknown_id():
 def test_forum_reports_a_database_outage_on_each_read_route():
     """GET /forum, /forum/moderation and /forum/help: each its own outage."""
     base = BaseSimulee()
-    base.forum_fil = lambda *a, **k: None
+    base.forum_thread = lambda *a, **k: None
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.get("/forum?ex=tp2-ex3", headers=auth("alice"))
         assert r.status_code == 503, r.text
 
     base = BaseSimulee()
-    base.forum_signalements = lambda *a: None
+    base.forum_reports = lambda *a: None
     with contexte(jetons={"prof": "sub-prof"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.get("/forum/moderation", headers=auth("prof"))
@@ -3161,7 +3161,7 @@ def test_publier_validates_each_field_then_reports_an_outage():
         assert r.status_code == 400, r.text
 
     base = BaseSimulee()
-    base.forum_publier = lambda *a: False
+    base.forum_post = lambda *a: False
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "x"},
@@ -3180,7 +3180,7 @@ def test_profil_validates_the_name_and_group_then_reports_an_outage():
         assert r.status_code == 400, r.text
 
     base = BaseSimulee()
-    base.forum_profil = lambda user: None
+    base.forum_profile = lambda user: None
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.get("/forum/profil", headers=auth("alice"))
@@ -3190,7 +3190,7 @@ def test_profil_validates_the_name_and_group_then_reports_an_outage():
         assert r.status_code == 503, r.text
 
     base = BaseSimulee()
-    base.forum_profil_ecrire = lambda *a, **k: False
+    base.forum_write_profile = lambda *a, **k: False
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         r = c.post("/forum/profil", json={"display_name": "Léa"},
@@ -3232,7 +3232,7 @@ def test_freiner_forum_blocks_a_burst_of_messages():
 
 def test_leaderboard_and_alias_report_every_database_outage():
     base = BaseSimulee()
-    base.forum_profil = lambda user: None
+    base.forum_profile = lambda user: None
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, _fake, _tmp):
         assert c.get("/leaderboard", headers=auth("alice")).status_code == 503
@@ -3246,7 +3246,7 @@ def test_leaderboard_and_alias_report_every_database_outage():
         assert r.status_code == 503, r.text
 
     base = BaseSimulee()
-    base.forum_profil_ecrire = lambda *a, **k: False
+    base.forum_write_profile = lambda *a, **k: False
     with contexte(jetons={"alice": "sub-alice"}, base=base,
                  moderateurs=["sub-prof"]) as (c, fake, _tmp):
         fake.profils["sub-alice"] = dict(BaseSimulee.EMPTY_PROFILE, alias="Faucon-12")
@@ -3286,10 +3286,10 @@ def test_avertir_reports_each_incomplete_configuration_independently():
         security.oidc_enabled = lambda: False
         buffer = io.StringIO()
         with contextlib.redirect_stderr(buffer):
-            main._avertir()
+            main._warn()
         out = buffer.getvalue()
-        assert "connexion desactivee" in out
-        assert "discussions desactivees" not in out
+        assert "sign-in disabled" in out
+        assert "forum disabled" not in out
         assert "CTESTER_DOCS" not in out
 
         # 2. OIDC really active but no moderator: the forum, silent.
@@ -3297,10 +3297,10 @@ def test_avertir_reports_each_incomplete_configuration_independently():
         config.FORUM_MODERATORS = frozenset()
         buffer = io.StringIO()
         with contextlib.redirect_stderr(buffer):
-            main._avertir()
+            main._warn()
         out = buffer.getvalue()
-        assert "connexion desactivee" not in out
-        assert "discussions desactivees" in out
+        assert "sign-in disabled" not in out
+        assert "forum disabled" in out
 
         # 3. Public documentation depends on nothing else.
         config.OIDC_ISSUER = ""
@@ -3308,11 +3308,11 @@ def test_avertir_reports_each_incomplete_configuration_independently():
         config.DOCS = True
         buffer = io.StringIO()
         with contextlib.redirect_stderr(buffer):
-            main._avertir()
+            main._warn()
         out = buffer.getvalue()
         assert "CTESTER_DOCS=1" in out
-        assert "connexion desactivee" not in out
-        assert "discussions desactivees" not in out
+        assert "sign-in disabled" not in out
+        assert "forum disabled" not in out
 
         # 4. Everything is in order: complete silence.
         config.OIDC_ISSUER = "https://auth.exemple"
@@ -3320,7 +3320,7 @@ def test_avertir_reports_each_incomplete_configuration_independently():
         security.oidc_enabled = lambda: True
         buffer = io.StringIO()
         with contextlib.redirect_stderr(buffer):
-            main._avertir()
+            main._warn()
         assert buffer.getvalue() == ""
     finally:
         (config.OIDC_ISSUER, config.FORUM_MODERATORS, config.DOCS,
@@ -4251,7 +4251,7 @@ def deploiement_choix(ouvert=False):
         # LE GROUPE VIENT DU PROFIL, et c'est le SEUL endroit où ce numéro
         # auto-déclaré décide de quelque chose : quelle liste on voit.
         for compte in ("sub-alice", "sub-bob", "sub-cleo"):
-            faux.forum_profil_ecrire(compte + "-p", compte, None, 4,
+            faux.forum_write_profile(compte + "-p", compte, None, 4,
                                      False, False)
         yield c, faux, tmp
 
@@ -4394,7 +4394,7 @@ def test_deux_groupes_ont_chacun_leur_equipe_numero_1():
     sections travailleraient dans le même fichier.
     """
     with deploiement_choix() as (client, faux, _):
-        faux.forum_profil_ecrire("p6", "sub-bob", None, 6, False, False)
+        faux.forum_write_profile("p6", "sub-bob", None, 6, False, False)
         client.post("/team/join", headers=_entetes("t-alice"),
                     json={"assignment_id": "devoir", "number": 1})
         client.post("/team/join", headers=_entetes("t-bob"),

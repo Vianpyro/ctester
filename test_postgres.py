@@ -463,10 +463,10 @@ def forum():
     the journal at once.
     """
     m1, m2 = "a" * 32, "b" * 32
-    assert state.forum_publier(m1, "tp2-ex3", ALICE, "Why does my loop spin?")
-    assert state.forum_publier(m2, "tp2-ex3", BOB, "same problem here")
-    assert state.forum_publier("c" * 32, "tp2-ex0", BOB, "another exercise")
-    thread = state.forum_fil("tp2-ex3", 200)
+    assert state.forum_post(m1, "tp2-ex3", ALICE, "Why does my loop spin?")
+    assert state.forum_post(m2, "tp2-ex3", BOB, "same problem here")
+    assert state.forum_post("c" * 32, "tp2-ex0", BOB, "another exercise")
+    thread = state.forum_thread("tp2-ex3", 200)
     assert [m["id"] for m in thread] == [m1, m2], thread
     assert thread[0]["account"] == ALICE and thread[0]["hidden"] is False
     # AT THE MINUTE, not the day: a thread is read in order. AND IN EXPLICIT
@@ -475,23 +475,23 @@ def forum():
     assert len(thread[0]["created_at"]) == 17 and thread[0]["created_at"].endswith("Z"), \
         thread[0]["created_at"]
     # ONE THREAD PER EXERCISE: nothing leaks from one exercise into another.
-    assert len(state.forum_fil("tp2-ex0", 200)) == 1
+    assert len(state.forum_thread("tp2-ex0", 200)) == 1
     # LA LIMITE BORNE LES RACINES, ET GARDE LES PLUS RÉCENTES. Elle gardait
     # les plus ANCIENNES : sur un fil de dix mille messages, cela affichait
     # les deux cents premiers messages du semestre et jamais celui qu'on vient
     # d'écrire. La fenêtre remonte donc le temps depuis maintenant, puis rend
     # ce qu'elle a gardé dans l'ordre de lecture.
-    assert state.forum_fil("tp2-ex3", 1) == thread[-1:]
+    assert state.forum_thread("tp2-ex3", 1) == thread[-1:]
 
     # THE PRIMARY KEY IS THE RULE: the same report twice is one row.
-    assert state.forum_signaler(m2, ALICE) == [(m2,)]
-    assert state.forum_signaler(m2, ALICE) == []
+    assert state.forum_report(m2, ALICE) == [(m2,)]
+    assert state.forum_report(m2, ALICE) == []
     # And a made-up id inserts NOTHING -- no orphan row carrying a `sub` for
     # nothing. It is the `SELECT ... FROM forum_message` that holds it.
-    assert state.forum_signaler("f" * 32, ALICE) == []
+    assert state.forum_report("f" * 32, ALICE) == []
     assert count("forum_report", ALICE) == 1
-    assert state.forum_signaler(m2, BOB) == [(m2,)]       # two accounts, yes
-    queue = state.forum_signalements(200)
+    assert state.forum_report(m2, BOB) == [(m2,)]       # two accounts, yes
+    queue = state.forum_reports(200)
     assert len(queue) == 1, queue
     assert queue[0]["id"] == m2 and queue[0]["report_count"] == 2
     assert queue[0]["text"] == "same problem here"
@@ -500,12 +500,12 @@ def forum():
     # HIDE, THEN RESTORE: the state changes, the journal grows, in ONE
     # statement. Two autocommit `_query` calls would leave a hidden message
     # that nothing explains if the connection dropped in between.
-    assert state.forum_moderer("d" * 32, m2, ALICE, "hide") == [(m2,)]
-    assert state.forum_fil("tp2-ex3", 200)[1]["hidden"] is True
-    assert state.forum_moderer("e" * 32, m2, ALICE, "restore") == [(m2,)]
-    assert state.forum_fil("tp2-ex3", 200)[1]["hidden"] is False
+    assert state.forum_moderate("d" * 32, m2, ALICE, "hide") == [(m2,)]
+    assert state.forum_thread("tp2-ex3", 200)[1]["hidden"] is True
+    assert state.forum_moderate("e" * 32, m2, ALICE, "restore") == [(m2,)]
+    assert state.forum_thread("tp2-ex3", 200)[1]["hidden"] is False
     assert count("forum_moderation", ALICE) == 2          # APPEND-ONLY: both stay
-    assert state.forum_moderer("9" * 32, "f" * 32, ALICE, "hide") == []
+    assert state.forum_moderate("9" * 32, "f" * 32, ALICE, "hide") == []
     # THE SCHEMA'S CHECK, EXERCISED WITHOUT GOING THROUGH THE PYTHON GUARD: two
     # actions exist, and it is Postgres that refuses the third.
     assert state._query(
@@ -516,13 +516,13 @@ def forum():
 
     # DELETE YOUR OWN, NEVER SOMEONE ELSE'S. The `account` clause IS the
     # access control: there is no prior read to make lie.
-    assert state.forum_supprimer(m2, ALICE) == []         # not theirs
-    assert state.forum_supprimer(m1, ALICE) == [(m1,)]
-    assert state.forum_supprimer(m1, ALICE) == []         # already gone
-    assert [m["id"] for m in state.forum_fil("tp2-ex3", 200)] == [m2]
+    assert state.forum_delete(m2, ALICE) == []         # not theirs
+    assert state.forum_delete(m1, ALICE) == [(m1,)]
+    assert state.forum_delete(m1, ALICE) == []         # already gone
+    assert [m["id"] for m in state.forum_thread("tp2-ex3", 200)] == [m2]
     # Give them one back: `deletion()` below checks that EVERY table had
     # something to erase.
-    assert state.forum_publier("1" * 32, "tp2-ex3", ALICE, "I'm back")
+    assert state.forum_post("1" * 32, "tp2-ex3", ALICE, "I'm back")
     print("ok   forum: thread per exercise, unique report, journaled moderation")
 
 
@@ -537,20 +537,20 @@ def identity():
     compile in your head.
     """
     # Nothing set: not an error, it is anonymity by default.
-    assert state.forum_profils([ALICE, BOB]) == {}
+    assert state.forum_profiles([ALICE, BOB]) == {}
     # `EMPTY_PROFILE`, RATHER THAN A LITERAL: the redesign added four
     # preference columns, and a copy here would have failed this check for the
     # sole reason that it did not know about them. What is being proven is
     # that an account with no row reads as an empty profile, not the list of
     # columns.
-    assert state.forum_profil(ALICE) == state.EMPTY_PROFILE
-    assert state.forum_profil_ecrire("p" * 32, ALICE, "Alice", 3, True, False)
-    assert state.forum_profil_ecrire("q" * 32, BOB, "Bob", 7, False, True)
+    assert state.forum_profile(ALICE) == state.EMPTY_PROFILE
+    assert state.forum_write_profile("p" * 32, ALICE, "Alice", 3, True, False)
+    assert state.forum_write_profile("q" * 32, BOB, "Bob", 7, False, True)
     # THE LAST ROW IS AUTHORITATIVE, and the old one stays: changing a name
     # does not erase the history a moderator wants to be able to read back.
-    assert state.forum_profil_ecrire("r" * 32, ALICE, "Alice B", 3, True, True)
+    assert state.forum_write_profile("r" * 32, ALICE, "Alice B", 3, True, True)
     assert count("forum_profile", ALICE) == 2
-    profiles = state.forum_profils([ALICE, BOB, "sub-personne"])
+    profiles = state.forum_profiles([ALICE, BOB, "sub-personne"])
     assert profiles[ALICE] == dict(state.EMPTY_PROFILE, display_name="Alice B",
                                    group_number=3, display_name_public=True,
                                    group_number_public=True)
@@ -558,30 +558,30 @@ def identity():
     assert "sub-personne" not in profiles
     # THE SCHEMA'S CHECK, EXERCISED WITHOUT GOING THROUGH THE PYTHON GUARD: a
     # group runs from 1 to 99, and Postgres refuses the rest.
-    assert state.forum_profil_ecrire("s" * 32, ALICE, "Alice", 0, False, False) \
+    assert state.forum_write_profile("s" * 32, ALICE, "Alice", 0, False, False) \
         is False
-    assert state.forum_profil_ecrire("t" * 32, ALICE, "Alice", 100, False, False) \
+    assert state.forum_write_profile("t" * 32, ALICE, "Alice", 100, False, False) \
         is False
 
     # REPORTING A NAME: same two protections as for a message.
-    message = state.forum_fil("tp2-ex3", 200, ALICE)[0]["id"]
-    assert state.forum_auteur(message) in (ALICE, BOB)
-    assert state.forum_auteur("f" * 32) is None
-    assert state.forum_nom_signaler(message, BOB) == [(message,)]
-    assert state.forum_nom_signaler(message, BOB) == []      # only once
-    assert state.forum_nom_signaler("f" * 32, BOB) == []     # nothing orphaned
-    reported = state.forum_noms_signales(200)
+    message = state.forum_thread("tp2-ex3", 200, ALICE)[0]["id"]
+    assert state.forum_author(message) in (ALICE, BOB)
+    assert state.forum_author("f" * 32) is None
+    assert state.forum_report_name(message, BOB) == [(message,)]
+    assert state.forum_report_name(message, BOB) == []      # only once
+    assert state.forum_report_name("f" * 32, BOB) == []     # nothing orphaned
+    reported = state.forum_reported_names(200)
     assert len(reported) == 1 and reported[0]["id"] == message, reported
     # THE LATERAL JOIN: the name returned is the LATEST, not the first.
-    author = state.forum_auteur(message)
+    author = state.forum_author(message)
     assert reported[0]["display_name"] == \
-        state.forum_profils([author])[author]["display_name"]
+        state.forum_profiles([author])[author]["display_name"]
     assert reported[0]["report_count"] == 1
     # ALICE REPORTS IN TURN, on another message. Without this line she has NO
     # row in `forum_reported_name`, and `deletion()`'s precondition ("there is
     # something to erase in the thirteen tables") does not hold -- meaning the
     # most recently added table is the only one whose erasure is not exercised.
-    assert state.forum_nom_signaler("b" * 32, ALICE) == [("b" * 32,)]
+    assert state.forum_report_name("b" * 32, ALICE) == [("b" * 32,)]
     print("ok   identity: journal, last row wins, schema bounds, reported name")
 
 
@@ -603,14 +603,14 @@ def stuck_and_helpful():
     the append-only journal rather than from a column.
     """
     BLOQUE = "8" * 32
-    thread = state.forum_fil("tp2-ex3", 200, ALICE)
+    thread = state.forum_thread("tp2-ex3", 200, ALICE)
     assert thread, "the forum() step should have left a message behind"
 
     # A "stuck here" post: private by default, and only its author sees it in
     # the raw row -- `forum_vue` does the filtering, this proves the storage.
-    assert state.forum_publier(BLOQUE, "tp2-ex3", ALICE, "stuck",
-                               "compilation", "unclear-error", "private")
-    stuck = [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+    assert state.forum_post(BLOQUE, "tp2-ex3", ALICE, "stuck",
+                            "compilation", "unclear-error", "private")
+    stuck = [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
              if m["id"] == BLOQUE][0]
     assert stuck["visibility"] == "private" and stuck["step"] == "compilation"
 
@@ -620,56 +620,56 @@ def stuck_and_helpful():
     assert state.forum_open_to_group(BLOQUE, BOB) == []
     assert state.forum_open_to_group(BLOQUE, ALICE) != []
     assert state.forum_open_to_group(BLOQUE, ALICE) == []
-    assert [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+    assert [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
             if m["id"] == BLOQUE][0]["visibility"] == "group"
 
     # LE VOTE : son propre message refusé, un id inventé refusé, et le second
     # vote qui devient un changement d'avis -- tout par la même instruction.
-    assert state.forum_voter(BLOQUE, ALICE, 1) == []           # one's own row
-    assert state.forum_voter("0" * 32, BOB, 1) == []           # unknown id
-    assert state.forum_voter(BLOQUE, BOB, 1) != []
-    assert state.forum_voter(BLOQUE, BOB, 1) != []             # idempotent
+    assert state.forum_vote(BLOQUE, ALICE, 1) == []           # one's own row
+    assert state.forum_vote("0" * 32, BOB, 1) == []           # unknown id
+    assert state.forum_vote(BLOQUE, BOB, 1) != []
+    assert state.forum_vote(BLOQUE, BOB, 1) != []             # idempotent
     # LE -1 SUR UNE QUESTION EST REFUSÉ PAR L'INSTRUCTION, et c'est LA règle
     # qui compte : une question ne peut pas être enterrée par un vote. On
     # l'éprouve en l'envoyant, parce que la page ne dessine pas ce bouton --
     # ce qui n'est justement pas ce qui l'interdit.
-    assert state.forum_voter(BLOQUE, BOB, -1) == []
-    seen = [m for m in state.forum_fil("tp2-ex3", 200, BOB)
+    assert state.forum_vote(BLOQUE, BOB, -1) == []
+    seen = [m for m in state.forum_thread("tp2-ex3", 200, BOB)
            if m["id"] == BLOQUE][0]
     assert seen["upvotes"] == 1 and seen["downvotes"] == 0
     assert seen["my_vote"] == 1
-    assert [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+    assert [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
             if m["id"] == BLOQUE][0]["my_vote"] == 0
     # AND THE OTHER WAY AROUND, on a message BOB posted elsewhere: voting is
     # symmetric, and `forget` must erase both sides.
-    assert state.forum_voter("c" * 32, ALICE, 1) != []
+    assert state.forum_vote("c" * 32, ALICE, 1) != []
 
     # UNE RÉPONSE, ELLE, ACCEPTE LE -1 -- et le `WHERE` de l'INSERT est ce qui
     # fait la différence entre les deux, pas un `if` quelque part.
     REPONSE = "7" * 32
-    assert state.forum_repondre(REPONSE, "tp2-ex3", BOB, "essaie ça", BLOQUE) != []
+    assert state.forum_reply(REPONSE, "tp2-ex3", BOB, "essaie ça", BLOQUE) != []
     # L'APLATISSEMENT : répondre à une RÉPONSE vise la RACINE.
     ENCORE = "6" * 32
-    assert state.forum_repondre(ENCORE, "tp2-ex3", ALICE, "merci", REPONSE) != []
-    par_id = {m["id"]: m for m in state.forum_fil("tp2-ex3", 200, ALICE)}
+    assert state.forum_reply(ENCORE, "tp2-ex3", ALICE, "merci", REPONSE) != []
+    par_id = {m["id"]: m for m in state.forum_thread("tp2-ex3", 200, ALICE)}
     assert par_id[REPONSE]["reply_to"] == BLOQUE
     assert par_id[ENCORE]["reply_to"] == BLOQUE, "une réponse vise la RACINE"
     # LE `WHERE` REFUSE UNE RACINE D'UN AUTRE FIL, et un id inventé.
-    assert state.forum_repondre("5" * 32, "tp2-ex0", BOB, "x", BLOQUE) == []
-    assert state.forum_repondre("5" * 32, "tp2-ex3", BOB, "x", "0" * 32) == []
-    assert state.forum_voter(REPONSE, ALICE, -1) != []
-    assert state.forum_voter(REPONSE, ALICE, 1) != []          # changement d'avis
-    apres = {m["id"]: m for m in state.forum_fil("tp2-ex3", 200, ALICE)}
+    assert state.forum_reply("5" * 32, "tp2-ex0", BOB, "x", BLOQUE) == []
+    assert state.forum_reply("5" * 32, "tp2-ex3", BOB, "x", "0" * 32) == []
+    assert state.forum_vote(REPONSE, ALICE, -1) != []
+    assert state.forum_vote(REPONSE, ALICE, 1) != []          # changement d'avis
+    apres = {m["id"]: m for m in state.forum_thread("tp2-ex3", 200, ALICE)}
     assert apres[REPONSE]["upvotes"] == 1 and apres[REPONSE]["downvotes"] == 0
-    assert state.forum_devoter(REPONSE, ALICE) != []
-    assert state.forum_devoter(REPONSE, ALICE) == []
-    assert {m["id"]: m for m in state.forum_fil("tp2-ex3", 200, ALICE)}[
+    assert state.forum_unvote(REPONSE, ALICE) != []
+    assert state.forum_unvote(REPONSE, ALICE) == []
+    assert {m["id"]: m for m in state.forum_thread("tp2-ex3", 200, ALICE)}[
         REPONSE]["upvotes"] == 0
 
     # LA FENÊTRE SE BORNE PAR RACINE : une réponse ne survit JAMAIS sans sa
     # question. Avec une limite de 1, on obtient la dernière racine ET toutes
     # ses réponses -- jamais une réponse orpheline.
-    court = state.forum_fil("tp2-ex3", 1, ALICE)
+    court = state.forum_thread("tp2-ex3", 1, ALICE)
     racines = [m for m in court if not m["reply_to"]]
     assert len(racines) == 1, court
     assert all(m["reply_to"] == racines[0]["id"]
@@ -686,9 +686,9 @@ def stuck_and_helpful():
     # privée ne remonte que chez son auteur -- pas chez un autre compte, et
     # PAS chez un modérateur non plus, qui n'a aucune exception ici.
     PRIVEE = "4" * 32
-    assert state.forum_publier(PRIVEE, "tp2-ex3", ALICE,
-                               "mon segfault mysterieux", "execution",
-                               "wrong-result", "private")
+    assert state.forum_post(PRIVEE, "tp2-ex3", ALICE,
+                            "mon segfault mysterieux", "execution",
+                            "wrong-result", "private")
     a_elle = [r["id"] for r in state.forum_search("segfault", ALICE, 5)]
     a_lui = [r["id"] for r in state.forum_search("segfault", BOB, 5)]
     assert PRIVEE in a_elle, a_elle
@@ -708,12 +708,12 @@ def stuck_and_helpful():
     # THE RETAINED ANSWER IS DERIVED FROM THE JOURNAL, and reversible, and it
     # edits NOTHING: the text is byte-for-byte what it was.
     before = seen["text"]
-    assert state.forum_moderer("m" * 32, BLOQUE, BOB, "retain") != []
-    retained = [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+    assert state.forum_moderate("m" * 32, BLOQUE, BOB, "retain") != []
+    retained = [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
                 if m["id"] == BLOQUE][0]
     assert retained["retained"] is True and retained["text"] == before
-    assert state.forum_moderer("n" * 32, BLOQUE, BOB, "unretain") != []
-    assert [m for m in state.forum_fil("tp2-ex3", 200, ALICE)
+    assert state.forum_moderate("n" * 32, BLOQUE, BOB, "unretain") != []
+    assert [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
             if m["id"] == BLOQUE][0]["retained"] is False
 
     # THE INSTRUCTOR'S AGGREGATE: counts and steps, and nothing that names
@@ -743,9 +743,9 @@ def leaderboard_rows():
     did not tick the box must produce NO ROW, so there is nothing downstream
     to forget to hide.
     """
-    assert state.forum_profil_ecrire("u" * 32, ALICE, "Alice", 3, True, True,
+    assert state.forum_write_profile("u" * 32, ALICE, "Alice", 3, True, True,
                                      alias="Rotor cuivre", leaderboard_opt_in=True)
-    assert state.forum_profil_ecrire("v" * 32, BOB, "Bob", 3, False, True,
+    assert state.forum_write_profile("v" * 32, BOB, "Bob", 3, False, True,
                                      alias="Palier lisse", leaderboard_opt_in=False)
     rows = state.leaderboard_rows(3, 7)
     assert [r["account"] for r in rows] == [ALICE], rows
@@ -756,7 +756,7 @@ def leaderboard_rows():
     assert [r["account"] for r in state.leaderboard_rows(None, 7)] == [ALICE]
     assert state.leaderboard_rows(99, 7) == []
     # Opting in later adds the row, with no other change to the profile.
-    assert state.forum_profil_ecrire("w" * 32, BOB, "Bob", 3, False, True,
+    assert state.forum_write_profile("w" * 32, BOB, "Bob", 3, False, True,
                                      alias="Palier lisse", leaderboard_opt_in=True)
     assert {r["account"] for r in state.leaderboard_rows(3, 7)} == {ALICE, BOB}
     assert state.forum_taken_aliases() == {"Rotor cuivre", "Palier lisse"}

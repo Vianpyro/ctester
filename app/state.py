@@ -1,53 +1,26 @@
-#!/usr/bin/env python3
-"""ctester -- persistence for students who sign in. See schema.sql.
-
-THIS WHOLE MODULE IS OPTIONAL, and that is what gives it its shape. Without
-CTESTER_DB_DSN, `enabled()` is false and the API behaves exactly as before: the
-anonymous path never needs this layer. A database that is down must not stop a
-student from testing their code the evening before a deadline -- so nothing here
-raises. Functions return None or False, and the caller says so honestly on screen.
-
-`account` is ALWAYS the opaque `sub` validated by `security.current_user()`, never
-a value taken from a request body: that is the one thing keeping a student out
-of another student's state.
-
-Table and column names stay as the schema declares them (see schema.sql); the
-Python around them does not.
-"""
-
 import json
 import os
 import threading
 from datetime import timezone
 
 try:
-    import psycopg          # the only optional import
-except ImportError:         # image built without it: persistence is simply absent
+    import psycopg
+except ImportError:
     psycopg = None
 
 DSN = os.environ.get("CTESTER_DB_DSN", "")
 
-# ponytail: ONE connection behind a global lock, not a pool. The most frequent
-# write is a draft every 1.5 s per signed-in student; at 80 of them the queue
-# behind this lock is permanently empty. Move to psycopg_pool the day it is not.
+# A single connection behind a global lock: endpoints are sync and share it.
+# Move to psycopg_pool if requests ever start queueing here.
 _lock = threading.Lock()
 _conn = None
 
 STATUSES = ("attempted", "solved")
-# The page's only two themes. Same list as the CHECK in `schema.sql` and the
-# `<head>` script: three places, one rule to keep in sync.
 THEMES = ("light", "dark")
-# La borne du bloc-notes de la Console, en octets. ÉCRITE ICI ET PAS PRISE DANS
-# `config` : ce module n'importe pas `config`, exprès -- il est éprouvé par
-# appel direct contre un vrai Postgres, sans le reste de l'application. Elle
-# vaut `config.MAX_CODE` et le CHECK de `scratch_draft` dans schema.sql ; les
-# trois valeurs sont les mêmes 64 Ko, et c'est le CHECK qui a le dernier mot
-# pour tout chemin d'écriture.
 SCRATCH_MAX = 65536
 
 
 def enabled():
-    """True when persistence is both configured and usable."""
     return bool(DSN) and psycopg is not None
 
 
@@ -62,17 +35,7 @@ def _close():
 
 
 def _query(sql, params, read=False):
-    """One statement, under the lock. Rows, [] for a write, or None on failure.
-
-    None means "the database did not answer", never "there is nothing": that is
-    what lets the caller tell a fault apart from an empty dashboard. Confusing
-    the two would make a student believe everything was lost.
-
-    The broad `except Exception` is deliberate. What psycopg can raise -- dead
-    connection, Postgres restarted, DNS, encoding -- has exactly one correct
-    response here: degrade. Letting it propagate would return 500 on a page whose
-    "Tester" button was still working perfectly well.
-    """
+    """None means the database is unavailable, never an empty result."""
     global _conn
     if not enabled():
         return None
@@ -85,9 +48,6 @@ def _query(sql, params, read=False):
                     cur.execute(sql, params)
                     return cur.fetchall() if read else []
             except Exception:
-                # A stale connection is the common case (Postgres restarted
-                # overnight): drop it and retry ONCE. Two failures in a row are
-                # an outage, and an outage gets reported.
                 _close()
                 if last_try:
                     return None
@@ -95,11 +55,6 @@ def _query(sql, params, read=False):
 
 
 def _sources(rows):
-    """The `sources` column of a single row, decoded. None if nothing usable.
-
-    The contents come from the database, but a student put them there: check
-    again that it is an object before handing it back to a browser.
-    """
     if not rows:
         return None
     try:
@@ -112,11 +67,6 @@ def _sources(rows):
 
 
 def read_resume(user, exercise_id):
-    """What goes back into the editor: the draft, else the last submission.
-
-    One round trip for both tables. A student who submitted and then closed the
-    tab must find what they sent, not a blank template.
-    """
     rows = _query(
         "SELECT sources FROM ("
         "  SELECT sources, 0 AS rank FROM exercise_draft"
@@ -140,12 +90,6 @@ def write_draft(user, exercise_id, sources):
 
 
 def write_state(user, exercise_id, status, sources):
-    """Write the state, WITHOUT EVER LETTING IT GO BACKWARDS.
-
-    The CASE exists for a precise reason: after solving an exercise, people keep
-    poking at it. Without it, the first failed experiment would turn the green
-    dot back to amber, and the dashboard would say the opposite of what happened.
-    """
     if status not in STATUSES:
         return False
     return _query(
@@ -160,7 +104,6 @@ def write_state(user, exercise_id, status, sources):
 
 
 def read_states(user):
-    """[{exercise_id, status}] for the list view, or None if the database is mute."""
     rows = _query(
         "SELECT exercise_id, status FROM exercise_state WHERE account = %s",
         (user,), read=True)
@@ -170,12 +113,6 @@ def read_states(user):
 
 
 def write_practice_attempt(user, job_id, exercise_id, result):
-    """Persist one completed practice attempt, once per worker job.
-
-    The API, not JavaScript, reads `result.json` and calls this function.  A
-    verdict is practice evidence only; it must never be reused as verified
-    mastery while the self-service judge remains intentionally non-secure.
-    """
     status = str(result.get("status", "error"))[:64]
     total = result.get("total", 0)
     passed = result.get("passed", 0)
@@ -192,7 +129,6 @@ def write_practice_attempt(user, job_id, exercise_id, result):
 
 
 def read_practice_summary(user):
-    """Per-exercise practice counts; derived mastery is intentionally absent."""
     rows = _query(
         "SELECT exercise_id, count(*), "
         "count(*) FILTER (WHERE total > 0 AND passed = total) "
@@ -206,20 +142,6 @@ def read_practice_summary(user):
 
 
 def read_practice_days(user, days):
-    """[{date, attempts}] for the last `days` days. The calendar of design 1b.
-
-    A `GROUP BY` OVER AN EXISTING TABLE, NOT A NEW ONE. Every attempt is
-    already dated in `practice_attempt`; a second table would be a second
-    place the truth could diverge, for a strip of squares.
-
-    THE DAY ONLY, never the time: this is the same rule as `read_progress`,
-    and "practiced on the 14th" is all the strip draws. At what hour someone
-    worked has no business traveling (privacy.md).
-
-    NO STREAK IS COMPUTED HERE OR ANYWHERE ELSE, and that is the point of the
-    calendar replacing one: a gap takes nothing away, so there is no counter
-    to break and none to defend.
-    """
     rows = _query(
         "SELECT date_trunc('day', completed_at)::date AS day, count(*)"
         "  FROM practice_attempt"
@@ -233,21 +155,7 @@ def read_practice_days(user, days):
 
 def grant_first_solve(user, exercise_id, event_id, amount, reason,
                       policy, payload, daily_cap):
-    """Record ONE first solve and its XP, in a single statement.
-
-    Returns the amount actually granted (0 if today's cap is already reached),
-    or None if the fact already existed -- or the database did not answer. Both
-    are handled the same way by the caller: there is nothing new to celebrate.
-
-    IDEMPOTENCE LIVES IN THE KEY, not in a prior read. `event_id` names the fact
-    ("reussite:tp2-ex3"), its primary key makes it unique per student, and the
-    `ON CONFLICT` means two simultaneous polls of the same verdict, a restarted
-    worker or a replayed HTTP request only grant once. A read followed by a
-    write would have left the race open.
-
-    The cap is computed WITHIN the same statement: reading it separately would
-    make it wrong as soon as two solves happen concurrently.
-    """
+    # The (account, event_id) key makes a replayed poll or a second solve grant nothing.
     rows = _query(
         "WITH remaining AS ("
         "  SELECT GREATEST(%(cap)s - COALESCE(sum(amount), 0), 0) AS balance"
@@ -277,24 +185,6 @@ def grant_first_solve(user, exercise_id, event_id, amount, reason,
 
 
 def record_event(user, event_id, kind, exercise_id, policy, payload):
-    """A progression fact WITHOUT XP: a journal row, nothing more.
-
-    This is what a verification (phase 2) writes. No CTE, no cap, no read:
-    `progress_event` is already the append-only journal, and a piece of mastery
-    evidence is nothing more than a dated fact. No new table, so no GRANT to
-    add and nothing more to remove in `forget()` -- the INSERT is already
-    granted there.
-
-    IDEMPOTENCE LIVES IN THE KEY, as for `grant_first_solve`: two polls of the
-    same verdict carry the same `event_id` and write only once. A NEW attempt
-    carries a different job id, so it leaves its own row: retries stay
-    historical.
-
-    Returns the id written, or None -- already known, or the database is mute.
-    As with `grant_first_solve`, both are handled the same way by the caller:
-    there is no new fact, so nothing to recompute. That is what avoids
-    replaying three reads on every poll of `/r/<id>`.
-    """
     rows = _query(
         "INSERT INTO progress_event"
         "  (account, event_id, type, exercise_id, policy, payload) "
@@ -307,16 +197,6 @@ def record_event(user, event_id, kind, exercise_id, policy, payload):
 
 
 def read_events(user, kind, limit=500):
-    """Facts of one type, newest first. None if the database is mute.
-
-    [{"exercise_id": str|None, "payload": dict}] -- the date is used to order
-    and is not returned: mastery is read as bands, not a timestamped history,
-    and the exact time of an attempt has no business traveling (privacy.md).
-
-    BOUNDED like `read_progress`: this is a display read. `event_id` breaks
-    ties between two facts in the same second, without which "the latest
-    attempt" would depend on the order the planner feels like returning.
-    """
     rows = _query(
         "SELECT exercise_id, payload FROM progress_event"
         " WHERE account = %s AND type = %s"
@@ -336,7 +216,6 @@ def read_events(user, kind, limit=500):
 
 
 def unlock(user, achievement_ids, event_id, policy):
-    """Add the missing achievements. Replaying the same list creates nothing more."""
     if not achievement_ids:
         return True
     return _query(
@@ -349,18 +228,6 @@ def unlock(user, achievement_ids, event_id, policy):
 
 
 def read_progress(user):
-    """A student's progression facts, or None if the database is mute.
-
-    {"xp": int, "achievements": [{id, unlocked_at, policy}],
-     "transactions": [{exercise_id, amount, reason, granted_at}]}
-
-    The balance, level and skills are NOT here: those are projections,
-    `services/progression.py` recomputes them from these facts and the public
-    catalog. What is stored is what happened, not what is displayed.
-
-    Dates come out at DAY granularity only. That is what the UI shows, and the
-    exact time of a submission has no business traveling.
-    """
     total = _query(
         "SELECT COALESCE(sum(amount), 0) FROM xp_transaction"
         " WHERE account = %s", (user,), read=True)
@@ -368,9 +235,6 @@ def read_progress(user):
         "SELECT achievement_id, unlocked_at, policy FROM achievement_unlocked"
         " WHERE account = %s ORDER BY unlocked_at, achievement_id",
         (user,), read=True)
-    # BOUNDED, and that is the contract: this list is the display/export of
-    # grants, not an unlimited journal. One solve per published exercise fits
-    # well under it.
     grants = _query(
         "SELECT exercise_id, amount, reason, granted_at FROM xp_transaction"
         " WHERE account = %s ORDER BY granted_at DESC, event_id LIMIT 200",
@@ -388,20 +252,6 @@ def read_progress(user):
 
 
 def read_unlock_rates():
-    """({achievement_id: holders}, cohort) -- the OBSERVED rate of each unlock.
-
-    THE RARITY IS MEASURED, NEVER DECREED. A card that says "18 %" must mean
-    "18 % of the people who practised here have it", or the number is
-    decoration -- and a decorative rarity is the exact mechanic
-    student-motivations.md refuses.
-
-    THE COHORT IS "ACCOUNTS THAT HAVE SUBMITTED SOMETHING", not "accounts that
-    exist": an account that never practised cannot hold a card, and counting it
-    would drag every rate down for a reason no student could read.
-
-    The caller must refuse to display a rate under `policy.cohorte_minimale()`:
-    a percentage over four people describes those four people.
-    """
     holders = _query(
         "SELECT achievement_id, count(DISTINCT account)"
         "  FROM achievement_unlocked GROUP BY achievement_id", (), read=True)
@@ -413,45 +263,7 @@ def read_unlock_rates():
             int(cohort[0][0]) if cohort else 0)
 
 
-# --- The leaderboard (design 1c) ---------------------------------------------
-# COUNTED ON FIRST SOLVES, WHICH ALREADY EXIST. `xp_transaction` carries one
-# row per `solved:<exercise>` and its primary key is what makes that "first"
-# -- so the aggregate is a `count(*)`, redoing a lab adds nothing, and the
-# daily XP cap (which zeroes `amount`, never the row) has no effect here. That
-# is why we count ROWS and not `sum(amount)`.
-#
-# ponytail: computed on read, no materialized view. It is one indexed scan
-# over a few hundred rows for a cohort of thirty; a refreshed projection would
-# be a second place the truth can diverge, plus a schedule to keep. The
-# threshold is a p95 of `/leaderboard` above a second, which `load_test.py`
-# reports -- same rule as `/progres`.
-
-
 def leaderboard_rows(group_number, days, staff=()):
-    """[{account, alias, group_number, recent, lifetime}] for OPTED-IN accounts.
-
-    OPT-IN IS THE `WHERE`, NOT A FILTER APPLIED AFTER: an account that did not
-    check the box produces no row at all, so there is nothing to forget to
-    hide downstream. `group_number` None means the whole course.
-
-    AND THE INSTRUCTOR IS EXCLUDED BY THE SAME `WHERE`, for the same reason.
-    Their XP is test XP -- they wrote the exercises -- so a ranking carrying
-    them would be unfair to every student in it, and fairness must not depend
-    on remembering not to tick a box. `staff` comes from the caller
-    (`config.FORUM_MODERATORS`) rather than from an import here: this module
-    stays the SQL layer, and the moderator list is configuration.
-
-    An empty `staff` excludes nobody -- `x <> ALL(ARRAY[]::text[])` is true --
-    so a deployment without moderators behaves exactly as before.
-
-    An opted-in account with nothing this week IS returned, at zero. Dropping
-    it would make the cohort size depend on the week, and the cohort size is
-    what the privacy threshold reads.
-
-    THE `account` COMES BACK because ranking needs to spot the caller's own
-    row; `services/leaderboard.py` is what drops it, exactly as `forum_vue()`
-    does for a thread. No `sub` crosses HTTP.
-    """
     rows = _query(
         "WITH profile AS ("
         "  SELECT DISTINCT ON (account) account, alias, group_number,"
@@ -481,34 +293,13 @@ def leaderboard_rows(group_number, days, staff=()):
 
 
 def _day(value):
-    """The date of a timestamp, in ISO. The value as a string if it is not one."""
     try:
         return value.date().isoformat()
     except AttributeError:
         return str(value)[:10]
 
 
-# --- Display preferences ----------------------------------------------------
-# The theme, and nothing else for now. It lives here rather than only in
-# `localStorage` because local storage is PER DEVICE: a student working at the
-# lab then at home started over from the default theme every time. The
-# account already carries the draft from one machine to another; the display
-# setting takes the same path.
-#
-# LOCAL STORAGE STAYS, and it is not redundant: it is what the `<head>` script
-# reads before the first paint, long before an HTTP response could arrive.
-# What is here is the truth of the ACCOUNT; what is there is what avoids the
-# dark-to-light flash on every visit.
-
-
 def read_theme(user):
-    """This account's theme: "light", "dark", or "" if nothing was chosen.
-
-    None -- and nothing else -- means "the database did not answer". The empty
-    string means "no choice recorded", and the caller then keeps the device's
-    own theme: confusing the two would drop someone's setting every time
-    Postgres is mute or new.
-    """
     rows = _query("SELECT theme FROM display_preference WHERE account = %s",
                   (user,), read=True)
     if rows is None:
@@ -517,16 +308,6 @@ def read_theme(user):
 
 
 def write_theme(user, theme):
-    """The chosen theme, overwritten in place. False if the value or the DB refuses.
-
-    ALONG WITH THE DRAFT AND THE STATE, THE ONLY WRITE IN THIS FILE THAT
-    REPLACES INSTEAD OF APPENDING. Someone's old theme is not a fact to read
-    back, and a journal would grow on every click of a button made to be
-    clicked.
-
-    The allow-list is repeated here AND in the schema's CHECK: this one saves
-    a round trip, that one holds for every write path.
-    """
     if theme not in THEMES:
         return False
     return _query(
@@ -538,17 +319,7 @@ def write_theme(user, theme):
     ) is not None
 
 
-# --- La Console --------------------------------------------------------------
-
-
 def read_scratch(user):
-    """Le bloc-notes de ce compte : son code, ou "" si rien n'a été enregistré.
-
-    `None` -- ET RIEN D'AUTRE -- veut dire « la base n'a pas répondu ». La
-    chaîne vide veut dire « aucun bloc-notes », et l'appelant garde alors ce
-    qu'il a en local. Confondre les deux effacerait le travail de quelqu'un à
-    la première panne, exactement comme pour le thème.
-    """
     rows = _query("SELECT code FROM scratch_draft WHERE account = %s",
                   (user,), read=True)
     if rows is None:
@@ -557,14 +328,6 @@ def read_scratch(user):
 
 
 def write_scratch(user, code):
-    """Le bloc-notes, ÉCRASÉ EN PLACE. False si la base refuse.
-
-    Une ligne par compte, `ON CONFLICT DO UPDATE` : le bloc-notes précédent
-    n'est pas un fait à relire, et un journal grossirait à chaque frappe.
-
-    La borne est reposée ici ET dans le CHECK du schéma : celle-ci évite un
-    aller-retour, celle-là tient pour tout chemin d'écriture.
-    """
     if not isinstance(code, str) or len(code.encode("utf-8")) > SCRATCH_MAX:
         return False
     return _query(
@@ -576,50 +339,9 @@ def write_scratch(user, code):
     ) is not None
 
 
-# --- Peer help forum (MVP) ---------------------------------------------------
-# ONE thread per published exercise, for signed-in accounts only. Nothing here
-# touches progression: no XP, no achievement, no exercise status.
-#
-# `account` IS ALWAYS the `sub` validated by `security.current_user()`, as
-# everywhere else in this file -- never a value taken from a request body.
-# That is what prevents posting, deleting or reporting in someone else's name.
-#
-# THIS MODULE RETURNS THE AUTHOR'S `sub` to the caller, and it is
-# `forum_vue()` (`services/forum.py`) that translates it into "Vous" /
-# "Participant" / "Enseignant" without ever letting it out. Translating it
-# here would require knowing the moderator list in the SQL layer, where it has
-# no business being.
-
-
-def forum_fil(exercise_id, limit, reader=None):
-    """An exercise's thread, oldest to newest. None if the database is mute.
-
-    Hidden messages ARE returned, with their flag: it is `forum_vue()` that
-    strips them for an ordinary student and keeps them for a moderator,
-    because it is the one that knows who is calling. PRIVATE messages are
-    returned the same way, with their visibility, and `forum_vue()` drops the
-    ones the reader has no business seeing.
-
-    THE LIMIT BOUNDS ROOTS, NOT MESSAGES, and that is what an archive of ten
-    thousand messages forces. Bounding messages would eventually cut a thread
-    between a question and its answer: the reply would come back alone, its
-    root gone, unreadable for the very person it was written for. Here a
-    question and ALL its replies enter and leave together. No outer LIMIT, on
-    purpose -- truncating a root's replies is the exact failure this CTE
-    exists to prevent, and one root with thousands of replies is a moderation
-    problem, not a query one.
-
-    FOUR THINGS TRAVEL WITH A MESSAGE, all derived, none stored on the row:
-    whether a moderator retained it as the answer (the latest
-    `retain`/`unretain` in the journal), how many accounts voted it up, how
-    many voted it down, and what THIS reader voted. Deriving beats counter
-    columns -- no number to drift, no UPDATE grant to widen.
-
-    `reader` only answers "what did I vote"; it never changes which rows come
-    back.
-    """
+def forum_thread(exercise_id, limit, reader=None):
     rows = _query(
-        "WITH racines AS ("
+        "WITH roots AS ("
         "   SELECT message_id FROM forum_message"
         "    WHERE exercise_id = %(ex)s AND reply_to IS NULL"
         "    ORDER BY created_at DESC, message_id DESC"
@@ -641,8 +363,8 @@ def forum_fil(exercise_id, limit, reader=None):
         "          AND action IN ('retain', 'unretain')"
         "        ORDER BY created_at DESC, action_id DESC LIMIT 1) r ON true"
         " WHERE m.exercise_id = %(ex)s"
-        "   AND (m.message_id IN (SELECT message_id FROM racines)"
-        "        OR m.reply_to IN (SELECT message_id FROM racines))"
+        "   AND (m.message_id IN (SELECT message_id FROM roots)"
+        "        OR m.reply_to IN (SELECT message_id FROM roots))"
         " ORDER BY m.created_at, m.message_id",
         {"ex": exercise_id, "limit": max(int(limit), 0), "who": reader or ""},
         read=True)
@@ -650,7 +372,6 @@ def forum_fil(exercise_id, limit, reader=None):
 
 
 def _messages(rows):
-    """The row shape every thread read shares. None stays None."""
     if rows is None:
         return None
     return [{"id": row[0], "account": row[1], "text": row[2],
@@ -662,22 +383,9 @@ def _messages(rows):
 
 
 def forum_conversation(message_id, reader=None):
-    """(thread key, [messages]) -- the root of `message_id` and all its replies.
-
-    THE PERMALINK, and it exists because a search result is worth nothing
-    without somewhere to land: a message three thousand posts back is inside
-    no thread window, so `forum_fil` would never return it.
-
-    IT RENDERS THROUGH THE SAME `forum_vue()`/`can_see()` as a thread -- same
-    columns, same order, same identity translation. A second rendering path
-    would be a second place for a visibility rule to drift.
-
-    (None, None) when the database is mute, (None, []) when there is no such
-    message -- the caller answers the same 404 either way.
-    """
     rows = _query(
-        "WITH cible AS ("
-        "   SELECT COALESCE(reply_to, message_id) AS racine, exercise_id"
+        "WITH target AS ("
+        "   SELECT COALESCE(reply_to, message_id) AS root, exercise_id"
         "     FROM forum_message WHERE message_id = %(id)s) "
         "SELECT m.message_id, m.account, m.text, m.hidden, m.created_at,"
         "       m.step, m.blocked_kind, m.visibility, m.reply_to,"
@@ -691,7 +399,7 @@ def forum_conversation(message_id, reader=None):
         "                    AND h.account = %(who)s), 0),"
         "       c.exercise_id"
         "  FROM forum_message m"
-        "  JOIN cible c ON m.message_id = c.racine OR m.reply_to = c.racine"
+        "  JOIN target c ON m.message_id = c.root OR m.reply_to = c.root"
         "  LEFT JOIN LATERAL ("
         "       SELECT action FROM forum_moderation"
         "        WHERE message_id = m.message_id"
@@ -707,27 +415,6 @@ def forum_conversation(message_id, reader=None):
 
 
 def forum_search(terms, reader, limit):
-    """[{id, exercise_id, extrait, created_at, upvotes, replies}]. None if mute.
-
-    ONE QUERY FOR TWO USES: typed into the compose box it proposes duplicates,
-    typed into the search bar it reaches the archive. Two queries would be two
-    places for the clause below to drift, and the one that drifted would be
-    the one that stopped protecting.
-
-    THE PRIVACY RULE IS THE `WHERE`, NOT A FILTER AFTER: a private forum
-    question can never surface as "someone already asked this" to anyone but
-    its author. Everything in a chat is public, so the clause is always true
-    there -- it stays anyway, because this table also holds the forum's
-    private questions, and a clause dropped because "it cannot happen here"
-    is the one that fires later.
-
-    A MODERATOR GETS NO EXCEPTION. They read threads already; widening this
-    `WHERE` for them would be one more branch to get wrong, for nothing.
-
-    `left(text, 240)` RATHER THAN `ts_headline`: the page shows the excerpt
-    through `textContent`, and a highlight is not worth a formatting-option
-    string. ponytail: ts_headline the day the excerpt is worth it.
-    """
     terms = str(terms or "").strip()
     if not terms:
         return []
@@ -753,11 +440,6 @@ def forum_search(terms, reader, limit):
 
 
 def forum_top(hours, limit):
-    """The most upvoted ROOTS of the last `hours`. Moderator-only, see the router.
-
-    ROOTS ONLY: "what is being asked" is a question, and ranking replies in
-    the same table would put answers above the questions they answer.
-    """
     rows = _query(
         "SELECT m.message_id, m.exercise_id, m.text, m.created_at, m.visibility,"
         "       m.step, m.blocked_kind,"
@@ -779,14 +461,8 @@ def forum_top(hours, limit):
             for r in rows]
 
 
-def forum_publier(message_id, exercise_id, user, text, step=None,
-                  blocked_kind=None, visibility="thread"):
-    """Add a message. The id is generated by the caller (uuid4).
-
-    `step`, `blocked_kind` and `visibility` come from CLOSED lists validated in
-    `services/forum.py`; the CHECK on `visibility` is the same defense as
-    everywhere else -- it holds for a psql session opened at midnight too.
-    """
+def forum_post(message_id, exercise_id, user, text, step=None,
+               blocked_kind=None, visibility="thread"):
     return _query(
         "INSERT INTO forum_message"
         "  (message_id, exercise_id, account, text, step, blocked_kind, visibility)"
@@ -795,26 +471,7 @@ def forum_publier(message_id, exercise_id, user, text, step=None,
     ) is not None
 
 
-def forum_repondre(message_id, exercise_id, user, text, target):
-    """Reply to `target`. [] if the target is unknown or in another thread.
-
-    THE FLATTENING IS `COALESCE(t.reply_to, t.message_id)`, AND IT IS THE
-    WHOLE TRICK: replying to a reply stores the ROOT's id, so a thread stays
-    flat to draw, `can_see` needs one dictionary lookup rather than a walk,
-    and there is no depth to bound. One expression, in SQL, so it cannot be
-    forgotten by a caller.
-
-    THE `WHERE` IS THE RULE, as everywhere in this file: the root must exist
-    AND live in the same thread. A made-up id inserts nothing -- there is no
-    prior read to race, and no `if` in a router to get wrong. This is
-    INTEGRITY, not privacy: a chat is public, so a reply is visible exactly
-    like anything else, and it carries no visibility of its own.
-
-    Separate from `forum_publier` rather than a parameter on it, because the
-    two return different things: a root is a plain INSERT that only fails when
-    the database is mute, a reply can be legitimately REFUSED. Folding them
-    would mean one function whose False means two different HTTP answers.
-    """
+def forum_reply(message_id, exercise_id, user, text, target):
     return _query(
         "INSERT INTO forum_message"
         "  (message_id, exercise_id, account, text, visibility, reply_to)"
@@ -828,48 +485,15 @@ def forum_repondre(message_id, exercise_id, user, text, target):
 
 
 def forum_open_to_group(message_id, user):
-    """Open one's OWN private message to one's group. The only transition.
-
-    [] when the message is not theirs, is not private, or does not exist --
-    the same answer for all three, as everywhere else in this file. None when
-    the database did not answer.
-
-    THE `WHERE` IS THE WHOLE RULE, and it is one-way: `visibility = 'private'`
-    means group -> private cannot be expressed, so nobody can hide what others
-    have already read. That is the immutability social.md sets out, held by
-    Postgres rather than by whoever writes the next query.
-    """
     return _query(
         "UPDATE forum_message SET visibility = 'group'"
         " WHERE message_id = %s AND account = %s AND visibility = 'private'"
         " RETURNING message_id", (message_id, user), read=True)
 
 
-def forum_voter(message_id, user, value):
-    """Vote on someone ELSE's message. [] if refused, None if the base is mute.
-
-    FOUR PROTECTIONS IN ONE STATEMENT, and that is the point of writing it as
-    an `INSERT ... SELECT` rather than a read then a write:
-
-      * the SELECT forbids a made-up id;
-      * `m.account <> %(who)s` forbids voting on one's own message;
-      * `m.reply_to IS NOT NULL` FORBIDS -1 ON A QUESTION -- a question cannot
-        be buried by a vote, which is the whole promise of a place built for
-        people who are afraid to ask. It is held by the statement, not by the
-        page choosing not to draw a button;
-      * the primary key holds "once per account", and `DO UPDATE` turns the
-        second vote into a change of mind rather than a duplicate.
-
-    `DO UPDATE` IS WHY THE SCHEMA GRANTS `UPDATE (value)` -- a column grant,
-    so `message_id` and `account` stay unwritable and nobody's vote can be
-    moved onto another message.
-
-    IT STILL GRANTS NOTHING. No XP, no achievement, no card: a message written
-    to be upvoted is a message written for the counter. On a question the +1
-    reads as "moi aussi", which is what tells the instructor what is being
-    asked -- without counting anybody.
-    """
+def forum_vote(message_id, user, value):
     value = 1 if int(value) >= 0 else -1
+    # Downvotes only apply to replies: a question can't be buried.
     return _query(
         "INSERT INTO forum_helpful (message_id, account, value)"
         " SELECT m.message_id, %(who)s, %(value)s FROM forum_message m"
@@ -880,47 +504,25 @@ def forum_voter(message_id, user, value):
         {"who": user, "id": message_id, "value": value}, read=True)
 
 
-def forum_devoter(message_id, user):
-    """Take one's own vote back. [] if there was none -- the same 404 as the rest."""
+def forum_unvote(message_id, user):
     return _query(
         "DELETE FROM forum_helpful WHERE message_id = %s AND account = %s"
         " RETURNING message_id", (message_id, user), read=True)
 
 
-def forum_supprimer(message_id, user):
-    """Delete THEIR OWN message. [] if it is not theirs (or already gone).
-
-    The `account = %s` clause IS the access control: there is no prior read to
-    make lie, and deleting a neighbor's message would require being the
-    neighbor.
-    """
+def forum_delete(message_id, user):
     return _query(
         "DELETE FROM forum_message WHERE message_id = %s AND account = %s"
         " RETURNING message_id", (message_id, user), read=True)
 
 
-def forum_fil_de(message_id):
-    """The thread key a message lives in, or "" -- for ringing the room.
-
-    A separate one-row read rather than a wider `RETURNING` on the delete and
-    the moderation statements: those two are the file's most carefully written
-    SQL (an access-control `WHERE`, a two-write CTE), and widening them to
-    carry a value only a notification needs would put a bell in the way of a
-    rule. Both actions are rare; this costs a primary-key lookup.
-    """
+def forum_thread_of(message_id):
     rows = _query("SELECT exercise_id FROM forum_message WHERE message_id = %s",
                   (message_id,), read=True)
     return rows[0][0] if rows else ""
 
 
-def forum_signaler(message_id, user):
-    """Report a message. [] if it does not exist OR is already reported by them.
-
-    TWO PROTECTIONS IN ONE STATEMENT: the `SELECT ... FROM forum_message`
-    forbids reporting a made-up id -- so no orphan row carrying a `sub` for
-    nothing -- and the primary key forbids the duplicate. A read followed by a
-    write would have left both races open.
-    """
+def forum_report(message_id, user):
     return _query(
         "INSERT INTO forum_report (message_id, account)"
         " SELECT m.message_id, %s FROM forum_message m WHERE m.message_id = %s"
@@ -928,14 +530,7 @@ def forum_signaler(message_id, user):
         " RETURNING message_id", (user, message_id), read=True)
 
 
-def forum_signalements(limit):
-    """Reported messages, most-reported first. The moderator's view.
-
-    THE MINIMUM USEFUL FOR MODERATION, and nothing more: the text, the
-    exercise, the date, the state and the COUNT of reports. Never who
-    reported, never who wrote, never submitted code, a detailed verdict or
-    progression data.
-    """
+def forum_reports(limit):
     rows = _query(
         "SELECT m.message_id, m.exercise_id, m.text, m.hidden, m.created_at,"
         "       count(*) AS how_many"
@@ -951,21 +546,8 @@ def forum_signalements(limit):
              "report_count": int(row[5])} for row in rows]
 
 
-def forum_moderer(action_id, message_id, moderator, action):
-    """Hide or restore a message AND journal the action, in ONE statement.
-
-    [] when the message does not exist; None when the database did not answer.
-
-    THE JOURNAL IS APPEND-ONLY and the current state is a column: the two
-    writes must therefore fall together. Split into two autocommit `_query`
-    calls, a connection dropped in the middle would leave a message hidden
-    that nothing explains -- or the reverse, a journal that lies.
-    """
+def forum_moderate(action_id, message_id, moderator, action):
     if action in ("retain", "unretain"):
-        # NO COLUMN IS TOUCHED, and that is the point: the journal's latest
-        # row IS the retained answer (see `forum_fil`). A `retained` column
-        # would need one more UPDATE grant on a table whose whole design is
-        # that a message cannot be rewritten.
         return _query(
             "INSERT INTO forum_moderation (action_id, message_id, account, action)"
             " SELECT %s, m.message_id, %s, %s FROM forum_message m"
@@ -987,38 +569,24 @@ def forum_moderer(action_id, message_id, moderator, action):
          "which": action, "hidden": action == "hide"}, read=True)
 
 
-# --- The chosen name and group number ---------------------------------------
-# APPEND-ONLY, THE LAST ROW IS AUTHORITATIVE. No UPDATE, so no UPDATE GRANT:
-# ownership is held by Postgres, not by the discipline of whoever writes the
-# next query. `DISTINCT ON` reads it in one pass over the index
-# (account, created_at DESC).
-
 _PROFILE_COLUMNS = ("display_name", "group_number", "display_name_public",
                     "group_number_public", "alias", "plate_frame",
                     "badges_public", "leaderboard_opt_in")
 
-# What an account with no profile row reads as. NOT `{}`: every caller reads
-# these keys, and a missing one would be an outage's None in disguise.
 EMPTY_PROFILE = {"display_name": None, "group_number": None,
                "display_name_public": False, "group_number_public": False,
                "alias": None, "plate_frame": None,
                "badges_public": False, "leaderboard_opt_in": False}
 
 
-def _profil(row):
+def _profile(row):
     return {"display_name": row[1], "group_number": None if row[2] is None else int(row[2]),
             "display_name_public": bool(row[3]), "group_number_public": bool(row[4]),
             "alias": row[5], "plate_frame": row[6],
             "badges_public": bool(row[7]), "leaderboard_opt_in": bool(row[8])}
 
 
-def forum_profils(users):
-    """{sub: profile} for these accounts. {} for those who never set one.
-
-    ONE QUERY FOR AN ENTIRE THREAD: a thread of twenty messages must not cost
-    twenty round trips behind the global lock. `= ANY(%s)` takes the list as
-    it is -- same shape as progression's `unnest`.
-    """
+def forum_profiles(users):
     people = sorted({u for u in users if u})
     if not people:
         return {}
@@ -1029,29 +597,21 @@ def forum_profils(users):
         (people,), read=True)
     if rows is None:
         return None
-    return {row[0]: _profil(row) for row in rows}
+    return {row[0]: _profile(row) for row in rows}
 
 
-def forum_profil(user):
-    """This account's profile, {} if it never set one. None if the database is mute."""
-    profiles = forum_profils([user])
+def forum_profile(user):
+    profiles = forum_profiles([user])
     if profiles is None:
         return None
     return profiles.get(user, dict(EMPTY_PROFILE))
 
 
-def forum_profil_ecrire(profile_id, user, display_name, group_number, display_name_public,
+def forum_write_profile(profile_id, user, display_name, group_number, display_name_public,
                         group_number_public, set_by_moderator=False, alias=None,
                         plate_frame=None, badges_public=False,
                         leaderboard_opt_in=False):
-    """Add a profile row. Older ones stay, and that is intentional.
-
-    EVERY FIELD IS WRITTEN EVERY TIME, because the latest row is the whole
-    profile: a partial write would silently reset the fields it left out. The
-    caller therefore reads the current profile first and passes it back --
-    which is also what makes "clear a reported name" able to keep the group
-    number.
-    """
+    # Profiles are append-only and the latest row wins, so callers pass every field.
     return _query(
         "INSERT INTO forum_profile (profile_id, account, display_name, group_number,"
         "                          display_name_public, group_number_public,"
@@ -1065,12 +625,6 @@ def forum_profil_ecrire(profile_id, user, display_name, group_number, display_na
 
 
 def forum_taken_aliases():
-    """Every alias currently in use. `alias_libre()` draws around this set.
-
-    THE WHOLE COLUMN, not a per-candidate lookup: at thirty accounts this is
-    one small scan, where a "is this one free?" query per attempt would be one
-    round trip per attempt behind the global lock.
-    """
     rows = _query(
         "SELECT DISTINCT ON (account) alias FROM forum_profile"
         " ORDER BY account, created_at DESC, profile_id DESC", (), read=True)
@@ -1079,10 +633,7 @@ def forum_taken_aliases():
     return {row[0] for row in rows if row[0]}
 
 
-def forum_nom_signaler(message_id, user):
-    """Report the NAME of a message's author. Same two protections as
-    `forum_signaler`: the SELECT forbids a made-up id, the primary key
-    forbids the duplicate."""
+def forum_report_name(message_id, user):
     return _query(
         "INSERT INTO forum_reported_name (message_id, account)"
         " SELECT m.message_id, %s FROM forum_message m WHERE m.message_id = %s"
@@ -1090,14 +641,7 @@ def forum_nom_signaler(message_id, user):
         " RETURNING message_id", (user, message_id), read=True)
 
 
-def forum_noms_signales(limit):
-    """Reported NAMES, for a moderator. The name, the group, the message as a
-    handle -- never the `sub`: `routers/forum.py` only copies what is shown.
-
-    The same account can be reported from several of their messages; one row
-    per carrying message is returned, most-reported first, with the author's
-    current profile.
-    """
+def forum_reported_names(limit):
     rows = _query(
         "SELECT m.message_id, m.account, p.display_name, p.group_number, m.created_at,"
         "       count(*) AS how_many"
@@ -1119,22 +663,6 @@ def forum_noms_signales(limit):
 
 
 def forum_help_rows(limit, hours):
-    """"Who needs help", aggregated. The instructor's view (design 1h).
-
-    COUNTS AND STEPS, NEVER PEOPLE. One row per (exercise, step): how many
-    accounts are stuck there, how many of those opened their question to their
-    group, and how long the oldest has been waiting. No `sub`, no name, no
-    text, no code -- a count is what says where to walk in the room, and
-    nothing more is needed for that.
-
-    PRIVATE QUESTIONS ARE COUNTED, NOT REVEALED. They stay unreadable (only
-    their author can open them to a group); this row says a number exists, so
-    six people stuck on the same conversion read as one explanation at the
-    board rather than six unanswered messages.
-
-    Only messages carrying a `step` are aggregated: an ordinary thread post is
-    a discussion, not a call for help, and mixing them would bury the signal.
-    """
     rows = _query(
         "SELECT exercise_id, step, blocked_kind,"
         "       count(DISTINCT account),"
@@ -1153,9 +681,7 @@ def forum_help_rows(limit, hours):
              "since": _minute(row[5])} for row in rows]
 
 
-def forum_auteur(message_id):
-    """The `sub` of a message's author, or None. Reserved for name moderation:
-    the page only ever has a message as a handle, never an account id."""
+def forum_author(message_id):
     rows = _query("SELECT account FROM forum_message WHERE message_id = %s",
                   (message_id,), read=True)
     if not rows:
@@ -1164,117 +690,40 @@ def forum_auteur(message_id):
 
 
 def _minute(value):
-    """A timestamp at MINUTE precision, in explicit UTC. The value as a string otherwise.
-
-    At the minute, not the day, unlike progression: a thread is read in order,
-    and "today" on ten messages helps no one. At the minute, not the second:
-    nobody needs to time who answered first.
-
-    WITH THE TIMEZONE, AND THAT IS THE WHOLE POINT. The column is TIMESTAMPTZ,
-    so the stored instant was always correct; it was the string sent that said
-    nothing about it, and the page displayed it as if it were local -- a
-    message written in Montreal came out four hours in the future. The "Z" is
-    enough for the page to translate it back into the reader's timezone.
-    Nothing to migrate.
-    """
     try:
         return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
     except AttributeError:
         return str(value)[:16]
 
 
-# --------------------------------------------------------------------------
-# Team assignments. See the block comment in `schema.sql`: a GROUP is the
-# section a student declares, a TEAM is who they hand in with, and only the
-# second one is authoritative here.
-#
-# THE APPLICATION ROLE CANNOT WRITE THE ROSTER. It has `SELECT` on `team` and
-# `SELECT, DELETE` on `team_member` -- no INSERT, no UPDATE (see the GRANT in
-# VHome). There is therefore no code path, distracted or otherwise, by which a
-# request can put an account on a team: `import_teams.py` does it through the
-# admin DSN, and the DELETE exists only so "Supprimer mes données" can keep
-# its promise.
-
-
-# --- Rejoindre une équipe -------------------------------------------------------
-# LES ÉQUIPES PRÉEXISTENT, NUMÉROTÉES PAR GROUPE DE COURS, et un étudiant prend
-# une place libre dans celle qu'il veut. C'est exactement le geste qu'il fait
-# déjà sur Moodle -- et il DOIT correspondre : « Équipe 7 » ici est « Équipe 7 »
-# là-bas, sinon l'enseignant corrige deux listes qui divergent.
-#
-# LE LISTAGE DE L'ENSEIGNANT ÉTAIT INÉCRIVABLE (CTester ne lui montre jamais un
-# `sub`), et un code d'invitation avec confirmation unanime a été essayé puis
-# retiré : il ne correspondait à rien de ce que les étudiants font déjà, et il
-# n'était pas nécessaire.
-#
-# CE QUI TIENT À LA PLACE, ET C'EST UNE DATE QUE LE CONTENU PORTE DÉJÀ : on ne
-# rejoint et on ne quitte que TANT QUE LE DEVOIR EST FERMÉ. Pendant la
-# formation il n'y a rien à voler -- le devoir n'ouvre pas -- et une fois
-# ouvert, plus personne ne bouge. Cette condition-là est dans le SERVICE
-# (`teams.joinable`), parce qu'elle se lit dans le catalogue publié, pas en
-# base : `access()` reste la seule lecture d'une release.
-
-
 def team_join(user, assignment_id, team_id, group_number, number, label,
-              taille_max):
-    """Prendre une place. L'ÉQUIPE EST CRÉÉE SI ELLE N'EXISTE PAS ENCORE.
-
-    Une équipe est une ligne le jour où quelqu'un y entre, pas le jour où le
-    devoir est publié : peupler douze équipes vides par groupe à la
-    publication, ce serait douze lignes par groupe que personne ne lira. Son
-    numéro et son groupe viennent du CONTENU, pas de la requête -- le service
-    les a bornés contre `team.count` avant d'arriver ici.
-
-    TROIS REFUS DANS UNE INSTRUCTION, là où trois `if` en laisseraient chacun
-    un ouvert : l'équipe ne doit pas être pleine, et ce compte ne doit pas être
-    déjà sur une équipe de ce devoir (la clé primaire s'en charge). Rend le
-    `team_id` rejoint, ou None.
-    """
-    lignes = _query(
-        "WITH equipe AS ("
+              max_size):
+    # The seat count is part of the INSERT so two joins can't both take the last seat.
+    rows = _query(
+        "WITH created_team AS ("
         "  INSERT INTO team"
         "    (team_id, assignment_id, group_number, number, label)"
         "  VALUES (%(t)s, %(a)s, %(g)s, %(n)s, %(l)s)"
         "  ON CONFLICT DO NOTHING)"
         " INSERT INTO team_member (team_id, assignment_id, account)"
         " SELECT %(t)s, %(a)s, %(u)s"
-        # LA PLACE EST COMPTÉE DANS LE `WHERE`, pas relue avant : deux
-        # étudiants qui cliquent sur la dernière place au même instant
-        # passeraient tous les deux un `if`.
         "  WHERE (SELECT count(*) FROM team_member m"
         "          WHERE m.assignment_id = %(a)s AND m.team_id = %(t)s)"
         "        < %(max)s"
         " ON CONFLICT DO NOTHING"
         " RETURNING team_id",
         {"t": team_id, "a": assignment_id, "g": group_number, "n": number,
-         "l": label, "u": user, "max": taille_max}, read=True)
-    return lignes[0][0] if lignes else None
+         "l": label, "u": user, "max": max_size}, read=True)
+    return rows[0][0] if rows else None
 
 
 def team_leave(user, assignment_id):
-    """Quitter. La CONDITION DE DATE est au-dessus, dans le service.
-
-    Elle ne peut pas être ici : « le devoir est-il ouvert ? » se lit dans le
-    catalogue publié (`access()`), pas en base -- et dupliquer une date de
-    release dans Postgres serait un second endroit où la vérité peut diverger.
-
-    L'ÉQUIPE VIDÉE RESTE, et c'est voulu : elle porte peut-être déjà un
-    document, et son numéro est celui de Moodle. Une équipe vide se remplit à
-    nouveau ; une équipe supprimée renumérote tout.
-    """
     return _query(
         "DELETE FROM team_member WHERE assignment_id = %s AND account = %s",
         (assignment_id, user)) is not None
 
 
 def team_counts(assignment_id, group_number):
-    """[{number, team_id, label, members}] -- les équipes de CE groupe.
-
-    LA LISTE QUE L'ÉTUDIANT PARCOURT, et elle ne montre que les équipes qui
-    existent : les autres sont des places libres que le service ajoute depuis
-    `team.count`. Compter en SQL plutôt que de rendre les membres évite de
-    faire traverser des `sub` pour afficher « 3/4 ».
-    """
     rows = _query(
         "SELECT t.number, t.team_id, t.label,"
         "       (SELECT count(*) FROM team_member m"
@@ -1287,23 +736,11 @@ def team_counts(assignment_id, group_number):
     if rows is None:
         return None
     return [{"number": int(number), "team_id": team_id, "label": label,
-             "members": int(membres)}
-            for number, team_id, label, membres in rows]
+             "members": int(members)}
+            for number, team_id, label, members in rows]
 
 
 def team_of(user, assignment_id):
-    """This account's team for this assignment, or None. THE ONLY GATE.
-
-    Everything a team route does starts here: the document, the history, the
-    hand-in and the live socket all resolve their team from the AUTHENTICATED
-    account and the assignment, never from an id in a body, a URL or a
-    WebSocket frame. A student who edits the team id in a payload is asking
-    for a team this query will simply not return.
-
-    None means "no team", and it also means "the database did not answer" --
-    the two are the same answer here on purpose: without a proven membership,
-    nothing opens.
-    """
     rows = _query(
         "SELECT m.team_id, t.group_number, t.number, t.label"
         "  FROM team_member m"
@@ -1319,12 +756,6 @@ def team_of(user, assignment_id):
 
 
 def team_roster(assignment_id, team_id):
-    """The team's accounts, oldest membership first. None if the base is mute.
-
-    IT RETURNS `sub`s, and it is the caller (`services/teams.py`) that turns
-    them into the labels teammates see -- exactly the split `forum_vue()`
-    makes. No `sub` leaves this application through a team route either.
-    """
     rows = _query(
         "SELECT account FROM team_member"
         " WHERE assignment_id = %s AND team_id = %s"
@@ -1336,12 +767,6 @@ def team_roster(assignment_id, team_id):
 
 
 def read_team_document(team_id, exercise_id):
-    """The shared sources, `{}` when nothing has been written yet, None on failure.
-
-    THE THREE ANSWERS ARE DISTINCT, unlike `read_resume`'s two: an empty
-    workspace and a database that did not answer look identical on screen and
-    call for opposite reactions -- start typing, or do not touch anything.
-    """
     rows = _query(
         "SELECT sources FROM team_document WHERE team_id = %s AND exercise_id = %s",
         (team_id, exercise_id), read=True)
@@ -1352,26 +777,7 @@ def read_team_document(team_id, exercise_id):
 
 def write_team_document(team_id, exercise_id, user, sources, revision_id,
                         window):
-    """Save the shared document AND, when it is worth one, a revision. ONE statement.
-
-    TWO WRITES THAT MUST NOT COME APART. With two round trips, a connection
-    dropped in between would leave a document with no history, or history for
-    a document that was never saved -- and the second is the one an instructor
-    would later read as evidence.
-
-    THE COALESCING RULE IS THE `WHERE`, NOT AN `if` IN PYTHON. A revision is
-    written only when this account has not written one for this document in
-    the last `window` seconds AND the newest revision does not already hold
-    exactly these bytes. Four members typing at once therefore produce one
-    revision each per window -- which is what "who changed this" needs -- and
-    a member who only watches produces none. A read followed by a write would
-    have been the same rule with a race in the middle.
-
-    ponytail: two members saving in the same instant both see an empty window
-    (the statement's snapshot is taken at its start) and both write a
-    revision. The cost is one extra row in a history nobody grades; a lock
-    would cost more than the duplicate it prevents.
-    """
+    # At most one revision per author per window, and only when the text changed.
     return _query(
         "WITH saved AS ("
         "  INSERT INTO team_document"
@@ -1398,13 +804,6 @@ def write_team_document(team_id, exercise_id, user, sources, revision_id,
 
 
 def read_team_revisions(team_id, exercise_id, limit):
-    """The document's history, newest first: who, when, and how big.
-
-    THE SOURCES ARE NOT IN HERE. A history list is read to choose a moment,
-    and shipping every revision's full text would send the whole term's
-    keystrokes to a page that displays a date. `read_team_revision` fetches
-    the one that was chosen.
-    """
     rows = _query(
         "SELECT revision_id, account, created_at, length(sources)"
         "  FROM team_revision WHERE team_id = %s AND exercise_id = %s"
@@ -1418,12 +817,6 @@ def read_team_revisions(team_id, exercise_id, limit):
 
 
 def read_team_revision(team_id, revision_id):
-    """One revision's sources, `{}` if it is not this team's. None on failure.
-
-    THE TEAM IS IN THE `WHERE`, not checked afterwards in Python: a revision
-    id copied from somewhere else does not resolve, so there is nothing to
-    filter out and nothing to forget to filter.
-    """
     rows = _query(
         "SELECT sources FROM team_revision"
         " WHERE revision_id = %s AND team_id = %s",
@@ -1434,12 +827,6 @@ def read_team_revision(team_id, revision_id):
 
 
 def write_team_submission(assignment_id, team_id, user, files):
-    """The hand-in. ONE PER TEAM -- the primary key holds that, not a check.
-
-    Handing in again replaces it: a team that finds a bug at 22:00 must be
-    able to fix it, and what was there before is still readable in
-    `team_revision`. `submitted_by` says who pressed the button last.
-    """
     return _query(
         "INSERT INTO team_submission"
         "  (assignment_id, team_id, submitted_by, files, submitted_at)"
@@ -1452,7 +839,6 @@ def write_team_submission(assignment_id, team_id, user, files):
 
 
 def read_team_submission(assignment_id, team_id):
-    """`{}` when the team has not handed in, None when the base is mute."""
     rows = _query(
         "SELECT submitted_by, submitted_at FROM team_submission"
         " WHERE assignment_id = %s AND team_id = %s",
@@ -1466,13 +852,6 @@ def read_team_submission(assignment_id, team_id):
 
 
 def team_memberships(user):
-    """Every team this account is on, across assignments. None on failure.
-
-    READ WITHOUT AN ASSIGNMENT, unlike `team_of()`, and that is the point: it
-    answers "which teams am I on" for a student who wants to check their
-    roster BEFORE the assignment opens. It grants nothing -- `workspace()` is
-    still the gate for every document, revision, room and hand-in.
-    """
     rows = _query(
         "SELECT m.assignment_id, m.team_id, t.group_number, t.number, t.label"
         "  FROM team_member m"
@@ -1489,7 +868,6 @@ def team_memberships(user):
 
 
 def read_teams(assignment_id):
-    """Every team of one assignment, for the instructor's view. None on failure."""
     rows = _query(
         "SELECT t.team_id, t.group_number, t.label, count(m.account)"
         "  FROM team t LEFT JOIN team_member m"
@@ -1506,33 +884,7 @@ def read_teams(assignment_id):
 
 
 def forget(user):
-    """Erase everything stored for this user, in ONE statement.
-
-    The consent sentence shown before redirecting to Rauthy promises this exists,
-    so it exists -- not "later".
-
-    FIFTEEN DELETEs, ONE ROUND TRIP, and that is the point: with one autocommit
-    statement per table, a connection dropped in the middle would leave half a
-    student erased and half not -- and the half that stays is the half nobody
-    can see any more to ask for again. Data-modifying CTEs run exactly once each
-    and commit together.
-
-    EVERY TABLE THAT CARRIES AN `account` COLUMN IS IN HERE, AND IT IS THE SAME
-    CLAUSE EVERYWHERE: what leaves is what THIS person wrote -- their messages,
-    their reports, and the moderation actions they themselves took if they are
-    a moderator. Nothing another wrote is touched. A report left on a deleted
-    message shows up nowhere any more -- every read starts from
-    `forum_message` -- and stays erasable by whoever filed it.
-
-    THE THREE TEAM-OWNED TABLES ARE DELIBERATELY ABSENT, and they are the ones
-    with no `account` column: `team` is the instructor's roster, and
-    `team_document` and `team_submission` are FOUR people's graded work.
-    Erasing one member must not take three others' assignment with it -- that
-    is not erasure, that is deletion of somebody else's data. What does leave
-    is this account's membership row and the revisions it authored: the
-    account stops being on the team, and stops being named in its history.
-    An instructor who needs the roster back re-runs `import_teams.py`.
-    """
+    # One statement, so a dropped connection can't leave half an account behind.
     return _query(
         "WITH b AS (DELETE FROM exercise_draft     WHERE account = %(u)s),"
         "     bn AS (DELETE FROM scratch_draft     WHERE account = %(u)s),"

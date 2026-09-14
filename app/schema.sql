@@ -1,59 +1,21 @@
--- ctester -- state for students who choose to sign in.
---
--- SQLITE WOULD HAVE BEEN ENOUGH, AND THAT BELONGS HERE rather than in a
--- conversation nobody will find in six months. The real load is 80 students,
--- one term, a few dozen writes an hour at the peak of a lab session, and a
--- single process doing the writing. `sqlite3` ships with Python: nothing to
--- install in the exposed container, no service to watch, no backup to arrange.
--- Technically it is the right tool, and it would still be at ten times this size.
---
--- Postgres is chosen anyway, and the reason is not technical: this repository is
--- also a portfolio, and running a real database -- a versioned schema, an
--- application role with limited rights, backups, a migration -- is exactly the
--- exercise being sought. That should not be dressed up as a performance need:
--- there is none. Nobody should read this file in two years and believe a load
--- constraint forced Postgres.
---
--- The UNLOGGED / journalled split below is in fact the only place where the
--- choice buys anything visible, and it is a detail.
---
--- THERE IS NO PERSONALLY IDENTIFYING DATA HERE. `account` is the opaque
--- `sub` issued by Rauthy -- not a name, not an email, not a student number. The
--- display name lives in the token, in the browser, and never crosses this line.
-
--- The draft: what has not been submitted yet. UNLOGGED -- so out of the WAL,
--- not replicated, and TRUNCATED by Postgres after an unclean shutdown. That is
--- accepted: the price of a crash is "the unsubmitted work of the last session",
--- and the browser keeps a local copy of it anyway.
+-- Drafts are also kept in the browser, so losing them in a crash is acceptable.
 CREATE UNLOGGED TABLE IF NOT EXISTS exercise_draft (
     account     TEXT        NOT NULL,
     exercise_id TEXT        NOT NULL,
-    sources     TEXT        NOT NULL,   -- JSON {filename: contents}
+    sources     TEXT        NOT NULL,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (account, exercise_id)
 );
 
--- The state: what has been submitted at least once. An ordinary table, so WAL,
--- so restorable. It is the only thing here whose loss would be noticed -- a
--- dashboard that forgets what was solved is worth nothing.
---
--- A CHECK rather than a validation in Python: the database is the last place
--- where the rule can hold for EVERY write path, including a psql session opened
--- at midnight. The API validates too, but this does not depend on the API.
---
 CREATE TABLE IF NOT EXISTS exercise_state (
     account     TEXT        NOT NULL,
     exercise_id TEXT        NOT NULL,
     status      TEXT        NOT NULL CHECK (status IN ('attempted', 'solved')),
-    sources     TEXT        NOT NULL,   -- JSON {filename: contents}
+    sources     TEXT        NOT NULL,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (account, exercise_id)
 );
 
--- A practice attempt is an immutable fact written by the API only after it has
--- read the worker's result.  It is deliberately not a mastery score: the
--- current self-service judge can be fooled, and practice is still valuable
--- when it fails.  `job_id` makes polling/retries idempotent.
 CREATE TABLE IF NOT EXISTS practice_attempt (
     job_id       TEXT        PRIMARY KEY,
     account      TEXT        NOT NULL,
@@ -67,52 +29,17 @@ CREATE TABLE IF NOT EXISTS practice_attempt (
 CREATE INDEX IF NOT EXISTS practice_attempt_account_completed_idx
     ON practice_attempt (account, completed_at DESC);
 
--- The two state tables are covered by their primary key.  Practice history is
--- read newest-first per user, hence its one explicit index above.
-
--- --------------------------------------------------------------------------
--- Progression (phase 1): XP, a derived level and a few achievements, for
--- signed-in accounts only. THREE FACT TABLES, none of them a balance.
---
--- The XP balance, the level, the practiced skills and the recommendation are
--- PROJECTIONS: the API (`services/progression.py`) recomputes them on read
--- from these facts and the public catalog. Nothing is cached here.
---
--- ponytail: no projection table. The balance is a `sum()` over a few dozen
--- rows per student, and a materialized projection would be a second place
--- where the truth can diverge. Revisit the day the sum is felt, not before.
---
--- THE EVENT ID IS THE FACT, NOT THE CALL. "reussite:tp2-ex3" reads as one, and
--- its primary key is what makes the write idempotent: a replayed HTTP poll, a
--- restarted worker or two concurrent requests cannot create the same XP
--- twice. It is also what forbids farming -- solving the same exercise twice
--- produces the same id twice.
-
--- The journal (outbox): what the server observed, in the clear and for audit.
--- `payload` carries the strict minimum -- the originating job and the
--- difficulty used in the computation -- never the submitted code nor a secret
--- verdict detail.
 CREATE TABLE IF NOT EXISTS progress_event (
     account    TEXT        NOT NULL,
     event_id   TEXT        NOT NULL,
     type       TEXT        NOT NULL,
     exercise_id TEXT,
     policy     TEXT        NOT NULL,
-    payload    TEXT        NOT NULL DEFAULT '{}',   -- minimal JSON
+    payload    TEXT        NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (account, event_id)
 );
 
--- XP grants, append-only, one per source event.
---
--- `amount >= 0` AND NOT `> 0`: a solve past the daily cap is recorded at zero
--- rather than silently dropped. The fact happened, it reads back, and the
--- student can see they were already rewarded today.
---
--- ponytail: no foreign key to progress_event. The two tables share
--- (account, event_id), both are inserted in ONE statement, and `forget`
--- erases them together. One more constraint would only protect against a
--- psql session opened at midnight.
 CREATE TABLE IF NOT EXISTS xp_transaction (
     account    TEXT        NOT NULL,
     event_id   TEXT        NOT NULL,
@@ -124,13 +51,9 @@ CREATE TABLE IF NOT EXISTS xp_transaction (
     PRIMARY KEY (account, event_id)
 );
 
--- The daily cap sums the day's grants for a student: the one read that does
--- not go through the primary key prefix.
 CREATE INDEX IF NOT EXISTS xp_transaction_day_idx
     ON xp_transaction (account, granted_at DESC);
 
--- Achievements unlocked, append-only. The primary key IS the "one unlock
--- only" rule; `event_id` says which fact triggered it.
 CREATE TABLE IF NOT EXISTS achievement_unlocked (
     account       TEXT        NOT NULL,
     achievement_id TEXT       NOT NULL,
@@ -140,481 +63,181 @@ CREATE TABLE IF NOT EXISTS achievement_unlocked (
     PRIMARY KEY (account, achievement_id)
 );
 
--- --------------------------------------------------------------------------
--- Peer help forum (MVP): ONE thread per published exercise, for signed-in
--- accounts only. This is NOT gamification -- nothing here grants XP, unlocks
--- an achievement, or touches the three tables above.
---
--- WHAT IS STORED, AND NOTHING ELSE: the author's opaque `sub`, the message id,
--- the PUBLIC exercise, the text, the dates, the visible/hidden state, the
--- author of a report, and moderation actions. No name, no email, no student
--- number, no persistent nickname: to other students, a post is signed
--- "Participant", and it is the API that derives that word from the `sub`
--- without ever letting it out.
---
--- THE PLATFORM CLOSES IN DECEMBER. No season, no carryover between terms:
--- these three tables empty out with the database at the end of the course.
-
--- A message is IMMUTABLE. Its author can delete it (the row disappears), a
--- moderator can only hide or restore it, and its author can open a private
--- one to their group -- hence `hidden` and `visibility`, the only two columns
--- the API is allowed to update (see the GRANT in VHome: `UPDATE (hidden,
--- visibility)`, not `UPDATE`). ADDING `visibility` TO THAT GRANT IS REQUIRED:
--- without it "rendre visible à mon groupe" fails in production and nowhere
--- else, exactly like the theme's `UPDATE` did. There is no editing: a message
--- corrected after the fact would make a report unreadable, and the text
--- column stays out of every GRANT for that reason.
 CREATE TABLE IF NOT EXISTS forum_message (
-    message_id  TEXT        PRIMARY KEY,   -- uuid4().hex, generated in Python
-    exercise_id TEXT        NOT NULL,      -- a PUBLIC catalog id
+    message_id  TEXT        PRIMARY KEY,
+    exercise_id TEXT        NOT NULL,
     account     TEXT        NOT NULL,
     text        TEXT        NOT NULL,
     hidden      BOOLEAN     NOT NULL DEFAULT false,
-    -- "I'm stuck here" (design 1g). WHERE it hurts and WHAT KIND of wall,
-    -- both from CLOSED lists validated in `services/forum.py`: they are what
-    -- the instructor's aggregate groups by, and free text would make that
-    -- aggregate useless on the morning it matters. NULL for an ordinary
-    -- question, which is still the default gesture.
+
     step         TEXT,
     blocked_kind TEXT,
-    -- WHO SEES IT, AND PRIVATE IS THE DEFAULT for a "stuck" post. The only
-    -- transition allowed is private -> group, by its author (see
-    -- `forum_open_to_group`): the reverse would hide what others have
-    -- already read, and break the immutability social.md sets out.
-    --
-    -- `thread` is the ordinary public post -- the only value the forum had
-    -- before this column, hence the DEFAULT: an old row reads as what it was.
+
     visibility  TEXT        NOT NULL DEFAULT 'thread'
                             CHECK (visibility IN ('private', 'group', 'thread')),
-    -- THE ANSWER'S LINK TO ITS QUESTION, and it always carries the ROOT --
-    -- never an intermediate reply. Replying to a reply stores the root's id,
-    -- so a thread stays flat to draw, `can_see` needs one dictionary lookup
-    -- instead of a walk, and there is no depth to bound. NULL is a root.
-    --
-    -- IT IS NAVIGATION, NOT PRIVACY: a chat is public, so a reply is visible
-    -- exactly like anything else. The rule this column does carry is
-    -- integrity -- the root must exist in the SAME thread, and that is the
-    -- `WHERE` of the INSERT (see `forum_publier`), not an `if`.
+
     reply_to    TEXT,
-    -- FULL-TEXT SEARCH, MAINTAINED BY POSTGRES ITSELF. A generated column
-    -- cannot drift from the text it indexes, needs no trigger to keep, and is
-    -- never listed in an INSERT -- so it needs no GRANT of its own. It is
-    -- what makes "someone already asked this" and "find the answer I got last
-    -- week" the SAME query (see `forum_search`).
+
     search      tsvector    GENERATED ALWAYS AS (to_tsvector('french', text)) STORED,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- A thread is read per exercise, oldest to newest: the one read that does not
--- go through the primary key.
 CREATE INDEX IF NOT EXISTS forum_message_thread_idx
     ON forum_message (exercise_id, created_at);
 
--- The report. THE PRIMARY KEY IS THE RULE: the same account cannot report the
--- same message twice, and Postgres holds it -- not a read followed by a
--- write, which would leave the race open.
 CREATE TABLE IF NOT EXISTS forum_report (
     message_id TEXT        NOT NULL,
-    account    TEXT        NOT NULL,      -- the author of the REPORT
+    account    TEXT        NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, account)
 );
 
--- Moderation actions, APPEND-ONLY. A message gets hidden, then restored, and
--- both read back: "the message was hidden then restored" is information, not
--- noise to overwrite. The current state lives in `forum_message.hidden`; this
--- is its journal.
---
--- ponytail: no foreign key to forum_message. Both are written in ONE
--- statement (see `moderate_forum_message` in state.py), and a message deleted
--- by its author leaves a journal row that shows up nowhere -- that is the
--- intended behavior of a journal.
 CREATE TABLE IF NOT EXISTS forum_moderation (
-    action_id  TEXT        PRIMARY KEY,   -- uuid4().hex, generated in Python
+    action_id  TEXT        PRIMARY KEY,
     message_id TEXT        NOT NULL,
-    account    TEXT        NOT NULL,      -- the MODERATOR who acted
-    -- FOUR ACTIONS, AND THE LAST TWO CARRY THEIR OWN STATE. `hide`/`restore`
-    -- mirror `forum_message.hidden`; `retain`/`unretain` mark the answer the
-    -- instructor stands behind, and there is NO column for them -- the latest
-    -- row for a message is the answer. Retaining an answer edits nothing,
-    -- which is the whole point of an immutable message.
+    account    TEXT        NOT NULL,
+
     action     TEXT        NOT NULL CHECK (action IN ('hide', 'restore',
                                                       'retain', 'unretain')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- The read that matters for retained answers: the latest action per message.
 CREATE INDEX IF NOT EXISTS forum_moderation_latest_idx
     ON forum_moderation (message_id, created_at DESC);
 
--- THE CHOSEN IDENTITY, AND IT IS OPTIONAL ON BOTH SIDES. A name one gave
--- oneself, a group number, and for each the right not to show it. Nothing
--- here comes from an OIDC claim: no legal name, no email -- what the student
--- writes is what the student decided to write.
---
--- APPEND-ONLY, LIKE THE REST OF THE FORUM: the last row for an account is
--- authoritative (see `forum_profile` in state.py). No UPDATE, so no UPDATE
--- GRANT, so no distracted statement rewrites someone's name; and the history
--- of name changes is exactly what a moderator wants to be able to read back.
---
--- `set_by_moderator` marks the row written by the instructor when clearing a
--- reported name. The student can then choose another one: a repeat offender
--- is a human matter, not a state machine.
 CREATE TABLE IF NOT EXISTS forum_profile (
-    profile_id            TEXT        PRIMARY KEY,  -- uuid4().hex, generated in Python
+    profile_id            TEXT        PRIMARY KEY,
     account               TEXT        NOT NULL,
-    display_name          TEXT,                      -- NULL = no name chosen
+    display_name          TEXT,
     group_number          SMALLINT    CHECK (group_number BETWEEN 1 AND 99),
     display_name_public   BOOLEAN     NOT NULL DEFAULT false,
     group_number_public   BOOLEAN     NOT NULL DEFAULT false,
-    -- THE LEADERBOARD NAME IS DRAWN, NOT DERIVED. Stored here rather than
-    -- computed from the `sub`, because a name derived from the sub could
-    -- never be redrawn -- and being able to redraw it as often as one likes
-    -- is what makes the leaderboard bearable. It is NEVER the display name:
-    -- someone who shows their name in a thread still appears under this one
-    -- in a ranking. Append-only, so the previous alias stays readable, which
-    -- is what a moderator needs when an alias gets reported.
+
     alias                 TEXT,
-    -- THE PLATE FRAME, and it is decoration only: no advantage, no access,
-    -- nothing another student can be measured against. An unknown value
-    -- simply does not display (see `policy.FRAMES`) rather than raising.
+
     plate_frame           TEXT,
     badges_public         BOOLEAN     NOT NULL DEFAULT false,
-    -- OPT-IN, AND NOWHERE ELSE. False means the account is absent from every
-    -- ranking, including its own group's -- not "ranked but hidden". The
-    -- aggregate reads this column; there is no second filter to forget.
+
     leaderboard_opt_in    BOOLEAN     NOT NULL DEFAULT false,
     set_by_moderator      BOOLEAN     NOT NULL DEFAULT false,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- The read that matters: the last row for an account, or for a handful of
--- accounts at once when rendering a thread.
 CREATE INDEX IF NOT EXISTS forum_profile_latest_idx
     ON forum_profile (account, created_at DESC);
 
--- Reporting a NAME, not a message. Same rule and same primary key as
--- `forum_report`: an account reports a name at most once per carrying
--- message. The message serves as the handle -- there is no account id on the
--- browser side, and there must not be one.
 CREATE TABLE IF NOT EXISTS forum_reported_name (
     message_id TEXT        NOT NULL,
-    account    TEXT        NOT NULL,      -- the author of the REPORT
+    account    TEXT        NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, account)
 );
 
--- "THIS HELPED ME": a usefulness counter, NOT a popularity vote. Same shape
--- and same rule as `forum_report` -- the primary key IS "once per account" --
--- and deliberately the same shape for a reason: an account can mark a message
--- useful once, and Postgres holds that, not a read followed by a write.
---
--- IT GRANTS NOTHING. No XP, no achievement, no card: a message written to be
--- upvoted is a message written for the counter. What it buys is a thread
--- where the answer that worked is findable, which is the whole ask of
--- design 1f.
---
--- NO SELF-MARKING is enforced by the API (`forum_mark_helpful`), not by a CHECK: the
--- constraint would need the message's author in this row, i.e. a second copy
--- of a `sub` this table has no reason to carry.
 CREATE TABLE IF NOT EXISTS forum_helpful (
     message_id TEXT        NOT NULL,
-    account    TEXT        NOT NULL,      -- the one who found it useful
-    -- THE SIGN, AND -1 EXISTS ONLY ON A REPLY. A question cannot be buried by
-    -- a vote -- that is the whole promise of a place built for people who are
-    -- afraid to ask -- and the rule lives in the `WHERE` of the INSERT
-    -- (`forum_voter`), next to "not my own message" and "not twice". A `if`
-    -- in a router would leave the race the statement closes.
-    --
-    -- DEFAULT 1 IS WHAT MAKES THE MIGRATION FREE: every row written before
-    -- this column was a "ça m'a aidé", which is exactly a +1.
+    account    TEXT        NOT NULL,
+
     value      SMALLINT    NOT NULL DEFAULT 1 CHECK (value IN (-1, 1)),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (message_id, account)
 );
 
--- --------------------------------------------------------------------------
--- Display preferences: the theme, and nothing else for now.
---
--- WHY THIS TABLE EXISTS WHEN `localStorage` WAS ENOUGH. It was enough on ONE
--- device. A student working at the lab then at home started over from the
--- default theme every time, and the setting that took thirty seconds to
--- choose did not follow them. The account is already what carries the draft
--- from one machine to another; the theme travels the same way.
---
--- LOCAL STORAGE STAYS, AND IT IS NOT REDUNDANT: it is what the `<head>`
--- script reads before the first paint. The server answers well after the
--- first paint -- if it had to be awaited, every visit would show the
--- dark-to-light flash this script exists precisely to avoid.
---
--- ONE ROW PER ACCOUNT, UPDATED IN PLACE. This is the only table in this
--- schema, along with the draft and the state, that is not append-only:
--- someone's old theme is not a fact to read back, and a journal would grow a
--- row on every click of a button made to be clicked. The matching GRANT (see
--- VHome) carries `UPDATE`, as for `exercise_draft`.
---
--- LOGGED, unlike the draft: losing the setting would only cost a click, but
--- the table is tiny -- one row per account -- and a TRUNCATE after an unclean
--- shutdown would send everyone back to the default theme on the morning
--- everyone would notice least why.
---
--- The CHECK is the same defense as elsewhere: the value comes from a request
--- body, and `state.write_theme()` already validates it. The constraint holds
--- for EVERY write path, including a psql session opened at midnight.
 CREATE TABLE IF NOT EXISTS display_preference (
     account    TEXT        NOT NULL PRIMARY KEY,
     theme      TEXT        NOT NULL CHECK (theme IN ('light', 'dark')),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- --------------------------------------------------------------------------
--- LA CONSOLE : le bloc-notes exécutable d'un compte.
---
--- UNE LIGNE PAR COMPTE, PAS UNE PAR EXERCICE, et c'est ce qui la distingue
--- d'`exercise_draft`. Réutiliser cette table-là avec un identifiant réservé
--- aurait évité une migration, mais ses lignes sont clés sur un exercice DU
--- CATALOGUE : un identifiant fantôme aurait fini par croiser l'export
--- `main.c` ou « Mes progrès », c'est-à-dire par apparaître là où personne ne
--- l'aurait cherché.
---
--- ÉCRASÉE EN PLACE, comme le thème et le brouillon. Un bloc-notes n'est pas un
--- fait à relire, et un journal grossirait à chaque frappe. Le GRANT porte donc
--- `UPDATE` (`ON CONFLICT ... DO UPDATE`), et il est juste en dessous -- une
--- table et ses droits sont le MÊME FAIT.
---
--- ELLE PORTE UNE COLONNE `account`, DONC ELLE EST DANS `forget()`. Ce n'est
--- pas une politesse : `test_suppression_couvre_toutes_les_tables` lit les
--- blocs CREATE TABLE de ce fichier et échoue si elle n'y est pas.
---
--- La borne est celle des soumissions (`config.MAX_CODE`, 64 Ko), reposée ici
--- pour que la contrainte tienne pour TOUT chemin d'écriture, y compris une
--- session psql ouverte à minuit.
 CREATE TABLE IF NOT EXISTS scratch_draft (
     account    TEXT        NOT NULL PRIMARY KEY,
     code       TEXT        NOT NULL CHECK (length(code) <= 65536),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- --------------------------------------------------------------------------
--- TEAM ASSIGNMENTS: a group is not a team, and this is where the difference
--- becomes a fact rather than a convention.
---
--- A GROUP is the course section an instructor put a student in. On this
--- platform it has always been `forum_profile.group_number` -- a number the
--- STUDENT types into their own profile, used to decide who can read a
--- question opened "to my group". It is self-declared, and that is fine for
--- what it does.
---
--- A TEAM is three or four students who hand in one piece of assessed work
--- together. It cannot be self-declared: a student who could pick their team
--- could pick the team whose work is furthest along. So it is not stored
--- anywhere a student can write, and the application role has NO INSERT,
--- UPDATE or DELETE on the two tables below -- only `SELECT` (see the GRANT
--- in VHome). Rosters are loaded by the instructor with `import_teams.py`,
--- through the admin DSN.
---
--- REUSING `group_number` FOR TEAMS WAS THE OBVIOUS SHORTCUT AND IT IS THE
--- WRONG ONE: the two answer different questions ("which section are you in"
--- versus "who do you hand in with"), they have different authorities, and a
--- single column would have made the forum's visibility rule and an
--- assignment's access control the same rule by accident.
-
--- One team, for ONE assignment. A team is not a durable object that outlives
--- the work: the same four students on the next assignment are a new row, and
--- that is what keeps `team_member` free of a date range nobody would maintain.
 CREATE TABLE IF NOT EXISTS team (
-    -- `g04-e07` : LE GROUPE ET LE NUMÉRO, dans la poignée. Les équipes sont
-    -- numérotées PAR GROUPE DE COURS pour correspondre à Moodle -- « Équipe 7 »
-    -- du groupe 04 et « Équipe 7 » du groupe 06 sont deux équipes, et une
-    -- poignée qui ne porterait que le numéro en ferait une seule.
+
     team_id       TEXT        NOT NULL,
-    assignment_id TEXT        NOT NULL,   -- a PUBLISHED assignment id
-    -- LE GROUPE DE COURS DE L'ÉQUIPE, et le NUMÉRO qu'elle porte dedans. Les
-    -- deux ensemble sont ce qu'un étudiant lit (« groupe 04 · Équipe 7 ») et
-    -- ce qu'il retrouve dans Moodle.
-    --
-    -- L'ÉQUIPE PORTE SON GROUPE, ET C'EST ELLE QUI FAIT FOI une fois qu'on est
-    -- dedans. Le `group_number` du PROFIL -- que l'étudiant tape lui-même --
-    -- ne sert qu'à décider quelle liste montrer à quelqu'un qui n'a pas encore
-    -- d'équipe. Le corriger après coup ne doit pas déplacer une équipe déjà
-    -- rejointe, ni le document qu'elle a écrit.
+    assignment_id TEXT        NOT NULL,
+
     group_number  SMALLINT    NOT NULL CHECK (group_number BETWEEN 1 AND 99),
     number        SMALLINT    NOT NULL CHECK (number BETWEEN 1 AND 99),
-    label         TEXT,                   -- ce qu'on lit : « Équipe 7 »
+    label         TEXT,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (team_id, assignment_id)
 );
 
--- (L'index unique sur `number` est plus bas, avec les migrations, et c'est
--- une erreur DÉJÀ PAYÉE DEUX FOIS : il porte sur une colonne qu'un `ALTER`
--- ajoute, donc déclaré ici il passe sur une base neuve et ÉCHOUE sur une base
--- qui a déjà la table sans la colonne -- c'est-à-dire uniquement en
--- production, où `CREATE TABLE IF NOT EXISTS` ne fait rien.)
-
--- QUI EST DANS QUELLE ÉQUIPE. LA CLÉ PRIMAIRE EST LA RÈGLE -- une seule
--- équipe par devoir et par compte -- et Postgres la tient, pas une lecture
--- suivie d'une écriture. Changer d'équipe, c'est sortir de l'une et entrer
--- dans l'autre : deux écritures dont chacune porte sa condition.
---
--- La clé étrangère composite est la seule de ce schéma, et elle gagne sa
--- place : une appartenance dont l'équipe n'existe pas nommerait un devoir
--- introuvable, et les équipes sont créées à la volée par une AUTRE
--- instruction que celle qui inscrit.
 CREATE TABLE IF NOT EXISTS team_member (
     team_id       TEXT        NOT NULL,
     assignment_id TEXT        NOT NULL,
-    account       TEXT        NOT NULL,   -- the opaque OIDC `sub`
+    account       TEXT        NOT NULL,
     joined_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (assignment_id, account),
     FOREIGN KEY (team_id, assignment_id)
         REFERENCES team (team_id, assignment_id) ON DELETE CASCADE
 );
 
--- La lecture de l'autre côté : « qui est dans cette équipe », et « combien de
--- places restent » dans la liste que l'étudiant parcourt.
 CREATE INDEX IF NOT EXISTS team_member_roster_idx
     ON team_member (assignment_id, team_id);
 
 CREATE TABLE IF NOT EXISTS team_document (
     team_id     TEXT        NOT NULL,
     exercise_id TEXT        NOT NULL,
-    sources     TEXT        NOT NULL,   -- JSON {filename: contents}
+    sources     TEXT        NOT NULL,
     updated_by  TEXT,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (team_id, exercise_id)
 );
 
--- THE HISTORY, APPEND-ONLY. It exists for recovery, for an instructor
--- investigating an assignment, and for "how did this get here" -- never for
--- a grade. There is deliberately no contribution percentage anywhere in this
--- application: a number counting typed characters would immediately become
--- the thing people optimise, and it would be wrong about the person who
--- thinks before typing.
---
--- NOT ONE ROW PER KEYSTROKE. A revision is written only when the last one
--- for this document is older than the coalescing window OR was written by
--- somebody else -- and that rule is the `WHERE NOT EXISTS` of a single
--- INSERT (see `write_team_document` in state.py), not a read followed by a
--- write that two members would race through.
 CREATE TABLE IF NOT EXISTS team_revision (
-    revision_id TEXT        PRIMARY KEY,  -- uuid4().hex, generated in Python
+    revision_id TEXT        PRIMARY KEY,
     team_id     TEXT        NOT NULL,
     exercise_id TEXT        NOT NULL,
-    account     TEXT        NOT NULL,     -- who was typing
-    sources     TEXT        NOT NULL,     -- JSON {filename: contents}
+    account     TEXT        NOT NULL,
+    sources     TEXT        NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- The two reads: the newest revisions of one document, and the coalescing
--- test that decides whether to write another one.
 CREATE INDEX IF NOT EXISTS team_revision_recent_idx
     ON team_revision (team_id, exercise_id, created_at DESC);
 
--- THE HAND-IN. THE PRIMARY KEY IS THE RULE: one submission per team per
--- assignment, which is what the assignment sheet asks for. Handing in again
--- before the deadline replaces it -- a team that finds a bug at 22:00 must be
--- able to fix it -- and `submitted_by` says who pressed the button last.
--- What was handed in before is not lost: `team_revision` holds it.
 CREATE TABLE IF NOT EXISTS team_submission (
     assignment_id TEXT        NOT NULL,
     team_id       TEXT        NOT NULL,
-    -- NOT `account`: this row belongs to the TEAM, and "Supprimer mes
-    -- données" must not take three other people's hand-in with it. The
-    -- column name is what `test_suppression_couvre_toutes_les_tables` reads
-    -- to decide, so it is load-bearing rather than cosmetic.
+
     submitted_by  TEXT        NOT NULL,
-    files         TEXT        NOT NULL,   -- JSON {archive path: contents}
+    files         TEXT        NOT NULL,
     submitted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (assignment_id, team_id)
 );
 
--- --------------------------------------------------------------------------
--- MIGRATIONS: WHAT `CREATE TABLE IF NOT EXISTS` CANNOT DO.
---
--- THIS SECTION EXISTS BECAUSE THE FILE ABOVE IS A NO-OP ON A DATABASE THAT
--- ALREADY HAS ITS TABLES. `IF NOT EXISTS` guards the CREATE, so replaying the
--- schema on every convergence is free -- but a column ADDED to a table that
--- already exists is never applied, and the replay says nothing. That is not a
--- theoretical gap: the redesign added `visibility` to `forum_message`, the
--- Dell replayed this file without complaint, and the next task in the Ansible
--- role failed with `column "visibility" of relation "forum_message" does not
--- exist` -- the GRANT was the first thing to touch a column the schema
--- believed it had created.
---
--- EVERY STATEMENT HERE IS IDEMPOTENT, and that is the whole contract: this
--- file is replayed at EVERY convergence, so a migration that could only run
--- once would break the run after it. `ADD COLUMN IF NOT EXISTS` is a no-op on
--- a fresh database (the CREATE above already made the column) and repairs an
--- old one.
---
--- A MIGRATION STAYS HERE ONCE WRITTEN. Deleting it the day every host has run
--- it would be safe and pointless: it costs one catalog lookup per column per
--- convergence, and the day someone restores a backup from before it, the
--- schema repairs itself again. `migrate_schema_english.sql` is the opposite
--- case and stays a manual script: renaming tables that hold real data cannot
--- be made idempotent, and must not run unattended.
-
--- "Je suis bloqué ici" (design 1g). NOT NULL WITH A DEFAULT on a table that
--- already holds messages: Postgres backfills without rewriting the table, and
--- every message written before this column reads as `thread` -- the ordinary
--- public post, which is exactly what it was.
+-- Repairs for databases created by earlier versions. Every statement must stay
+-- idempotent, and an index must come after the ALTER that adds its column.
 ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS step         TEXT;
 ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS blocked_kind TEXT;
 ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS visibility   TEXT NOT NULL
     DEFAULT 'thread';
 
--- The CHECK travels separately from the column: `ADD COLUMN IF NOT EXISTS`
--- carries the DEFAULT but a constraint added inline would be re-added under a
--- new name on every replay. Named, dropped and re-added, it stays one
--- constraint no matter how many times this file runs.
 ALTER TABLE forum_message DROP CONSTRAINT IF EXISTS forum_message_visibility_check;
 ALTER TABLE forum_message ADD  CONSTRAINT forum_message_visibility_check
     CHECK (visibility IN ('private', 'group', 'thread'));
 
--- LE CHAT : une réponse liée à sa question, et la recherche plein texte.
---
--- `reply_to` PORTE TOUJOURS LA RACINE (voir le CREATE plus haut). Rien à
--- rétro-remplir : un message écrit avant cette colonne est une racine, ce
--- qu'il était.
 ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS reply_to TEXT;
 
--- LA COLONNE GÉNÉRÉE RÉÉCRIT LA TABLE une fois, à la première convergence qui
--- l'ajoute. C'est acceptable ici -- quelques milliers de lignes -- et c'est le
--- prix d'un index qui ne peut pas diverger de son texte. `IF NOT EXISTS` fait
--- que les convergences suivantes ne coûtent qu'une lecture de catalogue.
 ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS search tsvector
     GENERATED ALWAYS AS (to_tsvector('french', text)) STORED;
 
--- LE VOTE PREND UN SIGNE. `DEFAULT 1` rétro-remplit les « ça m'a aidé »
--- existants en +1, ce qu'ils étaient déjà : aucune ligne à reprendre.
 ALTER TABLE forum_helpful ADD COLUMN IF NOT EXISTS value SMALLINT NOT NULL
     DEFAULT 1;
 
--- Le CHECK voyage à part, même raison que celui de `visibility` juste au
--- dessus : nommé, droppé, re-ajouté, il reste UNE contrainte quel que soit le
--- nombre de rejeux.
 ALTER TABLE forum_helpful DROP CONSTRAINT IF EXISTS forum_helpful_value_check;
 ALTER TABLE forum_helpful ADD  CONSTRAINT forum_helpful_value_check
     CHECK (value IN (-1, 1));
 
--- LES DEUX INDEX DU CHAT VIVENT ICI, PAS PLUS HAUT, et un test le tient : un
--- index déclaré au-dessus de l'ALTER qui ajoute sa colonne passe sur une base
--- neuve (le CREATE TABLE a déjà la colonne) et fait TOMBER la convergence sur
--- une base existante. C'est la panne qui n'existe qu'en production.
---
--- GIN pour la recherche : la seule lecture du forum qui ne soit clé ni sur un
--- fil ni sur une clé primaire. `(reply_to, created_at)` pour lire les
--- réponses d'une racine -- sans lui, un fil de dix mille messages ferait un
--- balayage complet à chaque dessin.
 CREATE INDEX IF NOT EXISTS forum_message_search_idx
     ON forum_message USING GIN (search);
 CREATE INDEX IF NOT EXISTS forum_message_reply_idx
     ON forum_message (reply_to, created_at);
 
--- The plate, the drawn alias and the leaderboard opt-in (designs 1c/1d).
--- `false` FOR BOTH FLAGS IS THE ONLY SAFE BACKFILL: an existing account has
--- consented to nothing, so it joins no ranking and shows no badge until its
--- owner ticks the box.
 ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS alias              TEXT;
 ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS plate_frame        TEXT;
 ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS badges_public      BOOLEAN
@@ -622,50 +245,20 @@ ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS badges_public      BOOLEAN
 ALTER TABLE forum_profile ADD COLUMN IF NOT EXISTS leaderboard_opt_in BOOLEAN
     NOT NULL DEFAULT false;
 
--- THE RETAINED ANSWER WIDENED AN EXISTING CHECK, and this is the failure that
--- would NOT have shown up at deploy time: the old constraint still read
--- `('hide', 'restore')`, so the schema looked applied and the first click on
--- "Retenir comme réponse" would have been refused by Postgres, months later,
--- with nothing in the page to explain it.
---
--- ONE TRANSACTION, so there is no instant where the journal accepts an
--- unknown action. Postgres makes DDL transactional; without the BEGIN, the
--- drop would commit on its own and leave the table briefly unguarded.
 BEGIN;
 ALTER TABLE forum_moderation DROP CONSTRAINT IF EXISTS forum_moderation_action_check;
 ALTER TABLE forum_moderation ADD  CONSTRAINT forum_moderation_action_check
     CHECK (action IN ('hide', 'restore', 'retain', 'unretain'));
 COMMIT;
 
--- Team assignments. Every statement above is a `CREATE TABLE IF NOT EXISTS`,
--- so a database that predates this feature gets the tables on the next
--- converge and needs nothing here. The index below is repeated for the same
--- reason the others are: it costs one catalog lookup and it repairs a
--- database restored from a backup taken before it.
 CREATE INDEX IF NOT EXISTS team_member_roster_idx
     ON team_member (assignment_id, team_id);
 
--- LES ÉQUIPES SE REJOIGNENT, ELLES NE SE NÉGOCIENT PAS. Elles préexistent,
--- numérotées par groupe de cours pour correspondre à Moodle, et un étudiant
--- prend une place libre dans celle qu'il veut -- exactement le geste qu'il
--- fait déjà là-bas.
---
--- CE QUI A ÉTÉ ESSAYÉ AVANT, ET RETIRÉ : un code d'invitation et une
--- confirmation unanime (`invite_code`, `sealed_at`, `locked_at`). Le protocole
--- tenait, mais il ne correspondait à rien de ce que les étudiants font déjà,
--- et surtout il n'était pas nécessaire : LA DATE D'OUVERTURE DU DEVOIR ferme
--- les équipes toute seule. Tant qu'il est fermé, il n'y a rien à voler dans
--- une équipe qu'on rejoindrait ; une fois ouvert, plus personne ne bouge.
--- Trois colonnes et six routes pour ce qu'une date faisait déjà.
 ALTER TABLE team ADD COLUMN IF NOT EXISTS number SMALLINT;
 ALTER TABLE team DROP COLUMN IF EXISTS invite_code;
 ALTER TABLE team DROP COLUMN IF EXISTS sealed_at;
 ALTER TABLE team_member DROP COLUMN IF EXISTS locked_at;
 
--- `group_number` REDEVIENT OBLIGATOIRE : une équipe est numérotée DANS un
--- groupe, donc elle en a un dès sa création. Il l'était déjà avant le
--- protocole de confirmation ; c'est ce dernier qui l'avait rendu nullable, le
--- temps qu'une équipe en formation n'ait pas encore choisi.
 UPDATE team SET group_number = 1 WHERE group_number IS NULL;
 UPDATE team SET number = 1 WHERE number IS NULL;
 ALTER TABLE team ALTER COLUMN group_number SET NOT NULL;
@@ -689,140 +282,43 @@ CREATE UNIQUE INDEX IF NOT EXISTS team_number_idx
     ON team (assignment_id, group_number, number);
 DROP INDEX IF EXISTS team_invite_code_idx;
 
--- --------------------------------------------------------------------------
--- LES DROITS DU RÔLE APPLICATIF, ICI ET PAS DANS ANSIBLE.
---
--- ILS VIVAIENT DANS `VHome/roles/ctester/tasks/main.yml`, ET C'ÉTAIT LA
--- MAUVAISE MOITIÉ DU DÉPÔT. Une table et ses droits sont le MÊME FAIT : une
--- table sans son GRANT est muette, un GRANT sans sa table ne s'applique pas.
--- Les séparer sur deux dépôts, c'est garantir qu'un jour l'un part sans
--- l'autre -- et ça s'est produit TROIS FOIS : l'`UPDATE` du thème, la colonne
--- `visibility` du forum, puis les cinq tables d'équipe. Les trois fois, la
--- panne n'existait qu'en production, parce que c'est le seul endroit où le
--- rôle applicatif est utilisé.
---
--- LE SIGNE QUI A TRANCHÉ : `test_postgres.py` devait RECOPIER ces GRANT pour
--- les éprouver. Quand un harnais duplique une règle pour la tester, la règle
--- est au mauvais endroit. Il applique maintenant ce fichier, point.
---
--- CE QUI RESTE À ANSIBLE, ET POURQUOI : `CREATE ROLE ctester_app LOGIN
--- PASSWORD ...`. Le mot de passe vient du vault, et un secret n'a rien à
--- faire dans un dépôt d'application. Le rôle est créé AVANT que ce fichier ne
--- soit appliqué -- c'est déjà l'ordre des tâches.
---
--- D'OÙ LE `DO` CONDITIONNEL : sans rôle, on ne grante rien plutôt que de
--- faire échouer tout le fichier sous `ON_ERROR_STOP=1`. C'est ce qui garde
--- `schema.sql` applicable sur une base de test nue, ce qu'il a toujours
--- promis. `EXECUTE` parce que PL/pgSQL n'exécute pas une commande utilitaire
--- autrement.
---
--- JAMAIS UN GRANT SUR LE SCHÉMA, toujours table par table : `GRANT ... ON ALL
--- TABLES IN SCHEMA public` couvrirait d'avance une table pas encore écrite,
--- et le jour où on en ajoute une par erreur, elle serait déjà ouverte.
---
--- `test_ctester.py::test_chaque_table_a_ses_droits` refuse une table qui
--- n'apparaît dans aucun GRANT ci-dessous. Ajouter une table sans ses droits
--- fait donc échouer la suite, au lieu d'échouer en production dans six mois.
-
+-- Grants are listed table by table, never schema-wide, so a new table without
+-- its grant is caught by the checks. Append-only tables get no UPDATE, and forum
+-- messages are immutable apart from the two moderated columns.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ctester_app') THEN
         RETURN;
     END IF;
 
-    -- CE QUI S'ÉCRASE : un brouillon, un état, une tentative, un thème. Ce
-    -- sont les seules tables du schéma qui ne sont pas en ajout seul, et
-    -- l'`UPDATE` y est nécessaire (`ON CONFLICT ... DO UPDATE`).
     EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE'
             ' ON exercise_draft, exercise_state, practice_attempt,'
             '    display_preference, scratch_draft'
             ' TO ctester_app';
 
-    -- LA PROGRESSION EST EN AJOUT SEUL, ET C'EST POSTGRES QUI LE TIENT : pas
-    -- d'UPDATE dans ce GRANT. L'API n'en a pas besoin -- ses deux écritures
-    -- sont des `INSERT ... ON CONFLICT DO NOTHING` -- donc une correction
-    -- d'XP a posteriori demande un accès d'administration explicite, pas une
-    -- ligne de Python. DELETE reste : « Supprimer mes données » couvre ces
-    -- tables aussi.
     EXECUTE 'GRANT SELECT, INSERT, DELETE'
             ' ON progress_event, xp_transaction, achievement_unlocked'
             ' TO ctester_app';
 
-    -- LE FORUM EST EN AJOUT SEUL LUI AUSSI, à deux colonnes près (plus bas).
-    -- Un message est immuable : son auteur le supprime, un modérateur le
-    -- masque, PERSONNE ne le réécrit.
-    --
-    -- ET CE GRANT N'AJOUTE RIEN SUR LES TABLES DE PROGRESSION, délibérément :
-    -- le forum n'accorde pas d'XP, ne débloque pas de succès et ne lit pas la
-    -- progression. Une fonctionnalité sociale qui gagnerait au passage un
-    -- privilège sur les tables de valeur serait exactement la dérive que la
-    -- phase 1 a fermée.
     EXECUTE 'GRANT SELECT, INSERT, DELETE'
             ' ON forum_message, forum_report, forum_moderation, forum_helpful'
             ' TO ctester_app';
 
-    -- L'IDENTITÉ CHOISIE EST UN JOURNAL : changer de nom ajoute une ligne, la
-    -- dernière fait foi. Sans `UPDATE`, aucune requête distraite ne peut
-    -- réécrire le nom que quelqu'un s'est donné.
     EXECUTE 'GRANT SELECT, INSERT, DELETE'
             ' ON forum_profile, forum_reported_name'
             ' TO ctester_app';
 
-    -- UN GRANT DE COLONNE, PAS DE TABLE. `UPDATE (hidden, visibility)`
-    -- autorise exactement deux gestes : masquer/rétablir pour la modération,
-    -- et ouvrir sa propre question privée à son groupe pour son auteur. Avec
-    -- un `UPDATE` de table, une ligne de Python distraite pourrait réécrire
-    -- le texte de quelqu'un, ou changer l'auteur d'un message.
-    -- `test_postgres.py` éprouve les DEUX moitiés -- que ces deux colonnes
-    -- passent, et que `text` et `account` soient refusés.
     EXECUTE 'GRANT UPDATE (hidden, visibility) ON forum_message TO ctester_app';
 
-    -- ENCORE UN GRANT DE COLONNE. `UPDATE (value)` autorise exactement un
-    -- geste : changer d'avis sur un vote (`ON CONFLICT ... DO UPDATE`).
-    -- `message_id` et `account` restent inécrivables, donc aucune requête ne
-    -- peut déplacer le vote de quelqu'un sur un autre message.
     EXECUTE 'GRANT UPDATE (value) ON forum_helpful TO ctester_app';
 
-    -- LES ÉQUIPES SE FORMENT ELLES-MÊMES, donc il faut un INSERT, et il faut
-    -- le dire : cette table était en lecture seule, et « rejoindre une équipe
-    -- est inexprimable » était la garantie la plus forte de la
-    -- fonctionnalité. Elle est tombée sur un fait -- l'enseignant ne voit
-    -- jamais un `sub`, donc il ne peut nommer personne dans un listage, donc
-    -- le listage n'était écrivable par personne.
-    --
-    -- CE QUI REMPLACE LA GARANTIE : le `WHERE` de chaque écriture, comme
-    -- `forum_ouvrir_au_groupe`. On ne rejoint qu'une équipe NON SCELLÉE, sur
-    -- présentation de son code, et une équipe scellée ne se rouvre pas. Un
-    -- cran plus faible qu'un privilège absent, et le même standard que le
-    -- reste de ce schéma.
-    --
-    -- UN GRANT DE COLONNE POUR `team`, PAS UN UPDATE DE TABLE : `label`,
-    -- `group_number` et `sealed_at` bougent avant le scellement. `team_id` et
-    -- `assignment_id` ne bougent JAMAIS -- les déplacer emporterait le
-    -- document partagé d'une équipe vers une autre.
-    -- INSERT SANS UPDATE : une équipe est CRÉÉE à la volée la première fois
-    -- que quelqu'un prend une place dedans, et elle ne bouge plus jamais --
-    -- son numéro, son groupe et son nom sont ceux que Moodle porte aussi.
-    -- Pas de DELETE non plus : elle tient le document de trois ou quatre
-    -- personnes.
     EXECUTE 'GRANT SELECT, INSERT ON team TO ctester_app';
 
-    -- REJOINDRE (INSERT), QUITTER et « Supprimer mes données » (DELETE).
-    -- PAS D'UPDATE DU TOUT : changer d'équipe, c'est en sortir et entrer
-    -- ailleurs -- deux écritures dont chacune porte sa condition. Un UPDATE de
-    -- `team_id` les contournerait toutes les deux.
     EXECUTE 'GRANT SELECT, INSERT, DELETE ON team_member TO ctester_app';
 
-    -- Le document partagé et la remise s'écrasent (`ON CONFLICT DO UPDATE`),
-    -- comme le brouillon et le thème. Pas de DELETE : ils appartiennent à
-    -- l'ÉQUIPE, et effacer un membre ne doit pas emporter le devoir de trois
-    -- autres personnes -- c'est pour ça qu'ils sont absents de `forget()`.
     EXECUTE 'GRANT SELECT, INSERT, UPDATE'
             ' ON team_document, team_submission TO ctester_app';
 
-    -- L'historique est en ajout seul, comme le forum : une révision est un
-    -- fait, et son auteur n'est pas une colonne à corriger après coup. DELETE
-    -- reste pour « Supprimer mes données ».
     EXECUTE 'GRANT SELECT, INSERT, DELETE ON team_revision TO ctester_app';
 END
 $$;
