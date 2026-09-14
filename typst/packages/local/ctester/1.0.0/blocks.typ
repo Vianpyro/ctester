@@ -64,15 +64,10 @@ if target() == "html" {
         block(spacing: 4pt,
               text(size: 0.8em, fill: palette.muted, font: mono-font, fichier))
       }
-      // LA RÈGLE DE BLOC EST NEUTRALISÉE ICI. `enonce` (lib.typ) pose un fond
-      // et un filet sur tout `raw.where(block: true)` ; à l'intérieur d'un
-      // encadré qui en a déjà, ça dessine une seconde boîte. Vu au premier
-      // rendu de la fixture.
-      {
-        show raw.where(block: true): it => it
-        text(font: mono-font, size: mono-size, fill: palette.fg,
-             raw(code, lang: "c", block: true))
-      }
+      // L'ÉTIQUETTE `<ctester-encadre>` DIT À `enonce` (lib.typ) DE NE PAS
+      // redessiner sa boîte autour de ce code : l'encadré en a déjà une.
+      text(font: mono-font, size: mono-size, fill: palette.fg,
+           [#raw(code, lang: "c", block: true) <ctester-encadre>])
     },
   )
 }

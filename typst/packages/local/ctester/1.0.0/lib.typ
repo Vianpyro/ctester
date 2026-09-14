@@ -56,10 +56,17 @@
   set raw(theme: "themes/ctester-" + theme-name + ".tmTheme")
 
   // Un bloc de code : le fond `--panel` et le filet `--line` de `#consignetexte.md pre`.
-  show raw.where(block: true): it => block(
-    width: 100%, fill: palette.panel, stroke: 0.5pt + palette.line,
-    inset: (x: 6pt, y: 5pt), spacing: 0.9em, radius: 0pt, it,
-  )
+  // SAUF le code des encadrés (`<ctester-encadre>`, posé par `blocks.typ`) :
+  // ils ont déjà leur boîte. Un `show raw: it => it` à l'intérieur ne suffit
+  // PAS -- rendre l'élément tel quel laisse cette règle-ci s'appliquer par-dessus.
+  show raw.where(block: true): it => if it.at("label", default: none) == <ctester-encadre> {
+    it
+  } else {
+    block(
+      width: 100%, fill: palette.panel, stroke: 0.5pt + palette.line,
+      inset: (x: 6pt, y: 5pt), spacing: 0.9em, radius: 0pt, it,
+    )
+  }
   // Un code inline : le même fond, sans le bloc.
   show raw.where(block: false): it => box(
     fill: palette.panel, stroke: 0.5pt + palette.line,
