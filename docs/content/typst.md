@@ -1,314 +1,138 @@
-# Écrire un énoncé en Typst
+# Writing a statement in Typst
 
-Un énoncé d'exercice s'écrit dans `statement.md` (Markdown) ou dans
-`statement.typ` (Typst). **Pas les deux** : la validation refuse un exercice qui
-porte les deux fichiers, plutôt que d'en choisir un en silence et de vous
-laisser corriger celui que personne ne lit.
+An exercise statement is either `statement.md` (Markdown) or `statement.typ` (Typst), never both.
+Validation rejects an exercise that has both.
 
-## 1. Lequel choisir
+## When to use Typst
 
-**`statement.md` reste le défaut, et ce n'est pas de la nostalgie.** Il est rendu
-dans le navigateur, donc son texte est sélectionnable, copiable, trouvable au
-`Ctrl+F` et lisible par un lecteur d'écran. Les 77 énoncés du cours sont en
-Markdown et n'ont aucune raison de bouger.
+Markdown stays the default. It is rendered by the browser, so the text can be selected, copied,
+searched and read aloud by a screen reader.
 
-**`statement.typ` quand la mise en page fait partie de l'explication.** Il est
-publié deux fois : en HTML, affiché quand c'est possible, et en SVG, le repli.
-Le HTML se lit, se copie et se cherche comme le Markdown. **Le SVG, non** : ses
-lettres sont des tracés, donc l'étudiant ne peut ni sélectionner, ni copier, ni
-faire chercher un mot, et une synthèse vocale ne lit rien. Un énoncé qui
-retombe sur le SVG (voir §10) paie cette perte, et c'est la raison pour laquelle
-`statement.typ` n'est pas le défaut.
+Use Typst when the layout is part of the explanation: tables (including computed ones), images,
+Mermaid diagrams, formulas beyond simple `$...$`, or several pages.
 
-| Vous voulez | Écrivez |
-|---|---|
-| du texte, des listes, un bloc de code, une formule simple | `statement.md` |
-| un tableau | `statement.typ` |
-| un tableau calculé à partir de valeurs | `statement.typ` |
-| un diagramme (Mermaid) | `statement.typ` |
-| une image, un schéma | `statement.typ` |
-| une formule que `$...$` du Markdown ne sait pas rendre | `statement.typ` |
-| plusieurs pages | `statement.typ` |
+A Typst statement is published as HTML, with SVG pages as a fallback. HTML text behaves like Markdown.
+SVG text does not: it cannot be selected, copied, searched or read aloud.
 
-En cas de doute : écrivez en Markdown, et migrez le jour où vous butez.
-
-## 2. La structure d'un exercice
+## Layout
 
 ```text
 exercises/tp2-ex3/
-├── exercise.json          inchangé
-├── statement.typ          l'énoncé
-├── images/                vos figures (facultatif)
-│   └── memoire.svg
-├── public/files.json      inchangé
-└── assessment/            inchangé -- Typst n'y a AUCUN accès
+├── exercise.json
+├── statement.typ
+├── images/            optional figures
+├── public/files.json
+└── assessment/        never copied where the statement is compiled
 ```
 
-`assessment/` n'est pas copié dans le répertoire où l'énoncé est compilé : un
-corrigé ne peut pas se retrouver dans une consigne, même par accident.
+A statement can only read files from its own exercise directory.
 
-## 3. Le fichier minimal
+## A minimal statement
 
 ```typst
-= Titre de l'exercice
+= Exercise title
 
-Du texte ordinaire.
+Some text.
 ```
 
-C'est tout. **Vous n'écrivez aucun préambule** : la mise en page, la palette, la
-largeur de colonne et la coloration du C sont appliquées par le build.
-
-Ajoutez la ligne d'import **seulement si vous voulez les helpers** (`#note`,
-`#mermaid`, `#signature`, `#recopier`, `#exemple`, `#attention`). **Sans elle,
-Typst répond `unknown variable`** et la publication de tout le cours s'arrête
-jusqu'à la correction :
+No preamble is needed: page layout, colors and C highlighting are applied by the build. Add the
+import only when you use the helpers below. Without it, Typst fails with `unknown variable`.
 
 ```typst
 #import "@local/ctester:1.0.0": *
-
-= Titre
 ```
 
-## 4. Markdown → Typst
-
-La syntaxe de Typst ressemble beaucoup à celle de Markdown. Il n'y a **pas** de
-traducteur : ce tableau suffit.
+## Markdown to Typst
 
 | Markdown | Typst |
 |---|---|
-| `# Titre` | `= Titre` |
-| `## Sous-titre` | `== Sous-titre` |
-| `**gras**` | `*gras*` |
-| `*italique*` | `_italique_` |
+| `# Title` | `= Title` |
+| `## Subtitle` | `== Subtitle` |
+| `**bold**` | `*bold*` |
+| `*italic*` | `_italic_` |
 | `` `code` `` | `` `code` `` |
-| ` ```c ... ``` ` | ` ```c ... ``` ` |
-| `- puce` | `- puce` |
-| `1. numéro` | `+ numéro` |
-| `[texte](url)` | `#link("url")[texte]` |
+| `- item` | `- item` |
+| `1. item` | `+ item` |
+| `[text](url)` | `#link("url")[text]` |
 
-Attention aux deux inversions : en Typst `*` est le **gras** et `_` l'italique,
-l'inverse du Markdown.
+Watch out: `*` is bold and `_` is italic in Typst.
 
-## 5. Du code C
+## Content
 
-Un bloc clôturé, avec le langage. La coloration est **la même que celle de
-l'éditeur** — un `int` a la couleur qu'il a dans la fenêtre d'à côté.
+C code uses a fenced block with the language, highlighted with the same colors as the editor.
 
 ````typst
 ```c
-#include <stdio.h>
-
-int main(void) {
-    printf("Bonjour\n");
-    return 0;
-}
+int main(void) { return 0; }
 ```
 ````
 
-Pour un prototype que l'étudiant doit recopier à l'octet près :
+Math goes between dollar signs. `$O(n)$` stays inline; `$ ... $` with spaces is displayed on its own line.
 
 ```typst
-#signature(fichier: "calendrier.h", "int diff_dates(int j1, int m1, int a1);")
-```
-
-## 6. Des maths
-
-Entre `$ ... $`. Pas de bibliothèque, pas de police à charger : Typst compose
-les formules lui-même.
-
-```typst
-Le coût est $O(n log n)$.
-
 $ sum_(i=1)^n i = (n(n+1))/2 $
-
-$ x = (-b plus.minus sqrt(b^2 - 4a c))/(2a) $
 ```
 
-Un `$` collé au texte (`$O(n)$`) donne une formule dans la ligne ; entouré
-d'espaces (`$ ... $`), une formule centrée sur sa propre ligne.
-
-## 7. Un tableau
+Tables style their first row automatically. They can be computed from values:
 
 ```typst
-#table(
-  columns: 3,
-  [Entrée], [Sortie], [Pourquoi],
-  [`0`], [`0`], [cas limite],
-  [`5`], [`120`], [$5!$],
-)
+#let values = (12, 42, 7)
+#table(columns: 2, [Index], [Value],
+  ..values.enumerate().map(((i, v)) => (str(i), str(v))).flatten())
 ```
 
-La première ligne est mise en gras et sur fond de panneau automatiquement.
-
-### Un tableau calculé
-
-C'est ce que Markdown ne peut pas faire : les lignes sont **dérivées** de vos
-valeurs, donc corriger la liste corrige le tableau.
+Images:
 
 ```typst
-#let valeurs = (12, 42, 7, 91, 23)
-
-#table(
-  columns: 2,
-  [Indice], [Valeur],
-  ..valeurs.enumerate().map(((i, v)) => (str(i), str(v))).flatten(),
-)
+#figure(image("images/memory.svg", width: 90%), caption: [The array after three iterations.])
 ```
 
-## 8. Une image
+Images are not re-themed: pick colors readable on both light and dark backgrounds, and leave the
+background transparent.
 
-Posez-la dans `images/` à côté de `statement.typ` :
+Mermaid diagrams follow the theme. Avoid accents in node labels.
 
 ```typst
-#figure(
-  image("images/memoire.svg", width: 90%),
-  caption: [Ce que contient le tableau à la troisième itération.],
-)
+#mermaid(alt: "Submit, compile, then test", "graph TD
+  A[Student] --> B[Compile]
+  B --> C[Tests]")
 ```
 
-**Une image ne suit pas le thème.** Le texte, le code et les diagrammes sont
-recompilés pour le thème clair et pour le sombre ; une image est reprise telle
-quelle. Choisissez donc des couleurs lisibles sur les deux fonds, et ne peignez
-pas de fond blanc — celui de la page doit se voir à travers. Préférez du SVG
-écrit à la main quand la figure est simple : le dépôt de contenu n'a aucun
-fichier binaire aujourd'hui, et c'est agréable.
-
-Un document ne peut lire **que** des fichiers de son propre répertoire
-d'exercice. `#image("../autre/x.png")` est refusé par le compilateur.
-
-## 9. Un diagramme Mermaid
+## Helpers
 
 ```typst
-#mermaid(
-  alt: "L'étudiant soumet, ctester compile, puis exécute les tests",
-  "graph TD
-  A[Etudiant] --> B[ctester]
-  B --> C[Compilation]
-  C --> D[Tests]",
-)
-```
-
-Le diagramme prend les couleurs du thème, comme le reste. Écrivez `alt` : il ne
-rend pas le diagramme accessible (voir §1), mais il vaut mieux que rien.
-
-**Évitez les accents dans les libellés Mermaid** — sa grammaire est capricieuse
-avec la ponctuation. Le texte autour, lui, est du français normal.
-
-## 10. Les helpers ctester
-
-Quatre encadrés, et il y en a quatre parce que quatre servent.
-
-```typst
-#note[Une précision utile. `const` empêche l'écriture, ce n'est pas décoratif.]
-
-#attention[Ce qui coûte un verdict rouge : `i = 0` compare la case avec elle-même.]
-
-#exemple[
-  Entrée : `5 12 42 7 91 23` — sortie : `91`.
-]
-
-#signature(fichier: "tampon.h", "int maximum(const int v[], int n);")
-```
-
-Chacun accepte `titre:` si « Note », « Attention » ou « Exemple » ne convient
-pas.
-
-Un code d'exemple que l'étudiant doit **retaper à la main** :
-
-````typst
+#note[A useful detail.]
+#attention[What costs a failed verdict.]
+#exemple[Input: `5 12 42` — output: `42`.]
+#signature(fichier: "buffer.h", "int maximum(const int v[], int n);")
 #recopier(```c
-for (int i = 0; i < n; i++)
-    printf("%d\n", t[i]);
+for (int i = 0; i < n; i++) printf("%d\n", t[i]);
 ```)
-````
+```
 
-Un bloc ```` ```c ```` passé directement, SANS guillemets autour : rien à
-échapper, les `"` et les `\n` du programme restent tels quels. Une chaîne
-(`#recopier("int x;")`) marche aussi pour une ligne courte.
+`note`, `attention` and `exemple` accept `titre:`. `recopier` marks code students must retype: it has
+no Copy button and refuses selection. This discourages copying but does not prevent it.
 
-La consigne est affichée en HTML quand c'est possible : les blocs de code y ont
-un bouton « Copier », **sauf** ceux-là, qui refusent la sélection et la copie.
-C'est une dissuasion, pas une protection — le texte reste dans la page.
+`#pagebreak()` starts a new SVG page (at most 16). HTML ignores it.
 
-**Le HTML n'est pas garanti, et vous n'avez rien à faire pour ça.** Si Typst ne
-sait pas rendre un élément en HTML, ou si le fichier ne se charge pas, les
-étudiants voient automatiquement la version SVG, où rien n'est copiable. Pour
-savoir laquelle un énoncé reçoit, cherchez `rendu HTML incomplet` dans le
-journal de publication (`journalctl -u ctester-tests`) : la ligne nomme
-l'élément perdu.
+## Previewing
 
-## 11. Plusieurs pages
-
-Un `#pagebreak()` et rien d'autre. En SVG, la page affiche les images l'une sous
-l'autre dans la colonne de la consigne, qui défile. En HTML, le saut est ignoré :
-le texte se suit d'un bloc, sans séparation.
-
-N'en abusez pas : une consigne d'exercice tient presque toujours sur une page, et
-seize est le maximum accepté.
-
-## 12. Compiler chez soi
-
-Il faut Docker **ou** un binaire `typst` 0.15.1.
+Docker or a `typst` 0.15.1 binary (`CTESTER_TYPST_BIN`) is required.
 
 ```sh
-# Rendre et écrire les SVG :
-python3 render_statement.py ../unittests/content/exercises/tp2-ex3 --out /tmp/apercu
-
-# Ou en PNG, pour simplement regarder :
-python3 render_statement.py ../unittests/content/exercises/tp2-ex3 --out /tmp/apercu --png
-xdg-open /tmp/apercu/dark-1.png
+python3 render_statement.py ../unittests/content/exercises/tp2-ex3 --out /tmp/preview --png
 ```
 
-Avec un binaire plutôt que Docker :
+To see it in the real page, publish locally and start the API (see the README).
 
-```sh
-CTESTER_TYPST_BIN=/chemin/vers/typst python3 render_statement.py ...
-```
+## When it breaks
 
-Pour voir l'énoncé **dans la vraie page** :
+A Typst error stops the whole publication: nothing is written, the active release stays in place, and
+the error names the exercise, file and line. Other exercises are blocked too, so fix it right away. On
+the server, the message shows up in `journalctl -u ctester-tests -n 30`.
 
-```sh
-npm run build
-python3 publish_content.py ../unittests/content /tmp/published
-CTESTER_KEY=dev CTESTER_PUBLISHED=/tmp/published CTESTER_PAGE=frontend/dist \
-  python3 app/main.py
-```
+If an element cannot be exported to HTML, students get the SVG version. The publication log then
+contains `rendu HTML incomplet`, naming the lost element.
 
-## 13. Quand ça casse
-
-Une erreur Typst **fait échouer toute la publication** : rien n'est écrit, la
-release en service ne bouge pas, et le message nomme l'exercice, le fichier et
-la ligne.
-
-```
-publish refused, the active release is untouched:
-- tp2-ex3/statement.typ n'a pas compilé :
-  error: unknown variable: tableu
-    ┌─ statement.typ:12:3
-```
-
-Conséquence à connaître : **un `.typ` cassé bloque aussi la publication des
-autres exercices**, y compris une correction de `statement.md` faite en même
-temps. C'est voulu — un contenu invalide ne doit jamais remplacer une release
-qui marche — mais ça veut dire qu'on corrige tout de suite.
-
-Sur le serveur, le tick de cinq minutes le dit dans son journal :
-
-```sh
-journalctl -u ctester-tests -n 30
-```
-
-## 14. Ce que Typst ne fait pas ici
-
-- **Pas de HTML** : le format publié est le SVG, et l'export HTML de Typst est
-  expérimental.
-- **Pas de Typst dans le navigateur** : l'étudiant reçoit des images, jamais un
-  compilateur.
-- **Pas de paquet Typst arbitraire** : seuls `@local/ctester` et
-  `@preview/merman` sont disponibles, tous deux vendorés dans le dépôt de
-  l'application. Le build n'a pas de réseau. Pour en ajouter un, il faut le
-  vendorer — parlez-en plutôt que de l'importer.
-- **Pas de police autre** que DejaVu Sans (le texte, vendorée dans
-  `typst/fonts/`, même famille que le site) et DejaVu Sans Mono (le code,
-  embarquée dans typst) : c'est ce qui rend le rendu identique sur toutes les
-  machines, `--font-path` compris.
+Only `@local/ctester` and the vendored `@preview/merman` packages are available, since the build has no
+network access. Fonts are DejaVu Sans and DejaVu Sans Mono.

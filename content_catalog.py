@@ -1,14 +1,3 @@
-"""Validation and discovery of v2 content.
-
-The worker, CI, and the publisher (`publish_content.py`) all go through the
-same gate, `find_exercise()`, rather than each reinterpreting the metadata on
-its own.
-
-Content is private by default. ``public_catalogue`` rebuilds only the values
-allowed to cross this boundary; it never strips a few keys from a copy of the
-grading configuration.
-"""
-
 import datetime as dt
 import json
 import os
@@ -26,23 +15,12 @@ FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 MODES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
 DIFFICULTIES = frozenset(("intro", "foundation", "intermediate", "advanced"))
 RELEASE_STATES = frozenset(("available", "scheduled", "archived"))
-# THE OUTER BOUND ON A TEAM, not the course's rule. TCH009 asks for 3 or 4;
-# the assignment file says so. This only refuses a typo that would turn a
-# team into a section.
 TEAM_MAX = 8
-# COMBIEN D'ÉQUIPES UN GROUPE PEUT DÉCLARER. Une section de trente en a une
-# dizaine ; la borne refuse le zéro de trop qui ferait dessiner mille lignes
-# dans une liste que personne ne lirait.
 TEAM_COUNT_MAX = 99
-# The ZIP's top directory. A PLAIN NAME, checked here rather than when the
-# archive is built: an assignment file is content, and content is the one
-# place where a `../` would otherwise become a path.
 ARCHIVE_ROOT_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 
 
 class ContentValidationError(ValueError):
-    """One or more author errors, never an HTTP path error."""
-
     def __init__(self, errors):
         self.errors = tuple(errors)
         super().__init__("\n".join(self.errors))
@@ -73,14 +51,6 @@ _NATURAL_PARTS_RE = re.compile(r"(\d+)")
 
 
 def _natural_key(value):
-    """Stable key for collection ids read from files.
-
-    Collections are the path shown in the menu. A lexical sort of their files
-    would therefore place ``tp10.json`` before ``tp2.json``. Ids stay stable
-    ids and are not artificially padded with zeros: their numeric portions are
-    simply compared as numbers. Portions are typed so that an id starting
-    with a digit stays comparable to one starting with a letter.
-    """
     return tuple((1, int(part)) if part.isdigit() else (0, part.casefold())
                  for part in _NATURAL_PARTS_RE.split(value) if part)
 
@@ -96,11 +66,6 @@ def _iso_datetime(value):
 
 
 def detect_mode(assessment_dir):
-    """The single mode present, or ``None`` / a list of conflicts.
-
-    No ``mode`` field appears in exercise.json: the grading file is the
-    source of truth. The validator distinguishes absence from plurality.
-    """
     found = [mode for mode, filename in MODES
              if os.path.isfile(os.path.join(assessment_dir, filename))]
     return found[0] if len(found) == 1 else (found or None)
@@ -127,13 +92,7 @@ def _release(value, where, errors):
 
 
 def access(release, now=None):
-    """``available`` / ``scheduled`` / ``archived`` -- THE ONLY READ OF A RELEASE.
-
-    A ``scheduled`` release whose date has passed IS open: a release is data,
-    not a periodic job to trigger. Without this, opening an exercise would
-    require a commit the morning of class, and forgetting it would look like
-    an outage. ``now`` exists only for tests and preview mode.
-    """
+    """The only read of a release state: a scheduled release past its date is open."""
     state = (release or {}).get("state")
     if state not in RELEASE_STATES:
         return "archived"
@@ -145,13 +104,6 @@ def access(release, now=None):
 
 
 def find_exercise(model, exercise_id, now=None):
-    """THE ONE GATE to an exercise: detail, quiz, draft, forum, submission.
-
-    An id that is not open does not resolve to an entry, so not to a path
-    either: a deep link a student shared early does not bypass anything, it
-    just does not resolve. The worker calls this same function before
-    running anything.
-    """
     entry = model["exercises"].get(exercise_id)
     if entry is None or access(entry["release"], now) != "available":
         return None
@@ -159,16 +111,7 @@ def find_exercise(model, exercise_id, now=None):
 
 
 def load_exercise(root, exercise_id, now=None, tout=False):
-    """ONE exercise resolved from the private root, without validating the whole repo.
-
-    THIS IS THE WORKER'S GATE. It runs as root, once per job, and an exercise
-    broken elsewhere in the repo must not stop the queue -- `discover()`
-    validates EVERYTHING and serves CI and the publisher, not this.
-
-    The release is re-applied: the web tier already did it, this process
-    trusts nobody, including our own web container. `tout=True` is the
-    instructor's preview mode, and nothing else.
-    """
+    """The worker's gate: re-checks the release instead of trusting the web tier."""
     if not isinstance(exercise_id, str) or not EXERCISE_RE.match(exercise_id):
         return None
     path = os.path.join(root, "exercises", exercise_id)
@@ -181,7 +124,7 @@ def load_exercise(root, exercise_id, now=None, tout=False):
     assessment = os.path.join(path, "assessment")
     mode = detect_mode(assessment)
     if not isinstance(mode, str):
-        return None  # no mode, or several: nothing to run
+        return None
     files = _public_files(path, "exercises/" + exercise_id, errors, mode)
     return {"id": exercise_id, "path": assessment, "mode": mode,
             "files": files or [{"name": "submission.c", "template": ""}],
@@ -212,7 +155,6 @@ def _files(value, where, errors):
 
 
 def _public_files(path, where, errors, mode):
-    """Templates are public, so kept apart from the grading configuration."""
     if mode == "quiz":
         return []
     data = _json(os.path.join(path, "public", "files.json"), errors)
@@ -239,15 +181,6 @@ def _exercise(root, dirname, known_skills, errors):
         errors.append("%s: missing title" % where)
     if not isinstance(data.get("summary", ""), str):
         errors.append("%s: summary must be text" % where)
-    # THE STATEMENT COMES IN ONE OF TWO FORMATS, AND EXACTLY ONE. `statement.md`
-    # is the default and nothing about it changed; `statement.typ` is rendered
-    # to SVG at publish time (see typst_build.py) for the statements a
-    # hand-written Markdown subset cannot express -- a table, a diagram, a
-    # figure, a formula outside `math.ts`'s grammar.
-    #
-    # BOTH PRESENT IS AN ERROR, NOT A CHOICE TO MAKE. Picking one silently would
-    # mean an author who migrates a statement and forgets to delete the old file
-    # keeps editing a file nobody reads.
     statement_format, statement = "md", ""
     try:
         statement_format, valeur = typst_build.statement_of(path)
@@ -284,19 +217,10 @@ def _exercise(root, dirname, known_skills, errors):
     difficulty = data.get("difficulty")
     if difficulty is not None and difficulty not in DIFFICULTIES:
         errors.append("%s: invalid difficulty" % where)
-    # A VERIFICATION IS AN ORDINARY EXERCISE, MARKED. The flag does not
-    # depend on the mode: a code-reading quiz and an io debugging exercise
-    # are both valid verifications (docs/gamification/mastery.md). What it
-    # changes is downstream -- no XP, no counting toward practice, and a
-    # piece of mastery evidence on every verdict.
     verification = data.get("verification", False)
     if not isinstance(verification, bool):
         errors.append("%s: verification must be a boolean" % where)
         verification = False
-    # A BONUS IS AN ORDINARY EXERCISE TOO, and the flag is narrower than the
-    # one above: it earns XP, it counts toward practice, it has its tile and
-    # its lock. All it changes is the one-piece main.c -- the handout does not
-    # number a bonus, so there is no `#if exercice == N` to attach it to.
     bonus = data.get("bonus", False)
     if not isinstance(bonus, bool):
         errors.append("%s: bonus must be a boolean" % where)
@@ -322,46 +246,11 @@ def _exercise(root, dirname, known_skills, errors):
         "skills": skills, "difficulty": difficulty, "contexts": contexts,
         "verification": verification, "bonus": bonus,
         "prerequisites": prerequisites, "files": _public_files(path, where, errors, mode),
-        # THE GRADING CONFIGURATION STAYS IN THE PRIVATE MODEL: the worker and
-        # the publisher read it here rather than rebuilding a path. None of
-        # this dict is exposed by public_catalogue/public_detail, which
-        # rebuild field by field.
         "config": config,
     }
 
 
-# --- Assignments --------------------------------------------------------------
-# AN ASSIGNMENT IS NOT A COLLECTION, and the two must not be folded together.
-# A collection is a PATH through the catalog: a menu heading, no deadline, no
-# hand-in, and an exercise may sit in two of them. An assignment is a piece of
-# ASSESSED WORK: it has a deadline, it says what the final hand-in looks like,
-# and -- when it declares a `team` -- it is done by a team rather than by a
-# person. Reusing `collections` for it would have made "which lab is this in"
-# and "what am I handing in" the same field, and the day they diverge is the
-# day someone hands in the wrong thing.
-#
-# IT REFERENCES EXERCISES, IT DOES NOT REDEFINE THEM. `items` is a list of
-# exercise ids, exactly like a collection's, so an exercise stays defined in
-# exactly one place.
-#
-# `team` IS THE OPT-IN, AND ITS ABSENCE IS THE DEFAULT. No `team` block means
-# an ordinary individual assignment: nothing collaborative is created, no
-# workspace is offered, and every existing exercise keeps behaving as it did.
-
-
 def _team(value, where, errors):
-    """`{"min": 3, "max": 4, "count": 12}` -- or None, which means "individual".
-
-    The bounds are the ASSIGNMENT's, not the platform's: TCH009 asks for three
-    or four, another course would ask for two. `TEAM_MAX` only refuses the
-    typo that would turn a team into a section.
-
-    `count` IS HOW MANY TEAMS EACH COURSE GROUP HAS, and it exists so the
-    numbering can MATCH MOODLE. Students pick « Équipe 7 » from a list, and
-    « Équipe 7 » has to be the same team on both sides -- so the count is a
-    fact about the course, written in the content, not something CTester
-    invents as people arrive. Teams beyond it simply do not exist.
-    """
     if value is None:
         return None
     if not isinstance(value, dict):
@@ -385,15 +274,6 @@ def _team(value, where, errors):
 
 
 def _handin(value, where, items, exercises, errors):
-    """What the final ZIP holds -- driven by metadata, never by a file name
-    this application happens to know.
-
-    Each entry names the file IN THE ARCHIVE and where its contents come
-    from: an exercise of this assignment, and one of the files that exercise
-    declares. Nothing is concatenated and nothing is rewritten -- the archive
-    is a copy of what the team wrote, which is the only thing that can be
-    handed in honestly.
-    """
     if value is None:
         return None
     if not isinstance(value, dict):
@@ -476,7 +356,6 @@ def _assignment(root, filename, exercises, errors):
 
 
 def discover(root):
-    """Returns v2 content's validated private model, or raises with every error."""
     errors = []
     catalog = _json(os.path.join(root, "catalog.json"), errors)
     if catalog is None:
@@ -543,10 +422,6 @@ def discover(root):
             errors.append("duplicate assignment id: %s" % entry["id"])
         else:
             assignments[entry["id"]] = entry
-    # AN EXERCISE BELONGS TO AT MOST ONE ASSIGNMENT, unlike a collection.
-    # Two assignments claiming the same exercise would mean two teams, two
-    # deadlines and two hand-ins for one shared document -- there would be no
-    # honest answer to "whose workspace is this".
     owner = {}
     for entry in assignments.values():
         for item in entry["items"]:
@@ -567,13 +442,7 @@ def discover(root):
 
 
 def public_catalogue(model, now=None):
-    """Public projection rebuilt field by field, with no assessment content.
-
-    An exercise not yet open still APPEARS in the catalog, with its state and
-    date: that is what makes the difference between "locked until the 18th"
-    and "does not exist". What it lacks is a published detail (see
-    ``public_detail``) -- showing is not giving.
-    """
+    """Rebuilt field by field. Closed exercises are listed with their date, without detail."""
     exercises = []
     for entry in model["exercises"].values():
         public = {"id": entry["id"], "title": entry["title"], "release": entry["release"],
@@ -583,25 +452,14 @@ def public_catalogue(model, now=None):
             public["summary"] = entry["summary"]
         if entry["difficulty"] is not None:
             public["difficulty"] = entry["difficulty"]
-        # Absent when false: the catalog is re-read on every request, and one
-        # key per exercise that says nothing is 73 keys saying nothing.
         if entry.get("verification"):
             public["verification"] = True
         if entry.get("bonus"):
             public["bonus"] = True
-        # WHICH ASSIGNMENT THIS EXERCISE BELONGS TO, or nothing at all. The
-        # page reads it to know it must open the assignment workspace instead
-        # of the individual editor, and `_record()` reads it to keep team work
-        # out of a personal XP balance. Absent for every existing exercise,
-        # which is exactly the point: the feature is additive.
         if entry.get("assignment"):
             public["assignment"] = entry["assignment"]
         if isinstance(entry["contexts"], list):
             public["contexts"] = [str(context) for context in entry["contexts"]]
-        # NAMES STAY, TEMPLATES LEAVE. `files` is the allow-list the API
-        # checks a submission against (validate_files): emptying it would
-        # open a hole. The template only ever pre-fills the editor and lives
-        # in the detail, loaded when the exercise opens.
         if entry["files"]:
             public["files"] = [{"name": item["name"]} for item in entry["files"]]
         exercises.append(public)
@@ -612,18 +470,11 @@ def public_catalogue(model, now=None):
                              "release": entry["release"],
                              "access": access(entry["release"], now)}
                             for entry in model["collections"].values()],
-            # ASSIGNMENTS TRAVEL WHOLE, and that is deliberate: `team`,
-            # `deadline` and `handin` are what the workspace, the deadline
-            # notice and the ZIP are built from, and rebuilding any of them
-            # from a second source would make the archive disagree with the
-            # page. Nothing private is in here -- an assignment file has no
-            # assessment section to leak.
             "assignments": [_public_assignment(entry, now)
                             for entry in model.get("assignments", {}).values()]}
 
 
 def _public_assignment(entry, now=None):
-    """One assignment, field by field. Same rule as everywhere else here."""
     public = {"id": entry["id"], "title": entry["title"],
               "description": entry["description"], "items": list(entry["items"]),
               "release": entry["release"], "access": access(entry["release"], now)}
@@ -638,26 +489,6 @@ def _public_assignment(entry, now=None):
 
 
 def public_detail(model, exercise_id, now=None, pages=None, html=False):
-    """An exercise's public detail, kept apart from the menu and from assessment.
-
-    Templates are bulky enough to stay out of catalog.json, but are public by
-    design and needed by the editor. An unknown id does not resolve to a
-    path: the caller must already have found it in the validated model.
-
-    `statement` STAYS A STRING, AND THAT IS THE WHOLE COMPATIBILITY STORY. A
-    Markdown exercise answers byte for byte what it always answered. A Typst one
-    answers `""` plus two keys that did not exist -- so a page still sitting in
-    a student's cache reads an empty statement and says "no statement online"
-    instead of throwing on an object where it expected text.
-
-    NO PATH TRAVELS. `statement_pages` is a COUNT; the page rebuilds
-    `/statement/<id>/<theme>-<n>.svg` from the id it already has. Same rule as
-    `source_publiee()`, which rebuilds its path from the entry it found rather
-    than concatenating one it was handed.
-
-    `pages` is what `publish_content` measured when it rendered; it is not read
-    from disk here, because this module never runs a subprocess.
-    """
     entry = find_exercise(model, exercise_id, now)
     if entry is None:
         return None
@@ -666,7 +497,5 @@ def public_detail(model, exercise_id, now=None, pages=None, html=False):
     if entry.get("statement_format") == "typ":
         detail["statement_format"] = "typst"
         detail["statement_pages"] = int(pages or 0)
-        # Un BOOLÉEN, comme `statement_pages` est un compte : la page
-        # reconstruit `/statement/<id>/statement.html` elle-même.
         detail["statement_html"] = bool(html)
     return detail

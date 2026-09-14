@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""Rendre UN énoncé Typst et regarder le résultat, sans rien publier.
-
-C'est la boucle de travail d'un enseignant qui écrit un `statement.typ` :
-
-    python3 render_statement.py ../unittests/content/exercises/tp2-ex3
-    python3 render_statement.py typst/fixture --out /tmp/apercu
-
-Les SVG sortent dans `--out` (par défaut un répertoire temporaire dont le chemin
-est imprimé), un fichier par thème et par page. Aucun contenu n'est publié,
-aucun pointeur n'est touché : c'est `publish_content.py` qui fait ça.
-
-`--png` rend en PNG à la place, parce qu'un navigateur ouvre un SVG dans un
-onglet mais qu'une visionneuse d'images ne le fait pas toujours -- et que la
-question qu'on se pose à ce moment-là est « est-ce que ça a l'air correct ».
-"""
 
 import argparse
 import os
@@ -52,9 +37,6 @@ def main(argv=None):
     if args.png:
         return _png(args.exercise, sortie, themes)
 
-    # LE CHEMIN NORMAL PASSE PAR LE MÊME `render()` QUE LA PUBLICATION, cache
-    # compris : ce qu'on regarde ici est exactement ce qui serait publié, pas
-    # une seconde façon de compiler qui pourrait dériver.
     try:
         rendu, du_cache = typst_build.render(args.exercise,
                                              os.path.basename(os.path.abspath(args.exercise)))
@@ -81,13 +63,6 @@ def main(argv=None):
 
 
 def _png(exercise, sortie, themes):
-    """Le même document, en PNG. Un chemin à part, et il le dit.
-
-    `render()` ne rend que du SVG parce que c'est ce qui est publié ; demander
-    un PNG ici veut dire relancer typst à la main, avec les mêmes options. Elles
-    sont donc recopiées d'un seul endroit -- `_argv` — puis le format est
-    remplacé, plutôt que d'écrire une seconde ligne de commande.
-    """
     travail = tempfile.mkdtemp(prefix="ctester-typst-")
     try:
         typst_build._preparer(exercise, travail)

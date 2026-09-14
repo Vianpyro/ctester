@@ -1,14 +1,3 @@
-// LES ENCADRÉS PÉDAGOGIQUES, ET IL Y EN A CINQ.
-//
-// Chacun existe parce qu'un énoncé du cours en a besoin AUJOURD'HUI, pas parce
-// qu'un système de blocs générique en voudrait un. Ajouter le suivant est une
-// ligne ; inventer un `#encadre(type: "...")` paramétrable aurait été une API à
-// documenter pour quatre appels.
-//
-// DEUX CIBLES. En SVG (paginé), chaque bloc se dessine lui-même. En HTML, il
-// devient un élément portant une CLASSE, et c'est `app.css` qui le dessine avec
-// les variables du thème : un HTML n'a pas besoin d'être rendu deux fois.
-
 #import "theme.typ": palette, mono-font, mono-size
 
 #let _cadre(classe, accent, titre, corps) = context if target() == "html" {
@@ -34,17 +23,12 @@
   )
 }
 
-/// Une précision utile, jamais une contrainte. `--ink` est l'accent acier.
 #let note(corps, titre: "Note") = _cadre("note", palette.ink, titre, corps)
 
-/// Ce qui coûte un verdict rouge si on le rate. `--bad`, la couleur de l'échec.
 #let attention(corps, titre: "Attention") = _cadre("attention", palette.bad, titre, corps)
 
-/// Une exécution montrée : entrée, sortie. `--ok`, la couleur du verdict qui passe.
 #let exemple(corps, titre: "Exemple") = _cadre("exemple", palette.ok, titre, corps)
 
-// `code` est une chaîne OU un bloc brut (```c ... ```) : le bloc brut évite
-// d'échapper les `"` et les `\n` d'un vrai programme C.
 #let _code(source, fichier, fond, classe) = context {
 let code = if type(source) == str { source } else { source.text }
 if target() == "html" {
@@ -64,8 +48,6 @@ if target() == "html" {
         block(spacing: 4pt,
               text(size: 0.8em, fill: palette.muted, font: mono-font, fichier))
       }
-      // L'ÉTIQUETTE `<ctester-encadre>` DIT À `enonce` (lib.typ) DE NE PAS
-      // redessiner sa boîte autour de ce code : l'encadré en a déjà une.
       text(font: mono-font, size: mono-size, fill: palette.fg,
            [#raw(code, lang: "c", block: true) <ctester-encadre>])
     },
@@ -73,12 +55,6 @@ if target() == "html" {
 }
 }
 
-/// LE PROTOTYPE ATTENDU, et il mérite son propre bloc parce que c'est la seule
-/// chose d'un énoncé que l'étudiant doit recopier À L'OCTET PRÈS. Un nom de
-/// fonction mal lu, c'est une erreur d'édition de liens et un aller-retour.
 #let signature(code, fichier: none) = _code(code, fichier, palette.ink-wash, "typ-signature")
 
-/// UN CODE À RETAPER À LA MAIN. En HTML, la page refuse de le sélectionner et
-/// de le copier (`.typ-recopier`) ; en SVG rien n'est copiable de toute façon.
-/// C'est une DISSUASION, pas une protection : le texte reste dans le document.
 #let recopier(code, fichier: none) = _code(code, fichier, palette.panel, "typ-recopier")

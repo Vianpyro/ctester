@@ -1,33 +1,7 @@
-"""Rendu des énoncés Typst : SVG au build, jamais à la requête.
+"""Renders Typst statements to SVG and HTML at publish time, never per request.
 
-POURQUOI CE FICHIER N'IMPORTE QUE LA BIBLIOTHÈQUE STANDARD. `test_ctester.py`
-l'importe (par `content_catalog`), et cette suite tourne sur le Dell avec le
-python de l'HÔTE -- sans `PYTHONPATH=/deps`, donc sans fastapi, sans pydantic,
-sans rien. Un import de trop ici ne casse pas un test : il bloque le déploiement
-automatique toutes les cinq minutes sur un `ImportError`, sans que rien ne soit
-déployé. Même règle que `app/csp.py` et `app/services/source.py`.
-`test_le_controle_de_l_hote_ne_depend_d_aucun_tiers` monte la garde.
-
-OÙ ÇA TOURNE. Dans le tick `ctester-tests` du Dell, qui appelle
-`runner.publish_catalogue()`. Le moteur est un CONTENEUR jetable
-(`ghcr.io/typst/typst:0.15.1`), sur le modèle de la tâche `ctester-deps-install`
-du rôle Ansible : le Dell n'a ni Node, ni npm, ni typst, et c'est une propriété
-qu'on garde. En CI et sur un poste de dev, `CTESTER_TYPST_BIN` désigne un
-binaire et le conteneur n'est pas utilisé -- c'est le même typst 0.15.1.
-
-CE QUI N'EST PAS ICI, ET NE DOIT PAS Y VENIR : aucune compilation à la requête.
-Le conteneur web ne monte pas `CTESTER_CONTENT`, ne voit pas ce module, et n'a
-aucune raison de changer. Un étudiant reçoit un SVG déjà écrit.
-
-LA FRONTIÈRE DE FICHIERS A DEUX COUCHES, et les deux sont éprouvées :
-  1. on compile depuis une COPIE de l'exercice qui ne porte ni `assessment/`
-     ni `exercise.json` -- un corrigé n'est pas sur le disque que typst voit ;
-  2. `--root` est posé sur cette copie, donc `#include "/etc/passwd"` et
-     `read("../../secret")` sont refusés par typst lui-même.
-`test_typst_root_refuse_de_sortir_du_repertoire_de_l_exercice` le prouve plutôt
-que de le supposer.
+Standard library only: test_ctester.py imports it on the host.
 """
-
 import hashlib
 import os
 import re
@@ -37,78 +11,35 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# LES PAQUETS TYPST SONT VENDORÉS, donc le rendu ne touche jamais le réseau :
-# `merman` (Mermaid, 7,6 Mo de WebAssembly) et notre propre bibliothèque
-# `@local/ctester`. Le conteneur tourne en `--network=none`, ce qui rend la
-# propriété vérifiable au lieu d'être une intention.
 PACKAGES = os.path.join(HERE, "typst", "packages")
 LIB = os.path.join(PACKAGES, "local", "ctester", "1.0.0")
 
-# LA POLICE DU CORPS, VENDORÉE POUR LA MÊME RAISON QUE `merman` : DejaVu Sans
-# n'est pas parmi les quatre polices embarquées dans le binaire typst (voir
-# `theme.typ`), et `--ignore-system-fonts` la rend introuvable sans ça. Elle
-# rejoint DejaVu Sans Mono, déjà utilisée pour le code -- même famille, sans
-# police système à espérer sur le Dell. `LICENSE` est la licence Bitstream
-# Vera, qui autorise la redistribution.
 FONTS = os.path.join(HERE, "typst", "fonts")
 
-# L'IMAGE EST ÉPINGLÉE PAR VERSION, jamais `latest` : un énoncé pédagogique doit
-# se rendre pareil dans six mois. Le rôle Ansible pose la même valeur sur le
-# tick (`ctester_typst_image`).
 IMAGE = os.environ.get("CTESTER_TYPST_IMAGE", "ghcr.io/typst/typst:0.15.1")
-# Le binaire, quand il y en a un (CI, poste de dev). Prioritaire sur l'image :
-# c'est le chemin rapide, et c'est celui qui permet de rendre sans Docker.
 BIN = os.environ.get("CTESTER_TYPST_BIN", "")
 
-# LA VERSION ATTENDUE, ET LE BUILD ÉCHOUE SI CE N'EST PAS ELLE. Deux versions de
-# typst ne rendent pas identiquement ; servir un SVG rendu par une autre serait
-# exactement ce que le cache doit interdire.
+# Checked against the engine: the binary and the image report the version differently,
+# so only the number is compared.
 VERSION = "0.15.1"
 _VERSION_RE = re.compile(r"\btypst\s+(\d+\.\d+\.\d+)")
 
-# LES DEUX THÈMES, ET L'ORDRE EST CELUI DES FICHIERS PUBLIÉS. Le SVG est peint
-# une fois pour toutes : il ne peut pas suivre `prefers-color-scheme` tout seul,
-# donc on rend les deux et la page choisit.
+# An SVG cannot follow prefers-color-scheme, so each statement is rendered twice.
 THEMES = ("dark", "light")
 
-# CE QUI N'EST PAS COPIÉ DANS LE RÉPERTOIRE DE COMPILATION. `assessment/` porte
-# les corrigés, `exercise.json` les métadonnées, `public/files.json` les
-# gabarits : rien de tout ça n'est un énoncé.
+# Never copied next to the source, so typst cannot read the tests even through --root.
 EXCLUS = frozenset(("assessment", "public", "exercise.json", "statement.md"))
 
-# UN ÉNONCÉ TIENT EN QUELQUES PAGES. La borne existe pour qu'un `#pagebreak()`
-# dans une boucle ne publie pas deux mille fichiers ; elle n'a jamais été
-# atteinte.
 MAX_PAGES = 16
 
-# MESURÉ, PAS DEVINÉ. Le document le plus lourd du dépôt -- la fixture, qui
-# porte un diagramme Mermaid (instanciation d'un WebAssembly de 7,6 Mo), une
-# image, un tableau calculé et des maths -- compile en 0,47 s avec le binaire et
-# 0,62 s par conteneur, démarrage compris ; un énoncé ordinaire prend 0,10 s.
-# 30 s laissent donc un facteur cinquante, et le Dell est plus lent que la
-# machine qui a mesuré. Ce que ce plafond garde n'est PAS une boucle infinie --
-# typst refuse `while true` et borne la profondeur d'appel lui-même -- mais un
-# document lourd-mais-fini qui bloquerait le tick de cinq minutes.
 TIMEOUT = 30
 
 
 class TypstError(Exception):
-    """Un échec de rendu, avec de quoi le corriger.
-
-    Porte l'exercice, le fichier et la sortie de typst TELLE QUELLE : typst
-    écrit déjà `statement.typ:12:5: error: ...`, et la réécrire ne ferait que
-    perdre la ligne et la colonne.
-    """
+    pass
 
 
 def statement_of(exercise_dir):
-    """`("md", texte)` ou `("typ", chemin)`. Lève si les deux, ou aucun.
-
-    LES DEUX PRÉSENTS EST UNE ERREUR, PAS UN CHOIX À FAIRE. Choisir en silence
-    voudrait dire qu'un auteur qui migre un énoncé et oublie d'effacer l'ancien
-    corrige un fichier que personne ne lit -- et ne comprend pas pourquoi sa
-    correction n'arrive jamais à l'écran.
-    """
     md = os.path.join(exercise_dir, "statement.md")
     typ = os.path.join(exercise_dir, "statement.typ")
     a, b = os.path.isfile(md), os.path.isfile(typ)
@@ -125,14 +56,6 @@ def statement_of(exercise_dir):
 
 
 def _version():
-    """La version de typst, telle que le moteur configuré la rapporte.
-
-    ON PARSE LE NUMÉRO, ON NE GARDE PAS LA CHAÎNE. Le binaire musl officiel dit
-    `typst 0.15.1 (9dfd3a08)` et l'image Docker `typst 0.15.1 (unknown commit)` :
-    la même version, deux chaînes. Fingerprinter la chaîne brute donnerait deux
-    caches pour un seul rendu -- la CI réchaufferait un cache que le Dell
-    n'utiliserait jamais.
-    """
     argv = [BIN, "--version"] if BIN else ["docker", "run", "--rm", IMAGE, "--version"]
     try:
         sortie = subprocess.run(argv, capture_output=True, timeout=TIMEOUT,
@@ -154,13 +77,6 @@ def _version():
 
 
 def _hacher_arbre(h, racine, exclus=frozenset()):
-    """Ajoute au hachage le CONTENU d'un arbre, chemins compris, trié.
-
-    DU CONTENU, JAMAIS UN MTIME. C'est la leçon déjà payée par `_publie_le` dans
-    `publish_content.py` : la granularité d'un mtime est celle que le système de
-    fichiers veut bien lui donner, et deux écritures d'un même tick la
-    partagent.
-    """
     for dossier, sous, noms in os.walk(racine):
         sous[:] = sorted(nom for nom in sous if nom not in exclus)
         for nom in sorted(noms):
@@ -175,19 +91,6 @@ def _hacher_arbre(h, racine, exclus=frozenset()):
 
 
 def fingerprint(exercise_dir, version=None):
-    """La clé de cache d'un énoncé : tout ce dont son rendu dépend.
-
-    CE QUI ENTRE : la version de typst, la bibliothèque `@local/ctester` (donc
-    le gabarit, la palette ET les deux `.tmTheme`), les paquets vendorés (donc
-    merman et son WebAssembly), la police vendorée (DejaVu Sans), et l'arbre de
-    l'exercice sans `assessment/` (donc le `statement.typ` et ses images).
-
-    Un `.tmTheme` retouché, une macro corrigée, une image remplacée, une montée
-    de typst ou de merman : la clé change et tout se recalcule. Il n'y a donc
-    AUCUN numéro de version de cache à incrémenter à la main -- celui-là serait
-    oublié exactement le jour où il compte, comme `empreinte_juge()` le dit déjà
-    pour le cache de verdicts.
-    """
     h = hashlib.sha256()
     h.update(b"ctester-typst-1\0")
     h.update((version or _version()).encode())
@@ -201,12 +104,7 @@ def fingerprint(exercise_dir, version=None):
 
 
 def cache_dir():
-    """Le magasin de rendus. JAMAIS SOUS `published/`.
-
-    `publish_content._elaguer()` supprime tout répertoire de `published/` qui
-    n'est pas une des dernières révisions : un cache posé là serait effacé à la
-    publication suivante, et chaque tick recompilerait tout le semestre.
-    """
+    # Outside published/, which keeps only the latest releases and would wipe the cache.
     dit = os.environ.get("CTESTER_TYPST_CACHE", "")
     if dit:
         return dit
@@ -217,18 +115,6 @@ def cache_dir():
 
 
 def _preparer(exercise_dir, travail):
-    """Copie l'énoncé et ses ressources, et écrit le `main.typ` qui les enrobe.
-
-    UNE COPIE, ET C'EST LA PREMIÈRE DES DEUX COUCHES. Ce qui n'est pas copié ne
-    peut pas être lu, quoi que fasse le document -- `assessment/` reste sur le
-    disque de l'hôte, jamais sur celui que typst voit.
-
-    L'ENSEIGNANT N'ÉCRIT AUCUN PRÉAMBULE. C'est ce `main.typ` qui applique le
-    gabarit, donc un `statement.typ` réduit à deux lignes est déjà stylé. La
-    ligne `#import` que la documentation montre ne sert qu'aux helpers : les
-    portées de Typst sont par fichier, un import ici ne les rendrait pas
-    visibles là-bas.
-    """
     for nom in sorted(os.listdir(exercise_dir)):
         if nom in EXCLUS:
             continue
@@ -246,8 +132,6 @@ def _preparer(exercise_dir, travail):
 
 def _argv(travail, theme):
     if theme == "html":
-        # UN SEUL RENDU HTML, SANS THÈME : les couleurs viennent de la feuille
-        # de la page. `--features html` : l'export est expérimental en 0.15.
         return _commande(travail, ["--features", "html", "--format", "html"],
                          "statement.html")
     return _commande(travail, ["--input", "theme=" + theme, "--format", "svg"],
@@ -255,14 +139,6 @@ def _argv(travail, theme):
 
 
 def _commande(travail, options, sortie):
-    """La ligne de commande du moteur configuré.
-
-    LE CONTENEUR NE MONTE QUE TROIS CHOSES, et deux le sont en lecture seule :
-    les paquets, le répertoire de travail (qui reçoit les SVG), et rien d'autre.
-    `--network=none` parce qu'un rendu ne parle à personne ; `--read-only` sur
-    le système de fichiers de l'image ; l'uid de l'appelant pour que les SVG ne
-    sortent pas root.
-    """
     commun = ["compile", "--ignore-system-fonts", "--root", "."] + options
     if BIN:
         return [BIN] + commun + ["--font-path", FONTS,
@@ -280,11 +156,6 @@ def _commande(travail, options, sortie):
 
 
 def render(exercise_dir, exercise_id, version=None):
-    """`{"dark": [octets, ...], "light": [...]}` -- les pages, dans l'ordre.
-
-    Servi depuis le cache quand la clé est déjà là. Lève une `TypstError`
-    portant l'exercice, le fichier et la sortie de typst sinon.
-    """
     cle = fingerprint(exercise_dir, version)
     magasin = os.path.join(cache_dir(), cle)
     garde = _lire_cache(magasin)
@@ -312,29 +183,18 @@ def render(exercise_dir, exercise_id, version=None):
                 raise TypstError("%s/statement.typ n'a pas compilé :\n%s"
                                  % (exercise_id, (fin.stderr or fin.stdout).strip()))
             rendu[theme] = _relire_pages(travail, theme, exercise_id)
-        # LES DEUX THÈMES DOIVENT DONNER LE MÊME NOMBRE DE PAGES. Le document
-        # est le même, seules les couleurs changent -- si les comptes diffèrent,
-        # c'est que le thème a fait déborder une page, et la page servirait un
-        # 404 à l'étudiant qui bascule. Mieux vaut le dire au build.
         if len(rendu["dark"]) != len(rendu["light"]):
             raise TypstError(
                 "%s: %d page(s) en sombre contre %d en clair. Le thème ne doit "
                 "pas changer la pagination : vérifie un tableau ou une image "
                 "qui déborde." % (exercise_id, len(rendu["dark"]),
                                   len(rendu["light"])))
-        # ponytail: l'export HTML est expérimental, donc son échec NE BLOQUE
-        # PAS la publication pendant l'essai -- le SVG reste servi seul. À
-        # durcir (lever comme ci-dessus) le jour où le HTML devient le défaut.
+        # HTML export is experimental: a failure or a lossy export falls back to SVG only.
         argv, env, cwd = _argv(travail, "html")
         try:
             fin = subprocess.run(argv, capture_output=True, text=True,
                                  timeout=TIMEOUT, env=env, cwd=cwd)
             chemin = os.path.join(travail, "statement.html")
-            # UN HTML QUI A PERDU QUELQUE CHOSE N'EST PAS PUBLIÉ : typst le dit
-            # par « X was ignored during HTML export ». La page n'offre aucun
-            # choix, donc elle ne doit recevoir que ce qui est complet -- sans
-            # fichier, elle affiche les pages SVG. Le `#pagebreak()` est la
-            # seule perte sans conséquence : le HTML défile, il n'a pas de pages.
             pertes = [l for l in (fin.stderr or "").splitlines()
                       if "ignored during HTML export" in l
                       and "pagebreak" not in l]
@@ -384,7 +244,7 @@ def _lire_cache(magasin):
             with open(chemin, "rb") as fh:
                 pages.append(fh.read())
         if not pages:
-            return None  # un cache à moitié écrit n'est pas un cache
+            return None
         rendu[theme] = pages
     html = os.path.join(magasin, "statement.html")
     if os.path.isfile(html):
@@ -394,12 +254,6 @@ def _lire_cache(magasin):
 
 
 def _ecrire_cache(magasin, rendu):
-    """Écrit le rendu, puis le renomme en place.
-
-    LE RENOMMAGE EST CE QUI REND LE CACHE SÛR À DEUX WORKERS. Il y en a deux sur
-    le Dell, et ils publient le même contenu au démarrage : un répertoire à
-    moitié écrit, lu par l'autre, servirait une consigne amputée.
-    """
     temporaire = magasin + ".tmp.%d" % os.getpid()
     shutil.rmtree(temporaire, ignore_errors=True)
     try:
@@ -412,20 +266,13 @@ def _ecrire_cache(magasin, rendu):
                 with open(os.path.join(temporaire, "%s-%d.svg" % (theme, numero)),
                           "wb") as fh:
                     fh.write(octets)
+        # Renamed into place so two workers never read a half-written entry.
         os.replace(temporaire, magasin)
     except OSError:
-        # UN CACHE QUI N'ÉCRIT PAS N'EST PAS UNE PANNE : on recompilera. Ce qui
-        # serait une panne, c'est de refuser de publier pour autant.
         shutil.rmtree(temporaire, ignore_errors=True)
 
 
 def render_all(model):
-    """`{exercise_id: {"dark": [...], "light": [...]}}` pour tout énoncé Typst.
-
-    Lève à la PREMIÈRE erreur, en la nommant. C'est le contrat que
-    `publish_content` tient déjà : un contenu invalide ne remplace jamais la
-    publication active, parce que rien n'est écrit avant que tout soit rendu.
-    """
     typst = [(cle, entree) for cle, entree in sorted(model["exercises"].items())
              if entree.get("statement_format") == "typ"]
     if not typst:

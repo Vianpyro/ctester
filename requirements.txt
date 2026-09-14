@@ -1,42 +1,9 @@
-# Les dépendances du conteneur exposé à Internet. Chacune est un morceau de
-# code qu'on ne relit pas et qui tourne devant les étudiants : la liste reste
-# courte, et chaque ligne doit pouvoir justifier sa présence.
-#
-# TOUT EST ÉPINGLÉ À L'EXACT, jamais `>=`. Ces paquets sont posés dans le volume
-# `ctester_deps` par une tâche Ansible qui ne rejoue QUE si ce fichier change
-# (somme de contrôle) ; « ce qui était sur PyPI ce matin-là » n'est pas une chose
-# à découvrir en production, un vendredi, pendant une séance.
-#
-# PAS DE DOCKERFILE, ET C'EST VOULU. L'image officielle `python:3.13-slim` est
-# lancée telle quelle sur un code monté en lecture seule, et ces dépendances
-# vivent à côté dans un volume (`PYTHONPATH=/deps`). Rien à construire, rien à
-# republier quand une CVE tombe : `docker compose pull` suffit.
-
-# Le framework HTTP. `starlette` et `pydantic` arrivent avec lui -- ils sont
-# épinglés plus bas plutôt que laissés flotter dans sa fourchette.
 fastapi==0.141.1
 pydantic==2.13.5
 starlette==1.6.0
-
-# Le serveur ASGI. PAS `uvicorn[standard]` : cet extra ajoute uvloop, httptools,
-# watchfiles et websockets. À 80 étudiants et quelques requêtes par seconde, le
-# gain de débit est invisible, et ce sont quatre dépendances de plus -- dont
-# deux avec du C -- dans le seul processus exposé à Internet. `h11` (pur Python,
-# et la seule implémentation HTTP/1.1 dont uvicorn ait besoin) suffit.
-uvicorn==0.52.4
+# Not uvicorn[standard]: wsproto alone provides WebSockets. Without it every
+# handshake gets a silent 501.
+uvicorn==0.53.0
 h11==0.16.0
-
-# LA MOITIÉ WEBSOCKET DU SERVEUR, ET SANS ELLE `/team/live` ET `/scratch/live`
-# NE S'OUVRENT PAS. Ce n'est pas une dégradation : uvicorn résout son protocole
-# WebSocket à `None` et répond 501 à CHAQUE poignée de main, donc le navigateur
-# ne voit qu'une connexion refusée -- « La connexion à la Console a été perdue »
-# pendant que tout le reste du site marche parfaitement. Coûté une soirée.
-#
-# `wsproto` ET PAS `websockets` : c'est le même raisonnement qu'`h11` juste
-# au-dessus -- pur Python, aucune extension C dans le seul processus exposé à
-# Internet, et sa SEULE dépendance est `h11`, déjà épinglé à la ligne d'avant.
 wsproto==1.3.2
-
-# La base, pour la connexion facultative. Sans `CTESTER_DB_DSN`, `etat.py`
-# rapporte la fonctionnalité comme éteinte et le parcours anonyme est intact.
 psycopg[binary]==3.3.5

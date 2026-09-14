@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Validate the v2 content contract before publishing it.
-
-Usage: ``python3 validate_content.py /path/to/content``.
-Schema only: reference solutions are exercised by `verify_content.py`. It is
-deliberately dependency-free so it can run in CI and on the controller.
-"""
 
 import argparse
 import sys

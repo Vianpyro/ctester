@@ -1,22 +1,4 @@
 #!/usr/bin/env python3
-"""Exercises the TWO SANDBOX SCRIPTS with a real gcc, no Docker.
-
-    python3 test_sandbox.py [path/to/unittests/content]
-
-test_ctester.py tests runner.py against manufactured output, test_page.js
-tests the page against a cardboard DOM. Nobody tested build-io.sh or
-build-unity.sh -- yet that is EXACTLY where the confidentiality invariant
-lives: the phase split, the nonce protocol, and the fact that phase 2's
-stderr is discarded. A broken template only shows up in production.
-
-So we take the real scripts, move /in and /work into a temporary directory,
-and run them as-is with bash, then feed their output to the real runner.py.
-What is NOT covered: gVisor, capabilities, the absence of network -- none of
-those affect the script's output.
-
-Controller tool, not a server one: it needs gcc, like verify_content.py. Does
-not run on the Dell.
-"""
 import importlib.util
 import os
 import select
@@ -28,9 +10,6 @@ import tempfile
 import time
 
 ICI = pathlib.Path(__file__).resolve().parent
-# THE PRIVATE CONTENT ROOT (the one carrying catalog.json, exercises/ and
-# shared/unity), with reference solutions NEXT TO IT: since phase 8 solutions
-# are no longer mounted under the content, they live in their own repo.
 CONTENU = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
                        else ICI.parent / "unittests" / "content").resolve()
 SOLUTIONS = pathlib.Path(os.environ.get("CTESTER_SOLUTIONS") or next(
@@ -41,12 +20,10 @@ UNITY = CONTENU / "shared" / "unity"
 
 
 def assessment(exercice):
-    """An exercise's grading directory -- the same gate as tp_path."""
     return CONTENU / "exercises" / exercice / "assessment"
 
 
 def corrige(exercice):
-    """The reference solution's directory. `tp7-ex1` first, then `tp6/ex1`."""
     for candidat in (SOLUTIONS / exercice,
                      SOLUTIONS.joinpath(*exercice.split("-", 1))):
         if candidat.is_dir():
@@ -60,18 +37,12 @@ spec.loader.exec_module(runner)
 
 NONCE = "e2e0123456789abcdef0123456789abc"
 
-# This machine's gcc may be older than the sandbox image's, which accepts
-# gnu23. Same dialect, different spelling.
 STD = "gnu23"
 if subprocess.run(["gcc", "-std=gnu23", "-E", "-"], input="", capture_output=True,
                   text=True).returncode != 0:
     STD = "gnu2x"
 
 
-# What the worker passes the container in deployment (SANDBOX_ENV in
-# runner.py). The scripts have the SAME defaults: repeating them here makes
-# this test check the path actually taken in production, the one where the
-# variables are supplied, not just the defaults.
 REGLAGES = {
     "CTESTER_C_STD": STD,
     "CTESTER_SANITIZERS": "-fsanitize=address,undefined",
@@ -82,7 +53,6 @@ REGLAGES = {
 
 
 def rendre(nom, racine):
-    """The real script, with /in and /work moved into the temp directory."""
     texte = (ICI / nom).read_text(encoding="utf-8")
     texte = texte.replace("/in/", f"{racine}/in/").replace("/work", f"{racine}/work")
     script = racine / nom
@@ -92,7 +62,6 @@ def rendre(nom, racine):
 
 
 def lancer(mode, fichiers, exercice, **reglages):
-    """Sets up the tree, runs it, returns (code, stdout)."""
     racine = pathlib.Path(tempfile.mkdtemp(prefix="e2e-"))
     (racine / "work").mkdir()
     (racine / "in/src").mkdir(parents=True)
@@ -103,7 +72,6 @@ def lancer(mode, fichiers, exercice, **reglages):
         (racine / "in/cases").mkdir()
         conf = runner.json.loads(
             (assessment(exercice) / "io.json").read_text(encoding="utf-8"))
-        # The names verdict_io expects: "01", "02"... and nothing else.
         for i, cas in enumerate(conf["cases"], 1):
             (racine / "in/cases" / ("%02d.in" % i)).write_text(cas["stdin"], encoding="utf-8")
         script = rendre("build-io.sh", racine)
@@ -121,13 +89,6 @@ def lancer(mode, fichiers, exercice, **reglages):
 
 
 def lancer_console(source, entree=None, budget=20, **reglages):
-    """La Console : le script tel quel, un vrai gcc, et PERSONNE au clavier.
-
-    On rend le processus VIVANT, pas son code de sortie : ce qu'il faut
-    éprouver ici est qu'une invite arrive AVANT qu'on ait écrit sur l'entrée
-    standard -- c'est-à-dire précisément ce qu'un `subprocess.run()` ne peut
-    pas voir, puisqu'il attend la fin.
-    """
     racine = pathlib.Path(tempfile.mkdtemp(prefix="console-"))
     (racine / "work").mkdir()
     (racine / "in/src").mkdir(parents=True)
@@ -153,7 +114,6 @@ def lancer_console(source, entree=None, budget=20, **reglages):
 
 
 def phases(sortie):
-    """(ce que gcc a dit, ce que le programme a écrit), coupé sur le marqueur."""
     marqueur = (NONCE + " RUN\n").encode()
     if marqueur not in sortie:
         return sortie, b""
@@ -166,12 +126,6 @@ def sources_c(dossier):
 
 
 def module_c(fichiers, exercice, nom="calendrier.c"):
-    """The module's .c file among a fetched solution's files, or a clear error.
-
-    tp7-ex1 is the two-file module fixture declared in its public/files.json;
-    a solutions checkout missing calendrier.c is a content/solutions sync
-    problem to report, not a KeyError to chase through a traceback.
-    """
     if nom not in fichiers:
         raise SystemExit(
             f"reference solution for {exercice!r} has no {nom} "
@@ -193,12 +147,6 @@ def check(cond, libelle):
         rates.append(libelle)
 
 
-# --- 0. LA CONSOLE ---------------------------------------------------------
-# EN PREMIER, ET SANS AUCUN CONTENU. Ces contrôles ne lisent ni exercice, ni
-# corrigé, ni Unity : la Console n'a pas d'exercice, c'est tout son sujet. Ils
-# tournent donc même sur une machine où le dépôt de tests privé n'est pas
-# cloné, ce qui est exactement l'endroit où l'on veut pouvoir les lancer.
-
 print("\n--- 0a. l'invite arrive AVANT qu'on tape ---")
 DIALOGUE = """#include <stdio.h>
 
@@ -213,11 +161,6 @@ int main(void)
 """
 proc, vu, _ = lancer_console(DIALOGUE, entree=("Entrez un nombre : ", "21\n"))
 avant, apres = phases(vu)
-# C'EST TOUTE LA FONCTIONNALITÉ, ET C'EST LE SEUL HARNAIS QUI PEUT LA PROUVER.
-# Sans le constructeur de build-scratch.sh, la glibc met stdout en tampon de
-# BLOC dès qu'il n'est pas un terminal : cette invite n'apparaîtrait qu'à la
-# fin du programme, et le terminal aurait l'air gelé au moment précis où il
-# demande quelque chose. Mesuré avant de l'écrire : aucune invite en 25 s.
 check(b"Entrez un nombre : " in apres,
       "l'invite est lisible AVANT que le programme n'ait reçu quoi que ce soit")
 check(b"le double est 42" in apres,
@@ -234,19 +177,10 @@ proc.wait(timeout=10)
 _, apres = phases(vu)
 check(proc.returncode not in (0, None),
       "le programme est tue (code %r)" % proc.returncode)
-# LE BRUIT DE BASH NE DOIT PAS REMONTER. Avec un sous-shell, bash ecrivait
-# « build.sh: line NN: 16 Killed ( ulimit ... ) » dans la sortie de
-# l'etudiant : des entrailles de script au moment precis ou il faut lui
-# expliquer sa boucle infinie. D'ou `ulimit` puis `exec`, sans sous-shell.
 check(b"Killed" not in apres and b"ulimit" not in apres,
       "et sa sortie ne contient AUCUN bruit de bash : " + repr(apres[:120]))
 
 print("\n--- 0c. ...mais un programme qui ATTEND survit au meme plafond ---")
-# LA DISCRIMINATION, ET C'EST LA RAISON D'ETRE DU TEMPS CPU. Le temps mural ne
-# distingue pas « l'etudiant reflechit » de « le programme tourne en rond » --
-# c'est pour ca qu'un job note peut se contenter d'un `timeout -s KILL 5` et
-# pas une session interactive. Un programme bloque dans scanf ne consomme
-# aucun CPU, donc il doit survivre la ou le precedent meurt.
 proc, vu, _ = lancer_console(DIALOGUE, budget=6, CTESTER_CPU_SECONDS="2")
 _, apres = phases(vu)
 check(proc.poll() is None,
@@ -263,14 +197,6 @@ check(b"zzz" in avant, "le texte de gcc est dans la phase `build`")
 check(apres == b"", "et rien n'a tourne")
 
 print("\n--- 0e. build-scratch.sh ne connait NI cas, NI test ---")
-# L'INVARIANT DE CONFIDENTIALITE DE CE SCRIPT, dit sur le script lui-meme.
-# build-io.sh peut montrer la stderr de gcc parce qu'il ne voit pas les valeurs
-# attendues ; celui-ci ne voit ni test, ni cas, ni contenu -- une affirmation
-# plus forte, et qui doit rester vraie.
-# LES COMMENTAIRES SONT RETIRES AVANT DE REGARDER : l'en-tete du script NOMME
-# /in/cases et /in/tests, justement pour dire qu'il ne les monte pas. Ce qu'on
-# verifie ici est qu'aucune INSTRUCTION ne les touche -- la prose a le droit
-# d'en parler, le code n'a pas le droit d'y aller.
 _texte_scratch = "\n".join(
     ligne for ligne in (ICI / "build-scratch.sh").read_text(encoding="utf-8").splitlines()
     if not ligne.lstrip().startswith("#"))
@@ -278,12 +204,10 @@ for _interdit in ("/in/cases", "/in/tests", "/in/unity", "io.json",
                   "unity.json", "expect"):
     check(_interdit not in _texte_scratch,
           "aucune instruction de build-scratch.sh ne touche %s" % _interdit)
-# Et il ne monte QUE /in/src : c'est le seul chemin de /in qu'il lit.
 check(_texte_scratch.count("/in/") == _texte_scratch.count("/in/src"),
       "le seul chemin de /in qu'il lit est /in/src")
 
 
-# --- 1. Correct but sloppy code: it SUCCEEDS, with warnings -----------------
 NEGLIGE = """#include <stdio.h>
 
 int main(void)
@@ -311,7 +235,6 @@ check("inutilisee" in res.get("warnings", ""),
 check(res["passed"] == res["total"],
       f"every case passes ({res['passed']}/{res['total']})")
 
-# --- 2. scanf without &: gcc says precisely what is missing -----------------
 SANS_ESPERLUETTE = NEGLIGE.replace('scanf("%d", &naissance)', 'scanf("%d", naissance)')
 rc, out, cases, _ = lancer("io", {"submission.c": SANS_ESPERLUETTE}, "tp2-ex0")
 av, reste = runner.extraire_avertissements(out, NONCE)
@@ -325,12 +248,9 @@ for ligne in texte.strip().splitlines():
     if "expects argument" in ligne:
         print("      " + ligne.strip()[:100])
 
-# --- 3. NO LEAK: nothing from the test file in the warnings -----------------
 sol = corrige("tp7-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
 nom = module_c(fichiers, "tp7-ex1")
-# The reference solution is made deliberately noisy to FORCE warnings:
-# without a warning, this check would pass for the wrong reasons.
 fichiers[nom] += "\nstatic int jamais_utilisee_e2e = 42;\n"
 rc, out, cases, racine = lancer("unity", fichiers, "tp7-ex1")
 av, reste = runner.extraire_avertissements(out, NONCE)
@@ -352,7 +272,6 @@ check(not fuites, "no identifier specific to the test in the verdict"
 check(len(jetons) > 5, f"the check had something to bite on ({len(jetons)} identifiers watched)")
 
 
-# --- 4. ASan in io mode: the full report, nothing to hide -------------------
 sol = corrige("tp2-ex0")
 buggy = (sol / sources_c(sol)[0]).read_text(encoding="utf-8")
 DEBORDE = "    int t_e2e[3];\n    t_e2e[7] = 1;\n    return "
@@ -372,7 +291,6 @@ for ligne in cas.get("stderr", "").splitlines():
         print("      " + ligne.strip()[:96])
         break
 
-# --- 5. ASan in unity mode: the FACT, never the report ----------------------
 sol = corrige("tp7-ex1")
 fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
 nom_c = module_c(fichiers, "tp7-ex1")
@@ -396,9 +314,6 @@ fuites = sorted(j for j in jetons if j in str(res))
 check(not fuites, "no identifier from the test file in the verdict"
       + (" -- LEAKED: " + ", ".join(fuites[:8]) if fuites else ""))
 
-# --- 6. infinite loop: the timer cuts it off, and the judge SAYS so ---------
-# The course's classic. RUN_TIMEOUT drops to 2 s here so this check does not
-# cost 5 s per mode; it is the same clock, that of `timeout -s KILL`.
 BOUCLE = '#include <stdio.h>\nint main(void){ while (1) {} return 0; }\n'
 rc, out, cases, _ = lancer("io", {"submission.c": BOUCLE}, "tp2-ex0",
                            CTESTER_RUN_TIMEOUT="2")

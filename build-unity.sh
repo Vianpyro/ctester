@@ -1,45 +1,11 @@
 #!/bin/bash
-# Ce qui tourne DANS le bac à sable. Réglé par variables d'environnement (bas de
-# cet en-tête) ; le déploiement Ansible vit dans le dépôt VHome, rôle ctester.
-#
-# Monté en lecture seule dans un conteneur jetable, sans réseau, sous gVisor,
-# en uid 65534, avec pour seul système de fichiers inscriptible un tmpfs. Il
-# voit /in/submission.c (le code étudiant), /in/tests (SECRET) et /in/unity.
-#
-# LA SÉPARATION EN TROIS PHASES EST LE MÉCANISME DE CONFIDENTIALITÉ, pas une
-# organisation du code. La phase 1 compile le fichier de l'étudiant SEUL, donc
-# sa stderr ne parle que de son fichier et peut lui être rendue intégralement.
-# La phase 2 touche aux tests, donc sa stderr cite leur code source -- elle est
-# jetée, et l'étudiant ne reçoit qu'un message générique. Sans cette coupure,
-# les cas de test se reconstituent en soumettant du code qui provoque des
-# erreurs bavardes.
-#
-# CODES DE SORTIE, lus par le worker :
-#   10  la compilation du fichier étudiant a échoué (stdout = sa stderr gcc)
-#   11  l'édition de liens avec les tests a échoué (stdout jeté)
-#   12  la compilation a dépassé $COMPILE_TIMEOUT s
-#   0   les tests ont tous passé
-#   1+  Unity retourne le nombre d'échecs
-#   124/137  le binaire de test a dépassé $RUN_TIMEOUT s
-
+# unity mode: links the student's files with the tests and Unity.
+# Exit codes: 10 compile error, 11 link error, 12 compile timeout, 86 memory error,
+# otherwise Unity's own. Nothing that could quote the test code reaches the output.
 set -u
 
-# --- Réglages ---------------------------------------------------------------
-# Passés par le worker au conteneur (`docker run -e`, voir runner.py). Les
-# valeurs par défaut ci-dessous sont celles du rôle Ansible : ce script tourne
-# donc tel quel hors déploiement, ce dont test_bac_a_sable.py se sert pour
-# l'éprouver avec un vrai gcc et sans Docker.
-#
-# DEUX PRÉCAUTIONS AUTOUR DE $SANITIZERS, ET AUCUNE DES DEUX N'EST DU STYLE.
-# Le repli prévu si gVisor refuse la réserve d'adressage d'ASan est de VIDER
-# CTESTER_SANITIZERS, pas de la supprimer -- l'unité systemd la définit toujours.
-#
-#   `-` et non `:-` : avec `:-`, bash considère une variable vide comme absente
-#   et remet le défaut, donc le repli ne désactivait rien du tout. Mesuré.
-#
-#   pas de guillemets À L'USAGE, plus bas : une expansion entre guillemets d'une
-#   valeur vide passerait un argument VIDE à gcc, qui échouerait sur « no input
-#   file » au lieu de compiler sans sanitizers.
+# An empty CTESTER_SANITIZERS disables sanitizers, hence `-` rather than `:-`, and no
+# quotes where it is used. gnu23 rather than c23, which would hide M_PI.
 C_STD="${CTESTER_C_STD:-gnu23}"
 SANITIZERS="${CTESTER_SANITIZERS-"-fsanitize=address,undefined"}"
 ASAN_OPTS="${CTESTER_ASAN_OPTIONS:-exitcode=86:detect_leaks=0}"
@@ -48,14 +14,6 @@ RUN_TIMEOUT="${CTESTER_RUN_TIMEOUT:-5}"
 
 cd /work || exit 70
 
-# --- Phase 1 : les fichiers de l'étudiant, seuls ----------------------------
-# -std=$C_STD ne s'applique qu'ICI. Voir le bloc « Réglages » ci-dessus.
-#
-# UN .o PAR .c, et pas une compilation groupée : à partir du laboratoire 5 la
-# soumission est un module (calendrier.h + calendrier.c), et -I/in/src fait
-# résoudre le `#include "calendrier.h"` de l'étudiant vers SON en-tête.
-# La stderr des deux est accumulée dans le même fichier, elle ne parle que de
-# ses fichiers à lui.
 rc=0
 for source in /in/src/*.c; do
     [ -e "$source" ] || continue
@@ -69,37 +27,18 @@ if [ $rc -eq 124 ] || [ $rc -eq 137 ]; then
     exit 12
 fi
 if [ $rc -ne 0 ]; then
-    # SA stderr, sur SES fichiers : c'est le retour pédagogique principal.
     cat /work/gcc.err
     exit 10
 fi
 
-# LES AVERTISSEMENTS D'UNE COMPILATION RÉUSSIE, qui étaient jetés jusqu'ici.
-# Le protocole que la note précédente appelait de ses vœux existe maintenant :
-# le nonce, tiré par job et inconnu de l'étudiant, sert de marqueur de section.
-# Ces avertissements portent sur les fichiers de l'étudiant SEULS -- la phase 1
-# ne voit pas /in/tests -- donc ils ne peuvent rien révéler du corrigé.
 if [ -s /work/gcc.err ]; then
     printf '%s WARN\n' "$CTESTER_NONCE"
     cat /work/gcc.err
     printf '\n%s ENDWARN\n' "$CTESTER_NONCE"
 fi
 
-# --- Phase 2 : liaison avec les tests secrets -------------------------------
-# 2>/dev/null EST LA MESURE DE SÉCURITÉ. Une erreur d'édition de liens cite les
-# symboles attendus, et une erreur de compilation des tests citerait leurs
-# lignes. L'étudiant reçoit un message générique construit par le worker.
-# -I/in/src pour que LE FICHIER DE TEST puisse écrire `#include "calendrier.h"`
-# et tomber sur l'en-tête que l'étudiant vient d'écrire. C'est ce qui permet de
-# tester un module dont l'interface est dictée par l'énoncé.
-#
-# -DUNITY_INCLUDE_DOUBLE EST OBLIGATOIRE, ET SON ABSENCE NE SE VOIT PAS.
-# Unity 2.6 définit UNITY_EXCLUDE_DOUBLE par défaut : sans cette macro,
-# TEST_ASSERT_DOUBLE_WITHIN compile quand même -- Unity fournit une souche -- et
-# ÉCHOUE. Le juge annoncerait donc un test raté sur une solution parfaitement
-# correcte, ce qui est le pire défaut possible pour un outil pédagogique.
-# Mesuré le 2026-08-31 : sans la macro, 1 échec sur 2 ; avec, 0 sur 2.
-# Tous les laboratoires de calcul (5, 9, 10) et le devoir en dépendent.
+# Linker errors would quote the tests, so they are discarded. Without
+# UNITY_INCLUDE_DOUBLE, Unity's double assertions compile to a stub that always fails.
 timeout -s KILL $COMPILE_TIMEOUT \
     gcc -DUNITY_INCLUDE_DOUBLE $SANITIZERS \
         /work/*.o /in/tests/*.c /in/unity/unity.c \
@@ -112,16 +51,7 @@ if [ $rc -ne 0 ]; then
     exit 11
 fi
 
-# --- Phase 3 : exécution ----------------------------------------------------
-# La sortie est celle d'Unity, MAIS elle est aussi sous le contrôle de
-# l'étudiant (son code peut écrire sur stdout, y compris imiter Unity). Le
-# worker la parse défensivement ; rien ici ne lui fait confiance.
-#
-# 2>/dev/null EST UNE MESURE DE SÉCURITÉ, comme celui de la phase 2. Un
-# rapport d'ASan est une PILE D'APPELS : son cadre appelant est la fonction
-# de test qui a provoqué le débordement, et son nom dit ce qui est testé. On
-# jette donc le texte et on ne garde que le FAIT, par le code de sortie 86,
-# que le worker traduit en un message générique -- sans ligne ni nom.
+# An ASan stack trace would name the calling test: only its exit code (86) is kept.
 ASAN_OPTIONS="$ASAN_OPTS" \
     timeout -s KILL $RUN_TIMEOUT /work/t 2>/dev/null
 exit $?
