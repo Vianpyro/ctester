@@ -23,7 +23,8 @@ ProtectControlGroups=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictRealtime=yes
-RestrictSUIDSGID=yes
+# No RestrictSUIDSGID: systemd cannot inspect openat2's flags, so it blocks the whole call with
+# ENOSYS, and the judge refuses to start without openat2.
 
 [Install]
 WantedBy=multi-user.target
