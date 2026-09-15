@@ -37,7 +37,8 @@ fi
 "$judge" self-check > /dev/null
 
 spool_empty() {
-    [ -z "$(ls -A "$dir/spool" 2>/dev/null || true)" ]
+    # durees.json is the judge's permanent ETA record, not a job.
+    [ -z "$(ls -A "$dir/spool" 2>/dev/null | grep -vx durees.json || true)" ]
 }
 
 open_windows() {
