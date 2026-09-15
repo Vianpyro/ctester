@@ -2823,9 +2823,10 @@ def test_cache_de_verdicts():
 
     spool = tempfile.mkdtemp()
     garde_spool, garde_max = runner.SPOOL, runner.CACHE_MAX
-    garde_elagage = runner.CACHE_PRUNE_EVERY
+    garde_elagage, garde_work = runner.CACHE_PRUNE_EVERY, runner.WORK
     try:
         runner.SPOOL = spool
+        runner.WORK = os.path.join(spool, "work")
         runner.cache_ecrire("a" * 64, ok)
         assert runner.cache_lire("a" * 64) == ok
         assert runner.cache_lire("b" * 64) is None
@@ -2836,7 +2837,7 @@ def test_cache_de_verdicts():
         runner.CACHE_MAX = garde_max
         assert runner.cache_lire("c" * 64) is None
 
-        dossier = os.path.join(spool, runner.CACHE_DIR)
+        dossier = os.path.join(runner.WORK, runner.CACHE_DIR)
         shutil.rmtree(dossier, ignore_errors=True)
         for rang, nom in enumerate(("vieux", "moyen", "recent")):
             runner.cache_ecrire(nom * 16, ok)
@@ -2851,8 +2852,8 @@ def test_cache_de_verdicts():
         assert runner.cache_lire("neuf" * 16) == ok
         runner.CACHE_MAX, runner.CACHE_PRUNE_EVERY = garde_max, garde_elagage
 
-        os.makedirs(os.path.join(spool, runner.CACHE_DIR), exist_ok=True)
-        with open(os.path.join(spool, runner.CACHE_DIR, "f" * 64 + ".json"),
+        os.makedirs(os.path.join(runner.WORK, runner.CACHE_DIR), exist_ok=True)
+        with open(os.path.join(runner.WORK, runner.CACHE_DIR, "f" * 64 + ".json"),
                   "w", encoding="utf-8") as fh:
             fh.write("{ pas du json")
         assert runner.cache_lire("f" * 64) is None
@@ -2868,7 +2869,7 @@ def test_cache_de_verdicts():
         assert runner.cache_lire("g" * 64) == ok, "sweep a effacé le cache"
     finally:
         runner.SPOOL, runner.CACHE_MAX = garde_spool, garde_max
-        runner.CACHE_PRUNE_EVERY = garde_elagage
+        runner.CACHE_PRUNE_EVERY, runner.WORK = garde_elagage, garde_work
         shutil.rmtree(spool, ignore_errors=True)
 
 
@@ -2876,10 +2877,12 @@ def test_une_rafale_du_meme_code_ne_paie_qu_une_compilation():
     racine = tempfile.mkdtemp()
     garde_spool, garde_tp = runner.SPOOL, runner.tp_path
     garde_juger, garde_max = runner._juger, runner.CACHE_MAX
+    garde_work = runner.WORK
     try:
         spool = os.path.join(racine, "spool")
         os.makedirs(spool)
         runner.SPOOL = spool
+        runner.WORK = os.path.join(racine, "work")
         runner.CACHE_MAX = 100
 
         tp_dir = os.path.join(racine, "exercises", "tp2-ex1", "assessment")
@@ -2967,6 +2970,7 @@ def test_une_rafale_du_meme_code_ne_paie_qu_une_compilation():
     finally:
         runner.SPOOL, runner.tp_path = garde_spool, garde_tp
         runner._juger, runner.CACHE_MAX = garde_juger, garde_max
+        runner.WORK = garde_work
         shutil.rmtree(racine, ignore_errors=True)
 
 
@@ -2974,10 +2978,12 @@ def test_run_job_sert_le_cache_sans_recompiler():
     racine = tempfile.mkdtemp()
     garde_spool, garde_tp = runner.SPOOL, runner.tp_path
     garde_juger, garde_max = runner._juger, runner.CACHE_MAX
+    garde_work = runner.WORK
     try:
         spool = os.path.join(racine, "spool")
         os.makedirs(spool)
         runner.SPOOL = spool
+        runner.WORK = os.path.join(racine, "work")
         runner.CACHE_MAX = 100
 
         tp_dir = os.path.join(racine, "exercises", "tp2-ex1", "assessment")
@@ -3034,6 +3040,7 @@ def test_run_job_sert_le_cache_sans_recompiler():
     finally:
         runner.SPOOL, runner.tp_path = garde_spool, garde_tp
         runner._juger, runner.CACHE_MAX = garde_juger, garde_max
+        runner.WORK = garde_work
         shutil.rmtree(racine, ignore_errors=True)
 
 
@@ -3818,8 +3825,9 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
         run = staticmethod(lambda *a, **k: None)
 
     garde = runner.subprocess
-    garde_build = runner.BUILD_SCRATCH
+    garde_build, garde_work = runner.BUILD_SCRATCH, runner.WORK
     try:
+        runner.WORK = os.path.join(dossier, "work")
         runner.BUILD_SCRATCH = os.path.join(ROOT, "worker", "build-scratch.sh")
         runner.subprocess = FauxSubprocess
         fil = _fils.Thread(target=runner.run_console, args=(job,), daemon=True)
@@ -3850,7 +3858,7 @@ def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
         assert scratch._lock_held(os.path.join(job, "claim")) is False
     finally:
         runner.subprocess = garde
-        runner.BUILD_SCRATCH = garde_build
+        runner.BUILD_SCRATCH, runner.WORK = garde_build, garde_work
         os.close(tenu)
         try:
             os.close(lecture)
@@ -3986,6 +3994,278 @@ def test_une_reponse_voyage_avec_son_lien_et_ses_deux_compteurs():
     assert vus[0]["reply_to"] is None and vus[1]["reply_to"] == "a" * 32
     assert vus[0]["upvotes"] == 3 and vus[0]["my_vote"] == 1
     assert vus[1]["downvotes"] == 2 and vus[1]["my_vote"] == -1
+
+
+@contextlib.contextmanager
+def _spool_hostile():
+    racine = tempfile.mkdtemp(prefix="ctester-hostile-")
+    garde = (runner.SPOOL, runner.WORK, runner.tp_path, runner.sandbox,
+             runner.CACHE_MAX)
+    try:
+        spool, cible = os.path.join(racine, "spool"), os.path.join(racine, "cible")
+        os.makedirs(spool)
+        os.makedirs(cible)
+        with open(os.path.join(cible, "secret"), "w", encoding="utf-8") as fh:
+            fh.write("SECRET")
+        runner.SPOOL, runner.WORK = spool, os.path.join(racine, "work")
+        runner.CACHE_MAX = 100
+        yield spool, cible
+    finally:
+        (runner.SPOOL, runner.WORK, runner.tp_path, runner.sandbox,
+         runner.CACHE_MAX) = garde
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def _job_hostile(spool, numero=1, **champs):
+    job = os.path.join(spool, "%032x" % numero)
+    os.mkdir(job)
+    with open(os.path.join(job, "job.json"), "w", encoding="utf-8") as fh:
+        json.dump(champs or {"exercise_id": "tp2-ex1"}, fh)
+    return job
+
+
+def _cible_intacte(cible):
+    assert sorted(os.listdir(cible)) == ["secret"], os.listdir(cible)
+    assert lire(os.path.join(cible, "secret")) == "SECRET"
+
+
+def _plateforme_hostile():
+    if fcntl is None or not runner.plateforme_sure():
+        print("  (saute : pas de dir_fd ni de O_NOFOLLOW hors Linux)")
+        return False
+    return True
+
+
+def test_spool_hostile_les_ecritures_de_root_ne_suivent_aucun_lien():
+    if not _plateforme_hostile():
+        return
+    with _spool_hostile() as (spool, cible):
+        victime = os.path.join(cible, "secret")
+        job = _job_hostile(spool)
+        for nom in ("result.json", "state.json", "reprises.json"):
+            os.symlink(victime, os.path.join(job, nom))
+        os.symlink(os.path.join(cible, "pendant"), os.path.join(job, "result.json.tmp"))
+        runner.write_result(job, {"status": "ok"})
+        runner.console_etat(job, "exited", code=0, reason="exited")
+        _cible_intacte(cible)
+        assert not os.path.islink(os.path.join(job, "result.json"))
+        assert json.loads(lire(os.path.join(job, "result.json")))["state"] == "done"
+
+        # A stale lock whose retry counter is a link: the counter is replaced, never followed.
+        verrou = _job_hostile(spool, 2)
+        os.mkdir(os.path.join(verrou, ".lock"))
+        os.symlink(victime, os.path.join(verrou, "reprises.json"))
+        os.utime(os.path.join(verrou, ".lock"), (0, 0))
+        runner.reclaim(verrou, time.time())
+        _cible_intacte(cible)
+
+        os.symlink(victime, os.path.join(spool, runner.DURATIONS))
+        runner.enregistrer_duree("tp2-ex1", 3.0)
+        _cible_intacte(cible)
+
+        # A whole job directory that is a link: neither listed, claimed nor written.
+        lien = os.path.join(spool, "%032x" % 3)
+        os.symlink(cible, lien)
+        assert lien not in runner.pending_jobs()
+        assert runner.claim(lien) is False
+        try:
+            runner.write_result(lien, {"status": "ok"})
+        except OSError:
+            pass
+        else:
+            raise AssertionError("root a écrit dans un répertoire de job symbolique")
+        _cible_intacte(cible)
+
+        os.mkdir(os.path.join(spool, "pas-un-job"))
+        with open(os.path.join(spool, "pas-un-job", "job.json"), "w") as fh:
+            fh.write("{}")
+        assert all(os.path.basename(j) != "pas-un-job" for j in runner.pending_jobs())
+
+        # The verdict cache no longer lives in the spool, so a planted `cache` link is inert.
+        os.symlink(cible, os.path.join(spool, "cache"))
+        runner.cache_ecrire("a" * 64, {"status": "ok"})
+        _cible_intacte(cible)
+        assert runner.cache_lire("a" * 64) == {"status": "ok"}
+
+        os.symlink(cible, os.path.join(spool, "%032x" % 4))
+        os.utime(os.path.join(spool, "%032x" % 4), (0, 0), follow_symlinks=False)
+        runner.sweep(time.time())
+        _cible_intacte(cible)
+
+
+def test_spool_hostile_les_lectures_de_root_ne_suivent_aucun_lien():
+    if not _plateforme_hostile():
+        return
+    with _spool_hostile() as (spool, cible):
+        victime = os.path.join(cible, "secret")
+        job = _job_hostile(spool)
+        os.symlink(victime, os.path.join(job, "files.json"))
+        tp_dir = os.path.join(os.path.dirname(spool), "tp")
+        os.makedirs(tp_dir)
+        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
+            json.dump({"cases": []}, fh)
+        runner.tp_path = lambda exercise_id, owner=None: tp_dir
+        try:
+            runner.run_job(job)
+        except OSError:
+            pass
+        else:
+            raise AssertionError("files.json symbolique a été lu")
+        assert runner.servir_les_connus() == 0
+
+        autre = _job_hostile(spool, 2)
+        os.remove(os.path.join(autre, "job.json"))
+        os.symlink(os.path.join(job, "job.json"), os.path.join(autre, "job.json"))
+        assert runner.job_exercice(autre) == ""
+        assert autre not in runner.pending_jobs()
+
+        # A hard link passes O_NOFOLLOW, so the link count is checked as well.
+        dur = _job_hostile(spool, 3)
+        os.link(victime, os.path.join(dur, "answers.json"))
+        for lecture in (lambda: runner.lire_octets(dur, "answers.json"),
+                        lambda: runner.lire_octets(job, "files.json")):
+            try:
+                lecture()
+            except OSError:
+                pass
+            else:
+                raise AssertionError("un lien a été lu par root")
+
+        # A FIFO would block root forever on open().
+        fifo = _job_hostile(spool, 4)
+        os.mkfifo(os.path.join(fifo, "files.json"))
+        debut = time.time()
+        try:
+            runner.lire_octets(fifo, "files.json")
+        except OSError:
+            pass
+        else:
+            raise AssertionError("une FIFO a été lue")
+        assert time.time() - debut < 2
+        assert runner.verrou_tenu(fifo, "files.json") is False
+        assert runner.existe(fifo, "absent") is False
+
+
+def test_spool_hostile_rien_n_est_monte_depuis_le_spool():
+    if not _plateforme_hostile():
+        return
+    with _spool_hostile() as (spool, cible):
+        job = _job_hostile(spool)
+        os.symlink(cible, os.path.join(job, "src"))
+        os.symlink(cible, os.path.join(job, "cases"))
+        with open(os.path.join(job, "files.json"), "w", encoding="utf-8") as fh:
+            json.dump({"submission.c": "int main(void){return 0;}"}, fh)
+        tp_dir = os.path.join(os.path.dirname(spool), "tp")
+        os.makedirs(tp_dir)
+        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
+            json.dump({"cases": [{"stdin": "1\n", "expect": [1]}]}, fh)
+        runner.tp_path = lambda exercise_id, owner=None: tp_dir
+        vus = []
+
+        def sandbox_faux(stage, tp_dir_, mode, nonce=""):
+            argv = runner.docker_argv(stage, tp_dir_, "c", mode, nonce)
+            vus.append([argv[i + 1] for i, a in enumerate(argv) if a == "-v"])
+            assert lire(os.path.join(stage, "src", "submission.c")).startswith("int main")
+            assert lire(os.path.join(stage, "cases", "01.in")) == "1\n"
+            return 0, ""
+
+        runner.sandbox = sandbox_faux
+        runner.run_job(job)
+        assert vus, "le bac à sable n'a pas été appelé"
+        for montage in vus[0]:
+            assert not montage.startswith(spool), montage
+        assert any(m.startswith(runner.WORK) for m in vus[0]), vus
+        assert os.listdir(os.path.join(runner.WORK, "jobs")) == [], "staging non nettoyé"
+        _cible_intacte(cible)
+
+
+def test_spool_hostile_la_console_ne_lit_ni_n_ecrit_hors_du_job():
+    import threading as _fils
+
+    if not _plateforme_hostile():
+        return
+    with _spool_hostile() as (spool, cible):
+        victime = os.path.join(cible, "secret")
+
+        # Output files planted as links: the pump refuses them and ends the session.
+        pompe = _job_hostile(spool, 1, kind="console")
+        os.symlink(victime, os.path.join(pompe, "build"))
+        os.symlink(os.path.join(cible, "out"), os.path.join(pompe, "out"))
+        lecture, ecriture = os.pipe()
+        os.write(ecriture, b"n RUN\nsortie\n")
+        os.close(ecriture)
+
+        class Flux:
+            stdout = type("F", (), {"fileno": lambda _s: lecture})()
+
+        compteur = {"octets": 0, "trop": False, "vu": 0.0, "compile": False}
+        runner._pompe_sortie(Flux(), pompe, "n", compteur)
+        os.close(lecture)
+        assert compteur["trop"] is True
+        _cible_intacte(cible)
+
+        # `claim` as a dangling link: O_CREAT must not create the target as root.
+        job = _job_hostile(spool, 2, kind="console")
+        tenu = os.open(os.path.join(job, "alive"), os.O_RDWR | os.O_CREAT, 0o644)
+        fcntl.flock(tenu, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.symlink(os.path.join(cible, "cree"), os.path.join(job, "claim"))
+        garde_build = runner.BUILD_SCRATCH
+        try:
+            runner.BUILD_SCRATCH = os.path.join(ROOT, "worker", "build-scratch.sh")
+            assert runner.run_console(job)["reason"] == "worker"
+            _cible_intacte(cible)
+
+            # `in` pointing at a secret: nothing reaches the program's stdin.
+            os.remove(os.path.join(job, "claim"))
+            os.makedirs(os.path.join(job, "src"))
+            with open(os.path.join(job, "src", "main.c"), "w") as fh:
+                fh.write("int main(void){return 0;}")
+            os.symlink(victime, os.path.join(job, "in"))
+            recu, montages = [], []
+            sortie_l, sortie_e = os.pipe()
+            os.close(sortie_e)
+
+            class Processus:
+                returncode = None
+                sondages = 0
+
+                def __init__(self, argv):
+                    montages.extend(argv[i + 1] for i, a in enumerate(argv) if a == "-v")
+                    self.stdout = type("F", (), {"fileno": lambda _s: sortie_l})()
+                    self.stdin = type("E", (), {"write": lambda _s, d: recu.append(d),
+                                                "flush": lambda _s: None,
+                                                "close": lambda _s: None})()
+
+                def poll(self):
+                    self.sondages += 1
+                    return None if self.sondages < 8 else 0
+
+                def wait(self, timeout=None):
+                    self.returncode = 0
+                    return 0
+
+            class FauxSubprocess:
+                PIPE = STDOUT = -1
+                TimeoutExpired = subprocess.TimeoutExpired
+                Popen = staticmethod(lambda argv, **k: Processus(argv))
+                run = staticmethod(lambda *a, **k: None)
+
+            garde_sub = runner.subprocess
+            runner.subprocess = FauxSubprocess
+            try:
+                fil = _fils.Thread(target=runner.run_console, args=(job,), daemon=True)
+                fil.start()
+                fil.join(timeout=15)
+                assert not fil.is_alive()
+            finally:
+                runner.subprocess = garde_sub
+                os.close(sortie_l)
+            assert b"SECRET" not in b"".join(recu), recu
+            assert montages and not any(m.startswith(spool) for m in montages), montages
+            _cible_intacte(cible)
+        finally:
+            runner.BUILD_SCRATCH = garde_build
+            os.close(tenu)
 
 
 if __name__ == "__main__":

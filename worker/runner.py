@@ -5,6 +5,7 @@ Nothing read from the spool reaches a shell: subprocess always gets argument lis
 """
 
 import datetime
+import errno
 # The worker only runs on Linux, but publish_content imports this module on dev machines.
 try:
     import fcntl
@@ -14,7 +15,9 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -27,6 +30,12 @@ import content_catalog
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 SPOOL = os.environ.get("CTESTER_SPOOL", "/opt/ctester/spool")
+
+# Root-owned and never mounted into the API container: the only place mounts and the verdict
+# cache come from, because the API can rewrite anything under SPOOL.
+WORK = os.environ.get("CTESTER_WORK", "/var/lib/ctester-judge")
+JOB_RE = re.compile(r"\A[0-9a-f]{32}\Z")
+MAX_LECTURE = 4 * 1024 * 1024
 
 CONTENT = os.environ.get("CTESTER_CONTENT", "/opt/ctester/content")
 PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "/opt/ctester/published")
@@ -163,11 +172,95 @@ def public_quiz(quiz):
     }
 
 
-def write_json(path, payload):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, ensure_ascii=False)
-    os.replace(tmp, path)
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+_NONBLOCK = getattr(os, "O_NONBLOCK", 0)
+
+
+def plateforme_sure():
+    """Without these the helpers below would silently follow links, so the worker refuses to start."""
+    return (fcntl is not None and _NOFOLLOW != 0 and _DIRECTORY != 0
+            and {os.open, os.mkdir, os.rmdir, os.stat, os.unlink, os.rename}
+            <= os.supports_dir_fd
+            and os.stat in os.supports_follow_symlinks
+            and shutil.rmtree.avoids_symlink_attacks)
+
+
+def _ouvrir_dossier(dossier, *sous):
+    # `dossier` itself may be planted by the API (a job directory), so no component is followed.
+    fd = os.open(dossier, os.O_RDONLY | _DIRECTORY | _NOFOLLOW)
+    for nom in sous:
+        try:
+            suivant = os.open(nom, os.O_RDONLY | _DIRECTORY | _NOFOLLOW, dir_fd=fd)
+        finally:
+            os.close(fd)
+        fd = suivant
+    return fd
+
+
+def _ouvrir(dossier, nom, flags, mode=0o644):
+    """Opens a plain file below `dossier`; links, FIFOs and hard links are refused."""
+    *sous, nom = nom.split("/")
+    dfd = _ouvrir_dossier(dossier, *sous)
+    try:
+        fd = os.open(nom, flags | _NOFOLLOW | _NONBLOCK, mode, dir_fd=dfd)
+    finally:
+        os.close(dfd)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise OSError(errno.EPERM, "not a plain file", nom)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def lire_octets(dossier, nom, limite=MAX_LECTURE):
+    with os.fdopen(_ouvrir(dossier, nom, os.O_RDONLY), "rb") as fh:
+        data = fh.read(limite + 1)
+    if len(data) > limite:
+        raise OSError(errno.EFBIG, "too large", nom)
+    return data
+
+
+def lire_json(dossier, nom):
+    return json.loads(lire_octets(dossier, nom).decode("utf-8"))
+
+
+def existe(dossier, nom):
+    try:
+        dfd = _ouvrir_dossier(dossier)
+    except OSError:
+        return False
+    try:
+        os.stat(nom, dir_fd=dfd, follow_symlinks=False)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(dfd)
+
+
+def write_json(dossier, nom, payload):
+    # A random name opened O_EXCL: a predictable temporary name could be planted as a link.
+    tmp = "." + nom + "." + secrets.token_hex(8)
+    dfd = _ouvrir_dossier(dossier)
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW, 0o644,
+                     dir_fd=dfd)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False)
+            os.rename(tmp, nom, src_dir_fd=dfd, dst_dir_fd=dfd)
+        except BaseException:
+            try:
+                os.unlink(tmp, dir_fd=dfd)
+            except OSError:
+                pass
+            raise
+    finally:
+        os.close(dfd)
 
 
 def publish_catalogue():
@@ -454,9 +547,9 @@ def _argv_durci(name, memory, pids, cpus, work, tmp, extra=()):
     ] + list(extra)
 
 
-def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
+def docker_argv(stage, tp_dir, name, mode, nonce=""):
     argv = _argv_durci(name, MEMORY, PIDS, CPUS, "32m", "16m") + [
-        "-v", job_dir + "/src:/in/src:ro",
+        "-v", stage + "/src:/in/src:ro",
     ]
     argv += ["-e", "CTESTER_NONCE=" + nonce]
     for key, value in SANDBOX_ENV.items():
@@ -464,7 +557,7 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
     # In io mode the tests are never mounted: inputs were extracted on the host.
     if mode == "io":
         argv += [
-            "-v", job_dir + "/cases:/in/cases:ro",
+            "-v", stage + "/cases:/in/cases:ro",
             "-v", BUILD_IO + ":/in/build.sh:ro",
         ]
     else:
@@ -476,7 +569,7 @@ def docker_argv(job_dir, tp_dir, name, mode, nonce=""):
     return argv + [IMAGE, "bash", "/in/build.sh"]
 
 
-def docker_argv_console(job_dir, name, nonce):
+def docker_argv_console(stage, name, nonce):
     argv = _argv_durci(name, CONSOLE_MEMORY, CONSOLE_PIDS, CONSOLE_CPUS,
                        "24m", "8m",
                        # -i only (docker refuses -t without a terminal); no log driver,
@@ -487,7 +580,7 @@ def docker_argv_console(job_dir, name, nonce):
     for key, value in SANDBOX_ENV.items():
         argv += ["-e", key + "=" + value]
     argv += [
-        "-v", job_dir + "/src:/in/src:ro",
+        "-v", stage + "/src:/in/src:ro",
         "-v", BUILD_SCRATCH + ":/in/build.sh:ro",
     ]
     return argv + [IMAGE, "bash", "/in/build.sh"]
@@ -565,11 +658,20 @@ def verdict(rc, out):
     return parsed
 
 
-def sandbox(job_dir, tp_dir, mode, nonce=""):
-    name = "ctester-" + os.path.basename(job_dir)[:16]
+def stage_dir(job_dir):
+    # Docker resolves -v paths itself, after any check the worker could make, so nothing is
+    # mounted from the spool: sources are copied here first.
+    stage = os.path.join(WORK, "jobs", os.path.basename(job_dir))
+    shutil.rmtree(stage, ignore_errors=True)
+    os.makedirs(os.path.join(stage, "src"))
+    return stage
+
+
+def sandbox(stage, tp_dir, mode, nonce=""):
+    name = "ctester-" + os.path.basename(stage)[:16]
     try:
         done = subprocess.run(
-            docker_argv(job_dir, tp_dir, name, mode, nonce),
+            docker_argv(stage, tp_dir, name, mode, nonce),
             capture_output=True, text=True, errors="replace",
             timeout=JOB_TIMEOUT, check=False,
         )
@@ -682,7 +784,7 @@ def signature(exercise_id, tp_dir, mode, conf, sent, empreinte=None):
 def cache_lire(sig):
     if CACHE_MAX <= 0:
         return None
-    chemin = os.path.join(SPOOL, CACHE_DIR, sig + ".json")
+    chemin = os.path.join(WORK, CACHE_DIR, sig + ".json")
     try:
         with open(chemin, encoding="utf-8") as fh:
             verdict = json.load(fh)
@@ -723,10 +825,10 @@ _ecritures = [0]
 def cache_ecrire(sig, verdict):
     if CACHE_MAX <= 0:
         return
-    dossier = os.path.join(SPOOL, CACHE_DIR)
+    dossier = os.path.join(WORK, CACHE_DIR)
     try:
         os.makedirs(dossier, exist_ok=True)
-        write_json(os.path.join(dossier, sig + ".json"), verdict)
+        write_json(dossier, sig + ".json", verdict)
     except OSError:
         return
     _ecritures[0] += 1
@@ -750,8 +852,7 @@ def _sig_du_job(job_dir, exercise_id, tp_dir, mode, conf, empreinte):
     if connu is not None and connu[0] == marque:
         return connu[1]
     try:
-        with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
-            sent = json.load(fh)
+        sent = lire_json(job_dir, "files.json")
     except (OSError, ValueError):
         return None
     if not isinstance(sent, dict):
@@ -783,7 +884,10 @@ def servir_les_connus():
             continue
         print("ctester: cache servi %s %s [file]" % (exercise_id, sig[:12]),
               file=sys.stderr, flush=True)
-        write_result(job_dir, dict(verdict))
+        try:
+            write_result(job_dir, dict(verdict))
+        except OSError:
+            continue
         servis += 1
     for parti in set(_SIGS) - vivants:
         del _SIGS[parti]
@@ -804,11 +908,12 @@ def _contexte(exercise_id):
     return tp_dir, mode, conf, empreinte_juge(exercise_id, tp_dir, mode)
 
 
-def verrou_tenu(chemin):
+def verrou_tenu(dossier, nom):
     # Read-only on purpose: flock needs no write access, and the lock files belong to
-    # different users (the API runs as nobody, the worker as root).
+    # different users (the API runs as nobody, the worker as root). No O_CREAT: the API
+    # creates `alive`, and a missing one means the session is gone.
     try:
-        fd = os.open(chemin, os.O_RDONLY | os.O_CREAT, 0o644)
+        fd = _ouvrir(dossier, nom, os.O_RDONLY)
     except OSError:
         return False
     try:
@@ -822,12 +927,15 @@ def verrou_tenu(chemin):
         os.close(fd)
 
 
-def job_kind(job_dir):
+def _job_champ(job_dir, champ):
     try:
-        with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
-            return str(json.load(fh).get("kind", ""))
-    except (OSError, ValueError):
+        return str(lire_json(job_dir, "job.json").get(champ, ""))
+    except (OSError, ValueError, AttributeError):
         return ""
+
+
+def job_kind(job_dir):
+    return _job_champ(job_dir, "kind")
 
 
 def console_lock():
@@ -838,7 +946,7 @@ def console_lock():
         return True
     except FileExistsError:
         try:
-            age = time.time() - os.stat(chemin).st_mtime
+            age = time.time() - os.lstat(chemin).st_mtime
         except OSError:
             return False
         if age <= CONSOLE_SESSION_MAX + 60:
@@ -866,7 +974,7 @@ def console_etat(job_dir, etat, **extra):
     payload = {"state": etat}
     payload.update(extra)
     try:
-        write_json(os.path.join(job_dir, "state.json"), payload)
+        write_json(job_dir, "state.json", payload)
     except OSError:
         pass
 
@@ -876,8 +984,19 @@ def _pompe_sortie(proc, job_dir, nonce, compteur):
     # The buffer keeps a tail between reads, so a marker split across two reads is still found.
     garde = len(separateur) - 1
     tampon, en_build = b"", True
-    build = open(os.path.join(job_dir, "build"), "ab", buffering=0)
-    sortie = open(os.path.join(job_dir, "out"), "ab", buffering=0)
+    ajout = os.O_WRONLY | os.O_APPEND | os.O_CREAT
+    try:
+        build = os.fdopen(_ouvrir(job_dir, "build", ajout), "ab", buffering=0)
+    except OSError:
+        # Only a planted entry gets here; flagging the cap ends the session at once.
+        compteur["trop"] = True
+        return
+    try:
+        sortie = os.fdopen(_ouvrir(job_dir, "out", ajout), "ab", buffering=0)
+    except OSError:
+        build.close()
+        compteur["trop"] = True
+        return
 
     def ecrire(fh, octets):
         if not octets:
@@ -931,8 +1050,6 @@ def _pompe_sortie(proc, job_dir, nonce, compteur):
 def run_console(job_dir):
     nom = "ctester-sbx-" + os.path.basename(job_dir)[:16]
     nonce = uuid.uuid4().hex
-    alive = os.path.join(job_dir, "alive")
-    entree = os.path.join(job_dir, "in")
     compteur = {"octets": 0, "trop": False, "vu": time.time(), "compile": False}
 
     if not os.path.isfile(BUILD_SCRATCH):
@@ -941,12 +1058,15 @@ def run_console(job_dir):
         console_etat(job_dir, "exited", code=-1, reason="build_missing")
         return {"status": "console", "code": -1, "reason": "build_missing"}
 
-    if not verrou_tenu(alive):
+    if not verrou_tenu(job_dir, "alive"):
         console_etat(job_dir, "exited", code=-1, reason="api")
         return {"status": "console", "code": -1, "reason": "api"}
 
-    revendication = os.open(os.path.join(job_dir, "claim"),
-                            os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        revendication = _ouvrir(job_dir, "claim", os.O_RDWR | os.O_CREAT)
+    except OSError:
+        console_etat(job_dir, "exited", code=-1, reason="worker")
+        return {"status": "console", "code": -1, "reason": "worker"}
     pris = False
     for _ in range(100):
         try:
@@ -962,8 +1082,21 @@ def run_console(job_dir):
         console_etat(job_dir, "exited", code=-1, reason="worker")
         return {"status": "console", "code": -1, "reason": "worker"}
 
+    try:
+        stage = stage_dir(job_dir)
+        with open(os.path.join(stage, "src", "main.c"), "wb") as fh:
+            fh.write(lire_octets(job_dir, "src/main.c"))
+    except OSError as exc:
+        print("ctester: console: %s: %s" % (job_dir, exc), file=sys.stderr,
+              flush=True)
+        shutil.rmtree(os.path.join(WORK, "jobs", os.path.basename(job_dir)),
+                      ignore_errors=True)
+        os.close(revendication)
+        console_etat(job_dir, "exited", code=-1, reason="worker")
+        return {"status": "console", "code": -1, "reason": "worker"}
+
     console_etat(job_dir, "compiling", ttl=CONSOLE_SESSION_MAX)
-    proc = subprocess.Popen(docker_argv_console(job_dir, nom, nonce),
+    proc = subprocess.Popen(docker_argv_console(stage, nom, nonce),
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, bufsize=0)
     pompe = threading.Thread(target=_pompe_sortie,
@@ -974,11 +1107,16 @@ def run_console(job_dir):
     ferme = False
     try:
         while proc.poll() is None:
-            try:
-                with open(entree, "rb") as fh:
-                    paquet = os.pread(fh.fileno(), 65536, lu)
-            except OSError:
-                paquet = b""
+            paquet = b""
+            if lu < CONSOLE_IN_MAX:
+                try:
+                    fd = _ouvrir(job_dir, "in", os.O_RDONLY)
+                    try:
+                        paquet = os.pread(fd, min(65536, CONSOLE_IN_MAX - lu), lu)
+                    finally:
+                        os.close(fd)
+                except OSError:
+                    paquet = b""
             if paquet:
                 lu += len(paquet)
                 compteur["vu"] = time.time()
@@ -987,13 +1125,13 @@ def run_console(job_dir):
                     proc.stdin.flush()
                 except (BrokenPipeError, OSError):
                     pass
-            if not ferme and os.path.exists(os.path.join(job_dir, "eof")):
+            if not ferme and existe(job_dir, "eof"):
                 ferme = True
                 try:
                     proc.stdin.close()
                 except OSError:
                     pass
-            if not verrou_tenu(alive):
+            if not verrou_tenu(job_dir, "alive"):
                 raison = "api"
                 break
             if time.time() - debut > CONSOLE_SESSION_MAX:
@@ -1025,6 +1163,7 @@ def run_console(job_dir):
             except OSError:
                 pass
         pompe.join(timeout=5)
+        shutil.rmtree(stage, ignore_errors=True)
 
     code = proc.returncode if proc.returncode is not None else -1
     if raison == "exited" and not compteur["compile"]:
@@ -1038,19 +1177,11 @@ def run_console(job_dir):
 
 
 def job_exercice(job_dir):
-    try:
-        with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
-            return str(json.load(fh).get("exercise_id", ""))
-    except (OSError, ValueError):
-        return ""
+    return _job_champ(job_dir, "exercise_id")
 
 
 def job_owner(job_dir):
-    try:
-        with open(os.path.join(job_dir, "job.json"), encoding="utf-8") as fh:
-            return str(json.load(fh).get("owner", ""))
-    except (OSError, ValueError):
-        return ""
+    return _job_champ(job_dir, "owner")
 
 
 def run_job(job_dir):
@@ -1063,13 +1194,11 @@ def run_job(job_dir):
         return {"status": "error", "message": "Ce TP n'a pas de tests publiés."}
 
     if mode == "quiz":
-        with open(os.path.join(job_dir, "answers.json"), encoding="utf-8") as fh:
-            answers = json.load(fh)
+        answers = lire_json(job_dir, "answers.json")
         return grade_quiz(load_config(tp_dir, "quiz.json"), answers)
 
     conf = load_config(tp_dir, config_name(mode))
-    with open(os.path.join(job_dir, "files.json"), encoding="utf-8") as fh:
-        sent = json.load(fh)
+    sent = lire_json(job_dir, "files.json")
 
     empreinte = empreinte_juge(exercise_id, tp_dir, mode)
     sig = signature(exercise_id, tp_dir, mode, conf, sent, empreinte)
@@ -1090,8 +1219,15 @@ def run_job(job_dir):
 
 
 def _juger(job_dir, tp_dir, mode, conf, sent):
-    src_dir = os.path.join(job_dir, "src")
-    os.makedirs(src_dir, exist_ok=True)
+    stage = stage_dir(job_dir)
+    try:
+        return _juger_dans(stage, tp_dir, mode, conf, sent)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def _juger_dans(stage, tp_dir, mode, conf, sent):
+    src_dir = os.path.join(stage, "src")
     code = ""
     for declared in declared_files(conf, tp_dir):
         contenu = str(sent.get(declared["name"], ""))
@@ -1118,27 +1254,27 @@ def _juger(job_dir, tp_dir, mode, conf, sent):
     if mode == "io":
         cases = conf.get("cases", [])
         tol = float(conf.get("tolerance", DEFAULT_TOLERANCE))
-        case_dir = os.path.join(job_dir, "cases")
-        os.makedirs(case_dir, exist_ok=True)
+        case_dir = os.path.join(stage, "cases")
+        os.makedirs(case_dir)
         for number, case in enumerate(cases, 1):
             with open(os.path.join(case_dir, "%02d.in" % number), "w",
                       encoding="utf-8") as fh:
                 fh.write(case.get("stdin", ""))
         nonce = uuid.uuid4().hex
-        rc, out = sandbox(job_dir, tp_dir, mode, nonce)
+        rc, out = sandbox(stage, tp_dir, mode, nonce)
         avertissements, out = extraire_avertissements(out, nonce)
         resultat = verdict_io(rc, out, cases, nonce, tol)
         return avec_avertissements(resultat, avertissements)
 
     nonce = uuid.uuid4().hex
-    rc, out = sandbox(job_dir, tp_dir, mode, nonce)
+    rc, out = sandbox(stage, tp_dir, mode, nonce)
     avertissements, out = extraire_avertissements(out, nonce)
     return avec_avertissements(verdict(rc, out), avertissements)
 
 
 def write_result(job_dir, payload):
     payload["state"] = "done"
-    write_json(os.path.join(job_dir, "result.json"), payload)
+    write_json(job_dir, "result.json", payload)
 
 
 DURATIONS = "durees.json"
@@ -1149,8 +1285,7 @@ DUREE_MIN = 0.5
 
 def lire_durees():
     try:
-        with open(os.path.join(SPOOL, DURATIONS), encoding="utf-8") as fh:
-            data = json.load(fh)
+        data = lire_json(SPOOL, DURATIONS)
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
@@ -1169,51 +1304,58 @@ def enregistrer_duree(exercise_id, secondes):
     n += 1
     durees[exercise_id] = [round(moyenne + (secondes - moyenne) / n, 2), n]
     try:
-        write_json(os.path.join(SPOOL, DURATIONS), durees)
+        write_json(SPOOL, DURATIONS, durees)
     except OSError:
         pass
 
 
+def _dans_le_job(job_dir, action):
+    try:
+        dfd = _ouvrir_dossier(job_dir)
+    except OSError:
+        return None
+    try:
+        return action(dfd)
+    except OSError:
+        return None
+    finally:
+        os.close(dfd)
+
+
 def claim(job_dir):
     # mkdir is atomic, which is all the locking workers on a single host need.
-    try:
-        os.mkdir(os.path.join(job_dir, ".lock"))
-        return True
-    except OSError:
-        return False
+    return _dans_le_job(job_dir, lambda dfd: os.mkdir(".lock", dir_fd=dfd) or True) is True
 
 
 def reprises(job_dir):
     try:
-        with open(os.path.join(job_dir, "reprises.json"), encoding="utf-8") as fh:
-            return int(json.load(fh).get("n", 0))
-    except (OSError, ValueError, TypeError):
+        return int(lire_json(job_dir, "reprises.json").get("n", 0))
+    except (OSError, ValueError, TypeError, AttributeError):
         return 0
 
 
 def reclaim(job_dir, now):
-    lock = os.path.join(job_dir, ".lock")
-    try:
-        if os.stat(lock).st_mtime > now - LOCK_STALE:
-            return False
-    except OSError:
+    age = _dans_le_job(job_dir, lambda dfd: os.stat(
+        ".lock", dir_fd=dfd, follow_symlinks=False).st_mtime)
+    if age is None or age > now - LOCK_STALE:
         return False
 
     essai = reprises(job_dir) + 1
-    if essai > LOCK_RETRIES:
-        print("ctester: %s: abandoned after %d reclaim(s)" % (job_dir, essai - 1),
-              file=sys.stderr, flush=True)
-        write_result(job_dir, {
-            "status": "error",
-            "message": "Le juge a été interrompu pendant ce test. Relance-le.",
-        })
-        return False
-
-    # Counted before the rmdir, so a worker dying in between still uses up the attempt.
-    write_json(os.path.join(job_dir, "reprises.json"), {"n": essai})
     try:
-        os.rmdir(lock)
+        if essai > LOCK_RETRIES:
+            print("ctester: %s: abandoned after %d reclaim(s)" % (job_dir, essai - 1),
+                  file=sys.stderr, flush=True)
+            write_result(job_dir, {
+                "status": "error",
+                "message": "Le juge a été interrompu pendant ce test. Relance-le.",
+            })
+            return False
+
+        # Counted before the rmdir, so a worker dying in between still uses up the attempt.
+        write_json(job_dir, "reprises.json", {"n": essai})
     except OSError:
+        return False
+    if _dans_le_job(job_dir, lambda dfd: os.rmdir(".lock", dir_fd=dfd) or True) is not True:
         return False
     print("ctester: %s: stale lock reclaimed (attempt %d)" % (job_dir, essai),
           file=sys.stderr, flush=True)
@@ -1223,34 +1365,42 @@ def reclaim(job_dir, now):
 def pending_jobs():
     jobs = []
     for entry in os.scandir(SPOOL):
-        if not entry.is_dir():
+        try:
+            if not (JOB_RE.match(entry.name) and entry.is_dir(follow_symlinks=False)):
+                continue
+            job = os.lstat(os.path.join(entry.path, "job.json"))
+        except OSError:
             continue
-        job = os.path.join(entry.path, "job.json")
-        if not os.path.exists(job) or os.path.exists(
+        if not stat.S_ISREG(job.st_mode) or os.path.lexists(
             os.path.join(entry.path, "result.json")
         ):
             continue
-        try:
-            jobs.append((os.stat(job).st_mtime, entry.path))
-        except OSError:
-            continue
+        jobs.append((job.st_mtime, entry.path))
     jobs.sort()
     return [path for _, path in jobs]
 
 
 def sweep(now):
-    for entry in os.scandir(SPOOL):
-        if entry.name == CACHE_DIR:
-            continue
+    for racine in (SPOOL, os.path.join(WORK, "jobs")):
         try:
-            if entry.is_dir() and entry.stat().st_mtime < now - SWEEP_AFTER:
-                shutil.rmtree(entry.path, ignore_errors=True)
+            entries = list(os.scandir(racine))
         except OSError:
             continue
+        for entry in entries:
+            try:
+                if (entry.is_dir(follow_symlinks=False)
+                        and entry.stat(follow_symlinks=False).st_mtime < now - SWEEP_AFTER):
+                    shutil.rmtree(entry.path, ignore_errors=True)
+            except OSError:
+                continue
 
 
 def main():
+    if not plateforme_sure():
+        raise SystemExit("ctester: refusing to start: this platform cannot open the spool "
+                         "without following links (need Linux, dir_fd, O_NOFOLLOW)")
     os.makedirs(SPOOL, exist_ok=True)
+    os.makedirs(os.path.join(WORK, "jobs"), exist_ok=True)
     try:
         published = publish_catalogue()
         print("ctester: %d exercises published" % len(published), file=sys.stderr,
@@ -1288,10 +1438,13 @@ def main():
             except Exception as exc:  # noqa: BLE001 -- a job must not kill the worker
                 print("ctester: %s: %s" % (job_dir, exc), file=sys.stderr,
                       flush=True)
-                write_result(job_dir, {
-                    "status": "error",
-                    "message": "Erreur interne du juge. Réessaie.",
-                })
+                try:
+                    write_result(job_dir, {
+                        "status": "error",
+                        "message": "Erreur interne du juge. Réessaie.",
+                    })
+                except OSError:
+                    pass
                 if console:
                     console_etat(job_dir, "exited", code=-1, reason="worker")
             finally:

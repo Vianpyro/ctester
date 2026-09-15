@@ -31,7 +31,12 @@ Requirements: Linux with systemd, Docker with the gVisor runtime (`runsc`), Pyth
   .env          configuration, from deploy/env.example
   spool/        owned by 65534:65534
   published/
+/var/lib/ctester-judge/   CTESTER_WORK, created by the runner unit: staging and verdict cache
 ```
+
+The API owns the spool, so the root worker opens nothing there that follows a link, and mounts
+nothing from it: sources are copied to `CTESTER_WORK` first. Keep that directory out of the web
+container.
 
 ```sh
 git clone https://github.com/Vianpyro/ctester.git /opt/ctester/src
@@ -112,7 +117,7 @@ python3 worker/publish_content.py   ../unittests/content /tmp/published
 |---|---|
 | Uvicorn | One worker only. Quotas, presence, the token cache and collaboration rooms are held in memory. |
 | WebSockets | `wsproto` must be in `/deps`, or every handshake returns 501 silently. The NPM proxy host needs "Websockets Support". |
-| Verdict cache | Any change to `worker/runner.py` invalidates it once. Avoid deploying right before a lab. `CTESTER_CACHE_MAX=0` disables it. |
+| Verdict cache | Lives in `CTESTER_WORK/cache`. Any change to `worker/runner.py` invalidates it once. Avoid deploying right before a lab. `CTESTER_CACHE_MAX=0` disables it. |
 | Console | Needs `CTESTER_SCRATCH=1` and at least two workers. |
 | gVisor | `--pids-limit` counts the sentry's threads: below 64 the sandbox does not start. Fork bombs are stopped by the memory limit. |
 | Compiler | `-std=gnu23`, not `c23` (which hides `M_PI`). `-DUNITY_INCLUDE_DOUBLE` is required, or double assertions always fail. |
