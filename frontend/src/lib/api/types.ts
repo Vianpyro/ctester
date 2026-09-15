@@ -405,6 +405,8 @@ export interface TeamRevision {
 
 export interface ScratchDraft {
   code: string;
+  header_name?: string;
+  header?: string;
   error?: string;
 }
 

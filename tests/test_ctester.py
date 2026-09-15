@@ -2224,6 +2224,23 @@ def test_la_console_canonise_par_la_meme_porte():
     assert message is None and len(code) == config.MAX_CODE, message
 
 
+def test_l_en_tete_de_la_console_suit_la_regle_des_noms_de_fichier():
+    assert scratch.validate_header("", "") == ("", "", None, 200)
+    assert scratch.validate_header("pile_2.h", "#define N 3  \r\n") \
+        == ("pile_2.h", "#define N 3\n", None, 200)
+    assert scratch.validate_header("a" * 32 + ".h", "")[2] is None
+    for nom in ("a" * 33 + ".h", ".h", "pile.c", "pile.H", "../pile.h", "a/b.h",
+                "pile.h\n", "pi le.h", "é.h", None, 3):
+        _, _, message, statut = scratch.validate_header(nom, "")
+        assert statut == 400 and message, nom
+    _, _, message, statut = scratch.validate_header("", "int x;")
+    assert statut == 400 and message
+    _, _, message, statut = scratch.validate_header("pile.h", "x" * (config.MAX_CODE + 1))
+    assert statut == 413 and message
+    _, _, message, statut = scratch.validate_header("pile.h", None)
+    assert statut == 400 and message
+
+
 def test_le_forum_ne_canonise_rien():
     texte = "regarde ici  \net puis là  \n"
     assert source.canonicalize(texte) != texte, "le cas ne prouverait rien"
@@ -2822,10 +2839,18 @@ def test_console_le_job_ne_porte_aucune_identite():
             assert interdit not in job
         assert lire(os.path.join(session.path, "src", "main.c")) \
             == "int main(void){return 0;}"
+        assert os.listdir(os.path.join(session.path, "src")) == ["main.c"]
         assert session.worker_alive() is False
         assert scratch._lock_held(os.path.join(session.path, "alive")) is True
         session.close()
         assert scratch._lock_held(os.path.join(session.path, "alive")) is False
+
+        avec = scratch.open_session('#include "pile.h"\n', "pile.h", "#define N 3\n")
+        job = json.loads(lire(os.path.join(avec.path, "job.json")))
+        assert job == {"kind": "console", "header": "pile.h"}, job
+        assert sorted(os.listdir(os.path.join(avec.path, "src"))) == ["main.c", "pile.h"]
+        assert lire(os.path.join(avec.path, "src", "pile.h")) == "#define N 3\n"
+        avec.close()
     finally:
         config.SPOOL = garde
         shutil.rmtree(dossier)

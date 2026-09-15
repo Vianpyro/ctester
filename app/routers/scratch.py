@@ -22,10 +22,10 @@ TIC = 0.05
 
 @router.get("/scratch/draft")
 def get_scratch_draft(sub: Sub):
-    code = state.read_scratch(sub)
-    if code is None:
+    draft = state.read_scratch(sub)
+    if draft is None:
         return headers.error(503, "la base ne répond pas")
-    return {"code": code}
+    return draft
 
 
 @router.put("/scratch/draft")
@@ -33,8 +33,11 @@ def put_scratch_draft(sub: Sub, body: ScratchIn, request: Request):
     code, message, status = scratch.validate_scratch(body.code)
     if message:
         return headers.error(status, message)
+    name, header, message, status = scratch.validate_header(body.header_name, body.header)
+    if message:
+        return headers.error(status, message)
     throttle_write(request)
-    if not state.write_scratch(sub, code):
+    if not state.write_scratch(sub, code, name, header):
         return headers.error(503, "la base ne répond pas")
     return {"ok": True}
 
@@ -53,7 +56,7 @@ async def live(socket: WebSocket):
     except Exception:
         await socket.close(code=deps.CLOSE_BAD)
         return
-    if len(hello) > config.MAX_CODE + 4096:
+    if len(hello) > 2 * config.MAX_CODE + 4096:
         await socket.close(code=deps.CLOSE_BAD)
         return
     try:
@@ -69,6 +72,11 @@ async def live(socket: WebSocket):
         await socket.close(code=deps.CLOSE_BAD)
         return
     code, message, _ = scratch.validate_scratch(code)
+    if message:
+        await socket.close(code=deps.CLOSE_BAD)
+        return
+    header_name, header, message, _ = scratch.validate_header(
+        opening.get("header_name", ""), opening.get("header", ""))
     if message:
         await socket.close(code=deps.CLOSE_BAD)
         return
@@ -95,7 +103,7 @@ async def live(socket: WebSocket):
 
     session = None
     try:
-        session = await run_in_threadpool(scratch.open_session, code)
+        session = await run_in_threadpool(scratch.open_session, code, header_name, header)
         reader = asyncio.create_task(_listen(socket, session))
         await _follow(socket, session, reader)
     except Exception:

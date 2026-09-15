@@ -87,10 +87,10 @@ class BaseSimulee:
         return True
 
     def read_scratch(self, user):
-        return self.blocsnotes.get(user, "")
+        return self.blocsnotes.get(user, {"code": "", "header_name": "", "header": ""})
 
-    def write_scratch(self, user, code):
-        self.blocsnotes[user] = code
+    def write_scratch(self, user, code, header_name="", header=""):
+        self.blocsnotes[user] = {"code": code, "header_name": header_name, "header": header}
         return True
 
     def read_theme(self, user):
@@ -2736,7 +2736,8 @@ def test_le_quota_horaire_de_console_passe_a_N_et_refuse_a_N_plus_1():
 def test_le_bloc_notes_suit_le_compte_et_se_borne():
     with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
         r = client.get("/scratch/draft", headers=_entetes("t-alice"))
-        assert r.status_code == 200 and r.json() == {"code": ""}, r.text
+        assert r.status_code == 200 and r.json() == {"code": "", "header_name": "",
+                                                      "header": ""}, r.text
         assert client.get("/scratch/draft").status_code == 401
         assert client.put("/scratch/draft", json={"code": "x" * config.MAX_CODE},
                           headers=_entetes("t-alice")).status_code == 200
@@ -2750,6 +2751,59 @@ def test_le_bloc_notes_suit_le_compte_et_se_borne():
                           headers=_entetes("t-alice")).json()["code"] == "a-moi"
         assert client.get("/scratch/draft",
                           headers=_entetes("t-bob")).json()["code"] == ""
+
+
+def test_le_bloc_notes_garde_son_en_tete_et_refuse_un_mauvais_nom():
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        brouillon = {"code": '#include "pile.h"\n', "header_name": "pile.h",
+                     "header": "#define N 3   \r\n"}
+        r = client.put("/scratch/draft", json=brouillon, headers=_entetes("t-alice"))
+        assert r.status_code == 200, r.text
+        assert client.get("/scratch/draft", headers=_entetes("t-alice")).json() == {
+            "code": '#include "pile.h"\n', "header_name": "pile.h",
+            "header": "#define N 3\n"}
+        for nom, texte in (("../pile.h", ""), ("pile.c", ""), ("", "orphelin"),
+                           ("a" * 33 + ".h", "")):
+            r = client.put("/scratch/draft", json={"code": "", "header_name": nom,
+                                                   "header": texte},
+                           headers=_entetes("t-alice"))
+            assert r.status_code == 400 and "en-tête" in r.text, (nom, r.text)
+        trop = client.put("/scratch/draft",
+                          json={"code": "", "header_name": "pile.h",
+                                "header": "x" * (config.MAX_CODE + 1)},
+                          headers=_entetes("t-alice"))
+        assert trop.status_code == 413, trop.status_code
+
+
+def test_la_console_depose_l_en_tete_a_cote_de_main_c():
+    _exige_flock()
+    from starlette.websockets import WebSocketDisconnect
+
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        with client.websocket_connect("/scratch/live") as socket:
+            socket.send_json({"t": "hello", "token": "t-alice",
+                              "code": '#include "pile.h"\nint main(void){return N;}',
+                              "header_name": "pile.h", "header": "#define N 0\n"})
+            assert socket.receive_json()["t"] == "queued"
+            chemin = _le_job_de_console()
+            job = json.loads(_lire_octets(os.path.join(chemin, "job.json")))
+            assert job == {"kind": "console", "header": "pile.h"}, job
+            assert _lire_octets(os.path.join(chemin, "src", "pile.h")) == b"#define N 0\n"
+        # Both files at their limit still fit in the first frame.
+        with client.websocket_connect("/scratch/live") as socket:
+            socket.send_json({"t": "hello", "token": "t-alice",
+                              "code": "/*" + "x" * (config.MAX_CODE - 4) + "*/",
+                              "header_name": "gros.h",
+                              "header": "/*" + "x" * (config.MAX_CODE - 4) + "*/"})
+            assert socket.receive_json()["t"] == "queued"
+        try:
+            with client.websocket_connect("/scratch/live") as socket:
+                socket.send_json({"t": "hello", "token": "t-alice", "code": "int x;",
+                                  "header_name": "../evade.h", "header": ""})
+                socket.receive_json()
+            raise AssertionError("un nom d'en-tête hors règle est passé")
+        except WebSocketDisconnect as exc:
+            assert exc.code == deps.CLOSE_BAD, exc.code
 
 
 def test_oidc_json_annonce_la_console():

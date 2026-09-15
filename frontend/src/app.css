@@ -1212,7 +1212,19 @@ pre {
 }
 
 .scratchpan { margin: .75rem 0; }
-.scratchpan .phead { border-bottom: 1px solid var(--line); }
+.scratchpan .phead { border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.scratchtabs { display: flex; gap: .2rem; flex-wrap: wrap; }
+
+.scratchnom {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  padding: .45rem var(--gut); border-top: 1px solid var(--line);
+  background: var(--panel); font-size: var(--fs-ui);
+}
+#scratchnomentete {
+  width: 14rem; max-width: 100%;
+  padding: .3rem .5rem; font-size: var(--fs-ui);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
 
 .scratchedit {
   height: clamp(12rem, 40vh, 26rem);

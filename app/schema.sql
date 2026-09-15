@@ -149,9 +149,15 @@ CREATE TABLE IF NOT EXISTS display_preference (
 );
 
 CREATE TABLE IF NOT EXISTS scratch_draft (
-    account    TEXT        NOT NULL PRIMARY KEY,
-    code       TEXT        NOT NULL CHECK (length(code) <= 65536),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    account     TEXT        NOT NULL PRIMARY KEY,
+    code        TEXT        NOT NULL CHECK (length(code) <= 65536),
+    header_name TEXT        NOT NULL DEFAULT '',
+    header      TEXT        NOT NULL DEFAULT '',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT scratch_draft_header_check
+        CHECK (header_name ~ '^([A-Za-z0-9_]{1,32}\.h)?$'
+               AND length(header) <= 65536
+               AND (header_name <> '' OR header = ''))
 );
 
 CREATE TABLE IF NOT EXISTS team (
@@ -232,6 +238,15 @@ ALTER TABLE forum_helpful ADD COLUMN IF NOT EXISTS value SMALLINT NOT NULL
 ALTER TABLE forum_helpful DROP CONSTRAINT IF EXISTS forum_helpful_value_check;
 ALTER TABLE forum_helpful ADD  CONSTRAINT forum_helpful_value_check
     CHECK (value IN (-1, 1));
+
+ALTER TABLE scratch_draft ADD COLUMN IF NOT EXISTS header_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE scratch_draft ADD COLUMN IF NOT EXISTS header      TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE scratch_draft DROP CONSTRAINT IF EXISTS scratch_draft_header_check;
+ALTER TABLE scratch_draft ADD  CONSTRAINT scratch_draft_header_check
+    CHECK (header_name ~ '^([A-Za-z0-9_]{1,32}\.h)?$'
+           AND length(header) <= 65536
+           AND (header_name <> '' OR header = ''));
 
 CREATE INDEX IF NOT EXISTS forum_message_search_idx
     ON forum_message USING GIN (search);

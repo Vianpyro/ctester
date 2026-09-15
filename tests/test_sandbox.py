@@ -89,11 +89,14 @@ def lancer(mode, fichiers, exercice, **reglages):
     return done.returncode, done.stdout, cases, racine
 
 
-def lancer_console(source, entree=None, budget=20, **reglages):
+def lancer_console(source, entree=None, budget=20, entete=None, **reglages):
     racine = pathlib.Path(tempfile.mkdtemp(prefix="console-"))
     (racine / "work").mkdir()
     (racine / "in/src").mkdir(parents=True)
     (racine / "in/src/main.c").write_text(source, encoding="utf-8")
+    if entete:
+        nom, texte = entete
+        (racine / "in/src" / nom).write_text(texte, encoding="utf-8")
     script = rendre("build-scratch.sh", racine)
     proc = subprocess.Popen(
         ["bash", str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -196,6 +199,23 @@ avant, apres = phases(vu)
 check(proc.returncode == 10, "code de sortie 10 (%r)" % proc.returncode)
 check(b"zzz" in avant, "le texte de gcc est dans la phase `build`")
 check(apres == b"", "et rien n'a tourne")
+
+print("\n--- 0d bis. l'en-tete de la Console est trouve a cote de main.c ---")
+proc, vu, _ = lancer_console(
+    '#include <stdio.h>\n#include "pile.h"\n\n'
+    'int triple(int n) { return N * n; }\n\n'
+    'int main(void)\n{\n    printf("triple : %d\\n", triple(14));\n    return 0;\n}\n',
+    entete=("pile.h", "#ifndef PILE_H\n#define PILE_H\n#define N 3\nint triple(int n);\n#endif\n"),
+    budget=25)
+proc.wait(timeout=15)
+avant, apres = phases(vu)
+check(proc.returncode == 0, "code de sortie 0 (%r) : %r" % (proc.returncode, avant[-200:]))
+check(b"triple : 42" in apres, "la macro et le prototype de pile.h servent : " + repr(apres[-40:]))
+proc, vu, _ = lancer_console('#include "pile.h"\nint main(void){ return N; }\n', budget=25)
+proc.wait(timeout=15)
+avant, _ = phases(vu)
+check(proc.returncode == 10 and b"pile.h" in avant,
+      "sans l'en-tete, gcc le dit dans la phase `build` (%r)" % proc.returncode)
 
 print("\n--- 0e. build-scratch.sh ne connait NI cas, NI test ---")
 _texte_scratch = "\n".join(

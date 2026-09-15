@@ -28,6 +28,8 @@ class ScratchIn(BaseModel):
     model_config = _CONFIG
 
     code: str = ""
+    header_name: str = ""
+    header: str = ""
 
 
 class PreferencesIn(BaseModel):

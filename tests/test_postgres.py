@@ -56,6 +56,7 @@ def schema_repairs_an_older_database():
         "forum_message": ("step", "blocked_kind", "visibility"),
         "forum_profile": ("alias", "plate_frame", "badges_public",
                           "leaderboard_opt_in"),
+        "scratch_draft": ("header_name", "header"),
     }
     with open(os.path.join(ROOT, "app", "schema.sql"), encoding="utf-8") as fh:
         sql = fh.read()

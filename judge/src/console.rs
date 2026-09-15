@@ -3,6 +3,7 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -12,6 +13,7 @@ use rustix::fs::FlockOperation;
 use serde_json::{Value, json};
 
 use crate::config::Config;
+use crate::gate;
 use crate::results::Results;
 use crate::sandbox::{self, Stage};
 use crate::spool::{self, Job, MAX_READ, Spool};
@@ -103,6 +105,26 @@ pub fn pump(
     }
 }
 
+/// Copies `main.c` and the optional header into `dest`. The header's name comes from the API's
+/// `job.json`, so it is checked again before it becomes a path.
+fn stage_sources(spool: &Spool, job: &Job, dest: &Path) -> std::io::Result<()> {
+    let mut names = vec!["main.c".to_string()];
+    let header = spool.job_field(job, "header");
+    if !header.is_empty() {
+        if !gate::valid_header_name(&header) {
+            return Err(std::io::Error::other(format!(
+                "invalid header name {header:?}"
+            )));
+        }
+        names.push(header);
+    }
+    for name in names {
+        let source = spool.read(&job.file(&format!("src/{name}")), MAX_READ)?;
+        std::fs::write(dest.join(&name), source)?;
+    }
+    Ok(())
+}
+
 fn exited(results: &Results, job: &Job, code: i64, reason: &str) -> Value {
     results.write_state(
         job,
@@ -151,8 +173,7 @@ pub fn run_console(
     }
 
     let staged = Stage::create(config, job).and_then(|stage| {
-        let source = spool.read(&job.file("src/main.c"), MAX_READ)?;
-        std::fs::write(stage.0.join("src").join("main.c"), source)?;
+        stage_sources(spool, job, &stage.0.join("src"))?;
         Ok(stage)
     });
     let stage = match staged {
@@ -341,6 +362,59 @@ mod tests {
             assert_eq!(out, b"Entrez : 42\n", "{cut:?}");
             assert!(counter.compiled.load(Ordering::Relaxed));
         }
+    }
+
+    fn staged_names(job_json: &str, files: &[(&str, &str)]) -> Result<Vec<String>, String> {
+        let scratch = Scratch::new("stage");
+        let (root, dest) = (scratch.0.join("spool"), scratch.0.join("dest"));
+        let job = Job::parse(&"b".repeat(32)).unwrap();
+        std::fs::create_dir_all(root.join(job.file("src"))).unwrap();
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(root.join(job.file("job.json")), job_json).unwrap();
+        std::fs::write(scratch.0.join("secret.h"), "SECRET").unwrap();
+        for (name, text) in files {
+            let path = root.join(job.file(&format!("src/{name}")));
+            match text.strip_prefix("->") {
+                Some(target) => std::os::unix::fs::symlink(scratch.0.join(target), path).unwrap(),
+                None => std::fs::write(path, text).unwrap(),
+            }
+        }
+        let spool = Spool::open(&root).unwrap();
+        stage_sources(&spool, &job, &dest).map_err(|e| e.to_string())?;
+        let mut names: Vec<String> = std::fs::read_dir(&dest)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert!(
+            !names
+                .iter()
+                .any(|n| std::fs::read_to_string(dest.join(n)).unwrap() == "SECRET")
+        );
+        Ok(names)
+    }
+
+    #[test]
+    fn the_console_stages_main_c_and_only_a_valid_header() {
+        let main = ("main.c", "int main(void){return 0;}");
+        assert_eq!(
+            staged_names(r#"{"kind": "console"}"#, &[main, ("autre.h", "x")]),
+            Ok(vec!["main.c".to_string()])
+        );
+        assert_eq!(
+            staged_names(
+                r#"{"kind": "console", "header": "pile.h"}"#,
+                &[main, ("pile.h", "#define N 3\n")]
+            ),
+            Ok(vec!["main.c".to_string(), "pile.h".to_string()])
+        );
+        for name in ["../secret.h", "a.c", ".h", "src/pile.h"] {
+            let job = json!({"kind": "console", "header": name}).to_string();
+            assert!(staged_names(&job, &[main]).is_err(), "{name}");
+        }
+        let linked = r#"{"kind": "console", "header": "pile.h"}"#;
+        assert!(staged_names(linked, &[main, ("pile.h", "->secret.h")]).is_err());
+        assert!(staged_names(linked, &[main]).is_err(), "a missing header");
     }
 
     #[test]

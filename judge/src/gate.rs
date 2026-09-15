@@ -216,6 +216,11 @@ fn valid_file_name(name: &str) -> bool {
         && matches!(ext, "c" | "h")
 }
 
+/// The Console's optional header; `services/scratch.py` applies the same rule.
+pub fn valid_header_name(name: &str) -> bool {
+    valid_file_name(name) && name.ends_with(".h")
+}
+
 /// The file names a submission consists of: the config's, else the published ones.
 pub fn declared_files(conf: &Value, tp_dir: &Path) -> Vec<String> {
     let truthy = |v: &&Value| match v {
@@ -373,5 +378,25 @@ mod tests {
             declared_files(&json!({"files": [{"name": "x.sh"}]}), dir),
             ["submission.c"]
         );
+    }
+
+    #[test]
+    fn a_console_header_is_a_plain_h_file_name() {
+        for good in ["pile.h", "pile_2.h", &format!("{}.h", "a".repeat(32))] {
+            assert!(valid_header_name(good), "{good}");
+        }
+        for bad in [
+            "",
+            ".h",
+            "pile.c",
+            "pile.H",
+            "../pile.h",
+            "a/b.h",
+            "pi le.h",
+            "é.h",
+            &format!("{}.h", "a".repeat(33)),
+        ] {
+            assert!(!valid_header_name(bad), "{bad}");
+        }
     }
 }

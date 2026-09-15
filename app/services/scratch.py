@@ -1,6 +1,7 @@
 import codecs
 import json
 import os
+import re
 
 import config
 from services.source import canonicalize
@@ -12,6 +13,8 @@ except ImportError:
     fcntl = None
 
 KIND = "console"
+# The judge's gate::valid_header_name and frontend lib/domain/scratchHeader.ts apply the same rule.
+HEADER_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.h\Z")
 
 
 def validate_scratch(code):
@@ -21,6 +24,23 @@ def validate_scratch(code):
     if len(code.encode("utf-8")) > config.MAX_CODE:
         return None, "bloc-notes > %d Ko" % (config.MAX_CODE // 1024), 413
     return code, None, 200
+
+
+def validate_header(name, text):
+    """An empty name means no header, and then its text must be empty too."""
+    if not isinstance(name, str) or not isinstance(text, str):
+        return None, None, "en-tête mal formé", 400
+    if not name:
+        if text:
+            return None, None, "en-tête sans nom", 400
+        return "", "", None, 200
+    if not HEADER_RE.match(name):
+        return None, None, ("nom d'en-tête invalide : lettres, chiffres ou _, "
+                            "puis .h (32 caractères au plus)"), 400
+    text = canonicalize(text)
+    if len(text.encode("utf-8")) > config.MAX_CODE:
+        return None, None, "en-tête > %d Ko" % (config.MAX_CODE // 1024), 413
+    return name, text, None, 200
 
 
 class Session:
@@ -88,7 +108,7 @@ class Session:
         return _lock_held(os.path.join(self.results, "claim"))
 
 
-def open_session(code):
+def open_session(code, header_name="", header=""):
     if fcntl is None:
         raise RuntimeError("the console needs flock (POSIX only)")
 
@@ -99,6 +119,12 @@ def open_session(code):
     with open(os.path.join(path, "src", "main.c"), "w",
               encoding="utf-8") as fh:
         fh.write(code)
+    job = {"kind": KIND}
+    if header_name:
+        with open(os.path.join(path, "src", header_name), "w",
+                  encoding="utf-8") as fh:
+            fh.write(header)
+        job["header"] = header_name
     lock = os.open(os.path.join(path, "alive"),
                    os.O_RDWR | os.O_CREAT, 0o644)
     try:
@@ -110,7 +136,7 @@ def open_session(code):
     # It carries no owner or exercise, so nothing identifying reaches the worker.
     tmp = os.path.join(path, "job.json.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"kind": KIND}, fh)
+        json.dump(job, fh)
     os.replace(tmp, os.path.join(path, "job.json"))
     return Session(job_id, path, lock)
 

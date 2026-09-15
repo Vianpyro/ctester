@@ -320,22 +320,26 @@ def write_theme(user, theme):
 
 
 def read_scratch(user):
-    rows = _query("SELECT code FROM scratch_draft WHERE account = %s",
+    rows = _query("SELECT code, header_name, header FROM scratch_draft WHERE account = %s",
                   (user,), read=True)
     if rows is None:
         return None
-    return rows[0][0] if rows else ""
+    code, header_name, header = rows[0] if rows else ("", "", "")
+    return {"code": code, "header_name": header_name, "header": header}
 
 
-def write_scratch(user, code):
-    if not isinstance(code, str) or len(code.encode("utf-8")) > SCRATCH_MAX:
+def write_scratch(user, code, header_name="", header=""):
+    texts = (code, header_name, header)
+    if (any(not isinstance(text, str) for text in texts)
+            or any(len(text.encode("utf-8")) > SCRATCH_MAX for text in texts)):
         return False
     return _query(
-        "INSERT INTO scratch_draft (account, code, updated_at)"
-        " VALUES (%s, %s, now())"
+        "INSERT INTO scratch_draft (account, code, header_name, header, updated_at)"
+        " VALUES (%s, %s, %s, %s, now())"
         " ON CONFLICT (account)"
-        " DO UPDATE SET code = EXCLUDED.code, updated_at = now()",
-        (user, code),
+        " DO UPDATE SET code = EXCLUDED.code, header_name = EXCLUDED.header_name,"
+        "               header = EXCLUDED.header, updated_at = now()",
+        (user, code, header_name, header),
     ) is not None
 
 

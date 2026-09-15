@@ -1,4 +1,5 @@
 import { fetchScratchDraft, saveScratchDraft } from "../../lib/api/scratch";
+import { HEADER_NAME_HINT, headerTemplate, validHeaderName } from "../../lib/domain/scratchHeader";
 import { socketUrl } from "../../lib/config";
 import { ensureValid, renew, session, whenSignedOut } from "../../lib/auth/session.svelte";
 import type { ScratchFrame } from "../../lib/api/types";
@@ -37,6 +38,9 @@ export interface Chunk {
 
 class Scratch {
   code = $state("");
+  headerName = $state("");
+  header = $state("");
+  active = $state<"main" | "header">("main");
   output = $state<Chunk[]>([]);
   note = $state("");
   noteFailed = $state(false);
@@ -64,23 +68,75 @@ class Scratch {
       this.say("Ton bloc-notes n'a pas pu être chargé — ce qui est à l'écran reste là.", true);
       return;
     }
-    this.#saved = answer.code || "";
-    this.code = this.#saved || TEMPLATE;
+    const name = answer.header_name ?? "";
+    const valid = validHeaderName(name);
+    this.code = answer.code || TEMPLATE;
+    this.headerName = valid ? name : "";
+    this.header = valid ? (answer.header ?? "") : "";
+    this.active = "main";
+    this.#saved = JSON.stringify({
+      code: answer.code || "",
+      header_name: this.headerName,
+      header: this.header,
+    });
+  }
+
+  get activeName(): string {
+    return this.active === "header" && this.headerName ? this.headerName : "main.c";
+  }
+
+  get activeText(): string {
+    return this.active === "header" && this.headerName ? this.header : this.code;
+  }
+
+  typed(text: string): void {
+    if (this.active === "header" && this.headerName) this.header = text;
+    else this.code = text;
+    this.scheduleSave();
+  }
+
+  addHeader(name: string): string {
+    if (!validHeaderName(name)) return HEADER_NAME_HINT;
+    this.headerName = name;
+    this.header = headerTemplate(name);
+    this.active = "header";
+    this.scheduleSave();
+    return "";
+  }
+
+  renameHeader(name: string): string {
+    if (!validHeaderName(name)) return HEADER_NAME_HINT;
+    this.headerName = name;
+    this.scheduleSave();
+    return "";
+  }
+
+  removeHeader(): void {
+    this.headerName = "";
+    this.header = "";
+    this.active = "main";
+    this.scheduleSave();
+  }
+
+  #draft(): { code: string; header_name: string; header: string } {
+    return { code: this.code, header_name: this.headerName, header: this.header };
   }
 
   scheduleSave(): void {
     if (this.#saveTimer) clearTimeout(this.#saveTimer);
     this.#saveTimer = setTimeout(async () => {
-      if (this.code === this.#saved) return;
-      this.#saved = this.code;
-      await saveScratchDraft(this.code);
+      const draft = this.#draft();
+      const serialized = JSON.stringify(draft);
+      if (serialized === this.#saved) return;
+      this.#saved = serialized;
+      await saveScratchDraft(draft);
     }, 1500);
   }
 
   async start(resumed = false): Promise<void> {
     if (this.#socket) return;
     if (!resumed) this.#reauth = false;
-    const code = this.code;
+    const { code, header_name, header } = this.#draft();
     if (!code.trim()) {
       this.say("Il n'y a encore rien à exécuter : écris ou colle ton programme.", true);
       return;
@@ -103,7 +159,10 @@ class Scratch {
     this.#socket = socket;
 
     socket.onopen = () => {
-      socket.send(JSON.stringify({ t: "hello", token: session.token, code }));
+      const hello = header_name
+        ? { t: "hello", token: session.token, code, header_name, header }
+        : { t: "hello", token: session.token, code };
+      socket.send(JSON.stringify(hello));
     };
 
     socket.onmessage = (event) => {
