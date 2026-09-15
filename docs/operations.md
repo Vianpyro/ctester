@@ -35,21 +35,23 @@ for `gh attestation verify`.
   src/          this repository
   content/      the course content, a git clone or a plain directory
   .env          configuration, from deploy/env.example
-  spool/        owned by 65534:65534
+  spool/        owned by 65534:65534, the API's: job inputs only
+  results/      owned by root, mounted read-only into web: verdicts, Console output, durations
   published/
   bin/          ctester-judge -> ctester-judge-<commit>, installed by ctester-pull
 /var/lib/ctester-judge/   CTESTER_WORK, created by the judge units: staging and verdict cache
 ```
 
-The API owns the spool, so the root worker opens nothing there that follows a link, and mounts
-nothing from it: sources are copied to `CTESTER_WORK` first. Keep that directory out of the web
-container.
+The API owns the spool, so the root judge only reads it, never through a link, and mounts nothing
+from it: sources are copied to `CTESTER_WORK` first. Everything the judge writes back goes to
+`results/`, which web can read but not write: the API cannot forge, replace or pre-create a verdict.
+Keep `CTESTER_WORK` out of the web container, and never mount `results/` read-write.
 
 ```sh
 git clone https://github.com/Vianpyro/ctester.git /opt/ctester/src
 cd /opt/ctester
 cp src/deploy/env.example .env && chmod 600 .env   # then fill it in
-mkdir -p published spool && chown 65534:65534 spool
+mkdir -p published spool results && chown 65534:65534 spool
 docker network create ctester-ingress               # or set CTESTER_NETWORK to your proxy's network
 ln -s /opt/ctester/src/deploy/systemd/* /etc/systemd/system/
 systemctl daemon-reload
@@ -174,6 +176,7 @@ journalctl -u ctester-content -n 30
 journalctl -u ctester-pull  -n 30
 docker logs ctester-web-1
 ls /opt/ctester/spool                            # empty when idle
+ls /opt/ctester/results                          # verdicts, swept after CTESTER_SWEEP_AFTER
 cat /opt/ctester/published/current.json          # served revision
 grep -rl answer /opt/ctester/published/          # must print nothing
 python3 /opt/ctester/src/tests/test_ctester.py

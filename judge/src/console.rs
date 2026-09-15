@@ -8,10 +8,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use rustix::fs::{FlockOperation, OFlags};
+use rustix::fs::FlockOperation;
 use serde_json::{Value, json};
 
 use crate::config::Config;
+use crate::results::Results;
 use crate::sandbox::{self, Stage};
 use crate::spool::{self, Job, MAX_READ, Spool};
 
@@ -102,15 +103,20 @@ pub fn pump(
     }
 }
 
-fn exited(spool: &Spool, job: &Job, code: i64, reason: &str) -> Value {
-    spool.write_state(
+fn exited(results: &Results, job: &Job, code: i64, reason: &str) -> Value {
+    results.write_state(
         job,
         json!({"state": "exited", "code": code, "reason": reason}),
     );
     json!({"status": "console", "code": code, "reason": reason})
 }
 
-pub fn run_console(config: &Config, spool: &Spool, job: &Job) -> Result<Value, String> {
+pub fn run_console(
+    config: &Config,
+    spool: &Spool,
+    results: &Results,
+    job: &Job,
+) -> Result<Value, String> {
     let name = format!("ctester-sbx-{}", &job.as_str()[..16]);
     let nonce = spool::random_hex(16);
     let counter = Arc::new(Counter::default());
@@ -121,13 +127,13 @@ pub fn run_console(config: &Config, spool: &Spool, job: &Job) -> Result<Value, S
             "ctester: console: CTESTER_BUILD_SCRATCH introuvable ({})",
             config.build_scratch.display()
         );
-        return Ok(exited(spool, job, -1, "build_missing"));
+        return Ok(exited(results, job, -1, "build_missing"));
     }
     if !spool.lock_held(&job.file("alive")) {
-        return Ok(exited(spool, job, -1, "api"));
+        return Ok(exited(results, job, -1, "api"));
     }
-    let Ok(claim) = spool.open_file(&job.file("claim"), OFlags::RDWR | OFlags::CREATE) else {
-        return Ok(exited(spool, job, -1, "worker"));
+    let Ok(claim) = results.claim_file(job) else {
+        return Ok(exited(results, job, -1, "worker"));
     };
     let held = (0..100).any(|_| {
         let ok = rustix::fs::flock(&claim, FlockOperation::NonBlockingLockExclusive).is_ok();
@@ -141,7 +147,7 @@ pub fn run_console(config: &Config, spool: &Spool, job: &Job) -> Result<Value, S
             "ctester: console: claim deja tenu sur {}",
             spool.root.join(job.as_str()).display()
         );
-        return Ok(exited(spool, job, -1, "worker"));
+        return Ok(exited(results, job, -1, "worker"));
     }
 
     let staged = Stage::create(config, job).and_then(|stage| {
@@ -156,18 +162,17 @@ pub fn run_console(config: &Config, spool: &Spool, job: &Job) -> Result<Value, S
                 "ctester: console: {}: {e}",
                 spool.root.join(job.as_str()).display()
             );
-            return Ok(exited(spool, job, -1, "worker"));
+            return Ok(exited(results, job, -1, "worker"));
         }
     };
 
-    spool.write_state(
+    results.write_state(
         job,
         json!({"state": "compiling", "ttl": config.console_session_max}),
     );
-    let append = OFlags::WRONLY | OFlags::APPEND | OFlags::CREATE;
-    let outputs = spool
-        .open_file(&job.file("build"), append)
-        .and_then(|build| Ok((build, spool.open_file(&job.file("out"), append)?)));
+    let outputs = results
+        .append(job, "build")
+        .and_then(|build| Ok((build, results.append(job, "out")?)));
     let argv = sandbox::console_argv(config, &stage.0, &name, &nonce);
     let (reader, writer) = std::io::pipe().map_err(|e| e.to_string())?;
     let mut command = Command::new(&argv[0]);
@@ -187,7 +192,7 @@ pub fn run_console(config: &Config, spool: &Spool, job: &Job) -> Result<Value, S
                 pump(reader, build, out, &nonce, &counter, out_max)
             }))
         }
-        // Only a planted entry gets here; flagging the cap ends the session at once.
+        // The results tree is root's, so this is a full disk or a broken mount: end at once.
         Err(_) => {
             counter.over.store(true, Ordering::Relaxed);
             None
@@ -203,7 +208,7 @@ pub fn run_console(config: &Config, spool: &Spool, job: &Job) -> Result<Value, S
             break "exited";
         }
         if read < config.console_in_max
-            && let Ok(input) = spool.open_file(&job.file("in"), OFlags::RDONLY)
+            && let Ok(input) = spool.open_file(&job.file("in"))
         {
             let want = (config.console_in_max - read).min(chunk.len() as u64) as usize;
             if let Ok(n) = rustix::io::pread(&input, &mut chunk[..want], read)
@@ -234,7 +239,7 @@ pub fn run_console(config: &Config, spool: &Spool, job: &Job) -> Result<Value, S
         }
         if !announced && counter.compiled.load(Ordering::Relaxed) {
             announced = true;
-            spool.write_state(
+            results.write_state(
                 job,
                 json!({"state": "running", "ttl": config.console_session_max}),
             );
@@ -276,7 +281,7 @@ pub fn run_console(config: &Config, spool: &Spool, job: &Job) -> Result<Value, S
             "compile_error"
         };
     }
-    let result = exited(spool, job, code, reason);
+    let result = exited(results, job, code, reason);
     drop(claim);
     Ok(result)
 }

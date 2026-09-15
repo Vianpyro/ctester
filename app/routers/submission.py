@@ -68,7 +68,7 @@ def get_result(job_id: str):
     if not JOB_RE.match(job_id):
         return headers.error(400, "identifiant invalide")
     exercise_id, owner = spool.job_metadata(job_id)
-    path = os.path.join(config.SPOOL, job_id, "result.json")
+    path = os.path.join(config.RESULTS, job_id, "result.json")
     try:
         with open(path, encoding="utf-8") as fh:
             result = json.load(fh)
@@ -83,7 +83,7 @@ def get_result(job_id: str):
             _record(owner, exercise_id, job_id, result)
         return result
 
-    if os.path.exists(os.path.join(config.SPOOL, job_id, ".lock")):
+    if os.path.exists(os.path.join(config.RESULTS, job_id, ".lock")):
         return {"state": "running"}
     jobs = spool.scan_jobs()
     rank = spool.queue_position(jobs, job_id)

@@ -34,6 +34,8 @@ if [ ! -x "$judge" ]; then
     gh attestation verify "$tmp/ctester-judge" --repo "$repo"
     install -D -m 0755 "$tmp/ctester-judge" "$judge"
 fi
+# Root's, and mounted read-only into web: the API reads verdicts there but cannot write one.
+install -d -o root -g root -m 0755 "$dir/results"
 "$judge" self-check > /dev/null
 
 spool_empty() {

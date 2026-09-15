@@ -27,6 +27,8 @@ class Session:
     def __init__(self, job_id, path, lock):
         self.job_id = job_id
         self.path = path
+        # Keystrokes go into the spool; everything the judge sends back is read from RESULTS.
+        self.results = os.path.join(config.RESULTS, job_id)
         self._lock = lock
         self._offsets = {"build": 0, "out": 0}
         self._decoders = {name: codecs.getincrementaldecoder("utf-8")("replace")
@@ -61,7 +63,7 @@ class Session:
 
     def read_output(self, name):
         try:
-            with open(os.path.join(self.path, name), "rb") as fh:
+            with open(os.path.join(self.results, name), "rb") as fh:
                 chunk = os.pread(fh.fileno(), 65536, self._offsets[name])
         except OSError:
             return ""
@@ -72,7 +74,7 @@ class Session:
 
     def status(self):
         try:
-            with open(os.path.join(self.path, "state.json"),
+            with open(os.path.join(self.results, "state.json"),
                       encoding="utf-8") as fh:
                 status = json.load(fh)
         except (OSError, ValueError):
@@ -80,10 +82,10 @@ class Session:
         return status if isinstance(status, dict) else None
 
     def is_claimed(self):
-        return os.path.exists(os.path.join(self.path, ".lock"))
+        return os.path.exists(os.path.join(self.results, ".lock"))
 
     def worker_alive(self):
-        return _lock_held(os.path.join(self.path, "claim"))
+        return _lock_held(os.path.join(self.results, "claim"))
 
 
 def open_session(code):
@@ -114,10 +116,10 @@ def open_session(code):
 
 
 def _lock_held(path):
-    # Read-only on purpose: flock needs no write access, and the lock files belong to
-    # different users (the API runs as nobody, the worker as root).
+    # Read-only on purpose: flock needs no write access, `claim` sits on a read-only mount, and
+    # a missing lock file is simply not held.
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_CREAT, 0o644)
+        fd = os.open(path, os.O_RDONLY)
     except OSError:
         return False
     try:

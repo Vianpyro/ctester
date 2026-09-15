@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 pub struct Config {
     pub spool: PathBuf,
+    pub results: PathBuf,
     pub work: PathBuf,
     pub content: PathBuf,
     pub build_unity: PathBuf,
@@ -65,6 +66,7 @@ impl Config {
         let job_timeout = seconds("CTESTER_JOB_TIMEOUT", "60")?;
         let config = Config {
             spool: text("CTESTER_SPOOL", "/opt/ctester/spool").into(),
+            results: text("CTESTER_RESULTS", "/opt/ctester/results").into(),
             work: text("CTESTER_WORK", "/var/lib/ctester-judge").into(),
             content: text("CTESTER_CONTENT", "/opt/ctester/content").into(),
             build_unity: text(

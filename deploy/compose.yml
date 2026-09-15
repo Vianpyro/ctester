@@ -47,6 +47,7 @@ services:
     env_file: ../../.env
     environment:
       CTESTER_SPOOL: /spool
+      CTESTER_RESULTS: /results
       CTESTER_PAGE: /web
       CTESTER_PUBLISHED: /published
       PYTHONPATH: /deps
@@ -57,6 +58,7 @@ services:
       - ../web:/web:ro
       - ../../published:/published:ro
       - ../../spool:/spool
+      - ../../results:/results:ro
       - deps:/deps:ro
     read_only: true
     security_opt:

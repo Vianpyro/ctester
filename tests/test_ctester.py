@@ -1490,15 +1490,28 @@ def test_scan_jobs_survives_a_missing_spool_and_a_directory_still_being_written(
 
 
 def test_durees_moyennes_ignores_a_file_that_is_not_an_object():
-    guard = config.SPOOL
+    guard = config.RESULTS
     try:
-        config.SPOOL = tempfile.mkdtemp(prefix="ctester-spool-")
-        with open(os.path.join(config.SPOOL, spool.DURATIONS), "w", encoding="utf-8") as fh:
+        config.RESULTS = tempfile.mkdtemp(prefix="ctester-results-")
+        with open(os.path.join(config.RESULTS, spool.DURATIONS), "w", encoding="utf-8") as fh:
             json.dump([1, 2, 3], fh)
         assert spool.average_durations() == {}
     finally:
-        shutil.rmtree(config.SPOOL, ignore_errors=True)
-        config.SPOOL = guard
+        shutil.rmtree(config.RESULTS, ignore_errors=True)
+        config.RESULTS = guard
+
+
+def test_l_api_ne_peut_ni_ecrire_ni_preparer_un_verdict():
+    # The judge alone creates results/<id>: a web tier that could pre-create it would be back to
+    # handing root a tree it controls.
+    compose = lire(os.path.join(ROOT, "deploy", "compose.yml"))
+    web = compose.split("\n  web:\n", 1)[1].split("\n\n", 1)[0]
+    assert "- ../../results:/results:ro" in web, "results must be mounted read-only into web"
+    assert "CTESTER_RESULTS: /results" in web
+    for chemin in ("routers/submission.py", "services/spool.py", "services/scratch.py"):
+        source = lire(os.path.join(ROOT, "app", chemin))
+        for ecriture in re.findall(r"open\(os\.path\.join\(config\.RESULTS[^)]*\)[^)]*\)", source):
+            assert '"w' not in ecriture and '"a' not in ecriture, (chemin, ecriture)
 
 
 def test_eta_secondes_returns_zero_for_an_already_finished_or_unknown_job():

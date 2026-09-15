@@ -10,6 +10,8 @@ def _int(name, default):
 
 
 SPOOL = os.environ.get("CTESTER_SPOOL", "/spool")
+# Written by the judge, mounted read-only here: the API can read a verdict, never forge one.
+RESULTS = os.environ.get("CTESTER_RESULTS", "/results")
 # Set to "" to disable the page router; leaving it unset falls back to /web.
 PAGE = os.environ.get("CTESTER_PAGE", "/web")
 

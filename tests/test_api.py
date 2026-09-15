@@ -572,8 +572,8 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
              groupes=(4, 6), exercices=CONTENU, devoir=None, console=True,
              pont="", webhook=""):
     tmp = tempfile.mkdtemp()
-    spool, page = (os.path.join(tmp, n) for n in ("spool", "web"))
-    for chemin in (spool, page):
+    spool, page, resultats = (os.path.join(tmp, n) for n in ("spool", "web", "results"))
+    for chemin in (spool, page, resultats):
         os.makedirs(chemin)
     publie = _publier(tmp, exercices, devoir)
 
@@ -581,7 +581,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
     modules = _modules_avec_etat()
     garde_etat = [(m, m.state) for m in modules]
     garde_config = {n: getattr(config, n) for n in
-                    ("PUBLISHED", "SPOOL", "PAGE", "KEY", "OIDC_ISSUER",
+                    ("PUBLISHED", "SPOOL", "RESULTS", "PAGE", "KEY", "OIDC_ISSUER",
                      "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPS",
                      "SCRATCH", "DISCORD_BRIDGE_KEY", "DISCORD_WEBHOOK")}
     garde_secu = (security.current_user, security.current_name)
@@ -590,7 +590,7 @@ def contexte(*, jetons=None, moderateurs=(), forum_actif=True, base=None,
 
     for m in modules:
         m.state = faux
-    config.SPOOL, config.PAGE = spool, page
+    config.SPOOL, config.PAGE, config.RESULTS = spool, page, resultats
     config.PUBLISHED = publie
     config.KEY = "cle-de-session"
     config.OIDC_ISSUER = "https://auth.exemple.com"
@@ -842,7 +842,7 @@ def test_les_dates_sont_pour_les_etudiants_et_l_enseignant_voit_quand_meme():
         with open(os.path.join(config.SPOOL, job, "job.json"), encoding="utf-8") as fh:
             assert json.load(fh) == {"exercise_id": "ferme", "owner": "sub-prof"}
 
-        with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+        with open(_sortie(job, "result.json"), "w",
                  encoding="utf-8") as fh:
             json.dump({"status": "ok", "passed": 1, "total": 1}, fh)
         assert c.get("/r/" + job).json()["status"] == "ok"
@@ -1590,7 +1590,7 @@ def test_xp_accorde_une_seule_fois_par_exercice():
             with open(os.path.join(config.SPOOL, job, "job.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump({"exercise_id": "tp2-ex3", "owner": "sub-alice"}, fh)
-            with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+            with open(_sortie(job, "result.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump(verdict, fh)
             assert c.get("/r/" + job).status_code == 200
@@ -1606,7 +1606,7 @@ def test_r_returns_an_anonymous_job_s_verdict_without_recording_it():
         with open(os.path.join(config.SPOOL, job, "job.json"), "w",
                  encoding="utf-8") as fh:
             json.dump({"exercise_id": "tp2-ex3", "owner": None}, fh)
-        with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+        with open(_sortie(job, "result.json"), "w",
                  encoding="utf-8") as fh:
             json.dump({"status": "ok", "passed": 1, "total": 1}, fh)
         r = c.get("/r/" + job)
@@ -1621,7 +1621,7 @@ def test_r_records_nothing_if_the_exercise_closed_since_the_submission():
         with open(os.path.join(config.SPOOL, job, "job.json"), "w",
                  encoding="utf-8") as fh:
             json.dump({"exercise_id": "vanished-exercise", "owner": "sub-alice"}, fh)
-        with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+        with open(_sortie(job, "result.json"), "w",
                  encoding="utf-8") as fh:
             json.dump({"status": "ok", "passed": 1, "total": 1}, fh)
         r = c.get("/r/" + job)
@@ -1636,7 +1636,7 @@ def test_un_echec_n_accorde_rien():
         with open(os.path.join(config.SPOOL, job, "job.json"), "w",
                   encoding="utf-8") as fh:
             json.dump({"exercise_id": "tp2-ex3", "owner": "sub-alice"}, fh)
-        with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+        with open(_sortie(job, "result.json"), "w",
                   encoding="utf-8") as fh:
             json.dump({"status": "ok", "passed": 2, "total": 3}, fh)
         assert c.get("/r/" + job).status_code == 200
@@ -1644,14 +1644,18 @@ def test_un_echec_n_accorde_rien():
         assert base.etats[("sub-alice", "tp2-ex3")] == "attempted", base.etats
 
 
+def _sortie(job, nom):
+    """Where the judge would write `nom` for `job`; the directory is the judge's to create."""
+    os.makedirs(os.path.join(config.RESULTS, job), exist_ok=True)
+    return os.path.join(config.RESULTS, job, nom)
+
+
 def _verdict(exercise_id, job, resultat):
     os.makedirs(os.path.join(config.SPOOL, job))
-    for nom, valeur in (("job.json", {"exercise_id": exercise_id,
-                                      "owner": "sub-alice"}),
-                        ("result.json", resultat)):
-        with open(os.path.join(config.SPOOL, job, nom), "w",
-                  encoding="utf-8") as fh:
-            json.dump(valeur, fh)
+    with open(os.path.join(config.SPOOL, job, "job.json"), "w", encoding="utf-8") as fh:
+        json.dump({"exercise_id": exercise_id, "owner": "sub-alice"}, fh)
+    with open(_sortie(job, "result.json"), "w", encoding="utf-8") as fh:
+        json.dump(resultat, fh)
 
 
 def test_une_verification_laisse_une_evidence_et_aucun_xp():
@@ -1695,7 +1699,7 @@ def test_verdict_illisible_ne_boucle_pas():
     with contexte() as (c, _, _tmp):
         job = "e" * 32
         os.makedirs(os.path.join(config.SPOOL, job))
-        with open(os.path.join(config.SPOOL, job, "result.json"), "w",
+        with open(_sortie(job, "result.json"), "w",
                   encoding="utf-8") as fh:
             fh.write("{ pas du json")
         r = c.get("/r/" + job)
@@ -1714,7 +1718,7 @@ def test_rang_dans_la_file_et_job_disparu():
         for job, rang in ((premier, 1), (second, 2)):
             corps = c.get("/r/" + job).json()
             assert corps["state"] == "queued" and corps["position"] == rang, corps
-        open(os.path.join(config.SPOOL, premier, ".lock"), "w").close()
+        os.makedirs(_sortie(premier, ".lock"))
         assert c.get("/r/" + premier).json() == {"state": "running"}
         r = c.get("/r/" + "a" * 32)
         assert r.status_code == 404 and r.json() == {"state": "gone"}, r.text
@@ -1733,13 +1737,13 @@ def test_eta_somme_les_durees_mesurees_et_retombe_sur_une_moyenne():
             assert c.get("/r/" + premier).json()["eta"] == 15
             assert c.get("/r/" + second).json()["eta"] == 30
 
-            with open(os.path.join(config.SPOOL, "durees.json"), "w",
+            with open(os.path.join(config.RESULTS, "durees.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump({"tp2-ex3": [4.0, 20]}, fh)
             assert c.get("/r/" + premier).json()["eta"] == 4
             assert c.get("/r/" + second).json()["eta"] == 8
 
-            with open(os.path.join(config.SPOOL, "durees.json"), "w",
+            with open(os.path.join(config.RESULTS, "durees.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump({"tp1": [2.0, 20], "tp7-ex1": [10.0, 20]}, fh)
             assert c.get("/r/" + premier).json()["eta"] == 6
@@ -1747,7 +1751,7 @@ def test_eta_somme_les_durees_mesurees_et_retombe_sur_une_moyenne():
             config.WORKERS = 2
             assert c.get("/r/" + second).json()["eta"] == 6
 
-            with open(os.path.join(config.SPOOL, "durees.json"), "w",
+            with open(os.path.join(config.RESULTS, "durees.json"), "w",
                       encoding="utf-8") as fh:
                 fh.write("{ pas du json")
             r = c.get("/r/" + premier)

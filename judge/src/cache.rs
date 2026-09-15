@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::gate::{self, Exercise, Mode};
 use crate::grade;
-use crate::spool;
+use crate::results;
 
 /// Change it whenever the key's recipe changes, so no entry computed the old way is served.
 const KEY_PREFIX: &[u8] = b"ctester-judge/1";
@@ -221,7 +221,7 @@ impl Cache {
         }
         let written = std::fs::create_dir_all(&self.dir)
             .and_then(|()| File::open(&self.dir))
-            .and_then(|dir| spool::write_json_at(&dir, &format!("{sig}.json"), verdict));
+            .and_then(|dir| results::write_json_at(&dir, &format!("{sig}.json"), verdict));
         if written.is_err() {
             return;
         }

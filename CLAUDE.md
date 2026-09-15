@@ -28,8 +28,9 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **Student-facing messages are French** and come from `services/`, not from Pydantic errors.
 - **`find_exercise()` is the only gate** to an exercise in the API; the judge re-checks with `gate.rs`.
   `tests/vectors/release_access.json` binds the two implementations of `access`.
-- **The judge opens nothing in the spool that follows a link, and mounts nothing from it.** The API
-  owns the spool; every mount is staged in `CTESTER_WORK` first.
+- **The spool holds only the API's inputs; the judge writes only to `results/`.** The judge reads the
+  spool without following links and mounts nothing from it (mounts are staged in `CTESTER_WORK`).
+  `results/` is root's and mounted read-only into web: the API reads verdicts, never writes one.
 - **Anything `test_ctester.py` imports must be standard-library only.** It runs with the host Python on
   the Dell. The same goes for `csp.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares

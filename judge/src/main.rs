@@ -13,6 +13,8 @@ mod console;
 #[cfg(target_os = "linux")]
 mod gate;
 #[cfg(target_os = "linux")]
+mod results;
+#[cfg(target_os = "linux")]
 mod sandbox;
 #[cfg(target_os = "linux")]
 mod spool;
@@ -112,6 +114,7 @@ mod runner {
     use crate::console;
     use crate::gate::{self, Exercise, Mode};
     use crate::grade;
+    use crate::results::Results;
     use crate::sandbox::{self, Stage};
     use crate::spool::{self, Job, Spool};
 
@@ -126,6 +129,7 @@ mod runner {
     pub struct Runner {
         config: Config,
         spool: Spool,
+        results: Results,
         cache: Cache,
         /// Per pending job: (fingerprint it was computed under, signature).
         signatures: HashMap<Job, (String, String)>,
@@ -151,10 +155,12 @@ mod runner {
                 }
             }
             let spool = Spool::open(&config.spool)?;
+            let results = Results::open(&config.results)?;
             let cache = Cache::new(&config);
             Ok(Runner {
                 config,
                 spool,
+                results,
                 cache,
                 signatures: HashMap::new(),
             })
@@ -163,7 +169,7 @@ mod runner {
         pub fn describe(&self) -> Value {
             let c = &self.config;
             json!({
-                "spool": c.spool, "work": c.work, "content": c.content, "image": c.image,
+                "spool": c.spool, "results": c.results, "work": c.work, "content": c.content, "image": c.image,
                 "runtime": c.runtime, "job_timeout": c.job_timeout, "lock_stale": c.lock_stale,
                 "sweep_after": c.sweep_after, "preview": c.preview, "cache_max": c.cache_max,
                 "moderators": c.moderators.len(), "sandbox_env": c.sandbox_env,
@@ -174,6 +180,12 @@ mod runner {
             self.spool.root.join(job.as_str()).display().to_string()
         }
 
+        fn pending(&self) -> Vec<Job> {
+            let mut jobs = self.spool.jobs();
+            jobs.retain(|job| !self.results.done(job));
+            jobs
+        }
+
         pub fn run(&mut self, once: bool) -> ExitCode {
             if self.config.preview {
                 eprintln!("ctester: PREVIEW ACTIVE -- exercises not yet open are being graded");
@@ -181,29 +193,31 @@ mod runner {
             loop {
                 // Known verdicts first, then a single compilation per pass.
                 let mut worked = self.serve_known() > 0;
-                for job in self.spool.pending() {
+                for job in self.pending() {
                     let console = self.spool.job_field(&job, "kind") == "console";
                     let stale = Duration::from_secs(self.config.console_session_max + 60);
-                    if console && !self.spool.console_lock(stale) {
+                    if console && !self.results.console_lock(stale) {
                         continue;
                     }
-                    if !self.spool.claim(&job) && !(self.reclaim(&job) && self.spool.claim(&job)) {
+                    if !self.results.claim(&job)
+                        && !(self.reclaim(&job) && self.results.claim(&job))
+                    {
                         if console {
-                            self.spool.console_unlock();
+                            self.results.console_unlock();
                         }
                         continue;
                     }
                     worked = true;
                     self.process(&job, console);
                     if console {
-                        self.spool.console_unlock();
+                        self.results.console_unlock();
                     }
                     break;
                 }
-                self.spool.sweep(
-                    SystemTime::now(),
-                    Duration::from_secs(self.config.sweep_after),
-                );
+                // The spool first: its job directories are never newer than their results.
+                let after = Duration::from_secs(self.config.sweep_after);
+                self.spool.sweep(SystemTime::now(), after);
+                self.results.sweep(SystemTime::now(), after);
                 let work = Spool::open(&self.config.work.join("jobs"));
                 if let Ok(work) = work {
                     work.sweep(
@@ -224,17 +238,17 @@ mod runner {
         fn process(&mut self, job: &Job, console: bool) {
             let start = Instant::now();
             let outcome = catch_unwind(AssertUnwindSafe(|| match console {
-                true => console::run_console(&self.config, &self.spool, job),
+                true => console::run_console(&self.config, &self.spool, &self.results, job),
                 false => self.run_job(job),
             }));
             let failure = match outcome {
-                Ok(Ok(verdict)) => match self.spool.write_result(job, verdict) {
+                Ok(Ok(verdict)) => match self.results.write_result(job, verdict) {
                     Ok(()) => {
                         let key = match console {
                             true => CONSOLE_DURATION.to_string(),
                             false => self.spool.job_field(job, "exercise_id"),
                         };
-                        self.spool
+                        self.results
                             .record_duration(&key, start.elapsed().as_secs_f64());
                         return;
                     }
@@ -244,9 +258,9 @@ mod runner {
                 Err(_) => "panic".to_string(),
             };
             eprintln!("ctester: {}: {failure}", self.job_path(job));
-            let _ = self.spool.write_result(job, internal_error());
+            let _ = self.results.write_result(job, internal_error());
             if console {
-                self.spool.write_state(
+                self.results.write_state(
                     job,
                     json!({"state": "exited", "code": -1, "reason": "worker"}),
                 );
@@ -255,7 +269,7 @@ mod runner {
 
         fn reclaim(&self, job: &Job) -> bool {
             let stale = Duration::from_secs(self.config.lock_stale);
-            let Some(locked) = self.spool.lock_time(job) else {
+            let Some(locked) = self.results.lock_time(job) else {
                 return false;
             };
             if SystemTime::now()
@@ -265,7 +279,7 @@ mod runner {
             {
                 return false;
             }
-            let attempt = self.spool.retries(job) + 1;
+            let attempt = self.results.retries(job) + 1;
             if attempt > self.config.lock_retries {
                 eprintln!(
                     "ctester: {}: abandoned after {} reclaim(s)",
@@ -273,15 +287,15 @@ mod runner {
                     attempt - 1
                 );
                 let verdict = json!({"status": "error", "message": "Le juge a été interrompu pendant ce test. Relance-le."});
-                let _ = self.spool.write_result(job, verdict);
+                let _ = self.results.write_result(job, verdict);
                 return false;
             }
             // Counted before the rmdir, so a worker dying in between still uses up the attempt.
             if self
-                .spool
-                .write_json(job.as_str(), "reprises.json", &json!({"n": attempt}))
+                .results
+                .write_json(Some(job), "reprises.json", &json!({"n": attempt}))
                 .is_err()
-                || !self.spool.unlock(job)
+                || !self.results.unlock(job)
             {
                 return false;
             }
@@ -328,7 +342,7 @@ mod runner {
             let mut contexts: HashMap<String, Option<Context>> = HashMap::new();
             let mut alive = HashSet::new();
             let mut served = 0;
-            for job in self.spool.pending() {
+            for job in self.pending() {
                 alive.insert(job.clone());
                 let exercise_id = self.spool.job_field(&job, "exercise_id");
                 if !contexts.contains_key(&exercise_id) {
@@ -344,11 +358,11 @@ mod runner {
                 let Some(verdict) = self.cache.read(&sig) else {
                     continue;
                 };
-                if !self.spool.claim(&job) {
+                if !self.results.claim(&job) {
                     continue;
                 }
                 eprintln!("ctester: cache servi {exercise_id} {} [file]", &sig[..12]);
-                if self.spool.write_result(&job, verdict).is_ok() {
+                if self.results.write_result(&job, verdict).is_ok() {
                     served += 1;
                 }
             }
@@ -516,6 +530,7 @@ mod runner {
                 let p = |name: &str| root.join(name).display().to_string();
                 let pairs = [
                     ("CTESTER_SPOOL", p("spool")),
+                    ("CTESTER_RESULTS", p("results")),
                     ("CTESTER_WORK", p("work")),
                     ("CTESTER_CONTENT", p("content")),
                     ("CTESTER_BUILD_IO", p("build-io.sh")),
@@ -556,9 +571,13 @@ mod runner {
                 id
             }
 
+            fn out(&self, job: &Job) -> PathBuf {
+                self.scratch.0.join("results").join(job.as_str())
+            }
+
             fn result(&self, job: &Job) -> Value {
                 let bytes =
-                    std::fs::read(self.dir(job).join("result.json")).expect("no result.json");
+                    std::fs::read(self.out(job).join("result.json")).expect("no result.json");
                 serde_json::from_slice(&bytes).unwrap()
             }
 
@@ -664,7 +683,12 @@ mod runner {
             );
             symlink(&target, w.dir(&job).join("src")).unwrap();
             symlink(&target, w.dir(&job).join("cases")).unwrap();
-            symlink(target.join("ecrase"), w.dir(&job).join("result.json.tmp")).unwrap();
+            // A verdict forged in the spool is not a verdict: the judge still grades the job.
+            write(
+                &w.dir(&job).join("result.json"),
+                r#"{"status": "ok", "passed": 99}"#,
+            );
+            symlink(target.join("ecrase"), w.dir(&job).join("state.json")).unwrap();
             w.runner.run(true);
             assert_eq!(w.result(&job)["passed"], 1);
             let names: Vec<_> = std::fs::read_dir(&target)
@@ -708,15 +732,15 @@ mod runner {
                 "{verdict}"
             );
             assert_eq!(
-                std::fs::read_to_string(w.dir(&job).join("out")).unwrap(),
+                std::fs::read_to_string(w.out(&job).join("out")).unwrap(),
                 "lu: bonjour\n"
             );
             let state: Value =
-                serde_json::from_slice(&std::fs::read(w.dir(&job).join("state.json")).unwrap())
+                serde_json::from_slice(&std::fs::read(w.out(&job).join("state.json")).unwrap())
                     .unwrap();
             assert_eq!(state["state"], "exited");
             assert!(
-                w.runner.spool.console_lock(Duration::from_secs(600)),
+                w.runner.results.console_lock(Duration::from_secs(600)),
                 "the console lock was kept"
             );
         }

@@ -21,7 +21,7 @@ def scan_jobs():
             stamp = os.stat(os.path.join(entry.path, "job.json")).st_mtime
         except OSError:
             continue
-        done = os.path.exists(os.path.join(entry.path, "result.json"))
+        done = os.path.exists(os.path.join(config.RESULTS, entry.name, "result.json"))
         jobs.append((entry.name, stamp, done))
     return jobs
 
@@ -40,7 +40,7 @@ UNKNOWN_DURATION = 15.0
 
 def average_durations():
     try:
-        with open(os.path.join(config.SPOOL, DURATIONS), encoding="utf-8") as fh:
+        with open(os.path.join(config.RESULTS, DURATIONS), encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, ValueError):
         return {}

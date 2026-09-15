@@ -1,22 +1,20 @@
-//! The spool belongs to the API (65534) and the judge runs as root, so every access resolves
-//! beneath the spool with `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS)`: no entry the API
-//! plants can redirect a read, a write or a lock. Without `openat2` the judge does not start.
+//! The spool belongs to the API (65534) and holds only its inputs; the judge, root, reads them
+//! and writes nothing back here (see `results.rs`). Every read resolves beneath the spool with
+//! `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS)`, so no entry the API plants can redirect it.
+//! Without `openat2` the judge does not start.
 
 use std::fs::File;
-use std::io::{self, Read, Write};
-use std::os::fd::{AsFd, OwnedFd};
+use std::io::{self, Read};
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rustix::fs::{AtFlags, FileType, FlockOperation, Mode, OFlags, ResolveFlags, Stat};
-use serde_json::{Map, Value, json};
+use serde_json::Value;
 
 use crate::grade;
 
 pub const MAX_READ: usize = 4 * 1024 * 1024;
-const DURATIONS: &str = "durees.json";
-const DURATION_WINDOW: i64 = 20;
-const CONSOLE_LOCK: &str = ".console";
 
 const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
     .union(ResolveFlags::NO_SYMLINKS)
@@ -80,20 +78,6 @@ pub fn random_hex(bytes: usize) -> String {
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Atomic JSON write under a random name opened O_EXCL: a predictable one could be planted.
-pub fn write_json_at(dir: impl AsFd, name: &str, value: &Value) -> io::Result<()> {
-    let tmp = format!(".{name}.{}", random_hex(8));
-    let flags = OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let fd = rustix::fs::openat(&dir, &tmp, flags, Mode::from_raw_mode(0o644))?;
-    let written = File::from(fd)
-        .write_all(value.to_string().as_bytes())
-        .and_then(|()| Ok(rustix::fs::renameat(&dir, &tmp, &dir, name)?));
-    if written.is_err() {
-        let _ = rustix::fs::unlinkat(&dir, &tmp, AtFlags::empty());
-    }
-    written
-}
-
 /// Any failure of the probe stops the judge: there is deliberately no weaker fallback.
 pub fn require_openat2(probe: rustix::io::Result<OwnedFd>) -> Result<(), String> {
     match probe {
@@ -126,27 +110,27 @@ impl Spool {
 
     fn resolve(&self, rel: &str, flags: OFlags) -> io::Result<OwnedFd> {
         let rel = if rel.is_empty() { "." } else { rel };
-        // openat2 rejects a mode without O_CREAT, unlike openat.
-        let mode = if flags.contains(OFlags::CREATE) {
-            Mode::from_raw_mode(0o644)
-        } else {
-            Mode::empty()
-        };
         let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
-        Ok(rustix::fs::openat2(&self.fd, rel, flags, mode, RESOLVE)?)
+        Ok(rustix::fs::openat2(
+            &self.fd,
+            rel,
+            flags,
+            Mode::empty(),
+            RESOLVE,
+        )?)
     }
 
     fn dir(&self, rel: &str) -> io::Result<OwnedFd> {
         self.resolve(rel, OFlags::RDONLY | OFlags::DIRECTORY)
     }
 
-    pub fn open_file(&self, rel: &str, flags: OFlags) -> io::Result<File> {
-        plain(self.resolve(rel, flags)?, rel)
+    pub fn open_file(&self, rel: &str) -> io::Result<File> {
+        plain(self.resolve(rel, OFlags::RDONLY)?, rel)
     }
 
     pub fn read(&self, rel: &str, limit: usize) -> io::Result<Vec<u8>> {
         let mut data = Vec::new();
-        self.open_file(rel, OFlags::RDONLY)?
+        self.open_file(rel)?
             .take(limit as u64 + 1)
             .read_to_end(&mut data)?;
         if data.len() > limit {
@@ -160,7 +144,7 @@ impl Spool {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
-    /// A field of `job.json` as `str()` would print it; "" when anything is off.
+    /// A field of `job.json` as text; "" when anything is off.
     pub fn job_field(&self, job: &Job, field: &str) -> String {
         match self.read_json(&job.file("job.json")) {
             Ok(Value::Object(map)) => map.get(field).map(grade::as_text).unwrap_or_default(),
@@ -174,24 +158,9 @@ impl Spool {
             .is_ok()
     }
 
-    pub fn write_json(&self, dir: &str, name: &str, value: &Value) -> io::Result<()> {
-        write_json_at(self.dir(dir)?, name, value)
-    }
-
-    pub fn write_result(&self, job: &Job, mut payload: Value) -> io::Result<()> {
-        if let Some(map) = payload.as_object_mut() {
-            map.insert("state".into(), json!("done"));
-        }
-        self.write_json(job.as_str(), "result.json", &payload)
-    }
-
-    pub fn write_state(&self, job: &Job, state: Value) {
-        let _ = self.write_json(job.as_str(), "state.json", &state);
-    }
-
-    /// Read-only on purpose: flock needs no write access, and the lock files belong to the API.
+    /// Read-only on purpose: flock needs no write access, and `alive` belongs to the API.
     pub fn lock_held(&self, rel: &str) -> bool {
-        let Ok(file) = self.open_file(rel, OFlags::RDONLY) else {
+        let Ok(file) = self.open_file(rel) else {
             return false;
         };
         match rustix::fs::flock(&file, FlockOperation::NonBlockingLockExclusive) {
@@ -203,49 +172,9 @@ impl Spool {
         }
     }
 
-    /// mkdir is atomic, which is all the locking workers on a single host need.
-    pub fn claim(&self, job: &Job) -> bool {
-        self.dir(job.as_str())
-            .and_then(|d| {
-                Ok(rustix::fs::mkdirat(
-                    &d,
-                    ".lock",
-                    Mode::from_raw_mode(0o755),
-                )?)
-            })
-            .is_ok()
-    }
-
-    pub fn lock_time(&self, job: &Job) -> Option<SystemTime> {
-        let dir = self.dir(job.as_str()).ok()?;
-        rustix::fs::statat(&dir, ".lock", AtFlags::SYMLINK_NOFOLLOW)
-            .ok()
-            .map(|s| mtime(&s))
-    }
-
-    pub fn unlock(&self, job: &Job) -> bool {
-        self.dir(job.as_str())
-            .and_then(|d| Ok(rustix::fs::unlinkat(&d, ".lock", AtFlags::REMOVEDIR)?))
-            .is_ok()
-    }
-
-    pub fn retries(&self, job: &Job) -> u64 {
-        let n = self
-            .read_json(&job.file("reprises.json"))
-            .ok()
-            .and_then(|v| v.get("n").cloned());
-        match n {
-            Some(Value::Number(n)) => n
-                .as_u64()
-                .or_else(|| n.as_f64().map(|f| f.max(0.0) as u64))
-                .unwrap_or(0),
-            Some(Value::String(s)) => s.trim().parse().unwrap_or(0),
-            _ => 0,
-        }
-    }
-
-    /// Complete jobs without a result, oldest first. Links and foreign names are never jobs.
-    pub fn pending(&self) -> Vec<Job> {
+    /// Complete jobs, oldest first; whether one is done is for `Results` to say. Links and
+    /// foreign names are never jobs.
+    pub fn jobs(&self) -> Vec<Job> {
         let Ok(entries) = std::fs::read_dir(&self.root) else {
             return Vec::new();
         };
@@ -260,8 +189,7 @@ impl Spool {
             let Ok(stat) = rustix::fs::statat(&dir, "job.json", AtFlags::SYMLINK_NOFOLLOW) else {
                 continue;
             };
-            let done = rustix::fs::statat(&dir, "result.json", AtFlags::SYMLINK_NOFOLLOW).is_ok();
-            if FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile && !done {
+            if FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile {
                 jobs.push((mtime(&stat), job));
             }
         }
@@ -286,63 +214,6 @@ impl Spool {
                 let _ = std::fs::remove_dir_all(self.root.join(name));
             }
         }
-    }
-
-    /// One console session for the whole service, so the other workers keep grading.
-    pub fn console_lock(&self, stale_after: Duration) -> bool {
-        let mode = Mode::from_raw_mode(0o755);
-        match rustix::fs::mkdirat(&self.fd, CONSOLE_LOCK, mode) {
-            Ok(()) => true,
-            Err(rustix::io::Errno::EXIST) => {
-                let Ok(stat) =
-                    rustix::fs::statat(&self.fd, CONSOLE_LOCK, AtFlags::SYMLINK_NOFOLLOW)
-                else {
-                    return false;
-                };
-                let stale = SystemTime::now()
-                    .duration_since(mtime(&stat))
-                    .is_ok_and(|age| age > stale_after);
-                let retaken = stale
-                    && rustix::fs::unlinkat(&self.fd, CONSOLE_LOCK, AtFlags::REMOVEDIR).is_ok()
-                    && rustix::fs::mkdirat(&self.fd, CONSOLE_LOCK, mode).is_ok();
-                if retaken {
-                    eprintln!("ctester: console: verrou perime repris");
-                }
-                retaken
-            }
-            Err(_) => false,
-        }
-    }
-
-    pub fn console_unlock(&self) {
-        let _ = rustix::fs::unlinkat(&self.fd, CONSOLE_LOCK, AtFlags::REMOVEDIR);
-    }
-
-    pub fn durations(&self) -> Map<String, Value> {
-        match self.read_json(DURATIONS) {
-            Ok(Value::Object(map)) => map,
-            _ => Map::new(),
-        }
-    }
-
-    /// A sliding mean per exercise, read by the API for its ETA.
-    pub fn record_duration(&self, key: &str, seconds: f64) {
-        // Jobs rejected before a container starts would drag the average to zero.
-        if key.is_empty() || seconds < 0.5 {
-            return;
-        }
-        let mut all = self.durations();
-        let (mean, n) = match all.get(key).and_then(Value::as_array).map(Vec::as_slice) {
-            Some([mean, n]) => match (mean.as_f64(), n.as_f64()) {
-                (Some(mean), Some(n)) => (mean, (n as i64).min(DURATION_WINDOW)),
-                _ => (0.0, 0),
-            },
-            _ => (0.0, 0),
-        };
-        let n = n + 1;
-        let mean = ((mean + (seconds - mean) / n as f64) * 100.0).round() / 100.0;
-        all.insert(key.to_string(), json!([mean, n]));
-        let _ = self.write_json("", DURATIONS, &Value::Object(all));
     }
 }
 
@@ -415,66 +286,6 @@ pub mod tests {
     }
 
     #[test]
-    fn root_writes_follow_no_link() {
-        let (_scratch, spool, target) = hostile();
-        let secret = target.join("secret");
-        let j = job(&spool, 1, r#"{"exercise_id": "tp2-ex1"}"#);
-        for name in ["result.json", "state.json", "reprises.json"] {
-            symlink(&secret, spool.root.join(j.file(name))).unwrap();
-        }
-        symlink(
-            target.join("pendant"),
-            spool.root.join(j.file("result.json.tmp")),
-        )
-        .unwrap();
-        spool.write_result(&j, json!({"status": "ok"})).unwrap();
-        spool.write_state(&j, json!({"state": "exited"}));
-        spool
-            .write_json(j.as_str(), "reprises.json", &json!({"n": 1}))
-            .unwrap();
-        untouched(&target);
-        let result = spool.root.join(j.file("result.json"));
-        assert!(!result.is_symlink());
-        assert_eq!(
-            serde_json::from_slice::<Value>(&std::fs::read(result).unwrap()).unwrap()["state"],
-            "done"
-        );
-
-        symlink(&secret, spool.root.join(DURATIONS)).unwrap();
-        spool.record_duration("tp2-ex1", 3.0);
-        untouched(&target);
-
-        let link = Job::parse(&format!("{:032x}", 3)).unwrap();
-        symlink(&target, spool.root.join(link.as_str())).unwrap();
-        assert!(!spool.pending().contains(&link));
-        assert!(!spool.claim(&link));
-        assert!(spool.write_result(&link, json!({})).is_err());
-        spool.write_state(&link, json!({}));
-        assert!(!spool.unlock(&link));
-        untouched(&target);
-
-        // `src` as a link: a nested path is refused at the link, not only at the last component.
-        symlink(&target, spool.root.join(j.file("src"))).unwrap();
-        assert!(spool.read(&j.file("src/secret"), MAX_READ).is_err());
-        assert!(
-            spool
-                .open_file(&j.file("src/nouveau"), OFlags::WRONLY | OFlags::CREATE)
-                .is_err()
-        );
-        untouched(&target);
-
-        spool.sweep(
-            SystemTime::now() + Duration::from_secs(7200),
-            Duration::from_secs(600),
-        );
-        untouched(&target);
-        assert!(
-            !spool.root.join(j.as_str()).exists(),
-            "sweep kept a stale job"
-        );
-    }
-
-    #[test]
     fn root_reads_follow_no_link_nor_hard_link_nor_fifo() {
         let (_scratch, spool, target) = hostile();
         let secret = target.join("secret");
@@ -483,6 +294,10 @@ pub mod tests {
         assert!(spool.read_json(&j.file("files.json")).is_err());
         std::fs::hard_link(&secret, spool.root.join(j.file("answers.json"))).unwrap();
         assert!(spool.read(&j.file("answers.json"), MAX_READ).is_err());
+
+        // `src` as a link: a nested path is refused at the link, not only at the last component.
+        symlink(&target, spool.root.join(j.file("src"))).unwrap();
+        assert!(spool.read(&j.file("src/secret"), MAX_READ).is_err());
 
         let fifo = spool.root.join(j.file("in"));
         assert!(
@@ -505,69 +320,37 @@ pub mod tests {
         )
         .unwrap();
         assert_eq!(spool.job_field(&other, "exercise_id"), "");
-        assert!(!spool.pending().contains(&other));
-        assert!(spool.pending().contains(&j));
+        assert!(!spool.jobs().contains(&other));
+        assert!(spool.jobs().contains(&j));
 
         std::fs::write(spool.root.join(j.file("big")), vec![b'x'; 11]).unwrap();
         assert!(spool.read(&j.file("big"), 10).is_err());
         assert!(!spool.exists(j.as_str(), "absent"));
         assert!(spool.exists(j.as_str(), "files.json"));
+        untouched(&target);
     }
 
     #[test]
-    fn claim_reclaim_and_pending_order() {
-        let (_scratch, spool, _target) = hostile();
+    fn jobs_come_oldest_first_and_links_are_never_jobs() {
+        let (_scratch, spool, target) = hostile();
         let first = job(&spool, 7, "{}");
         std::thread::sleep(Duration::from_millis(20));
         let second = job(&spool, 3, "{}");
         std::fs::create_dir(spool.root.join("pas-un-job")).unwrap();
         std::fs::write(spool.root.join("pas-un-job/job.json"), "{}").unwrap();
-        assert_eq!(spool.pending(), [first.clone(), second.clone()]);
-        assert!(spool.claim(&first));
-        assert!(!spool.claim(&first));
-        assert!(spool.lock_time(&first).is_some());
-        assert!(spool.unlock(&first));
-        assert!(spool.claim(&first));
-        spool
-            .write_json(first.as_str(), "reprises.json", &json!({"n": 2}))
-            .unwrap();
-        assert_eq!(spool.retries(&first), 2);
-        spool.write_result(&second, json!({})).unwrap();
-        assert_eq!(spool.pending(), [first]);
-    }
+        let link = Job::parse(&format!("{:032x}", 9)).unwrap();
+        symlink(&target, spool.root.join(link.as_str())).unwrap();
+        assert_eq!(spool.jobs(), [first.clone(), second]);
 
-    #[test]
-    fn the_console_lock_is_single_and_expires() {
-        let (_scratch, spool, _target) = hostile();
-        assert!(spool.console_lock(Duration::from_secs(240)));
-        assert!(!spool.console_lock(Duration::from_secs(240)));
-        spool.console_unlock();
-        assert!(spool.console_lock(Duration::from_secs(240)));
-        assert!(
-            spool.console_lock(Duration::ZERO) || {
-                std::thread::sleep(Duration::from_millis(10));
-                spool.console_lock(Duration::ZERO)
-            }
+        spool.sweep(
+            SystemTime::now() + Duration::from_secs(7200),
+            Duration::from_secs(600),
         );
-    }
-
-    #[test]
-    fn durations_are_a_bounded_sliding_mean() {
-        let (_scratch, spool, _target) = hostile();
-        spool.record_duration("tp2-ex3", 0.01);
-        spool.record_duration("", 9.0);
-        assert!(spool.durations().is_empty());
-        spool.record_duration("tp2-ex3", 4.0);
-        spool.record_duration("tp2-ex3", 6.0);
-        assert_eq!(spool.durations()["tp2-ex3"], json!([5.0, 2]));
-        for _ in 0..30 {
-            spool.record_duration("tp1", 20.0);
-        }
-        assert_eq!(spool.durations()["tp1"][1], json!(DURATION_WINDOW + 1));
-        std::fs::write(spool.root.join(DURATIONS), "pas du json").unwrap();
-        assert!(spool.durations().is_empty());
-        spool.record_duration("tp1", 3.0);
-        assert_eq!(spool.durations()["tp1"], json!([3.0, 1]));
+        untouched(&target);
+        assert!(
+            !spool.root.join(first.as_str()).exists(),
+            "sweep kept a stale job"
+        );
     }
 
     #[test]
