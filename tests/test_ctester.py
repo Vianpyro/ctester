@@ -2105,10 +2105,11 @@ def test_les_deux_sondes_de_verrou_ouvrent_en_LECTURE_SEULE():
     corps = source[source.index("def _lock_held("):]
     corps = corps[:corps.index("os.close(fd)")]
     assert "os.O_RDONLY" in corps and "os.O_RDWR" not in corps, "_lock_held must probe read-only"
+    # The judge only reads the API's spool, locks included: nothing there is opened to write.
     source = lire(os.path.join(ROOT, "judge", "src", "spool.rs"))
-    corps = source[source.index("pub fn lock_held("):]
-    corps = corps[:corps.index("\n    pub fn ")]
-    assert "OFlags::RDONLY" in corps and "RDWR" not in corps, "lock_held must probe read-only"
+    assert "OFlags::RDONLY" in source
+    for ecriture in ("RDWR", "WRONLY", "CREATE", "APPEND", "TRUNC"):
+        assert ecriture not in source, "spool.rs opens the spool with " + ecriture
 
 
 def test_chaque_raison_de_console_a_un_message():
