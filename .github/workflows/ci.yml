@@ -117,6 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       pages: write
       id-token: write    # l'OIDC que deploy-pages échange, pas un secret stocké
     environment:
