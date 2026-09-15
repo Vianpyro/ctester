@@ -30,7 +30,7 @@ COOLDOWN = _int("CTESTER_COOLDOWN", "15")
 COOLDOWN_SIGNED_IN = _int("CTESTER_COOLDOWN_CONNECTE", "8")
 HOURLY = _int("CTESTER_HOURLY_QUOTA", "40")
 QUEUE_MAX = _int("CTESTER_QUEUE_MAX", "60")
-# Only divides the announced ETA; must match the number of runner units on the host.
+# Only divides the announced ETA; pull.sh starts this many judge units on the host.
 WORKERS = _int("CTESTER_WORKERS", "2")
 MAX_CODE = _int("CTESTER_MAX_CODE_BYTES", "65536")
 

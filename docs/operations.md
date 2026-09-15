@@ -12,17 +12,23 @@
   empty string to disable that router.
 - **`ctester-pull.timer`** follows the application branch nightly, deploys only when
   `tests/test_ctester.py` passes, and waits for an empty spool.
+- **The judge** (`judge/`, Rust) is built by CI into the release `judge-<commit>`. `ctester-pull` installs
+  it into `/opt/ctester/bin` only after checking its SHA-256 and its build attestation, and deploys no
+  commit whose judge is not published yet.
 - **`ctester-content.timer`** pulls the content every five minutes and republishes the catalog without
   restarting anything.
 - **The database schema and its grants** are both in `app/schema.sql`.
 
-All settings are environment variables read in `app/config.py` (API) and at the top of
-`worker/runner.py` (worker). On a server they all live in one file, `/opt/ctester/.env`, read by
-Compose and by every systemd unit.
+All settings are environment variables read in `app/config.py` (API) and `judge/src/config.rs`
+(judge). On a server they all live in
+one file, `/opt/ctester/.env`, read by Compose and by every systemd unit. The judge refuses to start
+when they break an invariant, such as `CTESTER_LOCK_STALE` outside `JOB_TIMEOUT`..`SWEEP_AFTER`.
 
 ## Deploying
 
-Requirements: Linux with systemd, Docker with the gVisor runtime (`runsc`), Python 3 and git.
+Requirements: Linux 5.6+ with systemd (the judge refuses to start without `openat2`), Docker with the
+gVisor runtime (`runsc`), Python 3, git, curl, and the GitHub CLI with a read-only `GH_TOKEN` in `.env`
+for `gh attestation verify`.
 
 ```text
 /opt/ctester/
@@ -31,7 +37,8 @@ Requirements: Linux with systemd, Docker with the gVisor runtime (`runsc`), Pyth
   .env          configuration, from deploy/env.example
   spool/        owned by 65534:65534
   published/
-/var/lib/ctester-judge/   CTESTER_WORK, created by the runner unit: staging and verdict cache
+  bin/          ctester-judge -> ctester-judge-<commit>, installed by ctester-pull
+/var/lib/ctester-judge/   CTESTER_WORK, created by the judge units: staging and verdict cache
 ```
 
 The API owns the spool, so the root worker opens nothing there that follows a link, and mounts
@@ -48,21 +55,30 @@ ln -s /opt/ctester/src/deploy/systemd/* /etc/systemd/system/
 systemctl daemon-reload
 systemctl start ctester-content
 docker compose up -d
-systemctl enable --now ctester-runner@1 ctester-runner@2 ctester-pull.timer ctester-content.timer
+systemctl enable --now ctester-judge@1 ctester-judge@2 ctester-pull.timer ctester-content.timer
 docker compose exec -T postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1 < src/app/schema.sql
 ```
 
-- Start as many `ctester-runner@N` instances as `CTESTER_WORKERS`.
+- Start as many `ctester-judge@N` instances as `CTESTER_WORKERS`; `ctester-pull` keeps that count.
+  Before the first judge release exists, `ctester-pull` defers, so install one by hand with the
+  commands it runs.
 - Accounts need a `ctester_app` role created before the schema is applied, and `CTESTER_DB_DSN`,
   `CTESTER_OIDC_ISSUER` and `CTESTER_OIDC_CLIENT_ID` in `.env`.
 - `COMPOSE_PROFILES=discord` starts the Discord bridge.
 - The timers' schedules can be changed with `systemctl edit ctester-pull.timer`.
+
+The first deployment of the judge also retires the Python `ctester-runner@N` units. On that host,
+check the unit's hardening with `systemd-analyze security ctester-judge@1`, then submit one quiz, io,
+unity and Console job. A restriction that breaks the judge is removed explicitly, with the reason in
+the commit.
 
 ## Checks before deploying
 
 Run these on a development machine; the last three need gcc.
 
 ```sh
+(cd judge && cargo clippy --all-targets -- -D warnings && cargo test)
+(cd judge && cargo build --release)  # verify_content.py and test_sandbox.py call judge/target/release
 npm run check                      # TypeScript and Svelte, warnings are errors
 npm run build                      # must come before the next two: they read frontend/dist
 npm test
@@ -117,7 +133,7 @@ python3 worker/publish_content.py   ../unittests/content /tmp/published
 |---|---|
 | Uvicorn | One worker only. Quotas, presence, the token cache and collaboration rooms are held in memory. |
 | WebSockets | `wsproto` must be in `/deps`, or every handshake returns 501 silently. The NPM proxy host needs "Websockets Support". |
-| Verdict cache | Lives in `CTESTER_WORK/cache`. Any change to `worker/runner.py` invalidates it once. Avoid deploying right before a lab. `CTESTER_CACHE_MAX=0` disables it. |
+| Verdict cache | Lives in `CTESTER_WORK/cache`. Any new judge build invalidates it once. Avoid deploying right before a lab. `CTESTER_CACHE_MAX=0` disables it. |
 | Console | Needs `CTESTER_SCRATCH=1` and at least two workers. |
 | gVisor | `--pids-limit` counts the sentry's threads: below 64 the sandbox does not start. Fork bombs are stopped by the memory limit. |
 | Compiler | `-std=gnu23`, not `c23` (which hides `M_PI`). `-DUNITY_INCLUDE_DOUBLE` is required, or double assertions always fail. |
@@ -151,8 +167,9 @@ Diagnose, roughly in the order things break:
 
 ```sh
 docker info --format '{{json .Runtimes}}'       # runsc registered?
-systemctl status 'ctester-runner@*'
-journalctl -u 'ctester-runner@*' -n 50
+/opt/ctester/bin/ctester-judge self-check        # resolved settings, openat2, build scripts
+systemctl status 'ctester-judge@*'
+journalctl -u 'ctester-judge@*' -n 50
 journalctl -u ctester-content -n 30
 journalctl -u ctester-pull  -n 30
 docker logs ctester-web-1
@@ -165,7 +182,7 @@ python3 /opt/ctester/src/tests/test_ctester.py
 Verdict cache activity is logged by the workers:
 
 ```sh
-journalctl -u 'ctester-runner@*' -n 500 | grep 'ctester: cache '
+journalctl -u 'ctester-judge@*' -n 500 | grep 'ctester: cache '
 ```
 
 If you see many "written" lines but no "served" ones, cache keys are changing between submissions,

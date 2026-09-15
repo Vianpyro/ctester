@@ -20,7 +20,7 @@ flowchart LR
     B["Browser<br/>Svelte (GitHub Pages)"]
     A["API<br/>FastAPI"]
     Q[("Spool")]
-    W["Host worker<br/>worker/runner.py"]
+    W["Host judge<br/>judge/ (Rust)"]
     S["Sandbox<br/>Docker + gVisor"]
     DB[("PostgreSQL")]
 
@@ -44,8 +44,9 @@ change.
 ```text
 app/                          FastAPI application (routers = HTTP, services = logic, state.py = SQL)
 frontend/                     Svelte 5 + TypeScript page, built with Vite
+judge/                        host judge (Rust): queue, sandbox, verdicts, verdict cache, console sessions
 worker/
-  runner.py                   host worker: queue, sandbox, verdicts, verdict cache, console sessions
+  judge.py                    the judge's grading rules, for the content tools
   content_catalog.py          content validation and access rules
   publish_content.py          release publication and rollback
   typst_build.py              Typst statement rendering
@@ -91,6 +92,6 @@ Real verdicts also need a worker, which requires Docker and gVisor. See
 | Backend       | Python 3.13, FastAPI, Uvicorn  |
 | Frontend      | Svelte 5, TypeScript, Vite     |
 | Database      | PostgreSQL                     |
-| Execution     | Docker + gVisor                |
+| Execution     | Rust judge, Docker + gVisor    |
 | Collaboration | Yjs over WebSocket             |
 | Deployment    | Compose, systemd, GitHub Pages |

@@ -50,6 +50,53 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  judge:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: judge
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - if: runner.os == 'Linux'
+        run: cargo install cargo-audit --locked && cargo audit
+
+  # deploy/pull.sh deploys a commit only once this release exists and its attestation verifies.
+  judge-release:
+    needs: [tests, judge]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal --target x86_64-unknown-linux-musl
+      - working-directory: judge
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - run: |
+          cp judge/target/x86_64-unknown-linux-musl/release/ctester-judge .
+          sha256sum ctester-judge > ctester-judge.sha256
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ctester-judge
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "judge-$GITHUB_SHA" ctester-judge ctester-judge.sha256 \
+            --target "$GITHUB_SHA" --title "judge $GITHUB_SHA" --notes "Built by CI." --prerelease
+
   codeql:
     runs-on: ubuntu-latest
     permissions:

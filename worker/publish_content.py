@@ -11,9 +11,24 @@ import sys
 
 import content_catalog
 import typst_build
-from runner import public_quiz
 
 POINTER = "current.json"
+
+
+def public_quiz(quiz):
+    """Rebuilt field by field, so an answer key can never leak into the release."""
+    return {
+        "label": quiz.get("label", ""),
+        "questions": [
+            {
+                "id": str(q.get("id", "")),
+                "group": str(q.get("group", "")),
+                "label": str(q.get("label", "")),
+                "type": str(q.get("type", "int")),
+            }
+            for q in quiz.get("questions", [])
+        ],
+    }
 
 # Checked on the projection itself, so a field added later cannot leak an answer key.
 INTERDIT = frozenset((
@@ -161,6 +176,23 @@ def _elaguer(dest, garder, keep):
                 if name != garder and os.path.isdir(os.path.join(dest, name))]
     for _, name in sorted(releases, reverse=True)[max(keep - 1, 0):]:
         shutil.rmtree(os.path.join(dest, name), ignore_errors=True)
+
+
+def publish_catalogue(content, published, preview=False):
+    """What ctester-content.timer runs; the judge no longer publishes anything."""
+    if preview:
+        print("ctester: PREVIEW ACTIVE -- exercises not yet open are being published",
+              file=sys.stderr, flush=True)
+    if not (content and published):
+        raise RuntimeError(
+            "CTESTER_CONTENT and CTESTER_PUBLISHED are required to publish")
+    model = content_catalog.discover(content)
+    renders, (total, du_cache) = typst_build.render_all(model, published)
+    if total:
+        print("ctester: %d énoncé(s) Typst rendu(s), dont %d depuis le cache"
+              % (total, du_cache), file=sys.stderr, flush=True)
+    publish(model, published, now=APERCU if preview else None, renders=renders)
+    return list(model["exercises"].values())
 
 
 def main(argv=None):

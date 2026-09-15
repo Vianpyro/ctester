@@ -11,8 +11,11 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - `frontend/`: Svelte 5 + TypeScript. `lib/domain/` is pure logic with no DOM, `lib/state/` has one
   small module per owner, `features/` are lazily loaded screens, and `App.svelte` alone decides what
   is mounted.
-- `worker/`: `runner.py` is the host worker (root). `content_catalog.py`, `publish_content.py` and
-  `typst_build.py` form the content pipeline. `build-*.sh` run inside the sandbox.
+- `judge/`: the host judge in Rust (root). `grade.rs` holds the grading rules, `spool.rs` every access
+  to the API-owned spool, `gate.rs` the judge's gate to an exercise.
+- `worker/`: `content_catalog.py`, `publish_content.py` and `typst_build.py` form the content
+  pipeline. `judge.py` calls the Rust
+  grading rules for the content tools. `build-*.sh` run inside the sandbox.
 - `deploy/`: the Compose stack, systemd units and update scripts, all configured by `/opt/ctester/.env`.
 - `scripts/`: command-line tools. `tests/`: the Python checks.
 
@@ -23,7 +26,10 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **No identity in request bodies.** The account always comes from the validated token; a test scans
   `schemas.py` for this.
 - **Student-facing messages are French** and come from `services/`, not from Pydantic errors.
-- **`find_exercise()` is the only gate** to an exercise, in the API and in the worker.
+- **`find_exercise()` is the only gate** to an exercise in the API; the judge re-checks with `gate.rs`.
+  `tests/vectors/release_access.json` binds the two implementations of `access`.
+- **The judge opens nothing in the spool that follows a link, and mounts nothing from it.** The API
+  owns the spool; every mount is staged in `CTESTER_WORK` first.
 - **Anything `test_ctester.py` imports must be standard-library only.** It runs with the host Python on
   the Dell. The same goes for `csp.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares
@@ -46,6 +52,8 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 ## Checks
 
 ```sh
+(cd judge && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)
+(cd judge && cargo build --release)   # verify_content.py and test_sandbox.py call this binary
 npm run check && npm run build && npm test
 python3 tests/test_ctester.py
 python3 tests/test_api.py

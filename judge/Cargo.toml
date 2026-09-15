@@ -1,0 +1,15 @@
+[package]
+name = "ctester-judge"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+
+[dependencies]
+regex = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+unicode-normalization = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", features = ["fs", "rand"] }
+sha2 = "0.11.0"

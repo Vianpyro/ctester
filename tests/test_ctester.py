@@ -16,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import types
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app")]
@@ -28,7 +27,6 @@ import config     # noqa: E402
 import csp        # noqa: E402
 import state      # noqa: E402
 import policy as politique  # noqa: E402
-import runner     # noqa: E402
 import security   # noqa: E402
 from services import catalog as catalogue    # noqa: E402
 from services import discord      # noqa: E402
@@ -369,88 +367,23 @@ def test_publish_content_main_publishes_and_rejects_invalid_content():
         shutil.rmtree(dest)
 
 
-def test_worker_v2_resout_un_exercice_et_refuse_ce_qui_est_ferme():
-    root = tempfile.mkdtemp(prefix="ctester-content-")
-    garde = runner.CONTENT
-    try:
-        _contenu_v2(root, {"state": "scheduled", "available_from": "2099-01-01T00:00:00-05:00"})
-        _write_json(os.path.join(root, "exercises", "surface", "public", "files.json"),
-                    {"files": [{"name": "calendrier.h", "template": ""},
-                               {"name": "calendrier.c", "template": ""}]})
-        runner.CONTENT = root
-        assessment = os.path.join(root, "exercises", "surface", "assessment")
-        assert runner.tp_path("surface") == assessment
-        assert runner.tp_path("nombres") is None, "un exercice fermé reste injoignable"
-        assert runner.tp_path("../../etc/passwd") is None
-        assert runner.unity_dir() == os.path.join(root, "shared", "unity")
-        conf = runner.load_config(assessment, "io.json")
-        assert [f["name"] for f in runner.declared_files(conf, assessment)] == [
-            "calendrier.h", "calendrier.c"]
-        assert runner.declared_files(conf) == [{"name": "submission.c", "template": ""}]
-    finally:
-        runner.CONTENT = garde
-        shutil.rmtree(root)
-
-
-def test_le_worker_ouvre_un_exercice_ferme_au_SEUL_moderateur():
-    root = tempfile.mkdtemp(prefix="ctester-content-")
-    garde = (runner.CONTENT, runner.MODERATEURS)
-    try:
-        _contenu_v2(root, {"state": "scheduled",
-                           "available_from": "2099-01-01T00:00:00-05:00"})
-        runner.CONTENT = root
-        runner.MODERATEURS = frozenset(["sub-prof"])
-        assessment = os.path.join(root, "exercises", "nombres", "assessment")
-        assert runner.tp_path("nombres") is None
-        assert runner.tp_path("nombres", "") is None
-        assert runner.tp_path("nombres", "sub-alice") is None
-        assert runner.tp_path("nombres", "sub-prof") == assessment
-        assert runner.tp_path("../../etc/passwd", "sub-prof") is None
-        runner.MODERATEURS = frozenset()
-        assert runner.tp_path("nombres", "sub-prof") is None
-    finally:
-        runner.CONTENT, runner.MODERATEURS = garde
-        shutil.rmtree(root)
-
-
-def test_le_worker_lit_l_owner_du_job_et_rien_d_autre():
-    tmp = tempfile.mkdtemp(prefix="ctester-job-")
-    try:
-        _write_json(os.path.join(tmp, "job.json"),
-                    {"exercise_id": "surface", "owner": "sub-prof"})
-        assert runner.job_owner(tmp) == "sub-prof"
-        _write_json(os.path.join(tmp, "job.json"), {"kind": "console"})
-        assert runner.job_owner(tmp) == ""
-        os.remove(os.path.join(tmp, "job.json"))
-        assert runner.job_owner(tmp) == ""
-    finally:
-        shutil.rmtree(tmp)
-
-
 def test_publication_refuse_un_worker_sans_contenu():
-    garde = (runner.CONTENT, runner.PUBLISHED)
-    try:
-        for contenu, publie in (("", ""), ("/tmp/x", ""), ("", "/tmp/y")):
-            runner.CONTENT, runner.PUBLISHED = contenu, publie
-            try:
-                runner.publish_catalogue()
-            except RuntimeError as exc:
-                assert "CTESTER_CONTENT" in str(exc), exc
-            else:
-                raise AssertionError("publication silencieuse : %r %r" % (contenu, publie))
-    finally:
-        runner.CONTENT, runner.PUBLISHED = garde
+    for contenu, publie in (("", ""), ("/tmp/x", ""), ("", "/tmp/y")):
+        try:
+            publish_content.publish_catalogue(contenu, publie)
+        except RuntimeError as exc:
+            assert "CTESTER_CONTENT" in str(exc), exc
+        else:
+            raise AssertionError("publication silencieuse : %r %r" % (contenu, publie))
 
 
 def test_publish_catalogue_really_publishes_and_says_so_in_preview():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     dest = tempfile.mkdtemp(prefix="ctester-published-")
-    guard = (runner.CONTENT, runner.PUBLISHED, runner.PREVIEW)
     try:
         _contenu_v2(root, {"state": "scheduled",
                           "available_from": "2099-01-01T00:00:00-05:00"})
-        runner.CONTENT, runner.PUBLISHED, runner.PREVIEW = root, dest, False
-        exercises = runner.publish_catalogue()
+        exercises = publish_content.publish_catalogue(root, dest)
         assert {e["id"] for e in exercises} == {"surface", "nombres"}
         assert publish_content.current(dest) is not None
         assert not os.path.isfile(os.path.join(
@@ -458,13 +391,11 @@ def test_publish_catalogue_really_publishes_and_says_so_in_preview():
 
         capture = io.StringIO()
         with contextlib.redirect_stderr(capture):
-            runner.PREVIEW = True
-            runner.publish_catalogue()
+            publish_content.publish_catalogue(root, dest, preview=True)
         assert "PREVIEW" in capture.getvalue(), capture.getvalue()
         assert os.path.isfile(os.path.join(
             publish_content.current(dest), "exercises", "nombres.json"))
     finally:
-        runner.CONTENT, runner.PUBLISHED, runner.PREVIEW = guard
         shutil.rmtree(root)
         shutil.rmtree(dest)
 
@@ -1160,57 +1091,6 @@ def test_load_exercise_is_the_worker_s_gate():
         shutil.rmtree(root)
 
 
-def test_sandbox_force_removes_the_container_after_a_timeout():
-    calls = []
-
-    class FakeSubprocess:
-        TimeoutExpired = subprocess.TimeoutExpired
-
-        @staticmethod
-        def run(argv, **kwargs):
-            calls.append(argv)
-            if argv[:2] == ["docker", "run"]:
-                raise FakeSubprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
-            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    guard = runner.subprocess
-    try:
-        runner.subprocess = FakeSubprocess
-        code, out = runner.sandbox("/spool/job1", "/tests/tp1", "io", "n0nce")
-        assert code == 137 and out == ""
-        assert any(a[:3] == ["docker", "rm", "-f"] for a in calls), calls
-    finally:
-        runner.subprocess = guard
-
-
-def test_parse_unity():
-    ok = runner.parse_unity(UNITY_OK)
-    assert ok == {"total": 2, "passed": 2, "ignored": 0, "failed": []}, ok
-
-    bad = runner.parse_unity(UNITY_FAIL)
-    assert bad["total"] == 4 and bad["passed"] == 1 and bad["ignored"] == 1, bad
-    assert bad["failed"] == ["test_pop_pile_vide", "test_realloc"], bad
-
-    assert "Expected 42" not in repr(bad), bad
-
-    assert runner.parse_unity("test_tp1.c:12:test_a:PASS\nSegmentation fault") is None
-    assert runner.parse_unity("") is None
-
-
-def test_parse_unity_hostile():
-    forged = (
-        "<script>alert(1)</script>:1:nom avec espaces et ; rm -rf /:FAIL: x\n"
-        "t.c:1:" + "z" * 200 + ":FAIL: x\n"
-        "1 Tests 1 Failures 0 Ignored\n"
-    )
-    got = runner.parse_unity(forged)
-    assert got["failed"] == [], got
-    assert got["total"] == 1, got
-
-    two = runner.parse_unity("9 Tests 0 Failures 0 Ignored\n2 Tests 2 Failures 0 Ignored\n")
-    assert two["total"] == 2 and two["passed"] == 0, two
-
-
 def test_presence_compteur():
     p = quotas.Presence()
     assert p.touch("a", 1000) == 1
@@ -1219,79 +1099,8 @@ def test_presence_compteur():
     assert p.touch("c", 1000 + config.PRESENCE_TTL + 1) == 1
 
 
-def test_verdict_codes():
-    assert runner.verdict(10, "erreur.c:3: error: ...")["status"] == "compile_error"
-    assert runner.verdict(10, "x" * 99999)["gcc"] == "x" * runner.MAX_GCC_CHARS
-    link = runner.verdict(11, "peu importe")
-    assert link["status"] == "link_error" and "gcc" not in link, link
-    assert runner.verdict(12, "")["status"] == "compile_timeout"
-    assert runner.verdict(137, "")["status"] == "timeout"
-    assert runner.verdict(0, UNITY_OK)["kind"] == "unity"
-    assert runner.verdict(139, "Segmentation fault")["status"] == "error"
-
-
-def test_abandon_asan():
-    unity = runner.verdict(runner.ASAN_EXIT, "peu importe ce qu'il a imprime")
-    assert unity["status"] == "memory_error", unity
-    assert "tableau" in unity["message"]
-    assert set(unity) == {"status", "message"}, unity
-    assert "peu importe" not in str(unity)
-
-    nonce = "n" * 32
-    rapport = ("ERROR: AddressSanitizer: stack-buffer-overflow\n"
-               "    #0 in remplir tableaux.c:12")
-    sortie = ("%s BEGIN 01\n%s ERR 01\n%s\n%s END 01 %d\n"
-              % (nonce, nonce, rapport, nonce, runner.ASAN_EXIT))
-    io_res = runner.verdict_io(0, sortie, [{"stdin": "", "expect": [1]}],
-                               nonce, 0.005)
-    cas = io_res["cases"][0]
-    assert "débordé" in cas["reason"], cas
-    assert "tableaux.c:12" in cas["stderr"], cas
-
-    long_rapport = ("%s BEGIN 01\n%s ERR 01\n%s\n%s END 01 %d\n"
-                    % (nonce, nonce, "z" * 5000, nonce, runner.ASAN_EXIT))
-    long_res = runner.verdict_io(0, long_rapport, [{"stdin": "", "expect": [1]}],
-                                 nonce, 0.005)
-    assert len(long_res["cases"][0]["stderr"]) == runner.MAX_STDERR
-
-
-def test_quiz_normalisation():
-    ok = runner.check_answer
-    assert ok("bin8", "00010111", "00010111") == (True, "")
-    assert ok("bin8", "0001 0111", "00010111")[0]
-    assert ok("bin8", "0b0001_0111", "00010111")[0]
-    juste, indice = ok("bin8", "10111", "00010111")
-    assert not juste and "8 bits" in indice, indice
-    assert ok("bin8", "00010110", "00010111") == (False, "")
-    assert ok("bin8", "quarante-deux", "00010111")[0] is False
-
-    for given in ("A7", "a7", "0xa7", "0XA7", "00a7", "a7h"):
-        assert ok("hex8", given, "A7")[0], given
-    assert ok("hex8", "A8", "A7") == (False, "")
-    assert ok("hex8", "zz", "A7")[0] is False
-
-    for given in ("-79", " -79 ", "−79"):
-        assert ok("int", given, "-79")[0], given
-    assert ok("int", "+84", "84")[0]
-    assert ok("int", "79", "-79") == (False, "")
-
-
-def test_grade_quiz():
-    parfait = runner.grade_quiz(QUIZ, {"q1": "0001 0111", "q2": "0xa7", "q3": "-79"})
-    assert parfait == {"status": "ok", "kind": "quiz", "total": 3, "passed": 3,
-                       "wrong": []}, parfait
-
-    partiel = runner.grade_quiz(QUIZ, {"q1": "10111", "q2": "A7"})
-    assert partiel["passed"] == 1 and partiel["total"] == 3, partiel
-    par_id = {w["id"]: w for w in partiel["wrong"]}
-    assert "8 bits" in par_id["q1"]["hint"]
-    assert par_id["q3"]["hint"] == "non répondu"
-    assert par_id["q3"]["label"] == "10110001 en complément à 2"
-    assert "-79" not in json.dumps(partiel, ensure_ascii=False), partiel
-
-
 def test_public_quiz_hides_answers():
-    public = runner.public_quiz(QUIZ)
+    public = publish_content.public_quiz(QUIZ)
     blob = json.dumps(public, ensure_ascii=False)
     assert "answer" not in blob, blob
     for question in QUIZ["questions"]:
@@ -1301,253 +1110,9 @@ def test_public_quiz_hides_answers():
 
     QUIZ["questions"][0]["commentaire_prof"] = "piège classique"
     try:
-        assert "piège" not in json.dumps(runner.public_quiz(QUIZ), ensure_ascii=False)
+        assert "piège" not in json.dumps(publish_content.public_quiz(QUIZ), ensure_ascii=False)
     finally:
         del QUIZ["questions"][0]["commentaire_prof"]
-
-
-def test_extract_numbers():
-    assert runner.extract_numbers("Surface = 15 cm2") == [15.0, 2.0]
-    assert runner.extract_numbers("I = 2,50 A") == [2.5]
-    assert runner.extract_numbers("rien du tout") == []
-    assert runner.extract_numbers("-3.5 et +4") == [-3.5, 4.0]
-
-
-def test_match_subsequence():
-    tol = runner.DEFAULT_TOLERANCE
-    sortie = "Entrez la longueur (max 100) : 5\nLargeur : 3\nSurface = 15 cm2"
-    assert runner.match_subsequence(runner.extract_numbers(sortie), [15], tol)
-    assert runner.match_subsequence([7.0, 2.0], [7, 2], tol)
-    assert not runner.match_subsequence([2.0, 7.0], [7, 2], tol)
-    assert runner.match_subsequence([23.88], [23.88459], tol)
-    assert not runner.match_subsequence([2.0], [2.5], tol)
-    assert runner.match_subsequence([0.0], [0], tol)
-    assert not runner.match_subsequence([0.01], [0], tol)
-
-
-def test_check_case():
-    tol = runner.DEFAULT_TOLERANCE
-    case = {"contains": "laminaire", "absent": ["turbulent", "transitoire"]}
-    assert runner.check_case(case, "L'ecoulement est LAMINAIRE", tol) == ""
-    assert runner.check_case(case, "écoulement laminaire", tol) == ""
-    assert runner.check_case(case, "ecoulement turbulent", tol) != ""
-    invite = "laminaire, turbulent ou transitoire ? -> laminaire"
-    assert runner.check_case(case, invite, tol) != ""
-    manque = runner.check_case(case, "l'ecoulement est calme", tol)
-    assert "ne contient pas le mot attendu" in manque, manque
-
-
-def test_in_range():
-    tol = runner.DEFAULT_TOLERANCE
-    cinq_des = {"in_range": [1, 6], "count": 5}
-    assert runner.check_case(cinq_des, "3 1 6 2 4", tol) == ""
-    assert runner.check_case(cinq_des, "Lancer 100 fois : 3 1 6 2 4", tol) == ""
-    rate = runner.check_case(cinq_des, "3 1 6", tol)
-    assert "3 valeurs entre 1 et 6" in rate and "au moins 5" in rate, rate
-    assert runner.check_case(cinq_des, "0 7 8 9 10", tol) != ""
-
-    moyenne = {"in_range": [3.4, 3.6]}
-    assert runner.check_case(moyenne, "Moyenne : 3.4997", tol) == ""
-    assert runner.check_case(moyenne, "Moyenne : 2.9", tol) != ""
-
-
-def test_check_case_diagnostics():
-    tol = runner.DEFAULT_TOLERANCE
-    case = {"expect": [23.88459]}
-    inf = runner.check_case(
-        case, "Entrez la tension (V) : L'intensite est : inf A", tol)
-    assert "inf ou nan" in inf and "autant de valeurs" in inf, inf
-
-    aucun = runner.check_case(case, "Entrez la tension (V) : ", tol)
-    assert "aucun nombre" in aucun and "bon exercice" in aucun, aucun
-
-    faux = runner.check_case(case, "resultat : 42.0", tol)
-    assert faux == "la sortie ne contient pas les valeurs attendues, dans l'ordre"
-
-    partiel = runner.check_case(
-        {"expect": [4, 3, 4]},
-        "Entrez le nombre de pennys : On obtient ainsi 4 livre(s) et 3 shilling(s).",
-        tol)
-    assert "que 2 nombres" in partiel and "en attend 3" in partiel, partiel
-    assert "[4, 3, 4]" not in partiel
-
-    assert runner.check_case({"expect": [4, 3, 4]}, "9 puis 9 puis 9", tol) == \
-        "la sortie ne contient pas les valeurs attendues, dans l'ordre"
-
-    for mot in ("inferieur", "inférieur", "nanometre", "information", "infini"):
-        assert runner.NONFINITE_RE.search(mot) is None, mot
-    for mot in ("inf", "-inf", "NaN", "Inf A", "nan\n", "-nan"):
-        assert runner.NONFINITE_RE.search(mot) is not None, mot
-
-
-def test_split_runs_and_verdict_io():
-    nonce = "abc123"
-    sortie = (
-        "bruit avant\n"
-        + nonce + " BEGIN 01\nSurface = 15\n" + nonce + " END 01 0\n"
-        + nonce + " BEGIN 02\nSurface = 9\n" + nonce + " END 02 0\n"
-        + nonce + " BEGIN 03\n" + nonce + " END 03 137\n"
-    )
-    runs = runner.split_runs(sortie, nonce)
-    assert set(runs) == {"01", "02", "03"}
-    assert runs["01"] == ("Surface = 15", "", 0)
-    assert runs["03"][2] == 137
-
-    cases = [{"stdin": "5\n3\n", "expect": [15]},
-             {"stdin": "12\n7\n", "expect": [84]},
-             {"stdin": "1\n1\n", "expect": [1]}]
-    got = runner.verdict_io(0, sortie, cases, nonce, runner.DEFAULT_TOLERANCE)
-    assert got["kind"] == "io" and got["total"] == 3 and got["passed"] == 1, got
-    par_cas = {c["case"]: c for c in got["cases"]}
-    assert par_cas[2]["stdin"] == "12\n7\n"
-    assert par_cas[2]["stdout"] == "Surface = 9"
-    assert par_cas[2]["nombres"] == [9.0], par_cas[2]
-    assert "84" not in json.dumps(got)
-    assert "interrompu" in par_cas[3]["reason"]
-
-    forge = "deadbeef BEGIN 01\n0 Failures\ndeadbeef END 01 0\n"
-    vide = runner.verdict_io(0, forge, cases, nonce, runner.DEFAULT_TOLERANCE)
-    assert vide["passed"] == 0, vide
-
-    rate = runner.verdict_io(10, "sub.c:3: error: ...", cases, nonce, 0.005)
-    assert rate["status"] == "compile_error"
-    coupe = runner.verdict_io(137, "", cases, nonce, 0.005)
-    assert coupe["status"] == "timeout" and "cases" not in coupe, coupe
-
-    segfault = (nonce + " BEGIN 01\n" + nonce + " END 01 139\n"
-               + nonce + " BEGIN 02\nSurface = 84\n" + nonce + " END 02 0\n"
-               + nonce + " BEGIN 03\nSurface = 1\n" + nonce + " END 03 0\n")
-    verdict = runner.verdict_io(0, segfault, cases, nonce, runner.DEFAULT_TOLERANCE)
-    par_cas = {c["case"]: c for c in verdict["cases"]}
-    assert "anormalement" in par_cas[1]["reason"] and "code 139" in par_cas[1]["reason"]
-
-
-def test_stderr_et_avertissements():
-    nonce = "n0nce"
-    sortie = (
-        nonce + " WARN\n"
-        "sub.c:4:9: warning: 'somme' is used uninitialized\n"
-        + nonce + " ENDWARN\n"
-        + nonce + " BEGIN 01\nResultat 12\n"
-        + nonce + " ERR 01\nmise au point : i vaut 3\n"
-        + nonce + " END 01 0\n"
-    )
-    avertissements, reste = runner.extraire_avertissements(sortie, nonce)
-    assert "is used uninitialized" in avertissements
-    assert "warning" not in reste and "WARN" not in reste
-
-    runs = runner.split_runs(reste, nonce)
-    assert runs["01"] == ("Resultat 12", "mise au point : i vaut 3", 0)
-
-    reussite = runner.avec_avertissements({"status": "ok", "passed": 3,
-                                           "total": 3}, avertissements)
-    assert "uninitialized" in reussite["warnings"]
-    rate = runner.avec_avertissements(
-        {"status": "compile_error", "gcc": "..."}, avertissements)
-    assert "warnings" not in rate
-    assert "warnings" not in runner.avec_avertissements({"status": "ok"}, "")
-
-    assert runner.extraire_avertissements("abc", nonce) == ("", "abc")
-
-    faux = "deadbeef WARN\nmenteur\ndeadbeef ENDWARN\n"
-    assert runner.extraire_avertissements(faux, nonce) == ("", faux)
-
-    tronque = nonce + " WARN\nsub.c:3: warning: partiel"
-    assert runner.extraire_avertissements(tronque, nonce) == ("", tronque)
-
-
-def test_detect_mode():
-    tmp = tempfile.mkdtemp(prefix="ctester-")
-    try:
-        for name, fichier in (("quiz", "quiz.json"), ("io", "io.json"),
-                              ("unity", "unity.json"), ("vide", None)):
-            d = os.path.join(tmp, name)
-            os.makedirs(d)
-            if fichier:
-                open(os.path.join(d, fichier), "w").close()
-        assert runner.detect_mode(os.path.join(tmp, "quiz")) == "quiz"
-        assert runner.detect_mode(os.path.join(tmp, "io")) == "io"
-        assert runner.detect_mode(os.path.join(tmp, "unity")) == "unity"
-        assert runner.detect_mode(os.path.join(tmp, "vide")) is None
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-def test_declared_files():
-    assert runner.declared_files({}) == [{"name": "submission.c", "template": ""}]
-
-    module = runner.declared_files({"files": [
-        {"name": "calendrier.h", "template": "#define VRAI 1\n"},
-        {"name": "calendrier.c"},
-    ]})
-    assert [f["name"] for f in module] == ["calendrier.h", "calendrier.c"]
-    assert module[0]["template"] == "#define VRAI 1\n"
-    assert module[1]["template"] == ""
-
-    sales = runner.declared_files({"files": [
-        {"name": "../../etc/passwd"}, {"name": "a/b.c"}, {"name": "bon.c"},
-        {"name": "script.sh"}, {"name": ".hidden"},
-    ]})
-    assert [f["name"] for f in sales] == ["bon.c"], sales
-    assert runner.declared_files({"files": [{"name": "x.sh"}]})[0]["name"] \
-        == "submission.c"
-
-
-def test_docker_argv():
-    for mode in ("unity", "io"):
-        argv = runner.docker_argv("/spool/abc", "/tests/tp1", "ctester-abc", mode,
-                                  "n0nce")
-        for flag in ("--network", "--read-only", "--cap-drop", "--pids-limit",
-                     "--security-opt", "--runtime"):
-            assert flag in argv, (mode, flag)
-        assert "--privileged" not in argv
-        assert argv[argv.index("--user") + 1] == "65534:65534"
-        for i, item in enumerate(argv):
-            if item == "-v":
-                assert argv[i + 1].endswith(":ro"), argv[i + 1]
-
-    for mode in ("unity", "io"):
-        argv = runner.docker_argv("/spool/abc", "/tests/tp1", "c", mode, "n")
-        assert "/spool/abc/src:/in/src:ro" in " ".join(argv), mode
-        assert "submission.c" not in " ".join(argv), mode
-
-    garde_env = runner.SANDBOX_ENV
-    try:
-        runner.SANDBOX_ENV = {"CTESTER_C_STD": "gnu23", "CTESTER_RUN_TIMEOUT": "5"}
-        argv = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "unity", "n")
-        assert "-e" in argv and "CTESTER_C_STD=gnu23" in argv
-        assert "CTESTER_RUN_TIMEOUT=5" in argv
-    finally:
-        runner.SANDBOX_ENV = garde_env
-
-    io_argv = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "io", "n0nce")
-    mounts = " ".join(io_argv)
-    assert "/tests/tp1" not in mounts, mounts
-    assert "/spool/abc/cases:/in/cases:ro" in mounts
-    assert "CTESTER_NONCE=n0nce" in io_argv
-
-    unity_argv = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "unity")
-    assert "/tests/tp1:/in/tests:ro" in " ".join(unity_argv)
-
-
-def test_forbidden_includes():
-    code = '#include <stdio.h>\n#include  "pile.h"\n#include <unistd.h>\nint main(){}\n'
-    allowed = {"stdio.h", "stdlib.h", "pile.h"}
-    assert runner.forbidden_includes(code, allowed) == ["unistd.h"]
-    assert runner.forbidden_includes(code, None) == []
-    assert runner.forbidden_includes("int main(){}", allowed) == []
-    assert runner.forbidden_includes("  #  include <net/if.h>", allowed) == ["net/if.h"]
-
-
-def test_read_allowed_reads_the_file_or_disables_the_check():
-    tmp = tempfile.mkdtemp(prefix="ctester-tp-")
-    try:
-        assert runner.read_allowed(tmp) is None
-        with open(os.path.join(tmp, "allowed_includes.txt"), "w", encoding="utf-8") as fh:
-            fh.write("stdio.h\n\nstdlib.h\n  \n")
-        assert runner.read_allowed(tmp) == {"stdio.h", "stdlib.h"}
-    finally:
-        shutil.rmtree(tmp)
 
 
 def test_politique_est_declarative():
@@ -2515,47 +2080,6 @@ def test_forum_identite_bornes_et_visibilite():
         config.FORUM_MODERATORS = garde
 
 
-def test_verrou_perime_est_repris_puis_abandonne():
-    tmp = tempfile.mkdtemp(prefix="ctester-verrou-")
-    try:
-        job = os.path.join(tmp, "job-1")
-        os.makedirs(job)
-        with open(os.path.join(job, "job.json"), "w", encoding="utf-8") as fh:
-            json.dump({"exercise_id": "tp2-ex0"}, fh)
-        lock = os.path.join(job, ".lock")
-        os.mkdir(lock)
-        maintenant = time.time()
-
-        assert not runner.claim(job)
-        assert not runner.reclaim(job, maintenant)
-        assert os.path.isdir(lock)
-
-        os.utime(lock, (maintenant - runner.LOCK_STALE - 1,) * 2)
-        assert runner.reclaim(job, maintenant)
-        assert runner.claim(job)
-        assert runner.reprises(job) == 1
-
-        os.utime(lock, (maintenant - runner.LOCK_STALE - 1,) * 2)
-        assert not runner.reclaim(job, maintenant)
-        with open(os.path.join(job, "result.json"), encoding="utf-8") as fh:
-            verdict = json.load(fh)
-        assert verdict["status"] == "error", verdict
-        assert verdict["state"] == "done", verdict
-        ancien_spool = runner.SPOOL
-        try:
-            runner.SPOOL = tmp
-            assert runner.pending_jobs() == []
-        finally:
-            runner.SPOOL = ancien_spool
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-def test_le_verrou_perime_ne_double_jamais_le_balayage():
-    assert runner.LOCK_STALE < runner.SWEEP_AFTER, (runner.LOCK_STALE, runner.SWEEP_AFTER)
-    assert runner.LOCK_STALE > runner.JOB_TIMEOUT, (runner.LOCK_STALE, runner.JOB_TIMEOUT)
-
-
 def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
     tiers = {"starlette", "fastapi", "pydantic", "pydantic_core", "uvicorn",
              "httpx", "httpx2", "anyio", "h11"}
@@ -2564,39 +2088,25 @@ def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
 
 
 def test_les_deux_sondes_de_verrou_ouvrent_en_LECTURE_SEULE():
-    for chemin, nom in ((os.path.join(ROOT, "worker", "runner.py"), "verrou_tenu"),
-                        (os.path.join(ROOT, "app", "services", "scratch.py"),
-                         "_lock_held")):
-        source = lire(chemin)
-        corps = source[source.index("def " + nom + "("):]
-        corps = corps[:corps.index("os.close(fd)")]
-        assert "os.O_RDONLY" in corps, nom + " must probe the lock with O_RDONLY"
-        assert "os.O_RDWR" not in corps, (
-            nom + " ouvre encore en O_RDWR pour sonder.")
-
-
-def test_un_constructeur_absent_se_nomme_au_lieu_d_accuser_le_service():
-    dossier = tempfile.mkdtemp()
-    garde = runner.BUILD_SCRATCH
-    try:
-        runner.BUILD_SCRATCH = os.path.join(dossier, "absent.sh")
-        verdict = runner.run_console(dossier)
-        assert verdict["reason"] == "build_missing", verdict
-        etat = json.loads(lire(os.path.join(dossier, "state.json")))
-        assert etat["state"] == "exited" and etat["reason"] == "build_missing", etat
-    finally:
-        runner.BUILD_SCRATCH = garde
-        shutil.rmtree(dossier)
+    source = lire(os.path.join(ROOT, "app", "services", "scratch.py"))
+    corps = source[source.index("def _lock_held("):]
+    corps = corps[:corps.index("os.close(fd)")]
+    assert "os.O_RDONLY" in corps and "os.O_RDWR" not in corps, "_lock_held must probe read-only"
+    source = lire(os.path.join(ROOT, "judge", "src", "spool.rs"))
+    corps = source[source.index("pub fn lock_held("):]
+    corps = corps[:corps.index("\n    pub fn ")]
+    assert "OFlags::RDONLY" in corps and "RDWR" not in corps, "lock_held must probe read-only"
 
 
 def test_chaque_raison_de_console_a_un_message():
-    worker = lire(os.path.join(ROOT, "worker", "runner.py"))
+    juge = "".join(lire(os.path.join(ROOT, "judge", "src", nom)) for nom in ("console.rs", "main.rs"))
     page = lire(os.path.join(ROOT, "frontend", "src", "features", "scratch",
                              "session.svelte.ts"))
     bloc = page.split("const REASONS: Record<string, string> = {")[1].split("};")[0]
     connues = set(re.findall("^\\s*(\\w+):", bloc, re.M)) | {"exited"}
-    motif = 'reason["\']?[=:]\\s*["\'](\\w+)["\']'
-    emises = set(re.findall(motif, worker))
+    motif = r'(?:break |exited\([^)]*, |(?:== 12|else) \{\s*|"reason": )"([a-z_]+)"'
+    emises = set(re.findall(motif, juge))
+    assert len(emises) >= 9, emises
     orphelines = sorted(emises - connues)
     assert not orphelines, "console reasons with no message: " + ", ".join(orphelines)
 
@@ -2614,7 +2124,7 @@ def test_le_conteneur_web_n_importe_que_ce_qu_il_monte():
     dans_app = {nom[:-3] for nom in os.listdir(os.path.join(ROOT, "app"))
                 if nom.endswith(".py")}
     interdits = racine - dans_app
-    assert "content_catalog" in interdits and "runner" in interdits, interdits
+    assert "content_catalog" in interdits, interdits
     motif = re.compile(r"^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)",
                        re.M)
     fautes = []
@@ -2631,38 +2141,6 @@ def test_le_conteneur_web_n_importe_que_ce_qu_il_monte():
     assert not fautes, (
         "ces modules de la racine ne sont pas montés dans le conteneur web : "
         + ", ".join(fautes))
-
-
-def test_duree_moyenne_glissante_par_exercice():
-    spool = tempfile.mkdtemp(prefix="ctester-spool-")
-    garde = runner.SPOOL
-    try:
-        runner.SPOOL = spool
-
-        runner.enregistrer_duree("tp2-ex3", 0.01)
-        runner.enregistrer_duree("", 9.0)
-        assert runner.lire_durees() == {}
-
-        runner.enregistrer_duree("tp2-ex3", 4.0)
-        runner.enregistrer_duree("tp2-ex3", 6.0)
-        assert runner.lire_durees()["tp2-ex3"] == [5.0, 2]
-        runner.enregistrer_duree("tp1", 1.0)
-        assert runner.lire_durees()["tp2-ex3"][0] == 5.0
-
-        for _ in range(60):
-            runner.enregistrer_duree("tp1", 20.0)
-        moyenne, n = runner.lire_durees()["tp1"]
-        assert n == runner.DUREE_FENETRE + 1, n
-        assert 19.0 < moyenne <= 20.0, moyenne
-
-        with open(os.path.join(spool, runner.DURATIONS), "w", encoding="utf-8") as fh:
-            fh.write("{ pas du json")
-        assert runner.lire_durees() == {}
-        runner.enregistrer_duree("tp1", 3.0)
-        assert runner.lire_durees() == {"tp1": [3.0, 1]}
-    finally:
-        runner.SPOOL = garde
-        shutil.rmtree(spool, ignore_errors=True)
 
 
 def _cas_canoniques():
@@ -2738,310 +2216,6 @@ def test_le_forum_ne_canonise_rien():
     with open(os.path.join(ROOT, "app", "services", "forum.py"),
               encoding="utf-8") as fh:
         assert "canonicalize" not in fh.read()
-
-
-def test_normalisation_ignore_l_habillage_mais_pas_le_code():
-    n = runner.normaliser_c
-    espace = ("// mon programme\n#include <stdio.h>\n\n\n"
-              "int main(void) {\n\n"
-              "    /* la boucle */\n"
-              "    for (int i = 0; i < 3; i++)\n"
-              "        printf(\"%d\\n\", i);\n\n"
-              "    return 0;\n}\n")
-    serre = ("#include <stdio.h>\n"
-             "int main(void){for(int i=0;i<3;i++)printf(\"%d\\n\",i);return 0;}")
-    assert n(espace) == n(serre), (n(espace), n(serre))
-
-    assert n("int x;") == "int x;"
-    assert n("intx;") == "intx;"
-    assert n("int x;") != n("intx;")
-    assert n("int/*c*/x;") == n("int x;")
-
-    assert n("int x = 1;") != n("int x = 2;")
-    assert n("int a;") != n("int b;")
-
-    assert n("#define A 1\n#define B 2") != n("#define A 1 #define B 2")
-
-
-def test_normalisation_ne_confond_pas_une_chaine_avec_un_commentaire():
-    n = runner.normaliser_c
-    assert n('puts("http://a"); int x;') != n('puts("http://b"); int x;')
-    assert 'http://a' in n('puts("http://a");')
-    assert n('puts("/*"); int x;').endswith("int x;")
-    assert n("char c = '\"'; int x;").endswith("int x;")
-    assert n('char *s = "a\\"b//c"; int z;').endswith("int z;")
-    assert n("int x; // n'oublie pas\nint y;") == n("int x;int y;")
-
-
-def test_signature_suit_le_juge_autant_que_le_code():
-    racine = tempfile.mkdtemp()
-    try:
-        tp_dir = os.path.join(racine, "exercises", "tp2-ex1", "assessment")
-        os.makedirs(tp_dir)
-        io_json = os.path.join(tp_dir, "io.json")
-        with open(io_json, "w", encoding="utf-8") as fh:
-            json.dump({"cases": [{"stdin": "", "expect": [1]}]}, fh)
-        conf = {"cases": [{"stdin": "", "expect": [1]}]}
-        code = {"submission.c": "int main(void){return 0;}"}
-
-        base = runner.signature("tp2-ex1", tp_dir, "io", conf, code)
-        assert runner.signature("tp2-ex1", tp_dir, "io", conf, code) == base
-
-        assert runner.signature("tp2-ex2", tp_dir, "io", conf, code) != base
-
-        with open(io_json, "w", encoding="utf-8") as fh:
-            json.dump({"cases": [{"stdin": "", "expect": [1]},
-                                 {"stdin": "2", "expect": [2]}]}, fh)
-        assert runner.signature("tp2-ex1", tp_dir, "io", conf, code) != base
-
-        apres = runner.signature("tp2-ex1", tp_dir, "io", conf, code)
-        with open(os.path.join(tp_dir, "test_ajoute.c"), "w",
-                  encoding="utf-8") as fh:
-            fh.write("void test_x(void){}")
-        assert runner.signature("tp2-ex1", tp_dir, "io", conf, code) != apres
-
-        stable = runner.signature("tp2-ex1", tp_dir, "io", conf, code)
-        aere = {"submission.c": "int main(void)\n{\n\n    return 0;\n}\n"}
-        assert runner.signature("tp2-ex1", tp_dir, "io", conf, aere) == stable
-        autre = {"submission.c": "int main(void){return 1;}"}
-        assert runner.signature("tp2-ex1", tp_dir, "io", conf, autre) != stable
-    finally:
-        shutil.rmtree(racine, ignore_errors=True)
-
-
-def test_cache_de_verdicts():
-    ok = {"status": "ok", "kind": "io", "total": 3, "passed": 3}
-    rate = {"status": "ok", "kind": "io", "total": 3, "passed": 1}
-    assert not runner.cachable({}, {"status": "timeout"})
-    assert not runner.cachable({}, {"status": "compile_timeout"})
-    assert not runner.cachable({}, {"status": "error", "message": "x"})
-    assert runner.cachable({}, {"status": "compile_error", "gcc": "..."})
-    assert runner.cachable({}, ok)
-    assert runner.cachable({}, rate)
-    assert not runner.cachable({"cache": False}, ok)
-    assert not runner.cachable({"cache": False}, rate)
-
-    spool = tempfile.mkdtemp()
-    garde_spool, garde_max = runner.SPOOL, runner.CACHE_MAX
-    garde_elagage, garde_work = runner.CACHE_PRUNE_EVERY, runner.WORK
-    try:
-        runner.SPOOL = spool
-        runner.WORK = os.path.join(spool, "work")
-        runner.cache_ecrire("a" * 64, ok)
-        assert runner.cache_lire("a" * 64) == ok
-        assert runner.cache_lire("b" * 64) is None
-
-        runner.CACHE_MAX = 0
-        assert runner.cache_lire("a" * 64) is None
-        runner.cache_ecrire("c" * 64, ok)
-        runner.CACHE_MAX = garde_max
-        assert runner.cache_lire("c" * 64) is None
-
-        dossier = os.path.join(runner.WORK, runner.CACHE_DIR)
-        shutil.rmtree(dossier, ignore_errors=True)
-        for rang, nom in enumerate(("vieux", "moyen", "recent")):
-            runner.cache_ecrire(nom * 16, ok)
-            os.utime(os.path.join(dossier, nom * 16 + ".json"),
-                     (1000 + rang, 1000 + rang))
-        assert runner.cache_lire("vieux" * 16) == ok
-        runner.CACHE_MAX, runner.CACHE_PRUNE_EVERY = 3, 0
-        runner.cache_ecrire("neuf" * 16, ok)
-        assert runner.cache_lire("moyen" * 16) is None, "le moins servi a survécu"
-        assert runner.cache_lire("vieux" * 16) == ok, "une entrée servie a été jetée"
-        assert runner.cache_lire("recent" * 16) == ok
-        assert runner.cache_lire("neuf" * 16) == ok
-        runner.CACHE_MAX, runner.CACHE_PRUNE_EVERY = garde_max, garde_elagage
-
-        os.makedirs(os.path.join(runner.WORK, runner.CACHE_DIR), exist_ok=True)
-        with open(os.path.join(runner.WORK, runner.CACHE_DIR, "f" * 64 + ".json"),
-                  "w", encoding="utf-8") as fh:
-            fh.write("{ pas du json")
-        assert runner.cache_lire("f" * 64) is None
-
-        runner.cache_ecrire("g" * 64, ok)
-        vieux = os.path.join(spool, "0" * 32)
-        os.mkdir(vieux)
-        with open(os.path.join(vieux, "job.json"), "w", encoding="utf-8") as fh:
-            json.dump({"exercise_id": "tp1"}, fh)
-        os.utime(vieux, (0, 0))
-        runner.sweep(time.time())
-        assert not os.path.exists(vieux), "sweep n'a pas balayé un vieux job"
-        assert runner.cache_lire("g" * 64) == ok, "sweep a effacé le cache"
-    finally:
-        runner.SPOOL, runner.CACHE_MAX = garde_spool, garde_max
-        runner.CACHE_PRUNE_EVERY, runner.WORK = garde_elagage, garde_work
-        shutil.rmtree(spool, ignore_errors=True)
-
-
-def test_une_rafale_du_meme_code_ne_paie_qu_une_compilation():
-    racine = tempfile.mkdtemp()
-    garde_spool, garde_tp = runner.SPOOL, runner.tp_path
-    garde_juger, garde_max = runner._juger, runner.CACHE_MAX
-    garde_work = runner.WORK
-    try:
-        spool = os.path.join(racine, "spool")
-        os.makedirs(spool)
-        runner.SPOOL = spool
-        runner.WORK = os.path.join(racine, "work")
-        runner.CACHE_MAX = 100
-
-        tp_dir = os.path.join(racine, "exercises", "tp2-ex1", "assessment")
-        os.makedirs(tp_dir)
-        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
-            json.dump({"cases": [{"stdin": "", "expect": [1]}]}, fh)
-        runner.tp_path = lambda exercise_id, owner=None: tp_dir
-
-        appels = []
-
-        def juger_faux(job_dir, tp_dir_, mode, conf, sent):
-            appels.append(sent.get("submission.c"))
-            return {"status": "ok", "kind": "io", "total": 1, "passed": 1}
-
-        runner._juger = juger_faux
-
-        numero = [0]
-
-        def deposer(source, exercise_id="tp2-ex1"):
-            numero[0] += 1
-            job_dir = os.path.join(spool, "%032x" % numero[0])
-            os.mkdir(job_dir)
-            with open(os.path.join(job_dir, "files.json"), "w",
-                      encoding="utf-8") as fh:
-                json.dump({"submission.c": source}, fh)
-            with open(os.path.join(job_dir, "job.json"), "w",
-                      encoding="utf-8") as fh:
-                json.dump({"exercise_id": exercise_id}, fh)
-            return job_dir
-
-        def fini(job_dir):
-            return os.path.exists(os.path.join(job_dir, "result.json"))
-
-        gabarit = "int main(void){\n    return 0;\n}"
-        premier = deposer(gabarit)
-        runner.claim(premier)
-
-        pareils = [deposer(gabarit),
-                   deposer("// essai\nint main(void){return 0;}"),
-                   deposer("int main(void)\n{\n\n\n    return 0;\n}\n")]
-        autre = deposer("int main(void){return 42;}")
-        ailleurs = deposer(gabarit, exercise_id="tp2-ex9")
-        pris = deposer(gabarit)
-        runner.claim(pris)
-
-        runner.write_result(premier, runner.run_job(premier))
-        assert runner.servir_les_connus() == 3
-
-        assert len(appels) == 1, appels
-        for job_dir in pareils:
-            assert fini(job_dir), "un doublon en file n'a pas été libéré"
-            with open(os.path.join(job_dir, "result.json"),
-                      encoding="utf-8") as fh:
-                assert json.load(fh)["passed"] == 1
-        assert not fini(autre), "un AUTRE code a reçu le verdict"
-        assert not fini(ailleurs), "un autre exercice a reçu le verdict"
-        assert not fini(pris), "un job déjà pris a été écrasé"
-
-        restants = set(runner.pending_jobs())
-        assert restants == {autre, ailleurs, pris}, restants
-
-        tardif = deposer(gabarit)
-        assert runner.servir_les_connus() == 1
-        assert fini(tardif)
-        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
-            json.dump({"cases": [{"stdin": "", "expect": [1]},
-                                 {"stdin": "", "expect": [2]}]}, fh)
-        apres_correction = deposer(gabarit)
-        assert runner.servir_les_connus() == 0, "verdict servi sous l'ancien test"
-        assert not fini(apres_correction)
-
-        assert set(runner._SIGS) <= set(runner.pending_jobs())
-
-        runner._juger = lambda *a: {"status": "timeout", "message": "trop long"}
-        lent = deposer("while(1);")
-        runner.claim(lent)
-        jumeau = deposer("while (1) ;")
-        runner.write_result(lent, runner.run_job(lent))
-        runner.servir_les_connus()
-        assert not fini(jumeau), "un timeout a été diffusé à un autre étudiant"
-
-        runner._juger = lambda *a: (_ for _ in ()).throw(
-            AssertionError("servir_les_connus a jugé"))
-        runner.servir_les_connus()
-    finally:
-        runner.SPOOL, runner.tp_path = garde_spool, garde_tp
-        runner._juger, runner.CACHE_MAX = garde_juger, garde_max
-        runner.WORK = garde_work
-        shutil.rmtree(racine, ignore_errors=True)
-
-
-def test_run_job_sert_le_cache_sans_recompiler():
-    racine = tempfile.mkdtemp()
-    garde_spool, garde_tp = runner.SPOOL, runner.tp_path
-    garde_juger, garde_max = runner._juger, runner.CACHE_MAX
-    garde_work = runner.WORK
-    try:
-        spool = os.path.join(racine, "spool")
-        os.makedirs(spool)
-        runner.SPOOL = spool
-        runner.WORK = os.path.join(racine, "work")
-        runner.CACHE_MAX = 100
-
-        tp_dir = os.path.join(racine, "exercises", "tp2-ex1", "assessment")
-        os.makedirs(tp_dir)
-        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
-            json.dump({"cases": [{"stdin": "", "expect": [1]}]}, fh)
-        runner.tp_path = lambda exercise_id, owner=None: tp_dir
-
-        appels = []
-
-        def juger_faux(job_dir, tp_dir_, mode, conf, sent):
-            appels.append(mode)
-            return {"status": "ok", "kind": "io", "total": 1, "passed": 1}
-
-        runner._juger = juger_faux
-
-        numero = [0]
-
-        def soumettre(source):
-            numero[0] += 1
-            job_dir = os.path.join(spool, "%032x" % numero[0])
-            os.mkdir(job_dir)
-            with open(os.path.join(job_dir, "job.json"), "w",
-                      encoding="utf-8") as fh:
-                json.dump({"exercise_id": "tp2-ex1"}, fh)
-            with open(os.path.join(job_dir, "files.json"), "w",
-                      encoding="utf-8") as fh:
-                json.dump({"submission.c": source}, fh)
-            return runner.run_job(job_dir)
-
-        premier = soumettre("int main(void){return 0;}")
-        assert premier["status"] == "ok"
-        assert len(appels) == 1, appels
-
-        second = soumettre("// essai 2\nint main(void)\n{\n\n    return 0;\n}\n")
-        assert second == premier
-        assert len(appels) == 1, "le juge a recompilé un code déjà jugé"
-
-        soumettre("int main(void){return 1;}")
-        assert len(appels) == 2, appels
-
-        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
-            json.dump({"cases": [{"stdin": "", "expect": [1]},
-                                 {"stdin": "", "expect": [2]}]}, fh)
-        soumettre("int main(void){return 0;}")
-        assert len(appels) == 3, "un test corrigé n'a pas invalidé le cache"
-
-        runner._juger = lambda *a: {"status": "timeout", "message": "trop long"}
-        soumettre("while(1);")
-        soumettre("while(1);")
-        assert runner.cache_lire(
-            runner.signature("tp2-ex1", tp_dir, "io",
-                             {"cases": []}, {"submission.c": "while(1);"})) is None
-    finally:
-        runner.SPOOL, runner.tp_path = garde_spool, garde_tp
-        runner._juger, runner.CACHE_MAX = garde_juger, garde_max
-        runner.WORK = garde_work
-        shutil.rmtree(racine, ignore_errors=True)
 
 
 def _message(mid, account, visibility="thread", **extra):
@@ -3618,139 +2792,6 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
         shutil.rmtree(dossier)
 
 
-def test_console_ne_monte_rien_du_contenu_prive():
-    garde = runner.CONTENT
-    try:
-        runner.CONTENT = "/opt/ctester/content"
-        argv = runner.docker_argv_console("/spool/abc", "ctester-sbx-abc", "n0nce")
-    finally:
-        runner.CONTENT = garde
-    joint = " ".join(argv)
-    for interdit in ("/opt/ctester/content", "/in/cases", "/in/tests",
-                     "/in/unity", "shared/unity"):
-        assert interdit not in joint, (interdit, joint)
-    montages = [argv[i + 1] for i, item in enumerate(argv) if item == "-v"]
-    assert len(montages) == 2, montages
-    for montage in montages:
-        assert montage.endswith(":ro"), montage
-    assert "/spool/abc/src:/in/src:ro" in montages
-    assert "--read-only" in argv
-    tmpfs = [argv[i + 1] for i, item in enumerate(argv) if item == "--tmpfs"]
-    assert len(tmpfs) == 2, tmpfs
-    assert all(t.startswith(("/work:", "/tmp:")) for t in tmpfs), tmpfs
-    assert "/spool/abc:" not in joint, joint
-
-
-def test_console_est_interactive_et_sans_tty():
-    argv = runner.docker_argv_console("/spool/abc", "ctester-sbx-abc", "n")
-    assert "-i" in argv
-    assert "-t" not in argv and "-it" not in argv
-    assert argv[argv.index("--log-driver") + 1] == "none"
-    assert "--privileged" not in argv
-    assert argv[argv.index("--user") + 1] == "65534:65534"
-
-
-def test_console_est_plus_stricte_que_la_correction():
-    def mo(valeur):
-        return int(valeur.rstrip("m"))
-
-    assert mo(runner.CONSOLE_MEMORY) < mo(runner.MEMORY)
-    assert int(runner.CONSOLE_PIDS) <= int(runner.PIDS)
-    assert float(runner.CONSOLE_CPUS) <= float(runner.CPUS)
-    juge = runner.docker_argv("/spool/abc", "/tests/tp1", "c", "io", "n")
-    console = runner.docker_argv_console("/spool/abc", "c", "n")
-
-    def taille(argv, point):
-        for i, item in enumerate(argv):
-            if item == "--tmpfs" and argv[i + 1].startswith(point + ":"):
-                return int(argv[i + 1].split("size=")[1].split(",")[0].rstrip("m"))
-        raise AssertionError(point)
-
-    assert taille(console, "/work") < taille(juge, "/work")
-    assert taille(console, "/tmp") < taille(juge, "/tmp")
-    assert int(console[console.index("--cpu-shares") + 1]) < 1024
-
-
-def test_console_bascule_de_phase_sur_le_marqueur():
-    nonce = "abcd1234"
-    for coupe in (None, 3, 12):
-        dossier = tempfile.mkdtemp()
-        try:
-            lecture, ecriture = os.pipe()
-            flux = (b"warning: ceci vient de gcc\n" + nonce.encode()
-                    + b" RUN\n" + b"Entrez : " + b"42\n")
-            if coupe is None:
-                os.write(ecriture, flux)
-            else:
-                pivot = flux.index(nonce.encode()) + coupe
-                os.write(ecriture, flux[:pivot])
-                os.write(ecriture, flux[pivot:])
-            os.close(ecriture)
-
-            class Faux:
-                def __init__(self, fd):
-                    self.stdout = type("F", (), {"fileno": lambda _s: fd})()
-
-            compteur = {"octets": 0, "trop": False, "vu": 0.0, "compile": False}
-            runner._pompe_sortie(Faux(lecture), dossier, nonce, compteur)
-            os.close(lecture)
-            build = open(os.path.join(dossier, "build"), "rb").read()
-            out = open(os.path.join(dossier, "out"), "rb").read()
-            assert build == b"warning: ceci vient de gcc\n", (coupe, build)
-            assert out == b"Entrez : 42\n", (coupe, out)
-            assert compteur["compile"] is True
-            assert nonce.encode() not in build + out
-        finally:
-            shutil.rmtree(dossier)
-
-
-def test_console_plafond_de_sortie():
-    dossier = tempfile.mkdtemp()
-    garde = runner.CONSOLE_OUT_MAX
-    try:
-        runner.CONSOLE_OUT_MAX = 100
-        lecture, ecriture = os.pipe()
-        import threading as _fils
-
-        def _verser():
-            os.write(ecriture, b"n RUN\n" + b"x" * 5000)
-            os.close(ecriture)
-
-        pousseur = _fils.Thread(target=_verser, daemon=True)
-        pousseur.start()
-
-        class Faux:
-            def __init__(self, fd):
-                self.stdout = type("F", (), {"fileno": lambda _s: fd})()
-
-        compteur = {"octets": 0, "trop": False, "vu": 0.0, "compile": False}
-        runner._pompe_sortie(Faux(lecture), dossier, "n", compteur)
-        pousseur.join(5)
-        os.close(lecture)
-        assert compteur["trop"] is True
-        assert len(open(os.path.join(dossier, "out"), "rb").read()) <= 100
-    finally:
-        runner.CONSOLE_OUT_MAX = garde
-        shutil.rmtree(dossier)
-
-
-def test_console_une_seule_session_sur_tout_le_service():
-    dossier = tempfile.mkdtemp()
-    garde = runner.SPOOL
-    try:
-        runner.SPOOL = dossier
-        assert runner.console_lock() is True
-        assert runner.console_lock() is False
-        runner.console_unlock()
-        assert runner.console_lock() is True
-        vieux = time.time() - (runner.CONSOLE_SESSION_MAX + 120)
-        os.utime(os.path.join(dossier, runner.CONSOLE_LOCK), (vieux, vieux))
-        assert runner.console_lock() is True
-    finally:
-        runner.SPOOL = garde
-        shutil.rmtree(dossier)
-
-
 def test_console_le_job_ne_porte_aucune_identite():
     if fcntl is None:
         print("  (saute : pas de flock hors POSIX)")
@@ -3776,109 +2817,10 @@ def test_console_le_job_ne_porte_aucune_identite():
         shutil.rmtree(dossier)
 
 
-def test_console_invisible_pour_le_cache_de_verdicts():
-    assert runner._contexte("") is False
-    assert runner.CONSOLE_DUREE.startswith(":")
-
-
-def test_console_le_worker_tient_son_verrou_pendant_toute_la_session():
-    import threading as _fils
-
-    if fcntl is None:
-        print("  (saute : pas de flock hors POSIX)")
-        return
-
-    dossier = tempfile.mkdtemp()
-    job = os.path.join(dossier, "a" * 32)
-    os.makedirs(os.path.join(job, "src"))
-    with open(os.path.join(job, "src", "main.c"), "w") as fh:
-        fh.write("int main(void){return 0;}")
-    tenu = os.open(os.path.join(job, "alive"), os.O_RDWR | os.O_CREAT, 0o644)
-    fcntl.flock(tenu, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-    lecture, ecriture = os.pipe()
-    relacher = _fils.Event()
-
-    class FauxProcessus:
-        returncode = None
-
-        def __init__(self):
-            self.stdout = type("F", (), {"fileno": lambda _s: lecture})()
-            self.stdin = type("E", (), {"write": lambda _s, d: None,
-                                        "flush": lambda _s: None,
-                                        "close": lambda _s: None})()
-
-        def poll(self):
-            return None if not relacher.is_set() else 0
-
-        def wait(self, timeout=None):
-            self.returncode = 0
-            return 0
-
-        def kill(self):
-            pass
-
-    class FauxSubprocess:
-        PIPE = STDOUT = -1
-        TimeoutExpired = subprocess.TimeoutExpired
-        Popen = staticmethod(lambda *a, **k: FauxProcessus())
-        run = staticmethod(lambda *a, **k: None)
-
-    garde = runner.subprocess
-    garde_build, garde_work = runner.BUILD_SCRATCH, runner.WORK
-    try:
-        runner.WORK = os.path.join(dossier, "work")
-        runner.BUILD_SCRATCH = os.path.join(ROOT, "worker", "build-scratch.sh")
-        runner.subprocess = FauxSubprocess
-        fil = _fils.Thread(target=runner.run_console, args=(job,), daemon=True)
-        fil.start()
-        fin = time.time() + 20
-        vu = False
-        while time.time() < fin:
-            if scratch._lock_held(os.path.join(job, "claim")):
-                vu = True
-                break
-            if not fil.is_alive():
-                break
-            time.sleep(0.01)
-        if not vu:
-            try:
-                dit = lire(os.path.join(job, "state.json"))
-            except OSError:
-                dit = "aucun state.json"
-            raise AssertionError(
-                "le worker ne tient pas `claim` pendant la session "
-                "(fil vivant: %s, etat: %s)" % (fil.is_alive(), dit))
-        relacher.set()
-        os.close(ecriture)
-        fil.join(timeout=15)
-        assert not fil.is_alive()
-        etat = json.loads(lire(os.path.join(job, "state.json")))
-        assert etat["state"] == "exited", etat
-        assert scratch._lock_held(os.path.join(job, "claim")) is False
-    finally:
-        runner.subprocess = garde
-        runner.BUILD_SCRATCH, runner.WORK = garde_build, garde_work
-        os.close(tenu)
-        try:
-            os.close(lecture)
-        except OSError:
-            pass
-        shutil.rmtree(dossier)
-
-
-def test_console_une_session_ne_peut_pas_survivre_a_son_propre_balayage():
-    assert runner.CONSOLE_SESSION_MAX * 2 < runner.SWEEP_AFTER, (
-        runner.CONSOLE_SESSION_MAX, runner.SWEEP_AFTER)
-    assert runner.CONSOLE_SESSION_MAX < runner.CONSOLE_SESSION_MAX + 60
-
-
 def test_console_n_a_pas_de_liste_d_includes():
-    source = lire(os.path.join(ROOT, "worker", "runner.py"))
-    corps = source[source.index("def run_console("):]
-    corps = corps[:corps.index("\ndef ")]
-    assert "read_allowed" not in corps
-    assert "forbidden_includes" not in corps
+    source = lire(os.path.join(ROOT, "judge", "src", "console.rs"))
+    assert "read_allowed" not in source
+    assert "forbidden_includes" not in source
 
 
 def test_le_bot_du_pont_tourne_sans_aucun_tiers_et_saute_ses_propres_messages():
@@ -3996,276 +2938,12 @@ def test_une_reponse_voyage_avec_son_lien_et_ses_deux_compteurs():
     assert vus[1]["downvotes"] == 2 and vus[1]["my_vote"] == -1
 
 
-@contextlib.contextmanager
-def _spool_hostile():
-    racine = tempfile.mkdtemp(prefix="ctester-hostile-")
-    garde = (runner.SPOOL, runner.WORK, runner.tp_path, runner.sandbox,
-             runner.CACHE_MAX)
-    try:
-        spool, cible = os.path.join(racine, "spool"), os.path.join(racine, "cible")
-        os.makedirs(spool)
-        os.makedirs(cible)
-        with open(os.path.join(cible, "secret"), "w", encoding="utf-8") as fh:
-            fh.write("SECRET")
-        runner.SPOOL, runner.WORK = spool, os.path.join(racine, "work")
-        runner.CACHE_MAX = 100
-        yield spool, cible
-    finally:
-        (runner.SPOOL, runner.WORK, runner.tp_path, runner.sandbox,
-         runner.CACHE_MAX) = garde
-        shutil.rmtree(racine, ignore_errors=True)
-
-
-def _job_hostile(spool, numero=1, **champs):
-    job = os.path.join(spool, "%032x" % numero)
-    os.mkdir(job)
-    with open(os.path.join(job, "job.json"), "w", encoding="utf-8") as fh:
-        json.dump(champs or {"exercise_id": "tp2-ex1"}, fh)
-    return job
-
-
-def _cible_intacte(cible):
-    assert sorted(os.listdir(cible)) == ["secret"], os.listdir(cible)
-    assert lire(os.path.join(cible, "secret")) == "SECRET"
-
-
-def _plateforme_hostile():
-    if fcntl is None or not runner.plateforme_sure():
-        print("  (saute : pas de dir_fd ni de O_NOFOLLOW hors Linux)")
-        return False
-    return True
-
-
-def test_spool_hostile_les_ecritures_de_root_ne_suivent_aucun_lien():
-    if not _plateforme_hostile():
-        return
-    with _spool_hostile() as (spool, cible):
-        victime = os.path.join(cible, "secret")
-        job = _job_hostile(spool)
-        for nom in ("result.json", "state.json", "reprises.json"):
-            os.symlink(victime, os.path.join(job, nom))
-        os.symlink(os.path.join(cible, "pendant"), os.path.join(job, "result.json.tmp"))
-        runner.write_result(job, {"status": "ok"})
-        runner.console_etat(job, "exited", code=0, reason="exited")
-        _cible_intacte(cible)
-        assert not os.path.islink(os.path.join(job, "result.json"))
-        assert json.loads(lire(os.path.join(job, "result.json")))["state"] == "done"
-
-        # A stale lock whose retry counter is a link: the counter is replaced, never followed.
-        verrou = _job_hostile(spool, 2)
-        os.mkdir(os.path.join(verrou, ".lock"))
-        os.symlink(victime, os.path.join(verrou, "reprises.json"))
-        os.utime(os.path.join(verrou, ".lock"), (0, 0))
-        runner.reclaim(verrou, time.time())
-        _cible_intacte(cible)
-
-        os.symlink(victime, os.path.join(spool, runner.DURATIONS))
-        runner.enregistrer_duree("tp2-ex1", 3.0)
-        _cible_intacte(cible)
-
-        # A whole job directory that is a link: neither listed, claimed nor written.
-        lien = os.path.join(spool, "%032x" % 3)
-        os.symlink(cible, lien)
-        assert lien not in runner.pending_jobs()
-        assert runner.claim(lien) is False
-        try:
-            runner.write_result(lien, {"status": "ok"})
-        except OSError:
-            pass
-        else:
-            raise AssertionError("root a écrit dans un répertoire de job symbolique")
-        _cible_intacte(cible)
-
-        os.mkdir(os.path.join(spool, "pas-un-job"))
-        with open(os.path.join(spool, "pas-un-job", "job.json"), "w") as fh:
-            fh.write("{}")
-        assert all(os.path.basename(j) != "pas-un-job" for j in runner.pending_jobs())
-
-        # The verdict cache no longer lives in the spool, so a planted `cache` link is inert.
-        os.symlink(cible, os.path.join(spool, "cache"))
-        runner.cache_ecrire("a" * 64, {"status": "ok"})
-        _cible_intacte(cible)
-        assert runner.cache_lire("a" * 64) == {"status": "ok"}
-
-        os.symlink(cible, os.path.join(spool, "%032x" % 4))
-        os.utime(os.path.join(spool, "%032x" % 4), (0, 0), follow_symlinks=False)
-        runner.sweep(time.time())
-        _cible_intacte(cible)
-
-
-def test_spool_hostile_les_lectures_de_root_ne_suivent_aucun_lien():
-    if not _plateforme_hostile():
-        return
-    with _spool_hostile() as (spool, cible):
-        victime = os.path.join(cible, "secret")
-        job = _job_hostile(spool)
-        os.symlink(victime, os.path.join(job, "files.json"))
-        tp_dir = os.path.join(os.path.dirname(spool), "tp")
-        os.makedirs(tp_dir)
-        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
-            json.dump({"cases": []}, fh)
-        runner.tp_path = lambda exercise_id, owner=None: tp_dir
-        try:
-            runner.run_job(job)
-        except OSError:
-            pass
-        else:
-            raise AssertionError("files.json symbolique a été lu")
-        assert runner.servir_les_connus() == 0
-
-        autre = _job_hostile(spool, 2)
-        os.remove(os.path.join(autre, "job.json"))
-        os.symlink(os.path.join(job, "job.json"), os.path.join(autre, "job.json"))
-        assert runner.job_exercice(autre) == ""
-        assert autre not in runner.pending_jobs()
-
-        # A hard link passes O_NOFOLLOW, so the link count is checked as well.
-        dur = _job_hostile(spool, 3)
-        os.link(victime, os.path.join(dur, "answers.json"))
-        for lecture in (lambda: runner.lire_octets(dur, "answers.json"),
-                        lambda: runner.lire_octets(job, "files.json")):
-            try:
-                lecture()
-            except OSError:
-                pass
-            else:
-                raise AssertionError("un lien a été lu par root")
-
-        # A FIFO would block root forever on open().
-        fifo = _job_hostile(spool, 4)
-        os.mkfifo(os.path.join(fifo, "files.json"))
-        debut = time.time()
-        try:
-            runner.lire_octets(fifo, "files.json")
-        except OSError:
-            pass
-        else:
-            raise AssertionError("une FIFO a été lue")
-        assert time.time() - debut < 2
-        assert runner.verrou_tenu(fifo, "files.json") is False
-        assert runner.existe(fifo, "absent") is False
-
-
-def test_spool_hostile_rien_n_est_monte_depuis_le_spool():
-    if not _plateforme_hostile():
-        return
-    with _spool_hostile() as (spool, cible):
-        job = _job_hostile(spool)
-        os.symlink(cible, os.path.join(job, "src"))
-        os.symlink(cible, os.path.join(job, "cases"))
-        with open(os.path.join(job, "files.json"), "w", encoding="utf-8") as fh:
-            json.dump({"submission.c": "int main(void){return 0;}"}, fh)
-        tp_dir = os.path.join(os.path.dirname(spool), "tp")
-        os.makedirs(tp_dir)
-        with open(os.path.join(tp_dir, "io.json"), "w", encoding="utf-8") as fh:
-            json.dump({"cases": [{"stdin": "1\n", "expect": [1]}]}, fh)
-        runner.tp_path = lambda exercise_id, owner=None: tp_dir
-        vus = []
-
-        def sandbox_faux(stage, tp_dir_, mode, nonce=""):
-            argv = runner.docker_argv(stage, tp_dir_, "c", mode, nonce)
-            vus.append([argv[i + 1] for i, a in enumerate(argv) if a == "-v"])
-            assert lire(os.path.join(stage, "src", "submission.c")).startswith("int main")
-            assert lire(os.path.join(stage, "cases", "01.in")) == "1\n"
-            return 0, ""
-
-        runner.sandbox = sandbox_faux
-        runner.run_job(job)
-        assert vus, "le bac à sable n'a pas été appelé"
-        for montage in vus[0]:
-            assert not montage.startswith(spool), montage
-        assert any(m.startswith(runner.WORK) for m in vus[0]), vus
-        assert os.listdir(os.path.join(runner.WORK, "jobs")) == [], "staging non nettoyé"
-        _cible_intacte(cible)
-
-
-def test_spool_hostile_la_console_ne_lit_ni_n_ecrit_hors_du_job():
-    import threading as _fils
-
-    if not _plateforme_hostile():
-        return
-    with _spool_hostile() as (spool, cible):
-        victime = os.path.join(cible, "secret")
-
-        # Output files planted as links: the pump refuses them and ends the session.
-        pompe = _job_hostile(spool, 1, kind="console")
-        os.symlink(victime, os.path.join(pompe, "build"))
-        os.symlink(os.path.join(cible, "out"), os.path.join(pompe, "out"))
-        lecture, ecriture = os.pipe()
-        os.write(ecriture, b"n RUN\nsortie\n")
-        os.close(ecriture)
-
-        class Flux:
-            stdout = type("F", (), {"fileno": lambda _s: lecture})()
-
-        compteur = {"octets": 0, "trop": False, "vu": 0.0, "compile": False}
-        runner._pompe_sortie(Flux(), pompe, "n", compteur)
-        os.close(lecture)
-        assert compteur["trop"] is True
-        _cible_intacte(cible)
-
-        # `claim` as a dangling link: O_CREAT must not create the target as root.
-        job = _job_hostile(spool, 2, kind="console")
-        tenu = os.open(os.path.join(job, "alive"), os.O_RDWR | os.O_CREAT, 0o644)
-        fcntl.flock(tenu, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        os.symlink(os.path.join(cible, "cree"), os.path.join(job, "claim"))
-        garde_build = runner.BUILD_SCRATCH
-        try:
-            runner.BUILD_SCRATCH = os.path.join(ROOT, "worker", "build-scratch.sh")
-            assert runner.run_console(job)["reason"] == "worker"
-            _cible_intacte(cible)
-
-            # `in` pointing at a secret: nothing reaches the program's stdin.
-            os.remove(os.path.join(job, "claim"))
-            os.makedirs(os.path.join(job, "src"))
-            with open(os.path.join(job, "src", "main.c"), "w") as fh:
-                fh.write("int main(void){return 0;}")
-            os.symlink(victime, os.path.join(job, "in"))
-            recu, montages = [], []
-            sortie_l, sortie_e = os.pipe()
-            os.close(sortie_e)
-
-            class Processus:
-                returncode = None
-                sondages = 0
-
-                def __init__(self, argv):
-                    montages.extend(argv[i + 1] for i, a in enumerate(argv) if a == "-v")
-                    self.stdout = type("F", (), {"fileno": lambda _s: sortie_l})()
-                    self.stdin = type("E", (), {"write": lambda _s, d: recu.append(d),
-                                                "flush": lambda _s: None,
-                                                "close": lambda _s: None})()
-
-                def poll(self):
-                    self.sondages += 1
-                    return None if self.sondages < 8 else 0
-
-                def wait(self, timeout=None):
-                    self.returncode = 0
-                    return 0
-
-            class FauxSubprocess:
-                PIPE = STDOUT = -1
-                TimeoutExpired = subprocess.TimeoutExpired
-                Popen = staticmethod(lambda argv, **k: Processus(argv))
-                run = staticmethod(lambda *a, **k: None)
-
-            garde_sub = runner.subprocess
-            runner.subprocess = FauxSubprocess
-            try:
-                fil = _fils.Thread(target=runner.run_console, args=(job,), daemon=True)
-                fil.start()
-                fil.join(timeout=15)
-                assert not fil.is_alive()
-            finally:
-                runner.subprocess = garde_sub
-                os.close(sortie_l)
-            assert b"SECRET" not in b"".join(recu), recu
-            assert montages and not any(m.startswith(spool) for m in montages), montages
-            _cible_intacte(cible)
-        finally:
-            runner.BUILD_SCRATCH = garde_build
-            os.close(tenu)
+def test_la_porte_python_lit_les_dates_comme_la_porte_rust():
+    # judge/src/gate.rs replays the same file: the two gates must not diverge.
+    vecteurs = json.loads(lire(os.path.join(ROOT, "tests", "vectors", "release_access.json")))
+    for v in vecteurs:
+        maintenant = dt.datetime.fromisoformat(v["now"].replace("Z", "+00:00"))
+        assert content_catalogue.access(v["release"], maintenant) == v["access"], v
 
 
 if __name__ == "__main__":

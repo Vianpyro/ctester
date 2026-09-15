@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import json
 import os
+import re
 import select
 import pathlib
 import shutil
@@ -32,7 +34,7 @@ def corrige(exercice):
                      + " under " + str(SOLUTIONS))
 
 sys.path.insert(0, str(WORKER))
-import runner  # noqa: E402
+import judge  # noqa: E402
 
 NONCE = "e2e0123456789abcdef0123456789abc"
 
@@ -69,7 +71,7 @@ def lancer(mode, fichiers, exercice, **reglages):
 
     if mode == "io":
         (racine / "in/cases").mkdir()
-        conf = runner.json.loads(
+        conf = json.loads(
             (assessment(exercice) / "io.json").read_text(encoding="utf-8"))
         for i, cas in enumerate(conf["cases"], 1):
             (racine / "in/cases" / ("%02d.in" % i)).write_text(cas["stdin"], encoding="utf-8")
@@ -137,7 +139,7 @@ rates = []
 
 def montrer(res):
     apercu = {k: v for k, v in res.items() if k not in ("warnings", "gcc")}
-    print("      verdict: " + runner.json.dumps(apercu, ensure_ascii=False)[:300])
+    print("      verdict: " + json.dumps(apercu, ensure_ascii=False)[:300])
 
 
 def check(cond, libelle):
@@ -221,9 +223,7 @@ int main(void)
 }
 """
 rc, out, cases, _ = lancer("io", {"submission.c": NEGLIGE}, "tp2-ex0")
-av, reste = runner.extraire_avertissements(out, NONCE)
-res = runner.avec_avertissements(
-    runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
+res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 1. correct but sloppy code ---")
 montrer(res)
 check(res["status"] == "ok" and res["passed"] == res["total"],
@@ -236,9 +236,7 @@ check(res["passed"] == res["total"],
 
 SANS_ESPERLUETTE = NEGLIGE.replace('scanf("%d", &naissance)', 'scanf("%d", naissance)')
 rc, out, cases, _ = lancer("io", {"submission.c": SANS_ESPERLUETTE}, "tp2-ex0")
-av, reste = runner.extraire_avertissements(out, NONCE)
-res = runner.avec_avertissements(
-    runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
+res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 2. scanf without & ---")
 texte = res.get("warnings", "") + res.get("gcc", "")
 check("int *" in texte, "gcc says it expected an int *")
@@ -252,11 +250,10 @@ fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
 nom = module_c(fichiers, "tp7-ex1")
 fichiers[nom] += "\nstatic int jamais_utilisee_e2e = 42;\n"
 rc, out, cases, racine = lancer("unity", fichiers, "tp7-ex1")
-av, reste = runner.extraire_avertissements(out, NONCE)
-res = runner.avec_avertissements(runner.verdict(rc, reste), av)
+res = judge.verdict(rc, out, "unity", NONCE)
 test_src = (racine / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
 sien = "\n".join(fichiers.values())
-jetons = {m for m in runner.re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
+jetons = {m for m in re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
           if m not in sien and not m.startswith(("TEST_", "UNITY"))
           and m not in ("static", "return", "include", "stdbool", "unsigned")}
 fuites = sorted(j for j in jetons if j in str(res))
@@ -276,9 +273,7 @@ buggy = (sol / sources_c(sol)[0]).read_text(encoding="utf-8")
 DEBORDE = "    int t_e2e[3];\n    t_e2e[7] = 1;\n    return "
 buggy = buggy.replace("    return ", DEBORDE, 1)
 rc, out, cases, _ = lancer("io", {"submission.c": buggy}, "tp2-ex0")
-av, reste = runner.extraire_avertissements(out, NONCE)
-res = runner.avec_avertissements(
-    runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
+res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 4. overflow in io mode: the report is returned ---")
 cas = res["cases"][0] if res["cases"] else {}
 check("debord" in cas.get("reason", "") or "débord" in cas.get("reason", ""),
@@ -296,8 +291,7 @@ nom_c = module_c(fichiers, "tp7-ex1")
 fichiers[nom_c] = ("static int deborde_e2e[4];\n" + fichiers[nom_c]).replace(
     "return", "deborde_e2e[9] = 1;\n    return", 1)
 rc, out, cases, racine = lancer("unity", fichiers, "tp7-ex1")
-av, reste = runner.extraire_avertissements(out, NONCE)
-res = runner.avec_avertissements(runner.verdict(rc, reste), av)
+res = judge.verdict(rc, out, "unity", NONCE)
 print("\n--- 5. overflow in unity mode: the fact, without the report ---")
 montrer(res)
 check(res["status"] == "memory_error",
@@ -306,7 +300,7 @@ check("AddressSanitizer" not in str(res) and "#0" not in str(res),
       "no fragment of the ASan report leaked")
 test_src = (racine / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
 sien = "\n".join(fichiers.values())
-jetons = {m for m in runner.re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
+jetons = {m for m in re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
           if m not in sien and not m.startswith(("TEST_", "UNITY"))
           and m not in ("static", "return", "include", "stdbool", "unsigned")}
 fuites = sorted(j for j in jetons if j in str(res))
@@ -316,9 +310,7 @@ check(not fuites, "no identifier from the test file in the verdict"
 BOUCLE = '#include <stdio.h>\nint main(void){ while (1) {} return 0; }\n'
 rc, out, cases, _ = lancer("io", {"submission.c": BOUCLE}, "tp2-ex0",
                            CTESTER_RUN_TIMEOUT="2")
-av, reste = runner.extraire_avertissements(out, NONCE)
-res = runner.avec_avertissements(
-    runner.verdict_io(rc, reste, cases, NONCE, 0.005), av)
+res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 6a. infinite loop in io mode ---")
 cas = res["cases"][0] if res.get("cases") else {}
 check(res.get("passed") == 0, "no case passes (status %r)" % res["status"])
@@ -332,8 +324,7 @@ fichiers[nom] += (
     "\n__attribute__((constructor)) static void boucle_e2e(void)"
     " { while (1) {} }\n")
 rc, out, cases, _ = lancer("unity", fichiers, "tp7-ex1", CTESTER_RUN_TIMEOUT="2")
-av, reste = runner.extraire_avertissements(out, NONCE)
-res = runner.avec_avertissements(runner.verdict(rc, reste), av)
+res = judge.verdict(rc, out, "unity", NONCE)
 print("\n--- 6b. infinite loop in unity mode ---")
 montrer(res)
 check(res["status"] == "timeout", "the verdict is a timeout, not a crash")

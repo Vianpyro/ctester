@@ -28,7 +28,7 @@ find "${repo:-$content}" \( -name quiz.json -o -name io.json \) -type f -exec ch
 
 CTESTER_CONTENT="$content" CTESTER_PUBLISHED="$published" \
 PYTHONPATH="$dir/src/worker" PYTHONDONTWRITEBYTECODE=1 \
-    python3 -c 'import runner; print("ctester: published %d exercise(s)" % len(runner.publish_catalogue()))'
+    python3 -c 'import os, publish_content as p; e = os.environ; print("ctester: published %d exercise(s)" % len(p.publish_catalogue(e["CTESTER_CONTENT"], e["CTESTER_PUBLISHED"], e.get("CTESTER_PREVIEW", "") not in ("", "0"))))'
 
 if grep -rl answer "$published" 2>/dev/null; then
     echo "ctester: ALERT, an answer key reached the published release (files above)" >&2

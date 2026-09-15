@@ -8,7 +8,7 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "worker"))
 import content_catalog  # noqa: E402
-import runner  # noqa: E402
+import judge  # noqa: E402
 
 CC = os.environ.get("CC", "gcc")
 STD = os.environ.get("CTESTER_STD", "gnu2x")
@@ -50,7 +50,7 @@ def valider_unity(entree, sol_dir, unity_dir, travail):
 
     done = subprocess.run([binaire], capture_output=True, text=True,
                           errors="replace", timeout=TIMEOUT, check=False)
-    verdict = runner.verdict(done.returncode, done.stdout)
+    verdict = judge.verdict(done.returncode, done.stdout)
     if verdict.get("status") != "ok":
         return verdict.get("message", "") + "\n" + done.stdout.strip()[:400]
     if verdict["passed"] != verdict["total"]:
@@ -68,7 +68,7 @@ def valider_io(entree, sol_dir, travail):
     if rc:
         return "the solution does not compile:\n" + err.strip()[:400]
 
-    tol = float(conf.get("tolerance", runner.DEFAULT_TOLERANCE))
+    tol = conf.get("tolerance", judge.DEFAULT_TOLERANCE)
     for numero, cas in enumerate(conf.get("cases", []), 1):
         try:
             done = subprocess.run([binaire], input=cas.get("stdin", ""),
@@ -76,7 +76,7 @@ def valider_io(entree, sol_dir, travail):
                                   errors="replace", timeout=TIMEOUT, check=False)
         except subprocess.TimeoutExpired:
             return "case %d: the program does not terminate" % numero
-        raison = runner.check_case(cas, done.stdout, tol)
+        raison = judge.check_case(cas, done.stdout, tol)
         if raison:
             return "case %d (%r): %s\n      output: %r" % (
                 numero, cas.get("stdin", ""), raison, done.stdout[:200])
@@ -132,7 +132,7 @@ def main():
         if mode == "quiz":
             quiz = entree["config"]
             justes = {q["id"]: q["answer"] for q in quiz["questions"]}
-            note = runner.grade_quiz(quiz, justes)
+            note = judge.grade_quiz(quiz, justes)
             if note["passed"] != note["total"]:
                 casses.append((ident, "the reference solution does not validate itself: "
                                       + str(note["wrong"][:3])))
