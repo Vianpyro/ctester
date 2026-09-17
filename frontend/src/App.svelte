@@ -160,7 +160,9 @@
     await theme.loadFromAccount();
     await statuses.load();
     if (catalog.selectedId) await exercise.open(catalog.selectedId);
-    if (!deployment.forum || !dock.remembered()) return;
+    if (!deployment.forum) return;
+    void import("./lib/state/unread.svelte").then(({ unread }) => unread.start());
+    if (!dock.remembered()) return;
     if (!(await bringChat())) return;
     const { chat } = await import("./features/forum/chat.svelte");
     await chat.restoreDock();

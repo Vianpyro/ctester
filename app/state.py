@@ -375,6 +375,22 @@ def forum_thread(exercise_id, limit, reader=None):
     return _messages(rows)
 
 
+def forum_activity(reader, moderator, days):
+    """The last message per thread, for the unread dots. Full precision on purpose:
+    the client stores the value back as its 'seen' marker and never displays it."""
+    rows = _query(
+        "SELECT exercise_id, max(created_at) FROM forum_message"
+        "  WHERE NOT hidden"
+        "    AND created_at > now() - make_interval(days => %(days)s)"
+        "    AND (%(mod)s OR visibility = 'thread' OR account = %(me)s)"
+        "  GROUP BY exercise_id",
+        {"days": max(int(days), 1), "mod": bool(moderator), "me": reader or ""},
+        read=True)
+    if rows is None:
+        return None
+    return {row[0]: row[1].isoformat() for row in rows}
+
+
 def _messages(rows):
     if rows is None:
         return None
@@ -1046,6 +1062,22 @@ def read_usage(days=7):
         return None
     solved, active, xp = rows[0]
     return {"solved": int(solved), "active_accounts": int(active), "xp": int(xp)}
+
+
+def read_channels(days=7):
+    """Where the discussion is, without any message text: the admin app has no sign-in."""
+    rows = _query(
+        "SELECT exercise_id, count(*),"
+        "       count(*) FILTER (WHERE created_at > now() - interval '24 hours'),"
+        "       count(DISTINCT account), max(created_at)"
+        "  FROM forum_message"
+        " WHERE NOT hidden AND created_at > now() - make_interval(days => %s)"
+        " GROUP BY exercise_id ORDER BY max(created_at) DESC", (days,), read=True)
+    if rows is None:
+        return None
+    return [{"thread": t, "messages": int(n), "recent": int(r),
+             "people": int(p), "last": last.isoformat()}
+            for t, n, r, p, last in rows]
 
 def forget(user):
     # One statement, so a dropped connection can't leave half an account behind.

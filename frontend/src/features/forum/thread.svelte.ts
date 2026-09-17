@@ -21,6 +21,7 @@ import { session, whenSignedOut } from "../../lib/auth/session.svelte";
 import { catalog } from "../../lib/state/catalog.svelte";
 import { editor } from "../../lib/state/editor.svelte";
 import { view } from "../../lib/state/view.svelte";
+import { unread } from "../../lib/state/unread.svelte";
 import { renderAvailable } from "../../lib/domain/markdown";
 import type {
   ForumMessage,
@@ -118,6 +119,7 @@ class Thread {
     this.blockedKinds = Array.isArray(answer.blocked_kinds) ? answer.blocked_kinds : [];
     this.state = answer.state ?? null;
     this.error = "";
+    void unread.see(key);
     return true;
   }
 
@@ -319,6 +321,7 @@ class Thread {
     if (Thread.signature(answer.messages) === before) return;
     this.messages = answer.messages;
     this.state = answer.state ?? null;
+    void unread.see(this.key);
   }
 
   watch(): () => void {

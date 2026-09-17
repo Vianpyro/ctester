@@ -86,6 +86,11 @@ async function json(url) {
     ecranConnexion("Ce compte n'est pas enseignant.");
     throw new Error("réservé à l'enseignant");
   }
+  if (reponse.status === 503) {
+    const dit = await reponse.json().catch(() => ({}));
+    ecranConnexion(dit.error || "Service indisponible.");
+    throw new Error(dit.error || "service indisponible");
+  }
   if (!reponse.ok) throw new Error(reponse.status + " " + reponse.statusText);
   return reponse.json();
 }
@@ -332,6 +337,46 @@ function remplirExercices(rows, jours) {
     "Aucun run sur la période.");
 }
 
+/* ---- discussions ------------------------------------------------------- */
+
+const CHAT = "@chat:";
+
+function nomCanal(cle) {
+  if (cle === CHAT + "general") return "# général";
+  if (cle.startsWith(CHAT)) return "# " + cle.slice(CHAT.length);
+  return cle + " (privé)";
+}
+
+function depuis(iso) {
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return minutes + " min";
+  if (minutes < 1440) return Math.round(minutes / 60) + " h";
+  return Math.round(minutes / 1440) + " j";
+}
+
+function canaux(rows, jours) {
+  rendre($("canaux"), [rows, jours], () => remplirCanaux(rows, jours));
+}
+
+function remplirCanaux(rows, jours) {
+  $("canaux-note").textContent = jours === 1 ? "24 h" : jours + " jours";
+  tableau($("canaux"),
+    [{ titre: "canal" }, { titre: "msg", classe: "n", largeur: "3.2rem" },
+     { titre: "24 h", classe: "n", largeur: "3.2rem" },
+     { titre: "pers.", classe: "n", largeur: "3.6rem" },
+     { titre: "dernier", classe: "n", largeur: "5rem" }],
+    rows,
+    (c) => cellules([
+      [nomCanal(c.thread), null, c.thread],
+      [String(c.messages), "n"],
+      [String(c.recent), c.recent ? "n etat-attention" : "n zero"],
+      [String(c.people), "n"],
+      [depuis(c.last), "n", new Date(c.last).toLocaleString("fr-CA")],
+    ]),
+    "Aucun message sur la période.");
+}
+
 function activite(data, jours) {
   const cible = $("activite");
   rendre(cible, [data.activity, jours], () => remplirActivite(cible, data, jours));
@@ -554,6 +599,7 @@ async function statistiques() {
     const data = await json("/api/stats?days=" + jours);
     repartition(data.statuses);
     exercices(data.exercises, jours);
+    canaux(data.channels, jours);
     activite(data, jours);
     usage(data, jours);
   } catch (err) {

@@ -97,6 +97,10 @@ h1 {
   font-weight: 600;
 }
 .grow { flex: 1 1 auto; }
+.pastille {
+  display: inline-block; width: .45rem; height: .45rem; margin-left: .35rem;
+  border-radius: 999px; background: var(--ink); flex: 0 0 auto;
+}
 #moi { color: var(--muted); font-size: var(--fs-ui); }
 
 select, button, textarea, input {
@@ -116,6 +120,22 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .nav { padding: .3rem .6rem; line-height: 1.2; font-weight: 400;
        font-size: var(--fs-ui); color: var(--muted); }
 .nav:hover:not(:disabled) { color: var(--fg); }
+
+/* Signed out, the Console and the chat are absent from the bar: this button is the only way to
+   them. The halo breathes slowly so it registers in peripheral vision without reading as motion. */
+#connexion {
+  color: var(--ink); border-color: var(--ink); background: var(--ink-wash);
+  font-weight: 500;
+}
+#connexion:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) {
+  #connexion { animation: respire 4.5s ease-in-out infinite; }
+  #connexion:hover, #connexion:focus-visible { animation: none; }
+  @keyframes respire {
+    0%, 100% { box-shadow: 0 0 0 0 transparent; }
+    50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 22%, transparent); }
+  }
+}
 #theme, #prev, #next {
   width: var(--tap); min-width: var(--tap); padding: 0;
   text-align: center; justify-content: center;

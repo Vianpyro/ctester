@@ -247,6 +247,10 @@ export interface ThreadState {
   resolved: number;
 }
 
+export interface ActivityPayload {
+  threads: Record<string, string>;
+}
+
 export interface ThreadPayload {
   exercise_id: string;
   chat: boolean;

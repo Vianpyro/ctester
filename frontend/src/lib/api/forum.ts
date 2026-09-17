@@ -1,5 +1,6 @@
 import { authGet, authRequest } from "../auth/session.svelte";
 import type {
+  ActivityPayload,
   ForumProfile,
   ForumProfileIn,
   HelpPayload,
@@ -18,6 +19,8 @@ export const bareExercise = (key: string): string =>
 
 export const fetchThread = (key: string) =>
   authGet<ThreadPayload>("forum?ex=" + encodeURIComponent(key));
+
+export const fetchActivity = () => authGet<ActivityPayload>("forum/activity");
 
 export interface PostExtra {
   reply_to?: string;

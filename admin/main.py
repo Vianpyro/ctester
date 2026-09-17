@@ -33,6 +33,9 @@ def moderator(request: Request) -> str:
     never from the request."""
     if not security.oidc_enabled():
         raise _Refus(503, "la connexion n'est pas configurée sur ce déploiement")
+    if not security.userinfo_url():
+        raise _Refus(503, "l'API n'atteint pas l'IdP : vérifie que le conteneur"
+                          " résout CTESTER_OIDC_ISSUER (extra_hosts)")
     sub = security.current_user(request.headers)
     if sub is None:
         raise _Refus(401, "connexion requise ou expirée")
@@ -147,6 +150,7 @@ def create_app():
             "exercises": state.read_exercise_stats(days),
             "usage": state.read_usage(days),
             "activity": state.read_activity(days),
+            "channels": state.read_channels(days),
         })
 
     return app

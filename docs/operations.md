@@ -343,8 +343,8 @@ docker compose exec -T admin python3 -c \
   'import urllib.request as u;print(u.urlopen("http://127.0.0.1:8001/healthz").read())'
 ```
 
-It shows the live workers and queue, the published revision, the history of every run, and
-per-exercise statistics. What it reads:
+It shows the live workers and queue, the published revision, the history of every run,
+per-exercise statistics and where the discussion is. What it reads:
 
 | Source | Used for |
 |---|---|
@@ -353,6 +353,7 @@ per-exercise statistics. What it reads:
 | `published/current.json` | the revision the API is serving |
 | `exercise_state`, `practice_attempt`, `xp_transaction` | solved counts, active accounts, XP |
 | `web`'s `/live` | open browser windows right now |
+| `forum_message` | the Discussions panel: per-channel message counts and last activity, never any message text |
 
 Everything on the page refreshes on the same 5 s tick. A request is skipped while the previous
 one is still out, so on a long period the dashboard slows to the database's real speed instead

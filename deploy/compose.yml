@@ -105,6 +105,8 @@ services:
       CTESTER_SPOOL: /spool
       CTESTER_PUBLISHED: /published
       PYTHONPATH: /deps:/app:/admin
+    extra_hosts:
+      - ${CTESTER_EXTRA_HOST:-host.docker.internal:host-gateway}
     volumes:
       - ../admin:/admin:ro
       - ../app:/app:ro

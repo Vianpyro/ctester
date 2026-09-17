@@ -4,6 +4,7 @@
   import { presence } from "../lib/state/presence.svelte";
   import { profile } from "../lib/state/profile.svelte";
   import { session } from "../lib/auth/session.svelte";
+  import { dock } from "../lib/state/dock.svelte";
   import { theme } from "../lib/state/theme.svelte";
   import { view } from "../lib/state/view.svelte";
   import { initialsOf } from "../lib/domain/labels";
@@ -84,6 +85,7 @@
           {view.current === "forum" || view.current === "moderation"
             ? "Retour à l'exercice"
             : "Chat"}
+          {#if dock.unread}<span class="pastille" aria-label="Des messages non lus"></span>{/if}
         </button>
       {/if}
       {#if session.scratchOffered}
@@ -116,7 +118,13 @@
   >
 
   {#if !signedIn && session.oidcOffered}
-    <button type="button" id="connexion" class="nav" onclick={() => profile.askConsent()}>
+    <button
+      type="button"
+      id="connexion"
+      class="nav"
+      title="Crée un compte pour débloquer la Console (code libre) et le chat"
+      onclick={() => profile.askConsent()}
+    >
       Se connecter
     </button>
   {/if}

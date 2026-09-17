@@ -328,6 +328,19 @@ class BaseSimulee:
                 if m["exercise_id"] == ex
                 and (m["id"] in gardes or m.get("reply_to") in gardes)]
 
+    def forum_activity(self, reader, moderator, days):
+        vus = {}
+        for m in self.messages:
+            if m["hidden"]:
+                continue
+            if not (moderator or (m.get("visibility") or "thread") == "thread"
+                    or m["account"] == reader):
+                continue
+            cle = m["exercise_id"]
+            if m["created_at"] > vus.get(cle, ""):
+                vus[cle] = m["created_at"]
+        return vus
+
     def forum_thread_of(self, mid):
         for m in self.messages:
             if m["id"] == mid:
@@ -1181,6 +1194,27 @@ def test_ordre_des_refus_forum_eteint_avant_jeton_absent():
     with contexte(moderateurs=["sub-prof"]) as (c, _, _tmp):
         r = c.get("/forum?ex=tp2-ex3")
         assert r.status_code == 401, (r.status_code, r.text)
+
+
+def test_activite_du_forum_ne_signale_que_les_fils_visibles():
+    jetons = {"prof": "sub-prof", "alice": "sub-alice", "bob": "sub-bob"}
+    with contexte(jetons=jetons, moderateurs=["sub-prof"]) as (c, _, _tmp):
+        assert c.get("/forum/activity").status_code == 401
+        c.post("/forum", json={"exercise_id": "@chat:general", "text": "salut"},
+               headers=auth("alice"))
+        r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "je bloque",
+                                   "step": "compilation", "visibility": "private"},
+                   headers=auth("alice"))
+        assert r.status_code == 200, (r.status_code, r.text)
+
+        fils = c.get("/forum/activity", headers=auth("alice")).json()["threads"]
+        assert set(fils) == {"@chat:general", "tp2-ex3"}, fils
+
+        # Le fil prive d'alice n'allume rien chez bob, mais le prof le voit.
+        assert set(c.get("/forum/activity",
+                         headers=auth("bob")).json()["threads"]) == {"@chat:general"}
+        assert "tp2-ex3" in c.get("/forum/activity",
+                                  headers=auth("prof")).json()["threads"]
 
 
 def test_role_de_moderation_recalcule_et_jamais_recu():

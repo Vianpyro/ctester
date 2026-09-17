@@ -197,6 +197,17 @@ def discord_bridge(body: DiscordBridgeIn, request: Request):
     return {"ok": True}
 
 
+@router.get("/forum/activity")
+def get_activity(sub: SubForum):
+    """The last message per thread, so the page can light an unread dot without
+    opening every channel."""
+    threads = state.forum_activity(
+        sub, security.is_moderator(sub), config.FORUM_ACTIVITY_DAYS)
+    if threads is None:
+        return headers.error(503, "la base ne répond pas")
+    return {"threads": threads}
+
+
 @router.get("/forum/search")
 def search(sub: SubForum, q: str = Query("")):
     results = state.forum_search(q, sub, config.FORUM_SEARCH_MAX)
