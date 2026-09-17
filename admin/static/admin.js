@@ -278,18 +278,21 @@ function activite(data, jours) {
   const parHeure = bloc.unit === "hour";
   note.textContent = parHeure ? "par heure" : "par jour";
 
-  // Empty buckets must stay empty: a gap in the work is the thing worth seeing.
+  // The axis is the chosen period, not the span that happens to hold data: a week
+  // with one run must read as a quiet week, not as one busy day.
   const pas = parHeure ? 3600e3 : 86400e3;
   const vus = new Map(bloc.buckets.map((b) => [Math.floor(Date.parse(b.t) / pas), b]));
-  const debut = Math.min(...vus.keys());
-  const fin = Math.max(Math.floor(Date.now() / pas), Math.max(...vus.keys()));
+  const fin = Math.floor(Date.now() / pas);
+  const debut = fin - (parHeure ? 24 : jours) + 1;
   const suite = [];
-  for (let k = debut; k <= fin && suite.length < 200; k += 1) {
+  for (let k = debut; k <= fin; k += 1) {
     suite.push(vus.get(k) || { t: new Date(k * pas).toISOString(), runs: 0, failures: 0 });
   }
   const sommet = Math.max(...suite.map((b) => b.runs), 1);
 
   const histo = el("div", "histo");
+  // A term's worth of days needs thinner gutters than a day's worth of hours.
+  if (suite.length > 80) histo.style.gap = "1px";
   for (const b of suite) {
     const colonne = el("div", "colonne");
     const date = new Date(b.t);
@@ -300,11 +303,17 @@ function activite(data, jours) {
     if (!b.runs) {
       colonne.append(el("span", "part creux"));
     } else {
-      const rates = el("span", "part rate");
-      rates.style.height = (b.failures / sommet) * 100 + "%";
-      const reussis = el("span", "part reussi");
-      reussis.style.height = ((b.runs - b.failures) / sommet) * 100 + "%";
-      colonne.append(rates, reussis);
+      const hauteur = (n) => "max(1px, " + (n / sommet) * 100 + "%)";
+      if (b.failures) {
+        const rates = el("span", "part rate");
+        rates.style.height = hauteur(b.failures);
+        colonne.append(rates);
+      }
+      if (b.runs - b.failures) {
+        const reussis = el("span", "part reussi");
+        reussis.style.height = hauteur(b.runs - b.failures);
+        colonne.append(reussis);
+      }
     }
     histo.append(colonne);
   }
