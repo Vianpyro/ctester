@@ -8,7 +8,7 @@ rewrites one, so reading is a matter of remembering how far each file was read.
 import json
 
 # What a record must carry for the admin app to store it; anything else is ignored.
-FIELDS = ("job_id", "exercise_id", "status", "kind", "duration_s",
+FIELDS = ("job_id", "exercise_id", "account", "status", "kind", "duration_s",
           "queue_wait_s", "worker_id", "cache_hit", "reprises", "finished_at")
 
 READ_MAX = 256 * 1024
@@ -47,6 +47,7 @@ def _record(line):
     return {
         "job_id": job_id,
         "exercise_id": _text(data.get("exercise_id")),
+        "account": _text(data.get("account")),
         "status": _text(data.get("status")),
         "kind": _text(data.get("kind")),
         "duration_s": _number(data.get("duration_s")),

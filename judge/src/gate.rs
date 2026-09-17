@@ -28,6 +28,15 @@ impl Mode {
         }
     }
 
+    /// What the run journal records, so a failed run still says what it was.
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Quiz => "quiz",
+            Mode::Io => "io",
+            Mode::Unity => "unity",
+        }
+    }
+
     pub fn config_name(self) -> &'static str {
         match self {
             Mode::Quiz => "quiz.json",

@@ -313,12 +313,14 @@ UPDATE xp_transaction x SET event_id = 'solved:' || substr(x.event_id, 10)
 UPDATE achievement_unlocked SET event_id = 'solved:' || substr(event_id, 10)
  WHERE event_id LIKE 'reussite:%';
 
--- Operations only, never a student's: the admin app ingests the judge's run journal here.
--- No account column on purpose, so forget() has nothing to do and the history of the service
--- survives a deleted account. Per-student practice lives in practice_attempt.
+-- The judge's run journal, ingested by the admin app. `account` is empty for an
+-- anonymous run and for a Console session, whose job carries no owner by design;
+-- `exercise_id = ':console'` tells those two apart. Because the column exists, forget()
+-- must clear it: a student's deletion request takes their run history with it.
 CREATE TABLE IF NOT EXISTS judge_run (
     job_id       TEXT        PRIMARY KEY,
     exercise_id  TEXT        NOT NULL,
+    account      TEXT        NOT NULL DEFAULT '',
     status       TEXT        NOT NULL,
     kind         TEXT        NOT NULL,
     duration_s   REAL,

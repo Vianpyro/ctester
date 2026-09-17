@@ -50,8 +50,12 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **The page never declares a result.** XP, solved states and verdicts are derived by the server.
 - **The worker trusts nothing from the web tier.** It re-resolves the exercise and recomputes the
   moderator role itself.
-- **The admin app has no sign-in.** The LAN and the proxy's access list are its only boundary,
-  and it never writes anything but its copy of the judge's run journal.
+- **The admin app demands a moderator's OIDC token** on every `/api` route, on top of the
+  proxy's access list. It never writes anything but its copy of the judge's run journal.
+- **Student names and code are hidden by the server, not the page.** `/api/runs` omits `account`
+  without `?reveal=1`. Submitted code is read back from the spool or `exercise_state`, never
+  stored again, and rendered with `textContent` under a CSP: it is untrusted text in a page that
+  holds a moderator token.
 - **The judge journals every run** to `results/runs-<date>.jsonl`, from `write_result()` so no
   exit path is missed. A test binds its fields to `admin/journal.py` and `state.RUN_COLUMNS`.
 

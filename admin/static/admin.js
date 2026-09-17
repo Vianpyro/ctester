@@ -1,5 +1,7 @@
 // No build step and no dependency: the dashboard is small enough to stay plain.
 
+import { connecter, demarrer, jetonValide, oublier } from "/auth.js";
+
 const $ = (id) => document.getElementById(id);
 const RAFRAICHIR = 5000;
 
@@ -55,10 +57,48 @@ function vide(cible, message) {
   cible.append(el("p", "vide", message));
 }
 
+// Reconstruire un panneau remet son defilement en haut : ne le faire que si les
+// donnees ont vraiment change, et remettre le lecteur ou il etait quand ca arrive.
+function rendre(cible, donnees, remplir) {
+  const signature = JSON.stringify(donnees);
+  if (cible.dataset.signature === signature) return;
+  const haut = cible.scrollTop;
+  remplir();
+  cible.dataset.signature = signature;
+  // ponytail: des lignes inserees en tete decalent ce que cette position montre ;
+  // s'ancrer sur un identifiant de ligne serait exact et nettement plus lourd.
+  cible.scrollTop = haut;
+}
+
 async function json(url) {
-  const reponse = await fetch(url, { headers: { accept: "application/json" } });
+  const porteur = await jetonValide();
+  if (!porteur) throw new Error("session expirée");
+  const reponse = await fetch(url, {
+    headers: { accept: "application/json", authorization: "Bearer " + porteur },
+  });
+  // 401 : le jeton est mort malgre le renouvellement, il faut se reconnecter.
+  if (reponse.status === 401) {
+    oublier();
+    ecranConnexion("Session expirée.");
+    throw new Error("session expirée");
+  }
+  if (reponse.status === 403) {
+    ecranConnexion("Ce compte n'est pas enseignant.");
+    throw new Error("réservé à l'enseignant");
+  }
   if (!reponse.ok) throw new Error(reponse.status + " " + reponse.statusText);
   return reponse.json();
+}
+
+let minuterie = null;
+
+function ecranConnexion(raison) {
+  if (minuterie) {
+    clearInterval(minuterie);
+    minuterie = null;
+  }
+  document.body.classList.add("deconnecte");
+  $("connexion-raison").textContent = raison || "";
 }
 
 /* ---- vitals ------------------------------------------------------------ */
@@ -74,6 +114,11 @@ function vital(cle, valeur, note, options = {}) {
 
 function vitaux(data) {
   const cible = $("vitaux");
+  rendre(cible, [data.queue, data.stats, data.release, data.windows],
+         () => remplirVitaux(cible, data));
+}
+
+function remplirVitaux(cible, data) {
   cible.textContent = "";
   const q = data.queue;
   const s = data.stats;
@@ -116,6 +161,10 @@ function vitaux(data) {
 /* ---- verdict distribution ---------------------------------------------- */
 
 function repartition(statuses) {
+  rendre($("legende"), statuses, () => remplirRepartition(statuses));
+}
+
+function remplirRepartition(statuses) {
   const jauge = $("jauge");
   const legende = $("legende");
   jauge.textContent = "";
@@ -185,6 +234,10 @@ function cellules(valeurs) {
 
 function workers(rows, configures) {
   const cible = $("workers");
+  rendre(cible, [rows, configures], () => remplirWorkers(cible, rows, configures));
+}
+
+function remplirWorkers(cible, rows, configures) {
   const note = $("workers-note");
   if (!rows || rows.length === 0) {
     note.textContent = configures ? "0 sur " + configures : "";
@@ -210,6 +263,10 @@ function workers(rows, configures) {
 
 function usage(data, jours) {
   const cible = $("usage");
+  rendre(cible, [data.usage, data.stats, jours], () => remplirUsage(cible, data, jours));
+}
+
+function remplirUsage(cible, data, jours) {
   $("usage-note").textContent = jours === 1 ? "24 h" : jours + " jours";
   if (!data.usage) {
     vide(cible, "Base de données injoignable.");
@@ -235,6 +292,10 @@ function usage(data, jours) {
 
 function file(q) {
   const cible = $("file");
+  rendre(cible, q, () => remplirFile(cible, q));
+}
+
+function remplirFile(cible, q) {
   const head = (q && q.head) || [];
   $("file-note").textContent = q && q.pending
     ? q.pending + " en attente" : "";
@@ -250,6 +311,10 @@ function file(q) {
 }
 
 function exercices(rows, jours) {
+  rendre($("exercices"), [rows, jours], () => remplirExercices(rows, jours));
+}
+
+function remplirExercices(rows, jours) {
   $("exercices-note").textContent = jours === 1 ? "24 h" : jours + " jours";
   tableau($("exercices"),
     [{ titre: "exercice" }, { titre: "runs", classe: "n", largeur: "3.2rem" },
@@ -269,6 +334,10 @@ function exercices(rows, jours) {
 
 function activite(data, jours) {
   const cible = $("activite");
+  rendre(cible, [data.activity, jours], () => remplirActivite(cible, data, jours));
+}
+
+function remplirActivite(cible, data, jours) {
   const note = $("activite-note");
   const bloc = data.activity;
   if (!bloc || bloc.buckets.length === 0) {
@@ -336,6 +405,10 @@ let connus = null;
 
 function runs(rows) {
   const cible = $("runs");
+  rendre(cible, rows, () => remplirRuns(cible, rows));
+}
+
+function remplirRuns(cible, rows) {
   tableau(cible,
     [{ titre: "fini", classe: "mono", largeur: "5.9rem" },
      { titre: "exercice", largeur: "11rem" }, { titre: "statut", largeur: "9rem" },
@@ -343,6 +416,8 @@ function runs(rows) {
      { titre: "durée", classe: "n", largeur: "4.4rem" },
      { titre: "attente", classe: "n", largeur: "4.8rem" },
      { titre: "worker", classe: "n", largeur: "4rem" },
+     ...(revele() ? [{ titre: "auteur", largeur: "10rem" }] : []),
+     { titre: "code", largeur: "4rem" },
      { titre: "job", classe: "mono" }],
     rows,
     (r) => {
@@ -350,17 +425,82 @@ function runs(rows) {
         [horloge(r.finished_at), "mono"],
         [texte(r.exercise_id), null, r.exercise_id],
         [texte(r.status), classeEtat(r.status)],
-        r.cache_hit ? "cache" : texte(r.kind),
+        [texte(r.kind), r.cache_hit ? "cache" : null,
+         r.cache_hit ? "servi par le cache, sans compiler" : null],
         [secondes(r.duration_s), "n"],
         [secondes(r.queue_wait_s), "n"],
         [texte(r.worker_id), "n mono"],
+        ...(revele()
+          ? [[r.account || "anonyme", r.account ? "compte" : "compte zero",
+              r.account || "aucun compte"]]
+          : []),
+        [r.exercise_id && !r.exercise_id.startsWith(":") ? "voir" : "–",
+         r.exercise_id && !r.exercise_id.startsWith(":") ? "voir" : "zero"],
         [r.job_id, "mono", r.job_id],
       ]);
+      if (r.exercise_id && !r.exercise_id.startsWith(":")) {
+        tr.cells[tr.cells.length - 2].addEventListener("click", () => void montrerCode(r));
+      }
       if (connus && !connus.has(r.job_id)) tr.className = "neuf";
       return tr;
     },
     "Aucun run enregistré.");
   if (rows) connus = new Set(rows.map((r) => r.job_id));
+}
+
+/* ---- personal data ------------------------------------------------------ */
+
+const revele = () => $("reveler").checked;
+
+// Le compte n'est pas seulement cache : le serveur ne l'envoie que sur demande.
+function parametresRuns() {
+  const params = new URLSearchParams({ limit: "150" });
+  if (revele()) params.set("reveal", "1");
+  const champs = { exercise: "f-exercice", status: "f-statut", worker: "f-worker" };
+  for (const [cle, id] of Object.entries(champs)) {
+    const valeur = $(id).value.trim();
+    if (valeur) params.set(cle, valeur);
+  }
+  return params;
+}
+
+const SOURCES = {
+  run: "le code de ce run",
+  dernier: "dernier code soumis pour cet exercice",
+};
+
+async function montrerCode(r) {
+  const boite = $("code");
+  $("code-titre").textContent = r.exercise_id;
+  $("code-source").textContent = "chargement…";
+  $("code-corps").textContent = "";
+  boite.showModal();
+  const params = new URLSearchParams({ job_id: r.job_id, exercise_id: r.exercise_id });
+  if (r.account) params.set("account", r.account);
+  let bloc;
+  try {
+    bloc = await json("/api/code?" + params);
+  } catch (err) {
+    $("code-source").textContent = err.message;
+    return;
+  }
+  const noms = Object.keys(bloc.files || {});
+  if (!noms.length) {
+    // Le spool est balaye apres 600 s, et rien n'est garde pour un run jamais sonde.
+    $("code-source").textContent = "plus disponible";
+    $("code-corps").append(el("p", "vide",
+      "Ce run est trop ancien pour le spool, et aucun code soumis n'est enregistré "
+      + "pour ce compte sur cet exercice."));
+    return;
+  }
+  const quand = bloc.at ? new Date(bloc.at).toLocaleString("fr-CA") : "";
+  $("code-source").textContent = (SOURCES[bloc.source] || "") + (quand ? ", " + quand : "");
+  for (const nom of noms) {
+    $("code-corps").append(el("div", "fichier", nom));
+    // textContent, jamais innerHTML : ce texte vient d'un etudiant et cette page
+    // detient un jeton de moderateur.
+    $("code-corps").append(el("pre", null, bloc.files[nom]));
+  }
 }
 
 /* ---- state line -------------------------------------------------------- */
@@ -379,7 +519,14 @@ function periode() {
   return Number(actif ? actif.dataset.jours : 7);
 }
 
+// Une requete par lot a la fois. Le cout de /api/stats croit avec la periode, et sur
+// la plus longue une requete peut depasser le tick : le tableau ralentit alors a la
+// vitesse reelle de la base au lieu d'empiler des requetes.
+let enVol = { apercu: false, stats: false };
+
 async function rafraichir() {
+  if (enVol.apercu) return;
+  enVol.apercu = true;
   try {
     const data = await json("/api/overview");
     vitaux(data);
@@ -392,10 +539,16 @@ async function rafraichir() {
   } catch (err) {
     etat("Rafraîchissement impossible : " + err.message, "casse");
   }
-  await listeRuns();
+  try {
+    await listeRuns();
+  } finally {
+    enVol.apercu = false;
+  }
 }
 
 async function statistiques() {
+  if (enVol.stats) return;
+  enVol.stats = true;
   const jours = periode();
   try {
     const data = await json("/api/stats?days=" + jours);
@@ -405,18 +558,14 @@ async function statistiques() {
     usage(data, jours);
   } catch (err) {
     etat("Statistiques indisponibles : " + err.message, "casse");
+  } finally {
+    enVol.stats = false;
   }
 }
 
 async function listeRuns() {
-  const params = new URLSearchParams({ limit: "150" });
-  const champs = { exercise: "f-exercice", status: "f-statut", worker: "f-worker" };
-  for (const [cle, id] of Object.entries(champs)) {
-    const valeur = $(id).value.trim();
-    if (valeur) params.set(cle, valeur);
-  }
   try {
-    runs((await json("/api/runs?" + params)).runs);
+    runs((await json("/api/runs?" + parametresRuns())).runs);
   } catch (err) {
     etat("Runs indisponibles : " + err.message, "casse");
   }
@@ -440,6 +589,40 @@ for (const id of ["f-exercice", "f-statut", "f-worker"]) {
   });
 }
 
-rafraichir();
-statistiques();
-setInterval(rafraichir, RAFRAICHIR);
+// Un seul tick pour tout : pendant un laboratoire on suit l'activite en direct, et la
+// periode selectionnee est alors « 24 h », ou les agregats sont triviaux.
+function tic() {
+  if (document.hidden) return;
+  void rafraichir();
+  void statistiques();
+}
+
+// Un onglet en arriere-plan ne demande rien ; au retour on rafraichit tout de suite
+// plutot que d'attendre le prochain tick.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) tic();
+});
+
+$("reveler").addEventListener("change", () => {
+  // La signature change avec la colonne : le tableau doit se reconstruire.
+  $("runs").dataset.signature = "";
+  void listeRuns();
+});
+
+$("code-fermer").addEventListener("click", () => $("code").close());
+
+$("connexion-bouton").addEventListener("click", () => {
+  void connecter().catch((err) => ecranConnexion(err.message));
+});
+
+// La page se sert sans jeton ; c'est ici qu'on decide de montrer le tableau ou
+// l'ecran de connexion.
+demarrer().then((porteur) => {
+  if (!porteur) {
+    ecranConnexion("");
+    return;
+  }
+  document.body.classList.remove("deconnecte");
+  tic();
+  minuterie = setInterval(tic, RAFRAICHIR);
+}, (err) => ecranConnexion(err.message));

@@ -285,8 +285,17 @@ mod runner {
                 .queued_at(job)
                 .and_then(|queued| SystemTime::now().duration_since(queued).ok())
                 .map(|waited| waited.as_secs_f64());
+            // `all = true`: an archived exercise must still report what it was.
+            let kind = self
+                .config
+                .content
+                .iter()
+                .find_map(|root| gate::load(root, exercise_id, true, gate::now()))
+                .map_or("", |exercise| exercise.mode.name());
             Run {
                 exercise_id,
+                account: self.spool.job_field(job, "owner"),
+                kind,
                 duration_s,
                 queue_wait_s,
                 cache_hit,

@@ -891,7 +891,7 @@ def read_teams(assignment_id):
 # judge_run holds no account: it is the history of the service, not of a student, so
 # forget() leaves it alone.
 
-RUN_COLUMNS = ("job_id", "exercise_id", "status", "kind", "duration_s",
+RUN_COLUMNS = ("job_id", "exercise_id", "account", "status", "kind", "duration_s",
                "queue_wait_s", "worker_id", "cache_hit", "reprises", "finished_at")
 
 
@@ -1001,6 +1001,23 @@ def read_exercise_stats(days=7, limit=20):
             for exercise, runs, average, p95, failures in rows]
 
 
+def read_submitted(user, exercise_id):
+    """The last code this account actually submitted for this exercise, with its date.
+
+    Deliberately not read_resume(): that one prefers exercise_draft, which is what the
+    student is typing right now, not what they sent to the judge.
+    """
+    rows = _query(
+        "SELECT sources, updated_at FROM exercise_state"
+        " WHERE account = %s AND exercise_id = %s", (user, exercise_id), read=True)
+    if not rows:
+        return None
+    files = _sources(rows)
+    if files is None:
+        return None
+    return {"files": files, "at": rows[0][1].isoformat()}
+
+
 def read_activity(days=7):
     """Runs per bucket, so a lab session's shape is visible: hourly over one day,
     daily beyond it."""
@@ -1048,7 +1065,8 @@ def forget(user):
         "     l AS (DELETE FROM forum_helpful       WHERE account = %(u)s),"
         "     m AS (DELETE FROM team_member         WHERE account = %(u)s),"
         "     n AS (DELETE FROM team_revision       WHERE account = %(u)s),"
-        "     p AS (DELETE FROM display_preference  WHERE account = %(u)s)"
+        "     p AS (DELETE FROM display_preference  WHERE account = %(u)s),"
+        "     q AS (DELETE FROM judge_run            WHERE account = %(u)s)"
         " SELECT 1",
         {"u": user},
     ) is not None

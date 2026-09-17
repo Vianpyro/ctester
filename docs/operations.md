@@ -269,12 +269,69 @@ what was there before.
 it never writes a verdict, a grade or a student's row. The only table it fills is its own copy
 of the judge's run journal.
 
-**It has no sign-in of its own.** The proxy in front of it is the entire boundary.
+**Two boundaries, not one.**
 
-> **Before exposing it:** the Nginx Proxy Manager host for the dashboard must carry an
-> **Access List restricted to the LAN** (for example `192.168.0.0/16`). Without it, anyone who
-> can reach the proxy gets the dashboard. An IP check inside the app would be theatre: every
-> request arrives with the proxy's address, not the visitor's.
+Every `/api` route demands a **moderator's OIDC token** — the same
+`CTESTER_FORUM_MODERATORS` list the forum and the judge use. Without one the routes answer
+401, and a signed-in student gets 403. The page itself is served to anyone, but it shows an
+empty sign-in screen and fetches nothing until a token is in hand.
+
+> **Still put an access list on it.** The Nginx Proxy Manager host should carry one restricted
+> to the LAN (for example `192.168.0.0/16`). A hostname that only resolves on the LAN is **not**
+> a boundary: the proxy routes on the `Host` header, so anyone who can reach the proxy and knows
+> the name reaches the host. An IP check inside the app would be theatre — every request arrives
+> with the proxy's address, not the visitor's.
+
+To audit which proxy hosts carry a list:
+
+```sh
+docker cp nginx-manager-npm-1:/data/database.sqlite /tmp/npm.sqlite
+sqlite3 /tmp/npm.sqlite "SELECT ph.domain_names, ph.access_list_id, al.name   FROM proxy_host ph LEFT JOIN access_list al ON al.id = ph.access_list_id   WHERE ph.is_deleted = 0;"
+rm /tmp/npm.sqlite
+```
+
+`access_list_id = 0` means no list is attached.
+
+### Student names and code
+
+Both are **hidden until asked for**, and the hiding is done by the server: without
+`?reveal=1` the account is simply absent from `/api/runs`, not merely absent from the table.
+The toggle protects against the projector and the shoulder, not against the teacher.
+
+`GET /api/code` answers from whichever of two existing sources still has the code. **Nothing
+new is stored for this.**
+
+| Source | What it is | When it answers |
+|---|---|---|
+| the spool's `files.json` | the code of *that* run, even for a signed-out student | until the judge sweeps, `CTESTER_SWEEP_AFTER` (600 s) |
+| `exercise_state.sources` | the student's *latest* code for that exercise | any time, signed-in students only |
+
+The page says which one answered, because presenting today's code as a Tuesday run would
+mislead. Neither holds anything for a run the student never polled and that has since been
+swept: the poll is what writes the row.
+
+Student code is inert text -- the dashboard never compiles or runs it -- but it is untrusted
+text rendered in a page that holds a moderator token. It is placed with `textContent`, never
+`innerHTML`, and the app sends a `Content-Security-Policy` that forbids inline scripts. A `.c`
+file full of HTML is therefore displayed, not executed.
+
+### Signing in
+
+The dashboard runs the same PKCE authorization-code flow as the student page, ported to plain
+JavaScript in `admin/static/auth.js`. It reuses `CTESTER_OIDC_CLIENT_ID`: a student's token is
+accepted by the IdP and then refused with 403 by the app, which is where the moderator check
+belongs.
+
+Two entries are needed on the IdP side, and neither lives in this repository:
+
+| What | Value |
+|---|---|
+| Redirect URI | the dashboard's own URL, `location.origin + location.pathname` — e.g. `https://tch999.thevhome.com/` |
+| CORS origin | the same origin, because the browser posts the code to the IdP's token endpoint |
+
+**The dashboard must be served over HTTPS.** PKCE derives its challenge with
+`crypto.subtle`, which browsers expose only in a secure context; over plain HTTP the sign-in
+cannot work at all. The `*.thevhome.com` wildcard certificate covers this.
 
 The `admin` service publishes **no port**. It listens on `8001` on the `CTESTER_NETWORK`
 (`ctester-ingress` by default), which is how the proxy reaches it — point a proxy host at
@@ -296,6 +353,11 @@ per-exercise statistics. What it reads:
 | `published/current.json` | the revision the API is serving |
 | `exercise_state`, `practice_attempt`, `xp_transaction` | solved counts, active accounts, XP |
 | `web`'s `/live` | open browser windows right now |
+
+Everything on the page refreshes on the same 5 s tick. A request is skipped while the previous
+one is still out, so on a long period the dashboard slows to the database's real speed instead
+of queueing; a backgrounded tab asks for nothing at all. Measured on 720 000 runs, a full tick
+costs ~160 ms over 24 h and ~1 s over a full session.
 
 The window count comes from the API's own presence map over `CTESTER_ADMIN_WEB_URL`
 (`http://web:8000` by default, reached on the Compose network). `/live` counts windows *and*

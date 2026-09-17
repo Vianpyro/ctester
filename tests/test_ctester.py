@@ -1494,12 +1494,12 @@ def test_suppression_couvre_toutes_les_tables():
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)\s*\((.*?)\n\);",
         schema, re.S))
     assert set(blocs) == tables, sorted(set(blocs) ^ tables)
-    # judge_run and judge_journal_cursor carry no account: they are the judge's own
-    # history of the service, kept when a student is forgotten.
+    # judge_journal_cursor carries no account: it tracks files, not people.
+    # judge_run does carry one, so forget() must clear it like any other.
     avec_compte = {nom for nom, corps in blocs.items()
                    if re.search(r"^\s*account\s+TEXT", corps, re.M)}
     assert avec_compte == tables - {"team", "team_document", "team_submission",
-                                    "judge_run", "judge_journal_cursor"}, \
+                                    "judge_journal_cursor"}, \
         sorted(avec_compte)
     efface = lire(os.path.join(ROOT, "app", "state.py"))
     efface = efface[efface.index("def forget(user):"):]

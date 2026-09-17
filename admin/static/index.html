@@ -10,7 +10,14 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/admin.css">
 </head>
-<body>
+<body class="deconnecte">
+
+<section class="connexion">
+  <h1>ctester <b>administration</b></h1>
+  <p>Réservé à l'enseignant.</p>
+  <button type="button" id="connexion-bouton">Se connecter</button>
+  <p class="raison" id="connexion-raison"></p>
+</section>
 
 <header class="barre">
   <h1>ctester <b>administration</b></h1>
@@ -49,6 +56,9 @@
   <section class="panneau">
     <h2>Derniers runs
       <span class="filtres">
+        <label class="bascule" title="Affiche le compte de l'auteur. Masqué par défaut : un projecteur, un partage d'écran, un collègue qui passe.">
+          <input type="checkbox" id="reveler"> données personnelles
+        </label>
         <input id="f-exercice" placeholder="exercice" aria-label="Filtrer par exercice">
         <input id="f-statut" placeholder="statut" aria-label="Filtrer par statut">
         <input id="f-worker" placeholder="worker" aria-label="Filtrer par worker">
@@ -68,6 +78,15 @@
     </section>
   </div>
 </main>
+
+<dialog id="code">
+  <header>
+    <b id="code-titre"></b>
+    <span class="note" id="code-source"></span>
+    <button type="button" id="code-fermer" aria-label="Fermer">Fermer</button>
+  </header>
+  <div id="code-corps"></div>
+</dialog>
 
 <script src="/admin.js" type="module"></script>
 </body>

@@ -42,6 +42,13 @@ fn mkdir(path: &Path) -> io::Result<()> {
 /// `exercise_id = ":console"`, the key `durees.json` already uses for them.
 pub struct Run<'a> {
     pub exercise_id: &'a str,
+    /// The OIDC subject, or empty: an anonymous run, or a Console session, whose job
+    /// deliberately carries no owner.
+    pub account: String,
+    /// The exercise's mode, resolved from the content rather than read back from the
+    /// verdict: only a successful verdict carries `kind`, and a failed run is exactly
+    /// when knowing the mode matters.
+    pub kind: &'a str,
     pub duration_s: Option<f64>,
     pub queue_wait_s: Option<f64>,
     pub cache_hit: bool,
@@ -53,6 +60,8 @@ impl Run<'_> {
     pub fn of(exercise_id: &str) -> Run<'_> {
         Run {
             exercise_id,
+            account: String::new(),
+            kind: "",
             duration_s: None,
             queue_wait_s: None,
             cache_hit: false,
@@ -152,8 +161,13 @@ impl Results {
         let record = json!({
             "job_id": job.as_str(),
             "exercise_id": run.exercise_id,
+            "account": run.account,
             "status": field("status"),
-            "kind": field("kind"),
+            // The verdict only names the mode when it graded successfully.
+            "kind": match run.kind.is_empty() {
+                true => field("kind"),
+                false => run.kind,
+            },
             "duration_s": run.duration_s,
             "queue_wait_s": run.queue_wait_s,
             "worker_id": self.worker_id,
