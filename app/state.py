@@ -948,7 +948,7 @@ def read_workers(hours=24):
     """A worker is known by the runs it finished; the judge keeps no other identity."""
     rows = _query(
         "SELECT worker_id, count(*), avg(duration_s), max(finished_at),"
-        "       count(*) FILTER (WHERE status <> 'ok')"
+        "       count(*) FILTER (WHERE status NOT IN ('ok', 'console'))"
         "  FROM judge_run WHERE finished_at > now() - make_interval(hours => %s)"
         " GROUP BY worker_id ORDER BY worker_id", (hours,), read=True)
     if rows is None:
@@ -963,14 +963,16 @@ def read_run_stats(days=7):
     rows = _query(
         "SELECT count(*), count(*) FILTER (WHERE cache_hit),"
         "       count(*) FILTER (WHERE status = 'ok'),"
-        "       coalesce(sum(reprises), 0), avg(queue_wait_s)"
+        "       coalesce(sum(reprises), 0), avg(queue_wait_s),"
+        "       count(*) FILTER (WHERE status <> 'console')"
         "  FROM judge_run WHERE finished_at > now() - make_interval(days => %s)",
         (days,), read=True)
     if not rows:
         return None
-    total, cached, ok, reprises, waited = rows[0]
+    total, cached, ok, reprises, waited, graded = rows[0]
+    # `graded` excludes Console sessions, so a success rate stays a success rate.
     return {"total": int(total), "cache_hits": int(cached), "ok": int(ok),
-            "reprises": int(reprises),
+            "graded": int(graded), "reprises": int(reprises),
             "average_wait_s": round(float(waited), 2) if waited is not None else None}
 
 
@@ -986,7 +988,7 @@ def read_exercise_stats(days=7, limit=20):
     rows = _query(
         "SELECT exercise_id, count(*), avg(duration_s),"
         "       percentile_disc(0.95) WITHIN GROUP (ORDER BY duration_s),"
-        "       count(*) FILTER (WHERE status <> 'ok')"
+        "       count(*) FILTER (WHERE status NOT IN ('ok', 'console'))"
         "  FROM judge_run WHERE finished_at > now() - make_interval(days => %s)"
         " GROUP BY exercise_id ORDER BY count(*) DESC LIMIT %s",
         (days, max(1, min(int(limit), 100))), read=True)
@@ -1005,7 +1007,7 @@ def read_activity(days=7):
     unit = "hour" if days <= 1 else "day"
     rows = _query(
         "SELECT date_trunc(%s, finished_at) AS t, count(*),"
-        "       count(*) FILTER (WHERE status <> 'ok')"
+        "       count(*) FILTER (WHERE status NOT IN ('ok', 'console'))"
         "  FROM judge_run WHERE finished_at > now() - make_interval(days => %s)"
         " GROUP BY t ORDER BY t", (unit, days), read=True)
     if rows is None:

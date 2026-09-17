@@ -17,6 +17,7 @@
   --neutre: #58748f;
   --attention: #a5620a;
   --alerte: #c22626;
+  --console: #6b46c1;
   --accent: #1d4fd8;
   --ok-fond: #157f3c22;
 }
@@ -34,6 +35,7 @@
     --neutre: #7d94ab;
     --attention: #f5b544;
     --alerte: #ff6b6b;
+    --console: #b794f6;
     --accent: #6ea8ff;
     --ok-fond: #3ddc8422;
   }
@@ -305,6 +307,7 @@ td.zero { color: var(--tres-faible); }
 .etat-ok { color: var(--ok); }
 .etat-neutre { color: var(--neutre); }
 .etat-attention { color: var(--attention); }
+.etat-console { color: var(--console); }
 .etat-alerte { color: var(--alerte); font-weight: 500; }
 
 /* A row appearing is the one thing worth animating: it is news. */

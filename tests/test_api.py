@@ -2825,6 +2825,52 @@ def test_oidc_json_annonce_la_console():
         assert client.get("/oidc.json").json()["scratch"] is False
 
 
+def test_la_console_annonce_running_avant_toute_sortie():
+    """Un programme qui lit avant d'écrire ne produit rien tant qu'on n'a pas tapé.
+    Sans la trame « running », la page reste sur « Compilation… » et laisse croire
+    qu'il faut attendre avant de répondre."""
+    _exige_flock()
+    from services import scratch as _scratch
+    with contexte(jetons=JETONS_EQUIPE) as (client, _, _):
+        with client.websocket_connect("/scratch/live") as socket:
+            _console_hello(socket)
+            assert socket.receive_json()["t"] == "queued"
+            job = os.path.basename(_le_job_de_console())
+
+            # Le juge réclame le job, puis tient son verrou de présence.
+            os.makedirs(_sortie(job, ".lock"), exist_ok=True)
+            with open(_sortie(job, "claim"), "w", encoding="utf-8") as prise:
+                _scratch.fcntl.flock(prise, _scratch.fcntl.LOCK_EX)
+                assert socket.receive_json()["t"] == "ready"
+
+                # Compilation en cours : rien à dire de plus.
+                _ecrire_json(_sortie(job, "state.json"), {"state": "compiling"})
+                # Puis le programme démarre, sans avoir encore rien écrit.
+                _ecrire_json(_sortie(job, "state.json"), {"state": "running"})
+                trame = socket.receive_json()
+                assert trame == {"t": "running"}, trame
+
+                # Annoncée une seule fois, même si l'état ne bouge plus.
+                with open(_sortie(job, "out"), "w", encoding="utf-8") as fh:
+                    fh.write("recu 7\n")
+                suite = socket.receive_json()
+                assert suite == {"t": "out", "d": "recu 7\n"}, suite
+
+                _ecrire_json(_sortie(job, "state.json"),
+                             {"state": "exited", "code": 0, "reason": "exited"})
+                fin = socket.receive_json()
+                assert fin["t"] == "exit" and fin["code"] == 0, fin
+                _scratch.fcntl.flock(prise, _scratch.fcntl.LOCK_UN)
+
+
+def _ecrire_json(chemin, valeur):
+    """Écriture atomique, comme celle du juge : jamais un demi-fichier pour l'API."""
+    tmp = chemin + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(valeur, fh)
+    os.replace(tmp, chemin)
+
+
 def _le_job_de_console():
     for nom in os.listdir(config.SPOOL):
         chemin = os.path.join(config.SPOOL, nom)

@@ -148,6 +148,7 @@ async def _listen(socket, session):
 async def _follow(socket, session, reader):
     wait, claimed, finished, ticks = 0.0, False, False, 0
     misses = 0
+    running = False
     try:
         while True:
             if not claimed:
@@ -170,6 +171,10 @@ async def _follow(socket, session, reader):
                 text = await run_in_threadpool(session.read_output, name)
                 if text:
                     await _send(socket, {"t": name, "d": text})
+
+            if not running and status and status.get("state") == "running":
+                running = True
+                await _send(socket, {"t": "running"})
 
             if finished:
                 await _send(socket, {"t": "exit",

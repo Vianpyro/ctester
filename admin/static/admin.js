@@ -15,6 +15,7 @@ const ETATS = {
   timeout: "attention",
   memory_error: "attention",
   error: "alerte",
+  console: "console",
 };
 
 const classeEtat = (statut) => "etat-" + (ETATS[statut] || "neutre");
@@ -220,8 +221,8 @@ function usage(data, jours) {
     ["Résolus", data.usage.solved],
     ["Comptes", data.usage.active_accounts],
     ["XP", data.usage.xp],
-    ["Réussite", data.stats && data.stats.total
-      ? Math.round((data.stats.ok / data.stats.total) * 100) + " %"
+    ["Réussite", data.stats && data.stats.graded
+      ? Math.round((data.stats.ok / data.stats.graded) * 100) + " %"
       : "–"],
   ];
   for (const [cle, valeur] of paires) {

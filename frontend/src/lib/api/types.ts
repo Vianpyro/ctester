@@ -413,6 +413,7 @@ export interface ScratchDraft {
 export type ScratchFrame =
   | { t: "queued"; position?: number; eta?: number }
   | { t: "ready" }
+  | { t: "running" }
   | { t: "build"; d: string }
   | { t: "out"; d: string }
   | { t: "exit"; code: number; reason: string };

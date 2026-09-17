@@ -183,10 +183,12 @@ class Scratch {
         );
       } else if (frame.t === "ready") {
         this.say("Compilation…");
+      } else if (frame.t === "running") {
+        this.say("En cours — tu peux répondre à ton programme.");
       } else if (frame.t === "build") {
         this.write(frame.d, "gccsortie");
       } else if (frame.t === "out") {
-        this.say("En cours — ton programme tourne.");
+        this.say("En cours — tu peux répondre à ton programme.");
         this.write(frame.d);
       } else if (frame.t === "exit") {
         const why = REASONS[frame.reason];
