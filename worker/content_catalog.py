@@ -55,8 +55,13 @@ def _natural_key(value):
                  for part in _NATURAL_PARTS_RE.split(value) if part)
 
 
+_HOUR_24_RE = re.compile(r"[T ]24[:0]")
+
+
 def _iso_datetime(value):
     if not isinstance(value, str):
+        return None
+    if _HOUR_24_RE.search(value):
         return None
     try:
         parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
