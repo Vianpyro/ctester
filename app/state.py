@@ -939,7 +939,10 @@ def forget_journal_files(seen):
                   (list(seen),))
 
 
-def read_runs(limit, status=None, exercise_id=None, worker_id=None):
+def read_runs(limit, status=None, exercise_id=None, worker_id=None, reveal=False):
+    """`account` is only ever selected when asked for: the masking is the query, not a
+    filter afterwards, so the default path never touches that column -- and still works
+    against a database whose schema predates it."""
     where, params = [], []
     for column, value in (("status", status), ("exercise_id", exercise_id),
                           ("worker_id", worker_id)):
@@ -948,12 +951,14 @@ def read_runs(limit, status=None, exercise_id=None, worker_id=None):
             params.append(value)
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     params.append(max(1, min(int(limit), 500)))
+    colonnes = RUN_COLUMNS if reveal else tuple(
+        c for c in RUN_COLUMNS if c != "account")
     rows = _query(
-        "SELECT " + ", ".join(RUN_COLUMNS) + " FROM judge_run" + clause +
+        "SELECT " + ", ".join(colonnes) + " FROM judge_run" + clause +
         " ORDER BY finished_at DESC LIMIT %s", tuple(params), read=True)
     if rows is None:
         return None
-    return [dict(zip(RUN_COLUMNS, _run_row(row))) for row in rows]
+    return [dict(zip(colonnes, _run_row(row))) for row in rows]
 
 
 def _run_row(row):

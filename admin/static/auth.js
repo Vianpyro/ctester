@@ -2,6 +2,7 @@
 // frontend/src/lib/auth/oidc.ts, reduit a ce dont le tableau de bord a besoin.
 // Les contraintes commentees la-bas valent ici aussi.
 
+const TOKEN_KEY = "ctester-admin-token";
 const REFRESH_KEY = "ctester-admin-refresh";
 const EXPIRY_KEY = "ctester-admin-expiry";
 const PKCE_KEY = "ctester-admin-pkce";
@@ -10,7 +11,7 @@ const PKCE_KEY = "ctester-admin-pkce";
 // et s'en servir plus tot revoque toutes les sessions. 30 s reste dans la fenetre.
 const REFRESH_MARGIN = 30;
 
-let jeton = null;          // en memoire seulement : jamais dans le stockage
+let jeton = null;
 let reglages = null;
 let decouverte = null;
 let enCours = null;        // un seul refresh a la fois : la rotation les invaliderait
@@ -74,6 +75,7 @@ const redirection = () => location.origin + location.pathname;
 
 function garder(octroi) {
   jeton = octroi.access_token || null;
+  ecrire(TOKEN_KEY, jeton || "");
   ecrire(REFRESH_KEY, octroi.refresh_token || "");
   ecrire(EXPIRY_KEY, octroi.expires_in
     ? String(secondes() + Number(octroi.expires_in))
@@ -83,13 +85,16 @@ function garder(octroi) {
 export function oublier() {
   jeton = null;
   enCours = null;
+  ecrire(TOKEN_KEY, "");
   ecrire(REFRESH_KEY, "");
   ecrire(EXPIRY_KEY, "");
 }
 
 function bientotExpire() {
   const fin = Number(lire(EXPIRY_KEY)) || 0;
-  return !fin || secondes() >= fin - REFRESH_MARGIN;
+  // Sans echeance connue on garde le jeton : un 401 declenchera le renouvellement,
+  // alors qu'un renouvellement premature ferait revoquer la session.
+  return fin > 0 && secondes() >= fin - REFRESH_MARGIN;
 }
 
 async function echanger(corps) {
@@ -134,6 +139,9 @@ function rafraichirJeton() {
 
 /** Le jeton a envoyer, renouvele si besoin ; null quand il faut se reconnecter. */
 export async function jetonValide() {
+  // Relu du stockage apres un rechargement : sans ca on renouvellerait a chaque
+  // ouverture de page, bien avant la fenetre que Rauthy autorise.
+  if (!jeton) jeton = lire(TOKEN_KEY) || null;
   if (jeton && !bientotExpire()) return jeton;
   return (await rafraichirJeton()) ? jeton : null;
 }

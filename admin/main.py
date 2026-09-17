@@ -128,12 +128,10 @@ def create_app():
     @app.get("/api/runs")
     def api_runs(_: Moderateur, limit: int = 100, status: str = "",
                  exercise: str = "", worker: str = "", reveal: int = 0):
-        """`account` is left out unless asked for: hiding a column while still shipping
-        the name in the JSON would only be hiding it from the reader, not from the page."""
-        runs = state.read_runs(limit, status or None, exercise or None, worker or None)
-        if runs is not None and not reveal:
-            runs = [{k: v for k, v in run.items() if k != "account"} for run in runs]
-        return _payload({"runs": runs})
+        """`account` is left out unless asked for, by the query itself: hiding a column
+        while still shipping the name in the JSON would only hide it from the reader."""
+        return _payload({"runs": state.read_runs(
+            limit, status or None, exercise or None, worker or None, bool(reveal))})
 
     @app.get("/api/code")
     def api_code(_: Moderateur, job_id: str = "", exercise_id: str = "",
