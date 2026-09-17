@@ -999,6 +999,22 @@ def read_exercise_stats(days=7, limit=20):
             for exercise, runs, average, p95, failures in rows]
 
 
+def read_activity(days=7):
+    """Runs per bucket, so a lab session's shape is visible: hourly over one day,
+    daily beyond it."""
+    unit = "hour" if days <= 1 else "day"
+    rows = _query(
+        "SELECT date_trunc(%s, finished_at) AS t, count(*),"
+        "       count(*) FILTER (WHERE status <> 'ok')"
+        "  FROM judge_run WHERE finished_at > now() - make_interval(days => %s)"
+        " GROUP BY t ORDER BY t", (unit, days), read=True)
+    if rows is None:
+        return None
+    return {"unit": unit,
+            "buckets": [{"t": t.isoformat(), "runs": int(n), "failures": int(f)}
+                        for t, n, f in rows]}
+
+
 def read_usage(days=7):
     rows = _query(
         "SELECT (SELECT count(*) FROM exercise_state WHERE status = 'solved'),"

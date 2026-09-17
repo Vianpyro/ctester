@@ -295,6 +295,17 @@ per-exercise statistics. What it reads:
 | `spool/` | queue depth, oldest job, ETA |
 | `published/current.json` | the revision the API is serving |
 | `exercise_state`, `practice_attempt`, `xp_transaction` | solved counts, active accounts, XP |
+| `web`'s `/live` | open browser windows right now |
+
+The window count comes from the API's own presence map over `CTESTER_ADMIN_WEB_URL`
+(`http://web:8000` by default, reached on the Compose network). `/live` counts windows *and*
+registers its caller, so the dashboard subtracts itself -- the same thing `ctester-pull` does.
+It counts **windows, not accounts**: a signed-out visitor is one too, and the count empties
+`CTESTER_PRESENCE_TTL` seconds (150) after the last request. If the API is down the tile shows
+`--` and nothing else on the page is affected.
+
+"En file" counts jobs still waiting; a job a worker has already claimed is shown separately as
+"en cours de correction". Many waiting with none running means the workers are stuck, not busy.
 
 ### The run journal
 

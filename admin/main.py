@@ -47,6 +47,7 @@ def create_app():
             "queue": overview.queue(),
             "release": overview.release(),
             "workers": overview.workers(),
+            "windows": overview.windows(),
             "stats": state.read_run_stats(1),
         })
 
@@ -65,6 +66,7 @@ def create_app():
             "statuses": state.read_status_counts(days),
             "exercises": state.read_exercise_stats(days),
             "usage": state.read_usage(days),
+            "activity": state.read_activity(days),
         })
 
     return app

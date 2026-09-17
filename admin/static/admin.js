@@ -79,10 +79,17 @@ function vitaux(data) {
   const r = data.release;
 
   if (q) {
-    cible.append(vital("En file", q.pending,
-      q.pending ? "plus ancien " + duree(q.oldest_s) : "rien en attente"));
+    const attente = q.waiting === undefined ? q.pending : q.waiting;
+    cible.append(vital("En file", attente,
+      q.running ? q.running + " en cours de correction"
+        : (attente ? "plus ancien " + duree(q.oldest_s) : "rien en attente")));
     cible.append(vital("Attente estimée", duree(q.eta_s),
       q.pending ? "avant le dernier job" : "file libre"));
+  }
+  if (data.windows) {
+    const n = data.windows.open;
+    cible.append(vital("Fenêtres", n === null || n === undefined ? "–" : n,
+      n === null || n === undefined ? "API injoignable" : "ouvertes, connecté ou non"));
   }
   if (s) {
     const taux = s.total ? Math.round((s.cache_hits / s.total) * 100) : 0;
@@ -246,8 +253,8 @@ function exercices(rows, jours) {
   tableau($("exercices"),
     [{ titre: "exercice" }, { titre: "runs", classe: "n", largeur: "3.2rem" },
      { titre: "échecs", classe: "n", largeur: "3.8rem" },
-     { titre: "moy.", classe: "n", largeur: "3.6rem" },
-     { titre: "p95", classe: "n", largeur: "3.4rem" }],
+     { titre: "moy.", classe: "n", largeur: "4.2rem" },
+     { titre: "p95", classe: "n", largeur: "4.2rem" }],
     rows,
     (e) => cellules([
       [e.exercise_id || "–", null, e.exercise_id],
@@ -257,6 +264,62 @@ function exercices(rows, jours) {
       [secondes(e.p95_s), "n"],
     ]),
     "Aucun run sur la période.");
+}
+
+function activite(data, jours) {
+  const cible = $("activite");
+  const note = $("activite-note");
+  const bloc = data.activity;
+  if (!bloc || bloc.buckets.length === 0) {
+    note.textContent = "";
+    vide(cible, "Aucun run sur la période.");
+    return;
+  }
+  const parHeure = bloc.unit === "hour";
+  note.textContent = parHeure ? "par heure" : "par jour";
+
+  // Empty buckets must stay empty: a gap in the work is the thing worth seeing.
+  const pas = parHeure ? 3600e3 : 86400e3;
+  const vus = new Map(bloc.buckets.map((b) => [Math.floor(Date.parse(b.t) / pas), b]));
+  const debut = Math.min(...vus.keys());
+  const fin = Math.max(Math.floor(Date.now() / pas), Math.max(...vus.keys()));
+  const suite = [];
+  for (let k = debut; k <= fin && suite.length < 200; k += 1) {
+    suite.push(vus.get(k) || { t: new Date(k * pas).toISOString(), runs: 0, failures: 0 });
+  }
+  const sommet = Math.max(...suite.map((b) => b.runs), 1);
+
+  const histo = el("div", "histo");
+  for (const b of suite) {
+    const colonne = el("div", "colonne");
+    const date = new Date(b.t);
+    colonne.title = (parHeure
+      ? deux(date.getHours()) + " h"
+      : date.toLocaleDateString("fr-CA"))
+      + " : " + b.runs + " run(s), " + b.failures + " échec(s)";
+    if (!b.runs) {
+      colonne.append(el("span", "part creux"));
+    } else {
+      const rates = el("span", "part rate");
+      rates.style.height = (b.failures / sommet) * 100 + "%";
+      const reussis = el("span", "part reussi");
+      reussis.style.height = ((b.runs - b.failures) / sommet) * 100 + "%";
+      colonne.append(rates, reussis);
+    }
+    histo.append(colonne);
+  }
+
+  const axe = el("div", "axe");
+  const borne = (b) => {
+    const d = new Date(b.t);
+    return parHeure ? deux(d.getHours()) + " h"
+      : d.toLocaleDateString("fr-CA", { month: "short", day: "numeric" });
+  };
+  axe.append(el("span", null, borne(suite[0])),
+             el("span", null, "max " + sommet),
+             el("span", null, borne(suite[suite.length - 1])));
+  cible.textContent = "";
+  cible.append(histo, axe);
 }
 
 let connus = null;
@@ -328,6 +391,7 @@ async function statistiques() {
     const data = await json("/api/stats?days=" + jours);
     repartition(data.statuses);
     exercices(data.exercises, jours);
+    activite(data, jours);
     usage(data, jours);
   } catch (err) {
     etat("Statistiques indisponibles : " + err.message, "casse");

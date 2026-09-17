@@ -3,27 +3,53 @@
 import json
 import os
 import time
+import urllib.request
 
 import config
 import state
 from services import spool
 
 WORKER_ALIVE = 300
+WEB = os.environ.get("CTESTER_ADMIN_WEB_URL", "http://web:8000")
+
+
+def windows():
+    """How many browser windows the API has seen lately.
+
+    `/live` counts them and registers its caller at the same time, so this call
+    subtracts itself -- exactly what ctester-pull does before deploying. It counts
+    windows, not accounts: a signed-out visitor is one too.
+    """
+    try:
+        with urllib.request.urlopen(WEB + "/live?id=ctester-admin", timeout=2) as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 -- the web tier being down is not this page failing
+        return {"open": None}
+    n = data.get("n") if isinstance(data, dict) else None
+    return {"open": max(0, n - 1) if isinstance(n, int) else None}
 
 
 def queue():
     jobs = spool.scan_jobs()
     pending = sorted((stamp, name) for name, stamp, done in jobs if not done)
+    # A claimed job has the judge's lock but no verdict yet: it is running, not waiting.
+    running = sum(1 for _, name in pending if _claimed(name))
     now = time.time()
     oldest = (now - pending[0][0]) if pending else 0
     return {
         "pending": len(pending),
+        "running": running,
+        "waiting": len(pending) - running,
         "done_waiting": sum(1 for _, _, done in jobs if done),
         "oldest_s": round(oldest, 1),
         "eta_s": spool.eta_seconds(jobs, pending[-1][1]) if pending else 0,
         "workers_configured": config.WORKERS,
         "head": [_job(name, now - stamp) for stamp, name in pending[:10]],
     }
+
+
+def _claimed(job_id):
+    return os.path.exists(os.path.join(config.RESULTS, job_id, ".lock"))
 
 
 def _job(job_id, waiting):

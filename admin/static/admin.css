@@ -226,6 +226,8 @@ main {
   min-height: 0;
 }
 .rail > .panneau:first-child .corps { max-height: 40vh; }
+main > .rail:last-child { grid-template-rows: minmax(0, 1fr) auto; }
+main > .rail:last-child > .panneau:first-child .corps { max-height: none; }
 
 .panneau {
   display: flex;
@@ -311,6 +313,39 @@ td.zero { color: var(--tres-faible); }
   to { background: transparent; }
 }
 tbody tr.neuf td { animation: arrivee 1.6s ease-out; }
+
+/* ---- activity ---------------------------------------------------------- */
+
+.corps-activite { flex: none; overflow: hidden; }
+
+.histo {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 62px;
+  padding: 0 14px;
+}
+.histo .colonne {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+}
+.histo .part { display: block; border-radius: 1px 1px 0 0; }
+.histo .part.reussi { background: var(--ok); }
+.histo .part.rate { background: var(--neutre); border-radius: 0; }
+.histo .creux { background: var(--creux); min-height: 1px; }
+
+.axe {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 14px 8px;
+  font-size: 11px;
+  color: var(--tres-faible);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---- worker + usage lists --------------------------------------------- */
 
