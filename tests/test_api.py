@@ -1161,6 +1161,18 @@ def test_live_tronque_un_jeton_trop_long_au_lieu_de_refuser():
         assert r.json()["n"] == 1, r.json()
 
 
+def test_une_fenetre_ne_peut_pas_ouvrir_la_presence_d_un_autre():
+    # The window id refines its caller's key instead of replacing it, or anyone could
+    # count under the name ctester-pull reads to decide the host is calm.
+    with contexte() as (c, _, _tmp):
+        premier = c.get("/live?id=ctester-pull",
+                        headers={"CF-Connecting-IP": "203.0.113.1"})
+        second = c.get("/live?id=ctester-pull",
+                       headers={"CF-Connecting-IP": "203.0.113.2"})
+        assert premier.json()["n"] == 1, premier.json()
+        assert second.json()["n"] == 2, second.json()
+
+
 def test_ordre_des_refus_forum_eteint_avant_jeton_absent():
     with contexte(forum_actif=False) as (c, _, _tmp):
         r = c.get("/forum?ex=tp2-ex3")

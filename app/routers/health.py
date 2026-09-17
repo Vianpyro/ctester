@@ -17,7 +17,9 @@ def healthz() -> dict[str, bool]:
 
 @router.get("/live")
 def live(request: Request, id: str = Query("")):
-    who = (id or security.client_id(request.headers, deps.tcp_peer(request)))[:64]
+    # The window id only refines the caller's own key, never replaces it: on its own it
+    # let anyone mint entries under any name, including the one ctester-pull deploys on.
+    who = security.client_id(request.headers, deps.tcp_peer(request), station=id[:64])
     with deps.lock:
         n = deps.presence.touch(who, time.time())
     return {"n": n}

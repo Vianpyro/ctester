@@ -145,6 +145,31 @@ python3 worker/publish_content.py   ../unittests/content /tmp/published
 | Docs | Never set `CTESTER_DOCS=1` in production: it makes `/docs` and `/openapi.json` public. |
 | Schema | Every statement must stay idempotent, and an index must follow the `ALTER` that adds its column. |
 
+## The origin must only answer Cloudflare
+
+Anonymous quotas are keyed by `security.client_id()`, which reads `CF-Connecting-IP` and falls back
+to `X-Forwarded-For`. Both are plain request headers. Anyone who reaches the origin directly sends a
+different one on every request, lands in a fresh bucket each time, and the `/submit` cooldown stops
+existing: the judge queue fills up instead of the caller being turned away. The headers are only
+trustworthy because Cloudflare overwrites them, so the origin has to be unreachable without it.
+
+Docker inserts its own rules ahead of ufw, so `ufw deny` on the proxy's ports looks like it works and
+does nothing. Filter in `DOCKER-USER`, dropping first and allowing above it:
+
+```sh
+iptables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -j DROP
+# Cloudflare's ranges change; refresh them, do not paste them in once.
+for cidr in $(curl -fsS https://www.cloudflare.com/ips-v4); do
+    iptables -I DOCKER-USER 1 -p tcp -m multiport --dports 80,443 -s "$cidr" -j RETURN
+done
+```
+
+Repeat with `ip6tables` and `ips-v6`, and persist the rules, or a reboot reopens the origin.
+
+Verify from off the LAN: connecting to the origin's address must time out while the Cloudflare
+hostname still serves. `ctester-pull` and `scripts/load_test.py` reach the origin from the LAN, which
+these rules leave alone.
+
 ## Hostile submissions
 
 Replay these after any change to the sandbox, on both the graded path and the Console.
