@@ -450,6 +450,12 @@ let connus = null;
 
 function runs(rows) {
   const cible = $("runs");
+  if (rows === null || rows === undefined) {
+    rendre(cible, "panne", () => vide(cible,
+      "La base n'a pas répondu pour les runs. Si les autres panneaux sont remplis, "
+      + "c'est que le schéma n'est pas à jour : applique app/schema.sql."));
+    return;
+  }
   rendre(cible, rows, () => remplirRuns(cible, rows));
 }
 
@@ -611,7 +617,9 @@ async function statistiques() {
 
 async function listeRuns() {
   try {
-    runs((await json("/api/runs?" + parametresRuns())).runs);
+    const reponse = await json("/api/runs?" + parametresRuns());
+    runs(reponse.runs);
+    if (reponse.degraded) etat("Les runs ne remontent pas de la base", "tiede");
   } catch (err) {
     etat("Runs indisponibles : " + err.message, "casse");
   }
