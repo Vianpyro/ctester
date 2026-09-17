@@ -16,6 +16,9 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - `worker/`: `content_catalog.py`, `publish_content.py` and `typst_build.py` form the content
   pipeline. `judge.py` calls the Rust
   grading rules for the content tools. `build-*.sh` run inside the sandbox.
+- `admin/`: the teacher's dashboard, a separate read-only FastAPI app on the LAN. It imports
+  `app/state.py` and `app/services/spool.py`; `journal.py` is stdlib-only so the checks can
+  import it.
 - `deploy/`: the Compose stack, systemd units and update scripts, all configured by `/opt/ctester/.env`.
 - `scripts/`: command-line tools. `tests/`: the Python checks.
 
@@ -26,6 +29,9 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **No identity in request bodies.** The account always comes from the validated token; a test scans
   `schemas.py` for this.
 - **Student-facing messages are French** and come from `services/`, not from Pydantic errors.
+- **Exercise ids are unique across every content root.** `CTESTER_CONTENT` may list several
+  repositories; `discover()` merges them into one flat namespace and a duplicate id fails the
+  publication. Only one root may hold `shared/unity`.
 - **`find_exercise()` is the only gate** to an exercise in the API; the judge re-checks with `gate.rs`.
   `tests/vectors/release_access.json` binds the two implementations of `access`.
 - **The spool holds only the API's inputs; the judge writes only to `results/`.** The judge reads the
@@ -44,6 +50,10 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **The page never declares a result.** XP, solved states and verdicts are derived by the server.
 - **The worker trusts nothing from the web tier.** It re-resolves the exercise and recomputes the
   moderator role itself.
+- **The admin app has no sign-in.** The LAN and the proxy's access list are its only boundary,
+  and it never writes anything but its copy of the judge's run journal.
+- **The judge journals every run** to `results/runs-<date>.jsonl`, from `write_result()` so no
+  exit path is missed. A test binds its fields to `admin/journal.py` and `state.RUN_COLUMNS`.
 
 ## Style
 

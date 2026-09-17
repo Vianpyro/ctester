@@ -18,6 +18,8 @@
 - **`ctester-content.timer`** pulls the content every five minutes and republishes the catalog without
   restarting anything.
 - **The database schema and its grants** are both in `app/schema.sql`.
+- **The admin dashboard** (`admin/`) is a separate read-only app on the LAN; it publishes no
+  port and is reached through the proxy. See *The admin dashboard* below before exposing it.
 
 All settings are environment variables read in `app/config.py` (API) and `judge/src/config.rs`
 (judge). On a server they all live in
@@ -33,10 +35,12 @@ for `gh attestation verify`.
 ```text
 /opt/ctester/
   src/          this repository
-  content/      the course content, a git clone or a plain directory
+  content/      the course content, a git clone or a plain directory; CTESTER_CONTENT
+                may list several, joined by ":"
   .env          configuration, from deploy/env.example
   spool/        owned by 65534:65534, the API's: job inputs only
-  results/      owned by root, mounted read-only into web: verdicts, Console output, durations
+  results/      owned by root, mounted read-only into web and admin: verdicts,
+                Console output, durations, and the run journal runs-<date>.jsonl
   published/
   bin/          ctester-judge -> ctester-judge-<commit>, installed by ctester-pull
 /var/lib/ctester-judge/   CTESTER_WORK, created by the judge units: staging and verdict cache
@@ -215,6 +219,117 @@ journalctl -u 'ctester-judge@*' -n 500 | grep 'ctester: cache '
 
 If you see many "written" lines but no "served" ones, cache keys are changing between submissions,
 which is expected right after a deploy.
+
+## Several content repositories
+
+`CTESTER_CONTENT` is one path or several joined by `:`, like a `PATH`. Every root is merged
+into **one** catalogue and one published release: the API, the database, the page and the job
+envelope never name a source, so nothing downstream changes when a second course arrives.
+
+```sh
+CTESTER_CONTENT=/opt/ctester/tests/content:/opt/ctester/tests-tch101/content
+```
+
+**Exercise ids stay unique across every root.** Two repositories claiming `tp1-ex1` is a
+publication error naming both, not a silent winner — that rule is what lets an id stay a bare
+string everywhere else. The same goes for collection and assignment ids, and an exercise still
+belongs to at most one assignment across all roots. Prerequisites, collection items and
+assignment items resolve across roots, so one course may build on another's exercises.
+
+`catalog.json` is read from every root and the `skills` vocabularies are **unioned**, so an
+exercise may declare a skill another repository defined. Each root is still checked against the
+schema version on its own.
+
+The order of the roots does not matter. The published revision is a hash of the merged model,
+which is sorted by id, so reordering `CTESTER_CONTENT` republishes nothing. The one thing order
+would have changed is `shared/unity`: **only one root may hold it**, and the judge refuses to
+start otherwise, because that tree is hashed into every Unity verdict's cache key.
+
+**Publication is all-or-nothing.** One repository pushing a bad commit blocks the publication of
+*every* course — deliberately, since a half-published catalogue is worse than a slightly old
+one. The dashboard shows the revision actually being served, and `ctester-content` failing is
+worth an alert:
+
+```sh
+systemctl status ctester-content
+journalctl -u ctester-content -n 30
+python3 scripts/validate_content.py /path/to/a/content /path/to/b/content
+```
+
+One branch (`CTESTER_CONTENT_BRANCH`) and one deploy key (`CTESTER_CONTENT_SSH_KEY`) serve every
+repository; `content.sh` reads one of each. For per-repository keys, use `Host` aliases in the
+deploy account's `~/.ssh/config` and change no script. On the TCH009 host, add a course through
+`ctester_extra_content_repos` in the Ansible role; each entry is cloned to
+`/opt/ctester/tests-<name>/` and appended to `CTESTER_CONTENT`. An empty list deploys exactly
+what was there before.
+
+## The admin dashboard
+
+`admin/` is a second, small FastAPI app: the teacher's view of the service. It is read-only —
+it never writes a verdict, a grade or a student's row. The only table it fills is its own copy
+of the judge's run journal.
+
+**It has no sign-in of its own.** The proxy in front of it is the entire boundary.
+
+> **Before exposing it:** the Nginx Proxy Manager host for the dashboard must carry an
+> **Access List restricted to the LAN** (for example `192.168.0.0/16`). Without it, anyone who
+> can reach the proxy gets the dashboard. An IP check inside the app would be theatre: every
+> request arrives with the proxy's address, not the visitor's.
+
+The `admin` service publishes **no port**. It listens on `8001` on the `CTESTER_NETWORK`
+(`ctester-ingress` by default), which is how the proxy reaches it — point a proxy host at
+`admin:8001`. Confirm it is not exposed anywhere else:
+
+```sh
+docker compose ps admin                          # the PORTS column must stay empty
+docker compose exec -T admin python3 -c \
+  'import urllib.request as u;print(u.urlopen("http://127.0.0.1:8001/healthz").read())'
+```
+
+It shows the live workers and queue, the published revision, the history of every run, and
+per-exercise statistics. What it reads:
+
+| Source | Used for |
+|---|---|
+| `judge_run` (SQL) | runs, workers, durations, cache rate, reprises, failures per exercise |
+| `spool/` | queue depth, oldest job, ETA |
+| `published/current.json` | the revision the API is serving |
+| `exercise_state`, `practice_attempt`, `xp_transaction` | solved counts, active accounts, XP |
+
+### The run journal
+
+The judge appends one JSON line per finished run to `results/runs-<YYYY-MM-DD>.jsonl` — every
+run, including the ones nothing else records: anonymous submissions, Console sessions, cache
+hits, jobs the student never polled, and jobs abandoned after a reclaim. Every worker appends
+to the same file; a single `write` to a file opened `O_APPEND` cannot interleave on a local
+filesystem, which is one more reason `results/` must never sit on NFS.
+
+`CTESTER_WORKER_ID` names the instance in each line; the systemd unit passes `%i`, so
+`ctester-judge@2` writes `"worker_id": "2"`. A worker counts as alive when it has finished a
+run in the last five minutes — the judge keeps no other identity, and on a service students
+poll constantly a dead worker shows up within one job.
+
+The admin app ingests the journal into `judge_run` every 30 seconds, remembering a byte offset
+per file, and skips any job id it already stored — so a restart, a retry or a replay never
+duplicates a row. `results/` is read-only to it, so it never truncates a journal file.
+
+Nothing prunes the journal: one line per run is roughly 1 MB a day. If it ever matters:
+
+```sh
+find /opt/ctester/results -name 'runs-*.jsonl' -mtime +30 -delete
+```
+
+`judge_run` carries **no account column**. It is the history of the service, not of a student,
+so "delete my data" leaves it alone.
+
+```sh
+ls /opt/ctester/results/runs-*.jsonl             # the journal, one file per day
+tail -1 /opt/ctester/results/runs-$(date +%F).jsonl
+docker logs ctester-admin-1                      # "drain failed" lines if ingestion is stuck
+```
+
+If the dashboard says *Base de données injoignable*, the queue and the published revision still
+show: those come from the filesystem, not from SQL.
 
 Team rosters: students pick teams themselves until the assignment opens. To move someone
 afterwards, load a CSV of `group_number,number,account`:

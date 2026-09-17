@@ -168,12 +168,12 @@ def _public_files(path, where, errors, mode):
     return _files(data.get("files"), where + "/public/files.json", errors)
 
 
-def _exercise(root, dirname, known_skills, errors):
+def _exercise(root, dirname, known_skills, errors, prefix=""):
     path = os.path.join(root, "exercises", dirname)
     data = _json(os.path.join(path, "exercise.json"), errors)
     if data is None:
         return None
-    where = "exercises/%s" % dirname
+    where = prefix + "exercises/%s" % dirname
     if data.get("schema_version") != SCHEMA_VERSION:
         errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
     exercise_id, title = data.get("id"), data.get("title")
@@ -316,12 +316,12 @@ def _handin(value, where, items, exercises, errors):
     return {"root": root, "files": out} if out else None
 
 
-def _assignment(root, filename, exercises, errors):
+def _assignment(root, filename, exercises, errors, prefix=""):
     path = os.path.join(root, "assignments", filename)
     data = _json(path, errors)
     if data is None:
         return None
-    where = "assignments/%s" % filename
+    where = prefix + "assignments/%s" % filename
     assignment_id = data.get("id")
     if data.get("schema_version") != SCHEMA_VERSION:
         errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
@@ -360,73 +360,130 @@ def _assignment(root, filename, exercises, errors):
                                 where, errors)}
 
 
-def discover(root):
-    errors = []
+def content_roots(value):
+    """CTESTER_CONTENT is one path, or several joined by the path separator."""
+    if not isinstance(value, str):
+        return [one for one in value if one]
+    return [part for part in value.split(os.pathsep) if part]
+
+
+def _label(root):
+    """Names a root in an error message: the repository, not the `content/` inside it."""
+    name = os.path.basename(os.path.normpath(root))
+    if name in ("content", "", os.sep):
+        name = os.path.basename(os.path.dirname(os.path.normpath(root))) or name
+    return name
+
+
+def _catalog_skills(root, prefix, errors):
     catalog = _json(os.path.join(root, "catalog.json"), errors)
     if catalog is None:
         raise ContentValidationError(errors)
+    where = prefix + "catalog.json"
     if catalog.get("schema_version") != SCHEMA_VERSION:
-        errors.append("catalog.json: expected schema_version %s" % SCHEMA_VERSION)
+        errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
     skills = catalog.get("skills", [])
-    if not isinstance(skills, list) or any(not isinstance(s, str) or not SKILL_RE.match(s) for s in skills):
-        errors.append("catalog.json: invalid skills")
-        skills = []
+    if not isinstance(skills, list) or any(not isinstance(s, str) or not SKILL_RE.match(s)
+                                           for s in skills):
+        errors.append("%s: invalid skills" % where)
+        return []
     if len(skills) != len(set(skills)):
-        errors.append("catalog.json: duplicate skills")
-    exercises = {}
-    for dirname in _children(os.path.join(root, "exercises")):
-        entry = _exercise(root, dirname, set(skills), errors)
-        if entry is None:
-            continue
-        if entry["id"] in exercises:
-            errors.append("duplicate exercise id: %s" % entry["id"])
-        else:
-            exercises[entry["id"]] = entry
-    collections = {}
-    for filename in sorted((name for name in os.listdir(os.path.join(root, "collections"))
-                            if name.endswith(".json")), key=_natural_key) \
-            if os.path.isdir(os.path.join(root, "collections")) else ():
-        data = _json(os.path.join(root, "collections", filename), errors)
-        if data is None:
-            continue
-        where, collection_id = "collections/%s" % filename, data.get("id")
-        if data.get("schema_version") != SCHEMA_VERSION:
-            errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
-        if not isinstance(collection_id, str) or not COLLECTION_RE.match(collection_id):
-            errors.append("%s: invalid id" % where)
-            continue
-        if filename != collection_id + ".json":
-            errors.append("%s: the file must be named after the id" % where)
-        if not isinstance(data.get("title"), str) or not data["title"].strip():
-            errors.append("%s: missing title" % where)
-        if not isinstance(data.get("description", ""), str):
-            errors.append("%s: description must be text" % where)
-        items = data.get("items")
-        if (not isinstance(items, list)
-                or any(not isinstance(item, str) for item in items)
-                or len(items) != len(set(items))):
-            errors.append("%s: items must be a list of text with no duplicates" % where)
-            items = []
-        for item in items:
-            if item not in exercises:
-                errors.append("%s: unknown exercise %r" % (where, item))
-        if collection_id in collections:
-            errors.append("duplicate collection id: %s" % collection_id)
-        collections[collection_id] = {"id": collection_id, "title": data.get("title", ""),
-                                      "description": data.get("description", ""), "items": items,
-                                      "release": _release(data.get("release", {"state": "available"}), where, errors)}
-    assignments = {}
-    directory = os.path.join(root, "assignments")
-    for filename in sorted((name for name in os.listdir(directory)
-                            if name.endswith(".json")), key=_natural_key) \
-            if os.path.isdir(directory) else ():
-        entry = _assignment(root, filename, exercises, errors)
-        if entry is None:
-            continue
-        if entry["id"] in assignments:
-            errors.append("duplicate assignment id: %s" % entry["id"])
-        else:
-            assignments[entry["id"]] = entry
+        errors.append("%s: duplicate skills" % where)
+    return skills
+
+
+def discover(root):
+    """One content root, or several merged into a single catalogue.
+
+    Exercise ids stay unique across roots, so nothing downstream ever names a source: the
+    duplicate checks below are the only thing stopping two repositories claiming one id.
+    Merging is all-or-nothing on purpose -- a half-published catalogue is worse than none.
+    """
+    roots = [root] if isinstance(root, (str, os.PathLike)) else list(root)
+    if not roots:
+        raise ContentValidationError(("no content root given",))
+    # A single root keeps the plain messages; the repository is only named when it is
+    # needed to tell two of them apart.
+    prefixes = {os.fspath(r): ("%s: " % _label(r) if len(roots) > 1 else "") for r in roots}
+    errors = []
+
+    # Every root's vocabulary, so an exercise may use a skill declared by another repository.
+    skills = []
+    for one in roots:
+        skills += _catalog_skills(one, prefixes[os.fspath(one)], errors)
+    skills = sorted(set(skills))
+
+    exercises, came_from = {}, {}
+    for one in roots:
+        prefix = prefixes[os.fspath(one)]
+        for dirname in _children(os.path.join(one, "exercises")):
+            entry = _exercise(one, dirname, set(skills), errors, prefix)
+            if entry is None:
+                continue
+            if entry["id"] in exercises:
+                errors.append("%sduplicate exercise id: %s (already in %s)"
+                              % (prefix, entry["id"], came_from[entry["id"]]))
+            else:
+                exercises[entry["id"]] = entry
+                came_from[entry["id"]] = _label(one)
+
+    collections, collection_from = {}, {}
+    for one in roots:
+        prefix = prefixes[os.fspath(one)]
+        directory = os.path.join(one, "collections")
+        names = sorted((name for name in os.listdir(directory) if name.endswith(".json")),
+                       key=_natural_key) if os.path.isdir(directory) else ()
+        for filename in names:
+            data = _json(os.path.join(directory, filename), errors)
+            if data is None:
+                continue
+            where, collection_id = prefix + "collections/%s" % filename, data.get("id")
+            if data.get("schema_version") != SCHEMA_VERSION:
+                errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
+            if not isinstance(collection_id, str) or not COLLECTION_RE.match(collection_id):
+                errors.append("%s: invalid id" % where)
+                continue
+            if filename != collection_id + ".json":
+                errors.append("%s: the file must be named after the id" % where)
+            if not isinstance(data.get("title"), str) or not data["title"].strip():
+                errors.append("%s: missing title" % where)
+            if not isinstance(data.get("description", ""), str):
+                errors.append("%s: description must be text" % where)
+            items = data.get("items")
+            if (not isinstance(items, list)
+                    or any(not isinstance(item, str) for item in items)
+                    or len(items) != len(set(items))):
+                errors.append("%s: items must be a list of text with no duplicates" % where)
+                items = []
+            for item in items:
+                if item not in exercises:
+                    errors.append("%s: unknown exercise %r" % (where, item))
+            if collection_id in collections:
+                errors.append("%sduplicate collection id: %s (already in %s)"
+                              % (prefix, collection_id, collection_from[collection_id]))
+            collection_from[collection_id] = _label(one)
+            collections[collection_id] = {
+                "id": collection_id, "title": data.get("title", ""),
+                "description": data.get("description", ""), "items": items,
+                "release": _release(data.get("release", {"state": "available"}), where, errors)}
+
+    assignments, assignment_from = {}, {}
+    for one in roots:
+        prefix = prefixes[os.fspath(one)]
+        directory = os.path.join(one, "assignments")
+        names = sorted((name for name in os.listdir(directory) if name.endswith(".json")),
+                       key=_natural_key) if os.path.isdir(directory) else ()
+        for filename in names:
+            entry = _assignment(one, filename, exercises, errors, prefix)
+            if entry is None:
+                continue
+            if entry["id"] in assignments:
+                errors.append("%sduplicate assignment id: %s (already in %s)"
+                              % (prefix, entry["id"], assignment_from[entry["id"]]))
+            else:
+                assignments[entry["id"]] = entry
+                assignment_from[entry["id"]] = _label(one)
+
     owner = {}
     for entry in assignments.values():
         for item in entry["items"]:
@@ -442,8 +499,17 @@ def discover(root):
                 errors.append("%s: unknown prerequisite %r" % (entry["id"], prerequisite))
     if errors:
         raise ContentValidationError(errors)
-    return {"schema_version": SCHEMA_VERSION, "skills": skills, "exercises": exercises,
-            "collections": collections, "assignments": assignments}
+    # Sorted by id, not by root: the published revision is a hash of this model, and
+    # reordering CTESTER_CONTENT must not republish the whole catalogue. Each kind keeps
+    # the order it had with a single root -- exercises by directory name, the other two
+    # naturally, so tp9 still comes before tp10.
+    def _by(items, key):
+        return dict(sorted(items.items(), key=lambda pair: key(pair[0])))
+
+    return {"schema_version": SCHEMA_VERSION, "skills": skills,
+            "exercises": _by(exercises, lambda name: name),
+            "collections": _by(collections, _natural_key),
+            "assignments": _by(assignments, _natural_key)}
 
 
 def public_catalogue(model, now=None):

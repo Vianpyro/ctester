@@ -7,7 +7,9 @@ pub struct Config {
     pub spool: PathBuf,
     pub results: PathBuf,
     pub work: PathBuf,
-    pub content: PathBuf,
+    /// One or more content roots, searched in order. Ids stay unique across them, so the
+    /// first match is the only match.
+    pub content: Vec<PathBuf>,
     pub build_unity: PathBuf,
     pub build_io: PathBuf,
     pub build_scratch: PathBuf,
@@ -36,6 +38,8 @@ pub struct Config {
     pub sandbox_env: Vec<(String, String)>,
     pub cache_max: i64,
     pub cache_prune_every: u64,
+    /// Names this instance in the run journal; systemd passes `%i`.
+    pub worker_id: String,
 }
 
 const SANDBOX_KEYS: [&str; 6] = [
@@ -68,7 +72,7 @@ impl Config {
             spool: text("CTESTER_SPOOL", "/opt/ctester/spool").into(),
             results: text("CTESTER_RESULTS", "/opt/ctester/results").into(),
             work: text("CTESTER_WORK", "/var/lib/ctester-judge").into(),
-            content: text("CTESTER_CONTENT", "/opt/ctester/content").into(),
+            content: roots(&text("CTESTER_CONTENT", "/opt/ctester/content")),
             build_unity: text(
                 "CTESTER_BUILD_UNITY",
                 "/opt/ctester/src/worker/build-unity.sh",
@@ -110,6 +114,18 @@ impl Config {
                 .collect(),
             cache_max: number("CTESTER_CACHE_MAX", "20000")?,
             cache_prune_every: seconds("CTESTER_CACHE_PRUNE_EVERY", "500")?,
+            // A shared .env would give every instance the same name, so an unusable value
+            // falls back to something unique rather than to a constant.
+            worker_id: match text("CTESTER_WORKER_ID", "") {
+                id if (1..=32).contains(&id.len())
+                    && id
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') =>
+                {
+                    id
+                }
+                _ => std::process::id().to_string(),
+            },
         };
         config.check()?;
         Ok(config)
@@ -118,6 +134,18 @@ impl Config {
     /// Invariants a bad `.env` could break: the judge refuses to start rather than misbehave.
     fn check(&self) -> Result<(), String> {
         let mut broken = Vec::new();
+        if self.content.is_empty() {
+            broken.push("CTESTER_CONTENT must name at least one absolute path");
+        }
+        // An empty segment would resolve `exercises/<id>` against the judge's cwd.
+        if self.content.iter().any(|root| !root.is_absolute()) {
+            broken.push("every path in CTESTER_CONTENT must be absolute");
+        }
+        // The Unity tree is hashed into every Unity verdict's cache key, so two of them
+        // would make the cache depend on the order of CTESTER_CONTENT.
+        if self.unity_roots().count() > 1 {
+            broken.push("only one path in CTESTER_CONTENT may hold shared/unity");
+        }
         if !(self.job_timeout < self.lock_stale && self.lock_stale < self.sweep_after) {
             broken.push(
                 "CTESTER_LOCK_STALE must lie between CTESTER_JOB_TIMEOUT and CTESTER_SWEEP_AFTER",
@@ -146,9 +174,34 @@ impl Config {
         }
     }
 
-    pub fn unity_dir(&self) -> PathBuf {
-        self.content.join("shared").join("unity")
+    fn unity_roots(&self) -> impl Iterator<Item = PathBuf> + '_ {
+        self.content
+            .iter()
+            .map(|root| root.join("shared").join("unity"))
+            .filter(|path| path.is_dir())
     }
+
+    /// The one shared Unity tree, or the first root's place for it when none exists yet.
+    pub fn unity_dir(&self) -> PathBuf {
+        self.unity_roots().next().unwrap_or_else(|| {
+            self.content
+                .first()
+                .cloned()
+                .unwrap_or_default()
+                .join("shared")
+                .join("unity")
+        })
+    }
+}
+
+/// `CTESTER_CONTENT` is one path or several joined by `:`. Empty segments are dropped:
+/// `PathBuf::from("")` would silently mean the working directory.
+fn roots(text: &str) -> Vec<PathBuf> {
+    text.split(':')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(PathBuf::from)
+        .collect()
 }
 
 fn number(text: &str) -> Option<f64> {
@@ -171,6 +224,7 @@ fn megabytes(text: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spool::tests::Scratch;
 
     fn with(pairs: &[(&str, &str)]) -> Result<Config, String> {
         Config::from_lookup(|key| {
@@ -211,6 +265,55 @@ mod tests {
             keys,
             [("CTESTER_SANITIZERS", ""), ("CTESTER_RUN_TIMEOUT", "5")]
         );
+    }
+
+    #[test]
+    fn content_roots_are_split_and_must_be_absolute() {
+        assert_eq!(
+            with(&[("CTESTER_CONTENT", "/a")]).unwrap().content,
+            vec![PathBuf::from("/a")]
+        );
+        assert_eq!(
+            with(&[("CTESTER_CONTENT", "/a:/b: /c ")]).unwrap().content,
+            ["/a", "/b", "/c"].map(PathBuf::from).to_vec()
+        );
+        // An empty segment would resolve `exercises/<id>` against the working directory.
+        assert_eq!(
+            with(&[("CTESTER_CONTENT", "/a::/b:")]).unwrap().content,
+            ["/a", "/b"].map(PathBuf::from).to_vec()
+        );
+        assert!(with(&[("CTESTER_CONTENT", "")]).is_err());
+        assert!(with(&[("CTESTER_CONTENT", ":")]).is_err());
+        assert!(with(&[("CTESTER_CONTENT", "contenu")]).is_err());
+        assert!(with(&[("CTESTER_CONTENT", "/a:contenu")]).is_err());
+    }
+
+    #[test]
+    fn only_one_root_may_hold_the_shared_unity_tree() {
+        let scratch = Scratch::new("config");
+        let (a, b) = (scratch.0.join("a"), scratch.0.join("b"));
+        for root in [&a, &b] {
+            std::fs::create_dir_all(root.join("shared").join("unity")).unwrap();
+        }
+        let both = format!("{}:{}", a.display(), b.display());
+        assert!(
+            with(&[("CTESTER_CONTENT", both.as_str())]).is_err(),
+            "two Unity trees would make the verdict cache depend on the root order"
+        );
+        // One tree is enough, and it is the one the sandbox mounts whichever root it sits in.
+        let one = format!("{}:{}", scratch.0.join("c").display(), b.display());
+        let config = with(&[("CTESTER_CONTENT", one.as_str())]).unwrap();
+        assert_eq!(config.unity_dir(), b.join("shared").join("unity"));
+    }
+
+    #[test]
+    fn a_worker_id_is_a_plain_name_or_the_pid() {
+        assert_eq!(with(&[("CTESTER_WORKER_ID", "2")]).unwrap().worker_id, "2");
+        // Anything that could escape a path or name two instances alike is refused.
+        for bad in ["", "../x", "Deux", "a".repeat(33).as_str()] {
+            let id = with(&[("CTESTER_WORKER_ID", bad)]).unwrap().worker_id;
+            assert_eq!(id, std::process::id().to_string(), "accepted {bad:?}");
+        }
     }
 
     #[test]

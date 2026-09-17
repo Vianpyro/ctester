@@ -45,7 +45,11 @@ pub struct Exercise {
 /// Closed exercises open only in preview or for a moderator, recomputed from the owner here.
 pub fn find(config: &Config, id: &str, owner: &str, now: i128) -> Option<Exercise> {
     let all = config.preview || (!owner.is_empty() && config.moderators.contains(owner));
-    load(&config.content, id, all, now)
+    // Ids are unique across roots, so the first match is the only one.
+    config
+        .content
+        .iter()
+        .find_map(|root| load(root, id, all, now))
 }
 
 pub fn load(content: &Path, id: &str, all: bool, now: i128) -> Option<Exercise> {
@@ -201,6 +205,27 @@ fn days_from_civil(year: i128, month: i128, day: i128) -> i128 {
     era * 146_097 + day_of_era - 719_468
 }
 
+/// `YYYY-MM-DD` in UTC for a count of seconds since the epoch: the inverse of
+/// `days_from_civil`, used to name the run journal.
+pub fn civil_date(seconds: i64) -> String {
+    let days = i128::from(seconds).div_euclid(86_400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted + 2) / 5 + 1;
+    let month = if shifted < 10 {
+        shifted + 3
+    } else {
+        shifted - 9
+    };
+    let year = year_of_era + era * 400 + i128::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
 pub fn load_config(exercise: &Exercise) -> Result<Value, String> {
     let path = exercise.path.join(exercise.mode.config_name());
     let raw = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -273,6 +298,30 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn civil_date_is_the_inverse_of_days_from_civil() {
+        assert_eq!(civil_date(0), "1970-01-01");
+        assert_eq!(civil_date(86_399), "1970-01-01");
+        assert_eq!(civil_date(86_400), "1970-01-02");
+        assert_eq!(civil_date(1_709_164_800), "2024-02-29");
+        assert_eq!(civil_date(1_735_689_599), "2024-12-31");
+        assert_eq!(civil_date(1_735_689_600), "2025-01-01");
+        // Before the epoch the division must floor, not truncate toward zero.
+        assert_eq!(civil_date(-1), "1969-12-31");
+        // Every round trip through the forward direction lands back on the same day.
+        for day in [-25_000i128, -1, 0, 1, 19_000, 25_000, 40_000] {
+            let text = civil_date((day * 86_400) as i64);
+            let (year, rest) = text.split_once('-').unwrap();
+            let (month, d) = rest.split_once('-').unwrap();
+            let back = days_from_civil(
+                year.parse().unwrap(),
+                month.parse().unwrap(),
+                d.parse().unwrap(),
+            );
+            assert_eq!(back, day, "{text}");
+        }
+    }
+
+    #[test]
     fn release_access_matches_the_api_gate() {
         let vectors: Vec<Value> =
             serde_json::from_str(include_str!("../../tests/vectors/release_access.json")).unwrap();
@@ -313,6 +362,35 @@ mod tests {
         for f in files {
             std::fs::write(dir.join("assessment").join(f), "{}").unwrap();
         }
+    }
+
+    #[test]
+    fn the_gate_searches_every_content_root() {
+        let scratch = crate::spool::tests::Scratch::new("gate-roots");
+        let (a, b) = (scratch.0.join("a"), scratch.0.join("b"));
+        exercise(&a, "surface", json!({"state": "available"}), &["io.json"]);
+        exercise(&b, "nombres", json!({"state": "available"}), &["quiz.json"]);
+        exercise(&b, "ferme", json!({"state": "archived"}), &["io.json"]);
+        let config = Config::from_lookup(|key| match key {
+            "CTESTER_CONTENT" => Some(format!("{}:{}", a.display(), b.display())),
+            _ => None,
+        })
+        .unwrap();
+        let now = now();
+        assert_eq!(
+            find(&config, "surface", "", now).map(|e| e.mode),
+            Some(Mode::Io)
+        );
+        // The second root is reached, and its mode is its own.
+        assert_eq!(
+            find(&config, "nombres", "", now).map(|e| e.mode),
+            Some(Mode::Quiz)
+        );
+        assert!(find(&config, "absent", "", now).is_none());
+        // Searching further roots must not reopen what the content closed.
+        assert!(find(&config, "ferme", "", now).is_none());
+        // Nor may a root be escaped through the id.
+        assert!(find(&config, "../b/exercises/nombres", "", now).is_none());
     }
 
     #[test]

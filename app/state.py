@@ -887,6 +887,131 @@ def read_teams(assignment_id):
             for team_id, group_number, label, members in rows]
 
 
+# --- The judge's run journal, read and written by the admin app only. -----------------
+# judge_run holds no account: it is the history of the service, not of a student, so
+# forget() leaves it alone.
+
+RUN_COLUMNS = ("job_id", "exercise_id", "status", "kind", "duration_s",
+               "queue_wait_s", "worker_id", "cache_hit", "reprises", "finished_at")
+
+
+def journal_offsets():
+    rows = _query("SELECT filename, byte_offset FROM judge_journal_cursor", (), read=True)
+    return None if rows is None else {name: int(offset) for name, offset in rows}
+
+
+def write_runs(records, filename, offset):
+    """One statement per drain: a reconnect between the rows and the cursor must not
+    double-insert, hence ON CONFLICT DO NOTHING on the job id."""
+    values = [tuple(record[column] for column in RUN_COLUMNS) for record in records]
+    sql = ""
+    params = []
+    if values:
+        placeholders = ", ".join(["(" + ", ".join(["%s"] * len(RUN_COLUMNS)) + ")"] * len(values))
+        sql += ("WITH inserted AS (INSERT INTO judge_run (" + ", ".join(RUN_COLUMNS) + ")"
+                " VALUES " + placeholders + " ON CONFLICT (job_id) DO NOTHING) ")
+        params += [field for value in values for field in value]
+    sql += ("INSERT INTO judge_journal_cursor (filename, byte_offset) VALUES (%s, %s)"
+            " ON CONFLICT (filename) DO UPDATE SET byte_offset = EXCLUDED.byte_offset")
+    params += [filename, offset]
+    return _query(sql, tuple(params))
+
+
+def forget_journal_files(seen):
+    """Cursors of files the judge has removed would otherwise be stat'd forever."""
+    return _query("DELETE FROM judge_journal_cursor WHERE filename <> ALL(%s::text[])",
+                  (list(seen),))
+
+
+def read_runs(limit, status=None, exercise_id=None, worker_id=None):
+    where, params = [], []
+    for column, value in (("status", status), ("exercise_id", exercise_id),
+                          ("worker_id", worker_id)):
+        if value:
+            where.append("%s = %%s" % column)
+            params.append(value)
+    clause = (" WHERE " + " AND ".join(where)) if where else ""
+    params.append(max(1, min(int(limit), 500)))
+    rows = _query(
+        "SELECT " + ", ".join(RUN_COLUMNS) + " FROM judge_run" + clause +
+        " ORDER BY finished_at DESC LIMIT %s", tuple(params), read=True)
+    if rows is None:
+        return None
+    return [dict(zip(RUN_COLUMNS, _run_row(row))) for row in rows]
+
+
+def _run_row(row):
+    return [value.isoformat() if hasattr(value, "isoformat") else value for value in row]
+
+
+def read_workers(hours=24):
+    """A worker is known by the runs it finished; the judge keeps no other identity."""
+    rows = _query(
+        "SELECT worker_id, count(*), avg(duration_s), max(finished_at),"
+        "       count(*) FILTER (WHERE status <> 'ok')"
+        "  FROM judge_run WHERE finished_at > now() - make_interval(hours => %s)"
+        " GROUP BY worker_id ORDER BY worker_id", (hours,), read=True)
+    if rows is None:
+        return None
+    return [{"worker_id": worker, "runs": int(runs),
+             "average_s": round(float(average), 2) if average is not None else None,
+             "last_seen": last.isoformat(), "failures": int(failures)}
+            for worker, runs, average, last, failures in rows]
+
+
+def read_run_stats(days=7):
+    rows = _query(
+        "SELECT count(*), count(*) FILTER (WHERE cache_hit),"
+        "       count(*) FILTER (WHERE status = 'ok'),"
+        "       coalesce(sum(reprises), 0), avg(queue_wait_s)"
+        "  FROM judge_run WHERE finished_at > now() - make_interval(days => %s)",
+        (days,), read=True)
+    if not rows:
+        return None
+    total, cached, ok, reprises, waited = rows[0]
+    return {"total": int(total), "cache_hits": int(cached), "ok": int(ok),
+            "reprises": int(reprises),
+            "average_wait_s": round(float(waited), 2) if waited is not None else None}
+
+
+def read_status_counts(days=7):
+    rows = _query(
+        "SELECT status, count(*) FROM judge_run"
+        " WHERE finished_at > now() - make_interval(days => %s)"
+        " GROUP BY status ORDER BY count(*) DESC", (days,), read=True)
+    return None if rows is None else [{"status": s, "count": int(n)} for s, n in rows]
+
+
+def read_exercise_stats(days=7, limit=20):
+    rows = _query(
+        "SELECT exercise_id, count(*), avg(duration_s),"
+        "       percentile_disc(0.95) WITHIN GROUP (ORDER BY duration_s),"
+        "       count(*) FILTER (WHERE status <> 'ok')"
+        "  FROM judge_run WHERE finished_at > now() - make_interval(days => %s)"
+        " GROUP BY exercise_id ORDER BY count(*) DESC LIMIT %s",
+        (days, max(1, min(int(limit), 100))), read=True)
+    if rows is None:
+        return None
+    return [{"exercise_id": exercise, "runs": int(runs),
+             "average_s": round(float(average), 2) if average is not None else None,
+             "p95_s": round(float(p95), 2) if p95 is not None else None,
+             "failures": int(failures)}
+            for exercise, runs, average, p95, failures in rows]
+
+
+def read_usage(days=7):
+    rows = _query(
+        "SELECT (SELECT count(*) FROM exercise_state WHERE status = 'solved'),"
+        "       (SELECT count(DISTINCT account) FROM practice_attempt"
+        "         WHERE completed_at > now() - make_interval(days => %s)),"
+        "       (SELECT coalesce(sum(amount), 0) FROM xp_transaction"
+        "         WHERE granted_at > now() - make_interval(days => %s))",
+        (days, days), read=True)
+    if not rows:
+        return None
+    solved, active, xp = rows[0]
+    return {"solved": int(solved), "active_accounts": int(active), "xp": int(xp)}
+
 def forget(user):
     # One statement, so a dropped connection can't leave half an account behind.
     return _query(

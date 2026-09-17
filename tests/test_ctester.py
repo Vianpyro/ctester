@@ -18,9 +18,11 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app")]
+sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app"),
+                os.path.join(ROOT, "admin")]
 
 import content_catalog as content_catalogue  # noqa: E402
+import journal    # noqa: E402
 import publish_content  # noqa: E402
 import typst_build  # noqa: E402
 import config     # noqa: E402
@@ -150,6 +152,94 @@ def _contenu_avec_drapeau(root, valeur, drapeau="verification"):
         fh.write("Lis ce code.")
     _write_json(os.path.join(exercise, "assessment", "quiz.json"),
                 {"questions": [{"id": "q1", "label": "?", "answer": "42"}]})
+
+
+def _depot(racine, competence, *ids):
+    _write_json(os.path.join(racine, "catalog.json"),
+                {"schema_version": 1, "skills": [competence]})
+    for exercise_id in ids:
+        exercise = os.path.join(racine, "exercises", exercise_id)
+        _write_json(os.path.join(exercise, "exercise.json"),
+                    {"schema_version": 1, "id": exercise_id, "title": "Titre",
+                     "skills": [competence], "release": {"state": "available"}})
+        with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
+            fh.write("Lis ce code.")
+        _write_json(os.path.join(exercise, "assessment", "quiz.json"),
+                    {"questions": [{"id": "q1", "label": "?", "answer": "42"}]})
+    return racine
+
+
+def _deux_depots():
+    base = tempfile.mkdtemp(prefix="ctester-depots-")
+    a = _depot(os.path.join(base, "cours-a", "content"), "boucles", "tp1-ex1", "tp1-ex2")
+    b = _depot(os.path.join(base, "cours-b", "content"), "pointeurs", "tp9-ex1")
+    return base, a, b
+
+
+def test_plusieurs_depots_fusionnent_en_un_seul_catalogue():
+    base, a, b = _deux_depots()
+    try:
+        modele = content_catalogue.discover([a, b])
+        assert list(modele["exercises"]) == ["tp1-ex1", "tp1-ex2", "tp9-ex1"]
+        # Le vocabulaire est l'union : un exercice peut viser une compétence déclarée ailleurs.
+        assert modele["skills"] == ["boucles", "pointeurs"], modele["skills"]
+        # Rien en aval ne nomme de source : la projection reste un espace de noms plat.
+        public = content_catalogue.public_catalogue(modele)
+        assert [e["id"] for e in public["exercises"]] == ["tp1-ex1", "tp1-ex2", "tp9-ex1"]
+        assert "source" not in json.dumps(public)
+    finally:
+        shutil.rmtree(base)
+
+
+def test_la_revision_ne_depend_pas_de_l_ordre_des_depots():
+    base, a, b = _deux_depots()
+    try:
+        un = publish_content.revision(
+            publish_content.projection(content_catalogue.discover([a, b])))
+        deux = publish_content.revision(
+            publish_content.projection(content_catalogue.discover([b, a])))
+        assert un == deux, "reordonner CTESTER_CONTENT republierait tout le catalogue"
+    finally:
+        shutil.rmtree(base)
+
+
+def test_un_id_partage_entre_deux_depots_bloque_la_publication():
+    base, a, b = _deux_depots()
+    try:
+        _depot(b, "pointeurs", "tp1-ex1")
+        try:
+            content_catalogue.discover([a, b])
+        except content_catalogue.ContentValidationError as exc:
+            texte = str(exc)
+            assert "duplicate exercise id: tp1-ex1" in texte, texte
+            # Le message doit nommer les deux dépôts, sinon il est inutilisable.
+            assert "cours-a" in texte and "cours-b" in texte, texte
+        else:
+            raise AssertionError("deux dépôts ont pu revendiquer le même id")
+    finally:
+        shutil.rmtree(base)
+
+
+def test_une_seule_racine_garde_ses_messages_sans_prefixe():
+    racine = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _depot(racine, "boucles", "tp1-ex1")
+        os.remove(os.path.join(racine, "exercises", "tp1-ex1", "statement.md"))
+        try:
+            content_catalogue.discover(racine)
+        except content_catalogue.ContentValidationError as exc:
+            assert str(exc).startswith("exercises/tp1-ex1:"), exc
+        else:
+            raise AssertionError("énoncé manquant accepté")
+    finally:
+        shutil.rmtree(racine)
+
+
+def test_content_roots_se_decoupe_comme_la_variable_d_environnement():
+    assert content_catalogue.content_roots("/a") == ["/a"]
+    assert content_catalogue.content_roots(["/a", "/b"]) == ["/a", "/b"]
+    decoupe = content_catalogue.content_roots("/a%s%s/b%s" % (os.pathsep, os.pathsep, os.pathsep))
+    assert decoupe == ["/a", "/b"], decoupe
 
 
 def test_content_v2_marque_une_verification():
@@ -1336,18 +1426,80 @@ def test_chaque_table_a_ses_droits():
     assert "ALL TABLES IN SCHEMA" not in instructions, instructions
 
 
+def test_le_journal_ne_consomme_que_des_lignes_entieres():
+    entier = json.dumps({"job_id": "a" * 32, "exercise_id": "tp1", "status": "ok",
+                         "kind": "io", "duration_s": 1.5, "queue_wait_s": 0.25,
+                         "worker_id": "2", "cache_hit": False, "reprises": 0,
+                         "finished_at": 1_700_000_000}).encode()
+    tronque = b'{"job_id": "b", "status": "ok"'
+    lignes, mange = journal.parse_journal(entier + b"\n" + tronque)
+    assert mange == len(entier) + 1, "la ligne tronquee a ete consommee"
+    assert [ligne["job_id"] for ligne in lignes] == ["a" * 32]
+    assert lignes[0]["duration_s"] == 1.5 and lignes[0]["reprises"] == 0
+    # Le reste se relit depuis l'offset, une fois la ligne enfin complete.
+    reste = tronque + b"}\n"
+    lignes, mange = journal.parse_journal(reste)
+    assert mange == len(reste)
+    assert [ligne["job_id"] for ligne in lignes] == ["b"]
+
+
+def test_le_journal_saute_une_ligne_illisible_sans_bloquer_le_curseur():
+    bon = json.dumps({"job_id": "c"}).encode()
+    blob = b"pas du json\n" + b'{"job_id": 7}\n' + b"[]\n" + bon + b"\n"
+    lignes, mange = journal.parse_journal(blob)
+    assert mange == len(blob), "une ligne illisible bloquerait le journal"
+    assert [ligne["job_id"] for ligne in lignes] == ["c"]
+
+
+def test_le_journal_s_arrete_a_sa_borne():
+    blob = b"".join(json.dumps({"job_id": str(n)}).encode() + b"\n" for n in range(10))
+    lignes, mange = journal.parse_journal(blob, limit=4)
+    assert len(lignes) == 4
+    assert mange < len(blob), "la borne doit laisser le reste pour le prochain passage"
+    suite, _ = journal.parse_journal(blob[mange:], limit=100)
+    assert [ligne["job_id"] for ligne in suite] == [str(n) for n in range(4, 10)]
+
+
+def test_le_journal_du_juge_et_son_lecteur_parlent_des_memes_champs():
+    """Le juge ecrit la ligne en Rust, l'admin la relit en Python : un champ renomme
+    d'un cote seulement passerait inapercu jusqu'en production."""
+    rust = lire(os.path.join(ROOT, "judge", "src", "results.rs"))
+    bloc = rust[rust.index("let record = json!({"):]
+    bloc = bloc[:bloc.index("});")]
+    ecrits = re.findall(r'"(\w+)":', bloc)
+    assert ecrits == list(journal.FIELDS), (ecrits, list(journal.FIELDS))
+    # state.py stocke exactement ces champs, dans cet ordre.
+    assert tuple(ecrits) == state.RUN_COLUMNS, (ecrits, state.RUN_COLUMNS)
+
+
+def test_le_nom_du_journal_est_le_meme_des_deux_cotes():
+    rust = lire(os.path.join(ROOT, "judge", "src", "results.rs"))
+    assert 'format!("runs-{}.jsonl"' in rust, "le juge a renomme le journal"
+    lecteur = lire(os.path.join(ROOT, "admin", "drain.py"))
+    assert 'PATTERN = "runs-*.jsonl"' in lecteur, "l'admin cherche un autre nom"
+
+
+def test_le_journal_n_est_que_de_la_bibliotheque_standard():
+    texte = lire(os.path.join(ROOT, "admin", "journal.py"))
+    importes = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", texte, re.M))
+    assert importes <= {"json"}, sorted(importes)
+
+
 def test_suppression_couvre_toutes_les_tables():
     schema = lire(os.path.join(ROOT, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
-    assert len(tables) == 19, tables
+    assert len(tables) == 21, tables
     blocs = dict(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)\s*\((.*?)\n\);",
         schema, re.S))
     assert set(blocs) == tables, sorted(set(blocs) ^ tables)
+    # judge_run and judge_journal_cursor carry no account: they are the judge's own
+    # history of the service, kept when a student is forgotten.
     avec_compte = {nom for nom, corps in blocs.items()
                    if re.search(r"^\s*account\s+TEXT", corps, re.M)}
-    assert avec_compte == tables - {"team", "team_document", "team_submission"}, \
+    assert avec_compte == tables - {"team", "team_document", "team_submission",
+                                    "judge_run", "judge_journal_cursor"}, \
         sorted(avec_compte)
     efface = lire(os.path.join(ROOT, "app", "state.py"))
     efface = efface[efface.index("def forget(user):"):]

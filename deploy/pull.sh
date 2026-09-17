@@ -93,7 +93,7 @@ for n in $(seq 1 "${CTESTER_WORKERS:-2}"); do
     systemctl restart "ctester-judge@$n.service"
 done
 docker compose up -d --remove-orphans
-docker compose restart web
+docker compose restart web admin
 
 # The judge does not publish on start, so the catalogue is republished with the new code.
 rm -f "$dir/.content-deployed"

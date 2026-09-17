@@ -186,7 +186,7 @@ def publish_catalogue(content, published, preview=False):
     if not (content and published):
         raise RuntimeError(
             "CTESTER_CONTENT and CTESTER_PUBLISHED are required to publish")
-    model = content_catalog.discover(content)
+    model = content_catalog.discover(content_catalog.content_roots(content))
     renders, (total, du_cache) = typst_build.render_all(model, published)
     if total:
         print("ctester: %d énoncé(s) Typst rendu(s), dont %d depuis le cache"
@@ -197,7 +197,8 @@ def publish_catalogue(content, published, preview=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="publish ctester v2 content")
-    parser.add_argument("root", help="root containing catalog.json and exercises/")
+    parser.add_argument("root", nargs="+",
+                        help="root(s) containing catalog.json and exercises/")
     parser.add_argument("dest", help="directory for releases (published/)")
     parser.add_argument("--keep", type=int, default=3, help="releases kept")
     parser.add_argument("--no-render", action="store_true",

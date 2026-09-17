@@ -15,6 +15,8 @@ use serde_json::{Map, Value, json};
 use crate::spool::{Job, random_hex};
 
 const DURATIONS: &str = "durees.json";
+/// A line longer than this is dropped rather than risk being split across two `write` calls.
+const RUN_LINE_MAX: usize = 4096;
 const DURATION_WINDOW: i64 = 20;
 const CONSOLE_LOCK: &str = ".console";
 
@@ -36,12 +38,36 @@ fn mkdir(path: &Path) -> io::Result<()> {
     std::fs::DirBuilder::new().mode(0o755).create(path)
 }
 
+/// What the run journal records on top of the verdict itself. Console sessions use
+/// `exercise_id = ":console"`, the key `durees.json` already uses for them.
+pub struct Run<'a> {
+    pub exercise_id: &'a str,
+    pub duration_s: Option<f64>,
+    pub queue_wait_s: Option<f64>,
+    pub cache_hit: bool,
+    pub reprises: u64,
+}
+
+#[cfg(test)]
+impl Run<'_> {
+    pub fn of(exercise_id: &str) -> Run<'_> {
+        Run {
+            exercise_id,
+            duration_s: None,
+            queue_wait_s: None,
+            cache_hit: false,
+            reprises: 0,
+        }
+    }
+}
+
 pub struct Results {
     pub root: PathBuf,
+    worker_id: String,
 }
 
 impl Results {
-    pub fn open(root: &Path) -> Result<Results, String> {
+    pub fn open(root: &Path, worker_id: &str) -> Result<Results, String> {
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o755)
@@ -49,6 +75,7 @@ impl Results {
             .map_err(|e| format!("{}: {e}", root.display()))?;
         Ok(Results {
             root: root.to_path_buf(),
+            worker_id: worker_id.to_string(),
         })
     }
 
@@ -100,11 +127,54 @@ impl Results {
         write_json_at(File::open(dir)?, name, value)
     }
 
-    pub fn write_result(&self, job: &Job, mut payload: Value) -> io::Result<()> {
+    /// The one place a verdict is published, so the journal cannot miss an exit path.
+    pub fn write_result(&self, job: &Job, mut payload: Value, run: &Run) -> io::Result<()> {
         if let Some(map) = payload.as_object_mut() {
             map.insert("state".into(), json!("done"));
         }
-        self.write_json(Some(job), "result.json", &payload)
+        let written = self.write_json(Some(job), "result.json", &payload);
+        if written.is_ok() {
+            self.append_run(job, &payload, run);
+        }
+        written
+    }
+
+    /// One line per finished run, for the admin app to ingest. Every worker appends to the same
+    /// file: a single `write` to a regular file opened `O_APPEND` holds the inode lock for the
+    /// whole transfer, so lines never interleave. That is a local-filesystem guarantee -- it does
+    /// not hold over NFS, and `results/` must stay local. `write_all` would loop on a short write
+    /// and tear the line, so the line is built whole and written once, or dropped.
+    fn append_run(&self, job: &Job, verdict: &Value, run: &Run) {
+        let field = |name: &str| verdict.get(name).and_then(Value::as_str).unwrap_or("");
+        let seconds = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        let record = json!({
+            "job_id": job.as_str(),
+            "exercise_id": run.exercise_id,
+            "status": field("status"),
+            "kind": field("kind"),
+            "duration_s": run.duration_s,
+            "queue_wait_s": run.queue_wait_s,
+            "worker_id": self.worker_id,
+            "cache_hit": run.cache_hit,
+            "reprises": run.reprises,
+            "finished_at": seconds,
+        });
+        let mut line = record.to_string().into_bytes();
+        line.push(b'\n');
+        if line.len() > RUN_LINE_MAX {
+            return;
+        }
+        let name = format!("runs-{}.jsonl", crate::gate::civil_date(seconds));
+        let opened = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .mode(0o644)
+            .open(self.root.join(name));
+        if let Ok(mut file) = opened {
+            let _ = file.write(&line);
+        }
     }
 
     pub fn write_state(&self, job: &Job, state: Value) {
@@ -212,7 +282,7 @@ mod tests {
 
     fn results() -> (Scratch, Results) {
         let scratch = Scratch::new("results");
-        let results = Results::open(&scratch.0.join("results")).unwrap();
+        let results = Results::open(&scratch.0.join("results"), "7").unwrap();
         (scratch, results)
     }
 
@@ -244,7 +314,7 @@ mod tests {
             .unwrap();
         assert_eq!(results.retries(&first), 2);
         results
-            .write_result(&first, json!({"status": "ok"}))
+            .write_result(&first, json!({"status": "ok"}), &Run::of("tp2-ex3"))
             .unwrap();
         assert!(results.done(&first));
         let verdict: Value = serde_json::from_slice(
@@ -253,7 +323,9 @@ mod tests {
         .unwrap();
         assert_eq!(verdict["state"], "done");
         assert!(
-            results.write_result(&job(8), json!({})).is_err(),
+            results
+                .write_result(&job(8), json!({}), &Run::of("tp1"))
+                .is_err(),
             "no result without a claim"
         );
     }
@@ -289,6 +361,43 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_workers_append_whole_lines() {
+        let (scratch, _) = results();
+        let root = scratch.0.join("results");
+        let mut threads = Vec::new();
+        for worker in 0..4u32 {
+            let root = root.clone();
+            threads.push(std::thread::spawn(move || {
+                let results = Results::open(&root, &worker.to_string()).unwrap();
+                for n in 0..25 {
+                    let job = job(worker * 100 + n);
+                    assert!(results.claim(&job));
+                    results
+                        .write_result(&job, json!({"status": "ok", "kind": "io"}), &Run::of("tp1"))
+                        .unwrap();
+                }
+            }));
+        }
+        for thread in threads {
+            thread.join().unwrap();
+        }
+        let journal = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .find(|name| name.starts_with("runs-"))
+            .expect("no run journal");
+        let text = std::fs::read_to_string(root.join(journal)).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 100, "lines were lost or torn");
+        for line in lines {
+            let record: Value = serde_json::from_str(line).expect("interleaved line");
+            assert_eq!(record["exercise_id"], json!("tp1"));
+            assert_eq!(record["status"], json!("ok"));
+        }
+    }
+
+    #[test]
     fn sweep_removes_old_jobs_and_nothing_of_the_service() {
         let (_scratch, results) = results();
         assert!(results.claim(&job(1)));
@@ -301,5 +410,21 @@ mod tests {
         assert!(!results.dir(&job(1)).exists(), "sweep kept a stale job");
         assert!(results.root.join(CONSOLE_LOCK).exists());
         assert!(results.root.join(DURATIONS).exists());
+        assert!(results.claim(&job(2)));
+        results
+            .write_result(&job(2), json!({"status": "ok"}), &Run::of("tp1"))
+            .unwrap();
+        let journal = |root: &std::path::Path| {
+            std::fs::read_dir(root)
+                .unwrap()
+                .flatten()
+                .any(|e| e.file_name().to_string_lossy().starts_with("runs-"))
+        };
+        assert!(journal(&results.root), "the journal was never written");
+        results.sweep(
+            SystemTime::now() + Duration::from_secs(7200),
+            Duration::from_secs(600),
+        );
+        assert!(journal(&results.root), "sweep ate the run journal");
     }
 }

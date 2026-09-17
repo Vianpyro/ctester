@@ -10,7 +10,8 @@ import content_catalog  # noqa: E402
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="validate ctester v2 content")
-    parser.add_argument("root", help="root containing catalog.json and exercises/")
+    parser.add_argument("root", nargs="+",
+                        help="root(s) containing catalog.json and exercises/")
     args = parser.parse_args(argv)
     try:
         model = content_catalog.discover(args.root)

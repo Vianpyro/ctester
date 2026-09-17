@@ -313,6 +313,31 @@ UPDATE xp_transaction x SET event_id = 'solved:' || substr(x.event_id, 10)
 UPDATE achievement_unlocked SET event_id = 'solved:' || substr(event_id, 10)
  WHERE event_id LIKE 'reussite:%';
 
+-- Operations only, never a student's: the admin app ingests the judge's run journal here.
+-- No account column on purpose, so forget() has nothing to do and the history of the service
+-- survives a deleted account. Per-student practice lives in practice_attempt.
+CREATE TABLE IF NOT EXISTS judge_run (
+    job_id       TEXT        PRIMARY KEY,
+    exercise_id  TEXT        NOT NULL,
+    status       TEXT        NOT NULL,
+    kind         TEXT        NOT NULL,
+    duration_s   REAL,
+    queue_wait_s REAL,
+    worker_id    TEXT        NOT NULL,
+    cache_hit    BOOLEAN     NOT NULL DEFAULT false,
+    reprises     INTEGER     NOT NULL DEFAULT 0,
+    finished_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS judge_run_finished_idx ON judge_run (finished_at DESC);
+
+-- One row per journal file: results/ is read-only to the API, so the judge's files are never
+-- truncated and the offset is how far each has been read.
+CREATE TABLE IF NOT EXISTS judge_journal_cursor (
+    filename    TEXT   PRIMARY KEY,
+    byte_offset BIGINT NOT NULL DEFAULT 0
+);
+
 -- Grants are listed table by table, never schema-wide, so a new table without
 -- its grant is caught by the checks. Append-only tables get no UPDATE, and forum
 -- messages are immutable apart from the two moderated columns.
@@ -351,5 +376,9 @@ BEGIN
             ' ON team_document, team_submission TO ctester_app';
 
     EXECUTE 'GRANT SELECT, INSERT, DELETE ON team_revision TO ctester_app';
+
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE'
+            ' ON judge_run, judge_journal_cursor'
+            ' TO ctester_app';
 END
 $$;

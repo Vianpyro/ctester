@@ -92,6 +92,58 @@ services:
           cpus: "${CTESTER_WEB_CPUS:-0.25}"
           memory: ${CTESTER_WEB_MEMORY:-512m}
 
+  # The teacher's dashboard. No published port: Nginx Proxy Manager reaches it over the
+  # ingress network, and the access list on that proxy host is the only boundary, so it
+  # must be restricted to the LAN. See docs/operations.md.
+  admin:
+    image: ${CTESTER_WEB_IMAGE:-python:3.13-slim}
+    restart: unless-stopped
+    command: ["python3", "/admin/main.py"]
+    env_file: ../../.env
+    environment:
+      CTESTER_RESULTS: /results
+      CTESTER_SPOOL: /spool
+      CTESTER_PUBLISHED: /published
+      PYTHONPATH: /deps:/app:/admin
+    volumes:
+      - ../admin:/admin:ro
+      - ../app:/app:ro
+      - ../../published:/published:ro
+      - ../../spool:/spool:ro
+      - ../../results:/results:ro
+      - deps:/deps:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    user: "65534:65534"
+    tmpfs:
+      - /tmp:size=8m
+    expose:
+      - "8001"
+    networks:
+      - default
+      - ingress
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8001/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          cpus: "${CTESTER_ADMIN_CPUS:-0.25}"
+          memory: ${CTESTER_ADMIN_MEMORY:-256m}
+
   bridge:
     profiles: [discord]
     image: ${CTESTER_WEB_IMAGE:-python:3.13-slim}

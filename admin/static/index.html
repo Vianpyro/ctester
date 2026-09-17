@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>ctester — administration</title>
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<header>
+  <h1>ctester <span class="muted">administration</span></h1>
+  <p id="etat" class="etat">Chargement…</p>
+</header>
+
+<main>
+  <section id="bandeau" class="cartes" aria-label="État du service"></section>
+
+  <section>
+    <h2>Workers <span class="muted">— 24 h</span></h2>
+    <div id="workers" class="cartes"></div>
+  </section>
+
+  <section>
+    <h2>File d'attente</h2>
+    <div id="file"></div>
+  </section>
+
+  <section>
+    <h2>Statistiques
+      <select id="jours" aria-label="Période">
+        <option value="1">24 h</option>
+        <option value="7" selected>7 jours</option>
+        <option value="30">30 jours</option>
+        <option value="120">Session</option>
+      </select>
+    </h2>
+    <div id="stats"></div>
+  </section>
+
+  <section>
+    <h2>Derniers runs</h2>
+    <div class="filtres">
+      <input id="f-exercice" placeholder="exercice" aria-label="Filtrer par exercice">
+      <input id="f-statut" placeholder="statut" aria-label="Filtrer par statut">
+      <input id="f-worker" placeholder="worker" aria-label="Filtrer par worker">
+    </div>
+    <div id="runs"></div>
+  </section>
+</main>
+
+<script src="/admin.js" type="module"></script>
+</body>
+</html>

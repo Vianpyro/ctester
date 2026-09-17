@@ -152,6 +152,14 @@ impl Spool {
         }
     }
 
+    /// `job.json`'s mtime, which is when the job became claimable: the API writes that file
+    /// last and atomically, so nothing of the job predates it.
+    pub fn queued_at(&self, job: &Job) -> Option<SystemTime> {
+        let dir = self.dir(job.as_str()).ok()?;
+        let stat = rustix::fs::statat(&dir, "job.json", AtFlags::SYMLINK_NOFOLLOW).ok()?;
+        Some(mtime(&stat))
+    }
+
     pub fn exists(&self, dir: &str, name: &str) -> bool {
         self.dir(dir)
             .and_then(|d| Ok(rustix::fs::statat(&d, name, AtFlags::SYMLINK_NOFOLLOW)?))

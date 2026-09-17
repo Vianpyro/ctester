@@ -6,6 +6,9 @@ Requires=docker.service
 [Service]
 Type=simple
 EnvironmentFile=/opt/ctester/.env
+# After the EnvironmentFile: the .env is shared by every instance, so a CTESTER_WORKER_ID set
+# there would name them all alike. %i is the instance number.
+Environment=CTESTER_WORKER_ID=%i
 ExecStart=/opt/ctester/bin/ctester-judge run
 Restart=always
 RestartSec=2

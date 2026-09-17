@@ -114,7 +114,7 @@ mod runner {
     use crate::console;
     use crate::gate::{self, Exercise, Mode};
     use crate::grade;
-    use crate::results::Results;
+    use crate::results::{Results, Run};
     use crate::sandbox::{self, Stage};
     use crate::spool::{self, Job, Spool};
 
@@ -155,7 +155,7 @@ mod runner {
                 }
             }
             let spool = Spool::open(&config.spool)?;
-            let results = Results::open(&config.results)?;
+            let results = Results::open(&config.results, &config.worker_id)?;
             let cache = Cache::new(&config);
             Ok(Runner {
                 config,
@@ -241,29 +241,56 @@ mod runner {
                 true => console::run_console(&self.config, &self.spool, &self.results, job),
                 false => self.run_job(job),
             }));
+            let key = match console {
+                true => CONSOLE_DURATION.to_string(),
+                false => self.spool.job_field(job, "exercise_id"),
+            };
+            let elapsed = || start.elapsed().as_secs_f64();
             let failure = match outcome {
-                Ok(Ok(verdict)) => match self.results.write_result(job, verdict) {
-                    Ok(()) => {
-                        let key = match console {
-                            true => CONSOLE_DURATION.to_string(),
-                            false => self.spool.job_field(job, "exercise_id"),
-                        };
-                        self.results
-                            .record_duration(&key, start.elapsed().as_secs_f64());
-                        return;
+                Ok(Ok(verdict)) => {
+                    let run = self.record(job, &key, Some(elapsed()), false);
+                    match self.results.write_result(job, verdict, &run) {
+                        Ok(()) => {
+                            self.results.record_duration(&key, elapsed());
+                            return;
+                        }
+                        Err(e) => e.to_string(),
                     }
-                    Err(e) => e.to_string(),
-                },
+                }
                 Ok(Err(message)) => message,
                 Err(_) => "panic".to_string(),
             };
             eprintln!("ctester: {}: {failure}", self.job_path(job));
-            let _ = self.results.write_result(job, internal_error());
+            let run = self.record(job, &key, Some(elapsed()), false);
+            let _ = self.results.write_result(job, internal_error(), &run);
             if console {
                 self.results.write_state(
                     job,
                     json!({"state": "exited", "code": -1, "reason": "worker"}),
                 );
+            }
+        }
+
+        /// The journal's view of a run. `queued_at` is `job.json`'s mtime, which only marks the
+        /// wait because the API writes that file last.
+        fn record<'a>(
+            &self,
+            job: &Job,
+            exercise_id: &'a str,
+            duration_s: Option<f64>,
+            cache_hit: bool,
+        ) -> Run<'a> {
+            let queue_wait_s = self
+                .spool
+                .queued_at(job)
+                .and_then(|queued| SystemTime::now().duration_since(queued).ok())
+                .map(|waited| waited.as_secs_f64());
+            Run {
+                exercise_id,
+                duration_s,
+                queue_wait_s,
+                cache_hit,
+                reprises: 0,
             }
         }
 
@@ -287,7 +314,10 @@ mod runner {
                     attempt - 1
                 );
                 let verdict = json!({"status": "error", "message": "Le juge a été interrompu pendant ce test. Relance-le."});
-                let _ = self.results.write_result(job, verdict);
+                let exercise_id = self.spool.job_field(job, "exercise_id");
+                let mut run = self.record(job, &exercise_id, None, false);
+                run.reprises = attempt - 1;
+                let _ = self.results.write_result(job, verdict, &run);
                 return false;
             }
             // Counted before the rmdir, so a worker dying in between still uses up the attempt.
@@ -362,7 +392,8 @@ mod runner {
                     continue;
                 }
                 eprintln!("ctester: cache servi {exercise_id} {} [file]", &sig[..12]);
-                if self.results.write_result(&job, verdict).is_ok() {
+                let run = self.record(&job, &exercise_id, None, true);
+                if self.results.write_result(&job, verdict, &run).is_ok() {
                     served += 1;
                 }
             }
