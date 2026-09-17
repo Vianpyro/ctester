@@ -3,88 +3,55 @@
 const $ = (id) => document.getElementById(id);
 const RAFRAICHIR = 5000;
 
-const COULEURS = {
-  ok: "var(--ok)",
-  compile_error: "var(--alerte)",
-  link_error: "var(--alerte)",
-  forbidden_include: "var(--alerte)",
-  compile_timeout: "var(--attente)",
-  timeout: "var(--attente)",
-  memory_error: "var(--attente)",
-  error: "var(--faible)",
+// A verdict's colour says who should care. A student whose code does not compile
+// is the course working as intended, so it stays neutral; amber is a resource
+// limit, which can mean a badly calibrated exercise; red is the judge itself.
+const ETATS = {
+  ok: "ok",
+  compile_error: "neutre",
+  link_error: "neutre",
+  forbidden_include: "neutre",
+  compile_timeout: "attention",
+  timeout: "attention",
+  memory_error: "attention",
+  error: "alerte",
 };
 
-const texte = (v) => (v === null || v === undefined || v === "" ? "—" : String(v));
-const secondes = (v) => (typeof v === "number" ? v.toFixed(1) + " s" : "—");
+const classeEtat = (statut) => "etat-" + (ETATS[statut] || "neutre");
+const couleurEtat = (statut) => "var(--" + (ETATS[statut] || "neutre") + ")";
+
+const deux = (n) => String(n).padStart(2, "0");
+
+function horloge(iso) {
+  const d = new Date(iso);
+  return deux(d.getHours()) + ":" + deux(d.getMinutes()) + ":" + deux(d.getSeconds());
+}
+
+const texte = (v) => (v === null || v === undefined || v === "" ? "–" : String(v));
+
+function secondes(v) {
+  if (typeof v !== "number") return "–";
+  if (v >= 60) return Math.round(v / 60) + " min";
+  return (v >= 10 ? Math.round(v) : v.toFixed(1)) + " s";
+}
 
 function duree(s) {
-  if (typeof s !== "number") return "—";
+  if (typeof s !== "number") return "–";
   if (s < 60) return Math.round(s) + " s";
   if (s < 3600) return Math.round(s / 60) + " min";
   return Math.round(s / 3600) + " h";
 }
 
-function carte(cle, valeur, note, classe) {
-  const el = document.createElement("div");
-  el.className = "carte";
-  const k = document.createElement("div");
-  k.className = "cle";
-  k.textContent = cle;
-  const v = document.createElement("div");
-  v.className = "valeur" + (classe ? " " + classe : "");
-  v.textContent = valeur;
-  el.append(k, v);
-  if (note) {
-    const n = document.createElement("div");
-    n.className = "note";
-    n.textContent = note;
-    el.append(n);
-  }
-  return el;
+function el(tag, classe, contenu) {
+  const node = document.createElement(tag);
+  if (classe) node.className = classe;
+  if (contenu !== undefined) node.textContent = contenu;
+  return node;
 }
 
-function vide(message) {
-  const el = document.createElement("p");
-  el.className = "vide";
-  el.textContent = message;
-  return el;
-}
-
-function tableau(colonnes, lignes, rendu) {
-  if (!lignes || lignes.length === 0) {
-    return vide("Rien à montrer.");
-  }
-  const enveloppe = document.createElement("div");
-  enveloppe.className = "enveloppe";
-  const table = document.createElement("table");
-  const thead = document.createElement("thead");
-  const tr = document.createElement("tr");
-  for (const col of colonnes) {
-    const th = document.createElement("th");
-    th.textContent = col;
-    tr.append(th);
-  }
-  thead.append(tr);
-  const tbody = document.createElement("tbody");
-  for (const ligne of lignes) tbody.append(rendu(ligne));
-  table.append(thead, tbody);
-  enveloppe.append(table);
-  return enveloppe;
-}
-
-function cellules(valeurs) {
-  const tr = document.createElement("tr");
-  for (const v of valeurs) {
-    const td = document.createElement("td");
-    if (Array.isArray(v)) {
-      td.textContent = v[0];
-      if (v[1]) td.className = v[1];
-    } else {
-      td.textContent = v;
-    }
-    tr.append(td);
-  }
-  return tr;
+function vide(cible, message) {
+  cible.textContent = "";
+  cible.append(el("p", "vide", message));
 }
 
 async function json(url) {
@@ -93,169 +60,282 @@ async function json(url) {
   return reponse.json();
 }
 
-function bandeau(data) {
-  const cible = $("bandeau");
+/* ---- vitals ------------------------------------------------------------ */
+
+function vital(cle, valeur, note, options = {}) {
+  const node = el("div", "vital");
+  node.append(el("div", "cle", cle));
+  const v = el("div", "valeur" + (options.mono ? " mono" : "") + (options.alarme ? " alarme" : ""),
+               valeur);
+  node.append(v, el("div", "note", note || " "));
+  return node;
+}
+
+function vitaux(data) {
+  const cible = $("vitaux");
   cible.textContent = "";
   const q = data.queue;
-  const r = data.release;
   const s = data.stats;
+  const r = data.release;
+
   if (q) {
-    cible.append(carte("En file", q.pending,
-      q.pending ? "plus ancien : " + duree(q.oldest_s) : "rien en attente"));
-    cible.append(carte("Attente estimée", duree(q.eta_s),
-      q.workers_configured + " worker(s) configuré(s)"));
+    cible.append(vital("En file", q.pending,
+      q.pending ? "plus ancien " + duree(q.oldest_s) : "rien en attente"));
+    cible.append(vital("Attente estimée", duree(q.eta_s),
+      q.pending ? "avant le dernier job" : "file libre"));
   }
   if (s) {
     const taux = s.total ? Math.round((s.cache_hits / s.total) * 100) : 0;
-    cible.append(carte("Runs (24 h)", s.total, s.ok + " réussis"));
-    cible.append(carte("Cache", taux + " %", s.cache_hits + " servis sans compiler"));
-    cible.append(carte("Reprises", s.reprises,
+    cible.append(vital("Runs 24 h", s.total,
+      s.total ? s.ok + " réussis" : "aucun run"));
+    cible.append(vital("Cache", taux + " %", s.cache_hits + " sans compiler"));
+    cible.append(vital("Attente moyenne", secondes(s.average_wait_s), "avant un worker"));
+    cible.append(vital("Reprises", s.reprises,
       s.reprises ? "un worker a été interrompu" : "aucune interruption",
-      s.reprises ? "statut-ko" : ""));
+      { alarme: s.reprises > 0 }));
   }
   if (r) {
-    const quand = r.published_at
-      ? new Date(r.published_at * 1000).toLocaleString("fr-CA")
-      : "—";
-    cible.append(carte("Contenu publié", r.revision ? r.revision.slice(0, 12) : "—",
-      quand + (r.exercises ? " · " + r.exercises + " exercices" : "")));
+    cible.append(vital("Révision", r.revision ? r.revision.slice(0, 10) : "–",
+      r.published_at
+        ? new Date(r.published_at * 1000).toLocaleString("fr-CA",
+            { dateStyle: "short", timeStyle: "short" })
+          + (r.exercises ? ", " + r.exercises + " exercices" : "")
+        : "aucune release",
+      { mono: true }));
   }
 }
 
-function workers(rows) {
-  const cible = $("workers");
-  cible.textContent = "";
-  if (!rows || rows.length === 0) {
-    cible.append(vide("Aucun run enregistré depuis 24 h."));
+/* ---- verdict distribution ---------------------------------------------- */
+
+function repartition(statuses) {
+  const jauge = $("jauge");
+  const legende = $("legende");
+  jauge.textContent = "";
+  legende.textContent = "";
+  const lignes = statuses || [];
+  const total = lignes.reduce((n, s) => n + s.count, 0);
+  if (!total) {
+    legende.append(el("span", null, "Aucun verdict sur la période."));
     return;
   }
-  for (const w of rows) {
-    const el = carte("worker " + w.worker_id, w.runs + " runs",
-      "moyenne " + secondes(w.average_s)
-      + (w.failures ? " · " + w.failures + " échecs" : ""));
-    const pastille = document.createElement("span");
-    pastille.className = "pastille " + (w.alive ? "vivant" : "mort");
-    pastille.title = w.alive ? "actif" : "silencieux depuis 5 min";
-    el.querySelector(".cle").prepend(pastille);
-    cible.append(el);
+  for (const s of lignes) {
+    const part = el("span");
+    part.style.width = (s.count / total) * 100 + "%";
+    part.style.background = couleurEtat(s.status);
+    part.title = s.status + " : " + s.count;
+    jauge.append(part);
+
+    const item = el("span");
+    const puce = el("span", "puce");
+    puce.style.background = couleurEtat(s.status);
+    item.append(puce, document.createTextNode(s.status + " "), el("i", null, s.count));
+    legende.append(item);
   }
+}
+
+/* ---- tables ------------------------------------------------------------ */
+
+function tableau(cible, colonnes, lignes, rendu, message) {
+  if (!lignes || lignes.length === 0) {
+    vide(cible, message);
+    return;
+  }
+  const table = el("table");
+  const colgroup = el("colgroup");
+  for (const col of colonnes) {
+    const c = el("col");
+    if (col.largeur) c.style.width = col.largeur;
+    colgroup.append(c);
+  }
+  table.append(colgroup);
+  const tr = el("tr");
+  for (const col of colonnes) {
+    tr.append(el("th", col.classe || null, col.titre));
+  }
+  const thead = el("thead");
+  thead.append(tr);
+  const tbody = el("tbody");
+  for (const ligne of lignes) tbody.append(rendu(ligne));
+  table.append(thead, tbody);
+  cible.textContent = "";
+  cible.append(table);
+}
+
+// [texte, classe, infobulle] -- the third item carries what truncation hides.
+function cellules(valeurs) {
+  const tr = el("tr");
+  for (const v of valeurs) {
+    const liste = Array.isArray(v) ? v : [v];
+    const td = el("td", liste[1] || null, liste[0]);
+    if (liste[2]) td.title = liste[2];
+    tr.append(td);
+  }
+  return tr;
+}
+
+/* ---- panels ------------------------------------------------------------ */
+
+function workers(rows, configures) {
+  const cible = $("workers");
+  const note = $("workers-note");
+  if (!rows || rows.length === 0) {
+    note.textContent = configures ? "0 sur " + configures : "";
+    vide(cible, "Aucun run depuis 24 h.");
+    return;
+  }
+  const vivants = rows.filter((w) => w.alive).length;
+  note.textContent = vivants + " actif" + (vivants > 1 ? "s" : "")
+    + (configures ? " sur " + configures : "");
+  cible.textContent = "";
+  for (const w of rows) {
+    const ligne = el("div", "ligne");
+    const point = el("span", w.alive ? "vivant" : "mort");
+    point.title = w.alive ? "a fini un run récemment" : "silencieux depuis 5 min";
+    const droite = el("div", "droite");
+    droite.append(el("b", null, w.runs), document.createTextNode(" runs, "
+      + secondes(w.average_s)));
+    ligne.append(point, el("span", "nom", "worker " + w.worker_id), droite);
+    if (w.failures) ligne.title = w.failures + " échec(s)";
+    cible.append(ligne);
+  }
+}
+
+function usage(data, jours) {
+  const cible = $("usage");
+  $("usage-note").textContent = jours === 1 ? "24 h" : jours + " jours";
+  if (!data.usage) {
+    vide(cible, "Base de données injoignable.");
+    return;
+  }
+  cible.textContent = "";
+  const grille = el("div", "usage");
+  const paires = [
+    ["Résolus", data.usage.solved],
+    ["Comptes", data.usage.active_accounts],
+    ["XP", data.usage.xp],
+    ["Réussite", data.stats && data.stats.total
+      ? Math.round((data.stats.ok / data.stats.total) * 100) + " %"
+      : "–"],
+  ];
+  for (const [cle, valeur] of paires) {
+    const bloc = el("div");
+    bloc.append(el("div", "cle", cle), el("div", "valeur", valeur));
+    grille.append(bloc);
+  }
+  cible.append(grille);
 }
 
 function file(q) {
   const cible = $("file");
-  cible.textContent = "";
-  cible.append(tableau(["job", "exercice", "compte", "attente"], q && q.head,
-    (j) => cellules([
-      j.job_id.slice(0, 12),
-      texte(j.exercise_id),
-      j.signed_in ? "connecté" : "anonyme",
-      duree(j.waiting_s),
-    ])));
+  const head = (q && q.head) || [];
+  $("file-note").textContent = q && q.pending
+    ? q.pending + " en attente" : "";
+  tableau(cible,
+    [{ titre: "exercice" }, { titre: "attente", classe: "n", largeur: "4.5rem" }],
+    head,
+    (j) => {
+      const tr = cellules([texte(j.exercise_id), [duree(j.waiting_s), "n"]]);
+      tr.title = (j.signed_in ? "connecté" : "anonyme") + ", job " + j.job_id.slice(-8);
+      return tr;
+    },
+    "Rien en attente.");
 }
 
-function barre(statuses, total) {
-  const el = document.createElement("div");
-  el.className = "barre";
-  for (const s of statuses) {
-    const part = document.createElement("span");
-    part.style.width = (s.count / total) * 100 + "%";
-    part.style.background = COULEURS[s.status] || "var(--faible)";
-    part.title = s.status + " : " + s.count;
-    el.append(part);
-  }
-  return el;
-}
-
-function legende(statuses) {
-  const el = document.createElement("div");
-  el.className = "legende";
-  for (const st of statuses) {
-    const item = document.createElement("span");
-    const puce = document.createElement("span");
-    puce.className = "puce";
-    puce.style.background = COULEURS[st.status] || "var(--faible)";
-    const compte = document.createElement("b");
-    compte.textContent = st.count;
-    item.append(puce, document.createTextNode(st.status + " "), compte);
-    el.append(item);
-  }
-  return el;
-}
-
-function stats(data) {
-  const cible = $("stats");
-  cible.textContent = "";
-  const s = data.stats;
-  if (data.usage) {
-    const cartes = document.createElement("div");
-    cartes.className = "cartes";
-    cartes.append(carte("Exercices résolus", data.usage.solved, "tous comptes confondus"));
-    cartes.append(carte("Comptes actifs", data.usage.active_accounts, "sur la période"));
-    cartes.append(carte("XP distribué", data.usage.xp, "sur la période"));
-    if (s) {
-      cartes.append(carte("Attente moyenne", secondes(s.average_wait_s),
-        "avant le premier worker"));
-    }
-    cible.append(cartes);
-  }
-  const statuses = data.statuses || [];
-  const total = statuses.reduce((n, st) => n + st.count, 0);
-  if (total) {
-    cible.append(barre(statuses, total));
-    cible.append(legende(statuses));
-  }
-  const titre = document.createElement("h2");
-  titre.textContent = "Par exercice";
-  cible.append(titre);
-  cible.append(tableau(["exercice", "runs", "échecs", "moyenne", "p95"], data.exercises,
+function exercices(rows, jours) {
+  $("exercices-note").textContent = jours === 1 ? "24 h" : jours + " jours";
+  tableau($("exercices"),
+    [{ titre: "exercice" }, { titre: "runs", classe: "n", largeur: "3.2rem" },
+     { titre: "échecs", classe: "n", largeur: "3.8rem" },
+     { titre: "moy.", classe: "n", largeur: "3.6rem" },
+     { titre: "p95", classe: "n", largeur: "3.4rem" }],
+    rows,
     (e) => cellules([
-      e.exercise_id,
+      [e.exercise_id || "–", null, e.exercise_id],
       [String(e.runs), "n"],
-      [String(e.failures), e.failures ? "n statut-ko" : "n"],
+      [String(e.failures), e.failures ? "n etat-alerte" : "n zero"],
       [secondes(e.average_s), "n"],
       [secondes(e.p95_s), "n"],
-    ])));
+    ]),
+    "Aucun run sur la période.");
 }
+
+let connus = null;
 
 function runs(rows) {
   const cible = $("runs");
-  cible.textContent = "";
-  cible.append(tableau(
-    ["fini", "exercice", "statut", "mode", "durée", "attente", "worker", "cache"],
-    rows, (r) => cellules([
-      new Date(r.finished_at).toLocaleTimeString("fr-CA"),
-      texte(r.exercise_id),
-      [texte(r.status), r.status === "ok" ? "statut-ok" : "statut-ko"],
-      texte(r.kind),
-      [secondes(r.duration_s), "n"],
-      [secondes(r.queue_wait_s), "n"],
-      texte(r.worker_id),
-      r.cache_hit ? "oui" : "",
-    ])));
+  tableau(cible,
+    [{ titre: "fini", classe: "mono", largeur: "5.9rem" },
+     { titre: "exercice", largeur: "11rem" }, { titre: "statut", largeur: "9rem" },
+     { titre: "mode", largeur: "4rem" },
+     { titre: "durée", classe: "n", largeur: "4.4rem" },
+     { titre: "attente", classe: "n", largeur: "4.8rem" },
+     { titre: "worker", classe: "n", largeur: "4rem" },
+     { titre: "job", classe: "mono" }],
+    rows,
+    (r) => {
+      const tr = cellules([
+        [horloge(r.finished_at), "mono"],
+        [texte(r.exercise_id), null, r.exercise_id],
+        [texte(r.status), classeEtat(r.status)],
+        r.cache_hit ? "cache" : texte(r.kind),
+        [secondes(r.duration_s), "n"],
+        [secondes(r.queue_wait_s), "n"],
+        [texte(r.worker_id), "n mono"],
+        [r.job_id, "mono", r.job_id],
+      ]);
+      if (connus && !connus.has(r.job_id)) tr.className = "neuf";
+      return tr;
+    },
+    "Aucun run enregistré.");
+  if (rows) connus = new Set(rows.map((r) => r.job_id));
 }
 
-function etat(message, casse) {
-  const el = $("etat");
-  el.textContent = message;
-  el.classList.toggle("casse", Boolean(casse));
+/* ---- state line -------------------------------------------------------- */
+
+function etat(message, niveau) {
+  const ligne = $("etat");
+  $("etat-texte").textContent = message;
+  ligne.classList.toggle("casse", niveau === "casse");
+  ligne.classList.toggle("tiede", niveau === "tiede");
+}
+
+/* ---- loading ----------------------------------------------------------- */
+
+function periode() {
+  const actif = document.querySelector('.periode button[aria-pressed="true"]');
+  return Number(actif ? actif.dataset.jours : 7);
 }
 
 async function rafraichir() {
   try {
     const data = await json("/api/overview");
-    bandeau(data);
-    workers(data.workers);
+    vitaux(data);
+    workers(data.workers, data.queue && data.queue.workers_configured);
     file(data.queue);
     etat(data.degraded
-      ? "Base de données injoignable — file et contenu seulement."
-      : "À jour " + new Date().toLocaleTimeString("fr-CA"), data.degraded);
+      ? "Base injoignable, file et contenu seulement"
+      : "À jour " + new Date().toLocaleTimeString("fr-CA"),
+      data.degraded ? "tiede" : null);
   } catch (err) {
-    etat("Rafraîchissement impossible : " + err.message, true);
+    etat("Rafraîchissement impossible : " + err.message, "casse");
+  }
+  await listeRuns();
+}
+
+async function statistiques() {
+  const jours = periode();
+  try {
+    const data = await json("/api/stats?days=" + jours);
+    repartition(data.statuses);
+    exercices(data.exercises, jours);
+    usage(data, jours);
+  } catch (err) {
+    etat("Statistiques indisponibles : " + err.message, "casse");
   }
 }
 
 async function listeRuns() {
-  const params = new URLSearchParams({ limit: "100" });
+  const params = new URLSearchParams({ limit: "150" });
   const champs = { exercise: "f-exercice", status: "f-statut", worker: "f-worker" };
   for (const [cle, id] of Object.entries(champs)) {
     const valeur = $(id).value.trim();
@@ -264,28 +344,28 @@ async function listeRuns() {
   try {
     runs((await json("/api/runs?" + params)).runs);
   } catch (err) {
-    etat("Runs indisponibles : " + err.message, true);
+    etat("Runs indisponibles : " + err.message, "casse");
   }
 }
 
-async function recharger() {
-  try {
-    stats(await json("/api/stats?days=" + encodeURIComponent($("jours").value)));
-  } catch (err) {
-    etat("Statistiques indisponibles : " + err.message, true);
-  }
-  await listeRuns();
+for (const bouton of document.querySelectorAll(".periode button")) {
+  bouton.addEventListener("click", () => {
+    for (const autre of document.querySelectorAll(".periode button")) {
+      autre.removeAttribute("aria-pressed");
+    }
+    bouton.setAttribute("aria-pressed", "true");
+    statistiques();
+  });
 }
 
-$("jours").addEventListener("change", recharger);
 for (const id of ["f-exercice", "f-statut", "f-worker"]) {
   let minuteur;
   $(id).addEventListener("input", () => {
     clearTimeout(minuteur);
-    minuteur = setTimeout(listeRuns, 300);
+    minuteur = setTimeout(listeRuns, 250);
   });
 }
 
 rafraichir();
-recharger();
+statistiques();
 setInterval(rafraichir, RAFRAICHIR);

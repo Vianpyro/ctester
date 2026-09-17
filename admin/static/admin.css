@@ -1,119 +1,408 @@
+/* One screen, no page scroll: every panel owns its own overflow. */
+
 :root {
   color-scheme: light dark;
-  --fond: #f6f7f9;
-  --carte: #ffffff;
-  --trait: #d9dde3;
-  --texte: #1c2024;
-  --faible: #5f6b76;
-  --ok: #15803d;
-  --alerte: #b91c1c;
-  --attente: #b45309;
-  --accent: #1d4ed8;
+  --fond: #e9edf1;
+  --panneau: #ffffff;
+  --creux: #f4f6f8;
+  --trait: #d3dae1;
+  --texte: #111820;
+  --faible: #5d6b79;
+  --tres-faible: #8a97a4;
+
+  /* Colour only ever means state. `ok` passed; neutral is the student's own
+     mistake and expected; amber is a resource limit, which can mean a badly
+     calibrated exercise; red is the judge itself failing, the only real alarm. */
+  --ok: #157f3c;
+  --neutre: #58748f;
+  --attention: #a5620a;
+  --alerte: #c22626;
+  --accent: #1d4fd8;
+  --ok-fond: #157f3c22;
 }
+
 @media (prefers-color-scheme: dark) {
   :root {
-    --fond: #14171a;
-    --carte: #1d2125;
-    --trait: #2f353b;
-    --texte: #e8eaed;
-    --faible: #9aa5b1;
-    --ok: #4ade80;
-    --alerte: #f87171;
-    --attente: #fbbf24;
-    --accent: #7ea6ff;
+    --fond: #0e1216;
+    --panneau: #161c22;
+    --creux: #1b222a;
+    --trait: #262f38;
+    --texte: #e4eaf0;
+    --faible: #8c99a7;
+    --tres-faible: #67737f;
+    --ok: #3ddc84;
+    --neutre: #7d94ab;
+    --attention: #f5b544;
+    --alerte: #ff6b6b;
+    --accent: #6ea8ff;
+    --ok-fond: #3ddc8422;
   }
 }
 
 * { box-sizing: border-box; }
 
+html { height: 100%; }
+
 body {
   margin: 0;
-  padding: 0 16px 48px;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  overflow: hidden;
   background: var(--fond);
   color: var(--texte);
-  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  font-feature-settings: "tnum" 1;
 }
 
-header {
+/* ---- top bar ---------------------------------------------------------- */
+
+.barre {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 12px;
-  padding: 20px 0 12px;
+  align-items: center;
+  gap: 20px;
+  padding: 0 16px;
+  height: 52px;
+  background: var(--panneau);
   border-bottom: 1px solid var(--trait);
-  margin-bottom: 8px;
 }
-h1 { font-size: 20px; margin: 0; }
-h2 {
+
+h1 {
+  margin: 0;
   font-size: 15px;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--faible);
-  margin: 28px 0 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
-.muted { color: var(--faible); font-weight: 400; }
-.etat { margin: 0; color: var(--faible); font-size: 13px; }
-.etat.casse { color: var(--alerte); }
+h1 b { font-weight: 400; color: var(--faible); }
 
-main { max-width: 1100px; margin: 0 auto; }
-
-.cartes {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 10px;
-}
-
-.carte {
-  background: var(--carte);
-  border: 1px solid var(--trait);
-  border-radius: 8px;
-  padding: 12px 14px;
-}
-.carte .cle { font-size: 12px; color: var(--faible); text-transform: uppercase; letter-spacing: .05em; }
-.carte .valeur { font-size: 24px; font-variant-numeric: tabular-nums; margin-top: 2px; }
-.carte .note { font-size: 12px; color: var(--faible); }
-
-.pastille {
-  display: inline-block;
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  margin-right: 6px;
-  background: var(--faible);
-}
-.vivant { background: var(--ok); }
-.mort { background: var(--alerte); }
-
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td {
-  text-align: left;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--trait);
-  white-space: nowrap;
-}
-th { color: var(--faible); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-td.n { text-align: right; font-variant-numeric: tabular-nums; }
-tbody tr:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-
-.enveloppe { overflow-x: auto; background: var(--carte); border: 1px solid var(--trait); border-radius: 8px; }
-
-.statut-ok { color: var(--ok); }
-.statut-ko { color: var(--alerte); }
-
-.barre { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--trait); margin: 8px 0; }
-.barre span { display: block; }
-
-.legende { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--faible); }
-.legende b { color: var(--texte); font-variant-numeric: tabular-nums; }
-.puce { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: baseline; }
-
-.filtres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-input, select {
-  background: var(--carte);
-  color: var(--texte);
+.periode {
+  display: flex;
+  margin-left: auto;
   border: 1px solid var(--trait);
   border-radius: 6px;
-  padding: 5px 8px;
-  font: inherit;
-  font-size: 13px;
+  overflow: hidden;
 }
-.vide { color: var(--faible); padding: 14px; }
+.periode button {
+  appearance: none;
+  border: 0;
+  border-left: 1px solid var(--trait);
+  background: transparent;
+  color: var(--faible);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+.periode button:first-child { border-left: 0; }
+.periode button:hover { background: var(--creux); color: var(--texte); }
+.periode button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 500;
+}
+@media (prefers-color-scheme: dark) {
+  .periode button[aria-pressed="true"] { color: #0e1216; }
+}
+
+.etat {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--faible);
+  white-space: nowrap;
+}
+.point {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+.etat.casse { color: var(--alerte); }
+.etat.casse .point { background: var(--alerte); }
+.etat.tiede .point { background: var(--attention); }
+
+/* ---- vitals ----------------------------------------------------------- */
+
+.vitaux {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 1px;
+  background: var(--trait);
+  border-bottom: 1px solid var(--trait);
+}
+
+.vital {
+  background: var(--panneau);
+  padding: 9px 16px 11px;
+  min-width: 0;
+}
+.vital .cle {
+  font-size: 11.5px;
+  color: var(--faible);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vital .valeur {
+  font-size: 27px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.vital .valeur.mono {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 19px;
+  line-height: 1.55;
+}
+.vital .note {
+  font-size: 11.5px;
+  color: var(--tres-faible);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vital .valeur.alarme { color: var(--alerte); }
+
+/* ---- verdict distribution --------------------------------------------- */
+
+.repartition {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 7px 16px;
+  background: var(--panneau);
+  border-bottom: 1px solid var(--trait);
+  min-height: 34px;
+}
+.jauge {
+  display: flex;
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--creux);
+  min-width: 120px;
+}
+.jauge span { display: block; }
+.legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--faible);
+}
+.legende i { font-style: normal; color: var(--texte); font-weight: 500; }
+.puce {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+
+/* ---- main grid -------------------------------------------------------- */
+
+main {
+  display: grid;
+  grid-template-columns: 17.5rem minmax(0, 1fr) 26rem;
+  gap: 1px;
+  background: var(--trait);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 1px;
+  background: var(--trait);
+  min-height: 0;
+}
+.rail > .panneau:first-child .corps { max-height: 40vh; }
+
+.panneau {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panneau);
+  overflow: hidden;
+}
+
+h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding: 9px 14px 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--texte);
+  flex: none;
+}
+h2.separe { border-top: 1px solid var(--trait); }
+h2 .note {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--tres-faible);
+}
+
+.corps {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  scrollbar-width: thin;
+}
+
+/* ---- tables ----------------------------------------------------------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12.5px;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panneau);
+  box-shadow: inset 0 -1px 0 var(--trait);
+  text-align: left;
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--tres-faible);
+  padding: 4px 14px 5px;
+  white-space: nowrap;
+}
+tbody td {
+  padding: 4px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--trait) 55%, transparent);
+  white-space: nowrap;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--creux); }
+td.n, th.n { text-align: right; }
+td.n { font-variant-numeric: tabular-nums; }
+td.mono, th.mono {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--faible);
+}
+td.zero { color: var(--tres-faible); }
+
+.etat-ok { color: var(--ok); }
+.etat-neutre { color: var(--neutre); }
+.etat-attention { color: var(--attention); }
+.etat-alerte { color: var(--alerte); font-weight: 500; }
+
+/* A row appearing is the one thing worth animating: it is news. */
+@keyframes arrivee {
+  from { background: var(--ok-fond); }
+  to { background: transparent; }
+}
+tbody tr.neuf td { animation: arrivee 1.6s ease-out; }
+
+/* ---- worker + usage lists --------------------------------------------- */
+
+.ligne {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--trait) 55%, transparent);
+}
+.ligne:last-child { border-bottom: 0; }
+.ligne .nom {
+  font-family: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+.ligne .droite {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--faible);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.ligne .droite b { color: var(--texte); font-weight: 500; }
+.vivant, .mort {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  align-self: center;
+}
+.vivant { background: var(--ok); }
+.mort { background: var(--tres-faible); }
+
+.usage {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
+  gap: 1px;
+  background: var(--trait);
+}
+.usage div { background: var(--panneau); padding: 7px 14px 9px; min-width: 0; }
+.usage .cle {
+  font-size: 11.5px;
+  color: var(--faible);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.usage .valeur { font-size: 18px; font-weight: 500; line-height: 1.25; }
+
+.vide {
+  margin: 0;
+  padding: 10px 14px;
+  color: var(--tres-faible);
+  font-size: 12px;
+}
+
+/* ---- filters ---------------------------------------------------------- */
+
+.filtres {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+input {
+  background: var(--creux);
+  color: var(--texte);
+  border: 1px solid var(--trait);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 11.5px;
+  width: 8.5rem;
+  min-width: 0;
+}
+input::placeholder { color: var(--tres-faible); }
+input:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ---- too small to hold one screen: let it scroll ---------------------- */
+
+@media (max-width: 1080px), (max-height: 620px) {
+  body { height: auto; overflow: auto; }
+  main { grid-template-columns: 1fr; }
+  .rail { grid-template-rows: auto auto; }
+  .corps { max-height: 22rem; }
+  .corps-file { max-height: 14rem; }
+  .vitaux { grid-auto-flow: row; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

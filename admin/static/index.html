@@ -5,47 +5,61 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>ctester — administration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/admin.css">
 </head>
 <body>
-<header>
-  <h1>ctester <span class="muted">administration</span></h1>
-  <p id="etat" class="etat">Chargement…</p>
+
+<header class="barre">
+  <h1>ctester <b>administration</b></h1>
+  <div class="periode" role="group" aria-label="Période des statistiques">
+    <button type="button" data-jours="1">24 h</button>
+    <button type="button" data-jours="7" aria-pressed="true">7 jours</button>
+    <button type="button" data-jours="30">30 jours</button>
+    <button type="button" data-jours="120">Session</button>
+  </div>
+  <p class="etat" id="etat"><span class="point" id="point"></span><span id="etat-texte">Chargement</span></p>
 </header>
 
+<section class="vitaux" id="vitaux" aria-label="État du service"></section>
+
+<section class="repartition" aria-label="Répartition des verdicts">
+  <div class="jauge" id="jauge"></div>
+  <div class="legende" id="legende"></div>
+</section>
+
 <main>
-  <section id="bandeau" class="cartes" aria-label="État du service"></section>
+  <div class="rail">
+    <section class="panneau">
+      <h2>Workers <span class="note" id="workers-note"></span></h2>
+      <div class="corps" id="workers"></div>
+    </section>
+    <section class="panneau">
+      <h2>File d'attente <span class="note" id="file-note"></span></h2>
+      <div class="corps" id="file"></div>
+    </section>
+    <section class="panneau">
+      <h2>Usage <span class="note" id="usage-note"></span></h2>
+      <div class="corps" id="usage"></div>
+    </section>
+  </div>
 
-  <section>
-    <h2>Workers <span class="muted">— 24 h</span></h2>
-    <div id="workers" class="cartes"></div>
-  </section>
-
-  <section>
-    <h2>File d'attente</h2>
-    <div id="file"></div>
-  </section>
-
-  <section>
-    <h2>Statistiques
-      <select id="jours" aria-label="Période">
-        <option value="1">24 h</option>
-        <option value="7" selected>7 jours</option>
-        <option value="30">30 jours</option>
-        <option value="120">Session</option>
-      </select>
+  <section class="panneau">
+    <h2>Derniers runs
+      <span class="filtres">
+        <input id="f-exercice" placeholder="exercice" aria-label="Filtrer par exercice">
+        <input id="f-statut" placeholder="statut" aria-label="Filtrer par statut">
+        <input id="f-worker" placeholder="worker" aria-label="Filtrer par worker">
+      </span>
     </h2>
-    <div id="stats"></div>
+    <div class="corps" id="runs"></div>
   </section>
 
-  <section>
-    <h2>Derniers runs</h2>
-    <div class="filtres">
-      <input id="f-exercice" placeholder="exercice" aria-label="Filtrer par exercice">
-      <input id="f-statut" placeholder="statut" aria-label="Filtrer par statut">
-      <input id="f-worker" placeholder="worker" aria-label="Filtrer par worker">
-    </div>
-    <div id="runs"></div>
+  <section class="panneau">
+    <h2>Par exercice <span class="note" id="exercices-note"></span></h2>
+    <div class="corps" id="exercices"></div>
   </section>
 </main>
 
