@@ -968,7 +968,8 @@ def _run_row(row):
 def read_workers(hours=24):
     """A worker is known by the runs it finished; the judge keeps no other identity."""
     rows = _query(
-        "SELECT worker_id, count(*), avg(duration_s), max(finished_at),"
+        "SELECT worker_id, count(*),"
+        "       avg(duration_s) FILTER (WHERE status <> 'console'), max(finished_at),"
         "       count(*) FILTER (WHERE status NOT IN ('ok', 'console'))"
         "  FROM judge_run WHERE finished_at > now() - make_interval(hours => %s)"
         " GROUP BY worker_id ORDER BY worker_id", (hours,), read=True)
@@ -984,7 +985,8 @@ def read_run_stats(days=7):
     rows = _query(
         "SELECT count(*), count(*) FILTER (WHERE cache_hit),"
         "       count(*) FILTER (WHERE status = 'ok'),"
-        "       coalesce(sum(reprises), 0), avg(queue_wait_s),"
+        "       coalesce(sum(reprises), 0),"
+        "       avg(queue_wait_s) FILTER (WHERE status <> 'console'),"
         "       count(*) FILTER (WHERE status <> 'console')"
         "  FROM judge_run WHERE finished_at > now() - make_interval(days => %s)",
         (days,), read=True)

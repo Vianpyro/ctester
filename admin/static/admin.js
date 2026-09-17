@@ -143,10 +143,12 @@ function remplirVitaux(cible, data) {
       n === null || n === undefined ? "API injoignable" : "ouvertes, connecté ou non"));
   }
   if (s) {
-    const taux = s.total ? Math.round((s.cache_hits / s.total) * 100) : 0;
+    const notes = s.graded === undefined ? s.total : s.graded;
+    const taux = notes ? Math.round((s.cache_hits / notes) * 100) : 0;
     cible.append(vital("Runs 24 h", s.total,
       s.total ? s.ok + " réussis" : "aucun run"));
-    cible.append(vital("Cache", taux + " %", s.cache_hits + " sans compiler"));
+    cible.append(vital("Cache", taux + " %",
+      s.cache_hits + " sans compiler, sur " + notes + " notés"));
     cible.append(vital("Attente moyenne", secondes(s.average_wait_s), "avant un worker"));
     cible.append(vital("Reprises", s.reprises,
       s.reprises ? "un worker a été interrompu" : "aucune interruption",
