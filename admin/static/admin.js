@@ -255,7 +255,9 @@ function remplirWorkers(cible, rows, configures) {
   note.textContent = vivants + " actif" + (vivants > 1 ? "s" : "")
     + (configures ? " sur " + configures : "");
   cible.textContent = "";
-  for (const w of rows) {
+  const tries = [...rows].sort((a, b) =>
+    a.worker_id.localeCompare(b.worker_id, undefined, { numeric: true }));
+  for (const w of tries) {
     const ligne = el("div", "ligne");
     const point = el("span", w.alive ? "vivant" : "mort");
     point.title = w.alive ? "a fini un run récemment" : "silencieux depuis 5 min";
