@@ -219,26 +219,26 @@ describe("the noise rules", () => {
   });
 });
 
-describe("la faute suivante (F2)", () => {
+describe("the next error (F2)", () => {
   const at = (from: number): Issue => ({ from, to: from + 1, message: "m", level: "error" });
 
-  it("saute à la première faute qui suit le curseur", () => {
+  it("jumps to the first error after the caret", () => {
     expect(nextIssue([at(10), at(30), at(20)], 12)?.from).toBe(20);
   });
 
-  it("REVIENT à la première une fois la dernière passée", () => {
+  it("WRAPS back to the first once the last is passed", () => {
     expect(nextIssue([at(10), at(30)], 99)?.from).toBe(10);
   });
 
-  it("part de la première quand le curseur est avant tout", () => {
+  it("starts from the first when the caret is before everything", () => {
     expect(nextIssue([at(10), at(30)], 0)?.from).toBe(10);
   });
 
-  it("SILENCE quand il n'y a aucune faute", () => {
+  it("SILENCE when there is no error", () => {
     expect(nextIssue([], 0)).toBeNull();
   });
 
-  it("SILENCE sur la faute où le curseur est DÉJÀ posé : il faut avancer", () => {
+  it("SILENCE on the error the caret is ALREADY on: it must move forward", () => {
     expect(nextIssue([at(10), at(30)], 10)?.from).toBe(30);
   });
 });

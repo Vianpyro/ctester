@@ -12,8 +12,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("un flash tout seul", () => {
-  it("s'affiche, puis s'efface sans qu'on y touche", () => {
+describe("a flash on its own", () => {
+  it("shows, then clears without being touched", () => {
     system.flash("enregistré", 2000);
     expect(system.text).toBe("enregistré");
     vi.advanceTimersByTime(1999);
@@ -22,13 +22,13 @@ describe("un flash tout seul", () => {
     expect(system.text).toBe("");
   });
 
-  it("n'est jamais une panne, même posé par-dessus une", () => {
+  it("is never an outage, even when laid over one", () => {
     system.say("le serveur ne répond pas", true);
     system.flash("enregistré", 2000);
     expect(system.failed).toBe(false);
   });
 
-  it("est annoncé, et le redevient au flash suivant", () => {
+  it("is announced, and announced again on the next flash", () => {
     system.flash("enregistré", 2000);
     expect(system.announcement).toBe("enregistré");
     vi.advanceTimersByTime(2001);
@@ -36,8 +36,8 @@ describe("un flash tout seul", () => {
   });
 });
 
-describe("le bandeau est EMPRUNTÉ, pas pris", () => {
-  it("rend un message persistant qu'il a recouvert", () => {
+describe("the banner is BORROWED, not taken", () => {
+  it("restores a persistent message it covered", () => {
     system.say("quota atteint, réessaie dans 40 s");
     system.flash("enregistré", 2000);
     expect(system.text).toBe("enregistré");
@@ -45,15 +45,15 @@ describe("le bandeau est EMPRUNTÉ, pas pris", () => {
     expect(system.text).toBe("quota atteint, réessaie dans 40 s");
   });
 
-  it("rend aussi son état de PANNE, et pas seulement son texte", () => {
+  it("also restores its OUTAGE state, not only its text", () => {
     system.say("le serveur ne répond pas", true);
     system.flash("enregistré", 2000);
     vi.advanceTimersByTime(2001);
     expect(system.text).toBe("le serveur ne répond pas");
-    expect(system.failed, "une panne recouverte reste une panne").toBe(true);
+    expect(system.failed, "a covered outage is still an outage").toBe(true);
   });
 
-  it("rend un bandeau VIDE quand il en a trouvé un vide", () => {
+  it("restores an EMPTY banner when it found an empty one", () => {
     system.flash("enregistré", 2000);
     vi.advanceTimersByTime(2001);
     expect(system.text).toBe("");
@@ -61,8 +61,8 @@ describe("le bandeau est EMPRUNTÉ, pas pris", () => {
   });
 });
 
-describe("deux flashes qui se chevauchent", () => {
-  it("restaurent le texte D'ORIGINE, jamais celui du premier flash", () => {
+describe("two overlapping flashes", () => {
+  it("restore the ORIGINAL text, never the first flash's", () => {
     system.say("quota atteint");
     system.flash("premier", 2000);
     vi.advanceTimersByTime(500);
@@ -72,17 +72,17 @@ describe("deux flashes qui se chevauchent", () => {
     expect(system.text).toBe("quota atteint");
   });
 
-  it("ne laissent pas le minuteur du premier couper le second", () => {
+  it("do not let the first one's timer cut the second", () => {
     system.flash("premier", 2000);
     vi.advanceTimersByTime(1900);
     system.flash("second", 2000);
     vi.advanceTimersByTime(200);
-    expect(system.text, "le minuteur du premier ne doit rien effacer").toBe("second");
+    expect(system.text, "the first one's timer must erase nothing").toBe("second");
   });
 });
 
-describe("un vrai message gagne sur un flash", () => {
-  it("s'installe tout de suite ET SURVIT au minuteur du flash", () => {
+describe("a real message wins over a flash", () => {
+  it("takes over at once AND SURVIVES the flash's timer", () => {
     system.flash("enregistré", 2000);
     vi.advanceTimersByTime(200);
     system.say("quota atteint", true);
@@ -92,12 +92,12 @@ describe("un vrai message gagne sur un flash", () => {
     expect(system.failed).toBe(true);
   });
 
-  it("laisse `clear()` effacer pour de bon", () => {
+  it("lets `clear()` erase for good", () => {
     system.say("quota atteint");
     system.flash("enregistré", 2000);
     system.clear();
     expect(system.text).toBe("");
     vi.advanceTimersByTime(5000);
-    expect(system.text, "rien ne doit ressusciter").toBe("");
+    expect(system.text, "nothing may come back").toBe("");
   });
 });

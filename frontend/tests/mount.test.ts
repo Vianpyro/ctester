@@ -180,7 +180,7 @@ describe("the anonymous page", () => {
     expect(strip.textContent).toContain("Tous les exercices");
   });
 
-  it("porte le mot des deux catégories sur la tuile, puisqu'il n'y a plus de légende", async () => {
+  it("puts the word for both categories on the tile, since there is no legend anymore", async () => {
     await render();
     const strip = document.getElementById("labband")!;
     const bonus = [...strip.querySelectorAll<HTMLElement>(".tile")].find((b) =>
@@ -201,7 +201,7 @@ describe("the anonymous page", () => {
     expect(ordinary.title).not.toContain("bonus");
   });
 
-  it("ramene a l'exercice quand on clique le titre, depuis n'importe quel ecran", async () => {
+  it("returns to the exercise when the title is clicked, from any screen", async () => {
     await render();
     const { view } = await import("../src/lib/state/view.svelte");
     view.show("progress");
@@ -213,7 +213,7 @@ describe("the anonymous page", () => {
     expect(view.current).toBe("");
   });
 
-  it("rouvre le dernier exercice au rechargement, et le lien profond le bat", async () => {
+  it("reopens the last exercise on reload, and the deep link beats it", async () => {
     localStorage.setItem("ctester.exercise", "tp2-ex3");
     await render();
     expect(document.getElementById("now")!.textContent).toContain("ex.3");
@@ -228,7 +228,7 @@ describe("the anonymous page", () => {
     history.replaceState({}, "", "/");
   });
 
-  it("retombe sur le premier exercice quand le dernier n'est plus ouvrable", async () => {
+  it("falls back to the first exercise when the last one can no longer be opened", async () => {
     localStorage.setItem("ctester.exercise", "tp9-ex1");
     await render();
     expect(document.getElementById("now")!.textContent).toContain("ex.1 conversion");
@@ -343,27 +343,27 @@ function key(
   return event;
 }
 
-describe("les raccourcis de la page", () => {
-  it("ouvre le catalogue et atterrit dans le filtre", async () => {
+describe("the page's shortcuts", () => {
+  it("opens the catalogue and lands in the filter", async () => {
     await render();
     expect(key("k", { ctrlKey: true }).defaultPrevented).toBe(true);
     expect(document.querySelector("#menuex")?.hasAttribute("open")).toBe(true);
   });
 
-  it("l'ouvre AUSSI avec Verr.Maj -- le bogue que la table répare", async () => {
+  it("opens it ALSO with Caps Lock -- the bug the table fixes", async () => {
     await render();
     expect(key("K", { ctrlKey: true }).defaultPrevented).toBe(true);
     expect(document.querySelector("#menuex")?.hasAttribute("open")).toBe(true);
   });
 
-  it("répond à Ctrl+S sans jamais prétendre enregistrer un fichier", async () => {
+  it("answers Ctrl+S without ever pretending to save a file", async () => {
     await render();
     const event = key("s", { ctrlKey: true });
-    expect(event.defaultPrevented, "sinon le navigateur ouvre « Enregistrer la page »").toBe(true);
+    expect(event.defaultPrevented, "otherwise the browser opens \"Save page\"").toBe(true);
     expect(document.querySelector("#system")?.textContent).toContain("sauvegardé tout seul");
   });
 
-  it("le message de Ctrl+S s'efface tout seul, ET REND LE BANDEAU", async () => {
+  it("the Ctrl+S message clears by itself, AND GIVES THE BANNER BACK", async () => {
     await render();
     const banner = () => document.querySelector("#system")?.textContent ?? "";
     const before = banner();
@@ -382,7 +382,7 @@ describe("les raccourcis de la page", () => {
     }
   });
 
-  it("SILENCE : une frappe déjà prévenue par la surface n'est pas rejouée", async () => {
+  it("SILENCE: a keystroke already handled by the surface is not replayed", async () => {
     await render();
     const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true });
     event.preventDefault();
@@ -391,7 +391,7 @@ describe("les raccourcis de la page", () => {
     expect(document.querySelector("#menuex")?.hasAttribute("open")).toBeFalsy();
   });
 
-  it("SILENCE : rien de ce qui appartient au navigateur n'est prévenu", async () => {
+  it("SILENCE: nothing that belongs to the browser is prevented", async () => {
     await render();
     for (const k of ["z", "c", "v", "f", "a", "y"]) {
       expect(key(k, { ctrlKey: true }).defaultPrevented, "Ctrl+" + k).toBe(false);
@@ -399,8 +399,8 @@ describe("les raccourcis de la page", () => {
   });
 });
 
-describe("l'aide-mémoire", () => {
-  it("s'ouvre à F1, se ferme à Échap, et arrive en morceau séparé", async () => {
+describe("the cheat sheet", () => {
+  it("opens on F1, closes on Escape, and arrives as a separate chunk", async () => {
     await render();
     expect(document.querySelector("#shortcuts")).toBeNull();
     expect(key("F1").defaultPrevented).toBe(true);
@@ -414,7 +414,7 @@ describe("l'aide-mémoire", () => {
     expect(document.querySelector("#shortcuts")?.hasAttribute("hidden")).toBe(true);
   });
 
-  it("dit ce qu'il ne prend PAS au navigateur", async () => {
+  it("says what it does NOT take from the browser", async () => {
     await render();
     key("F1");
     await until("le panneau des raccourcis", () => !!document.querySelector("#shortcuts"));
@@ -425,21 +425,21 @@ describe("l'aide-mémoire", () => {
   });
 });
 
-describe("SILENCE : Échap ne casse pas l'échappatoire clavier", () => {
-  it("ne prévient rien quand le curseur est dans le code", async () => {
+describe("SILENCE: Escape does not break the keyboard escape hatch", () => {
+  it("prevents nothing when the caret is in the code", async () => {
     await render();
     const zone = document.querySelector<HTMLTextAreaElement>("#code")!;
     zone.focus();
     expect(key("Escape").defaultPrevented).toBe(false);
   });
 
-  it("ne prévient rien quand il n'y a rien d'ouvert et qu'on est déjà dans le code", async () => {
+  it("prevents nothing when nothing is open and focus is already in the code", async () => {
     await render();
     document.querySelector<HTMLTextAreaElement>("#code")!.focus();
     expect(key("Escape").defaultPrevented).toBe(false);
   });
 
-  it("ramène au code depuis un bouton de la page", async () => {
+  it("returns to the code from a button on the page", async () => {
     await render();
     document.querySelector<HTMLButtonElement>("#go")!.focus();
     expect(key("Escape").defaultPrevented).toBe(true);

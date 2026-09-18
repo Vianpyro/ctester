@@ -226,7 +226,7 @@ describe("do not ask again for what was just asked", () => {
     expect(submits()).toHaveLength(2);
   });
 
-  it("UN ESPACE DE FIN N'EST PAS UN AUTRE CODE", async () => {
+  it("A TRAILING SPACE IS NOT DIFFERENT CODE", async () => {
     const files = uniqueCode();
     queue("ws1", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
@@ -238,7 +238,7 @@ describe("do not ask again for what was just asked", () => {
     expect(system.text).toMatch(/Même code que ta dernière soumission/);
   });
 
-  it("mais une VRAIE ligne de plus en est un", async () => {
+  it("but a REAL extra line is", async () => {
     const files = uniqueCode();
     queue("ws2", { status: 200, body: OK });
     queue("ws3", { status: 200, body: OK });

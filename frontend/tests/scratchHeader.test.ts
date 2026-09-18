@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { headerTemplate, validHeaderName } from "../src/lib/domain/scratchHeader";
 
-describe("l'en-tête de la Console", () => {
-  it("accepte les mêmes noms que le serveur et le juge", () => {
+describe("the Console's header", () => {
+  it("accepts the same names as the server and the judge", () => {
     for (const good of ["pile.h", "pile_2.h", "a".repeat(32) + ".h"]) {
       expect(validHeaderName(good), good).toBe(true);
     }
@@ -22,7 +22,7 @@ describe("l'en-tête de la Console", () => {
     }
   });
 
-  it("propose une garde d'inclusion qui est un identifiant C", () => {
+  it("suggests an include guard that is a C identifier", () => {
     const pile = headerTemplate("pile.h");
     expect(pile.startsWith("#ifndef PILE_H\n#define PILE_H\n")).toBe(true);
     expect(pile.trimEnd().endsWith("#endif /* PILE_H */")).toBe(true);
