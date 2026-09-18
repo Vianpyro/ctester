@@ -947,8 +947,8 @@ def read_runs(limit, status=None, exercise_id=None, worker_id=None, reveal=False
     for column, value in (("status", status), ("exercise_id", exercise_id),
                           ("worker_id", worker_id)):
         if value:
-            where.append("%s = %%s" % column)
-            params.append(value)
+            where.append("%s ILIKE %%s" % column)
+            params.append("%" + value + "%")
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     params.append(max(1, min(int(limit), 500)))
     colonnes = RUN_COLUMNS if reveal else tuple(
