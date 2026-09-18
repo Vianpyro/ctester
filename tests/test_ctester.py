@@ -88,6 +88,7 @@ def _write_json(path, value):
 
 def test_content_v2_discovery_and_public_projection():
     root = tempfile.mkdtemp(prefix="ctester-content-")
+    release = dt.datetime.now(dt.timezone.utc).replace(microsecond=0) + dt.timedelta(days=30)
     try:
         _write_json(os.path.join(root, "catalog.json"),
                     {"schema_version": 1, "skills": ["variables"]})
@@ -96,7 +97,7 @@ def test_content_v2_discovery_and_public_projection():
             "schema_version": 1, "id": "surface-rectangle", "title": "Surface",
             "summary": "Calcule une surface.", "skills": ["variables"],
             "difficulty": "foundation", "contexts": ["mechanical"],
-            "release": {"state": "scheduled", "available_from": "2026-09-18T00:00:00-04:00"},
+            "release": {"state": "scheduled", "available_from": release.isoformat()},
         })
         os.makedirs(os.path.join(exercise, "assessment"))
         with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
@@ -129,12 +130,13 @@ def test_content_v2_discovery_and_public_projection():
         assert "template" not in blob and "statement" not in blob, blob
         assert public["exercises"][0]["access"] == "scheduled", public
         assert detail is None, detail
-        ouvert = dt.datetime(2026, 10, 1, tzinfo=dt.timezone.utc)
-        assert content_catalogue.public_detail(model, "surface-rectangle", ouvert) == {
+        assert content_catalogue.find_exercise(model, "surface-rectangle") is None
+        opened = release + dt.timedelta(days=1)
+        assert content_catalogue.public_detail(model, "surface-rectangle", opened) == {
             "statement": "Calcule la surface.",
             "files": [{"name": "submission.c", "template": "int main(void) {}"}]}
-        assert content_catalogue.public_detail(model, "inconnu", ouvert) is None
-        assert content_catalogue.find_exercise(model, "surface-rectangle") is None
+        assert content_catalogue.public_detail(model, "inconnu", opened) is None
+        assert content_catalogue.find_exercise(model, "surface-rectangle", opened) is not None
     finally:
         shutil.rmtree(root)
 
