@@ -11,7 +11,7 @@ router = APIRouter(tags=["progress"])
 CALENDAR_DAYS = 91
 
 
-@router.get("/progres")
+@router.get("/progress")
 def get_progress(sub: Sub):
     facts = state.read_progress(sub)
     statuses = state.read_states(sub)

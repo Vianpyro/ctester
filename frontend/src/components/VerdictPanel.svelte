@@ -13,6 +13,7 @@
     STEP_STATE,
     caseClass,
     caseInputs,
+    caseNumbers,
     estimatedWait,
     firstError,
     restrictToScope,
@@ -172,6 +173,7 @@
       {#each shown.r.cases ?? [] as c, i}
         {@const kind = caseClass(c.reason)}
         {@const inputs = caseInputs(c.stdin)}
+        {@const numbers = caseNumbers(c)}
         <details class="case" open={i === 0}>
           <summary>Cas {c.case} — {kind}</summary>
           <div class="corps">
@@ -189,10 +191,10 @@
               <span class="quoi">Ce qu'il a affiché :</span>
               <pre class="valeur">{c.stdout || "(rien)"}</pre>
             </div>
-            {#if c.nombres}
+            {#if numbers}
               <div class="champ">
                 <span class="quoi">Les nombres que le juge y a lus :</span>
-                <pre class="valeur">{c.nombres.length ? c.nombres.join(", ") : "aucun"}</pre>
+                <pre class="valeur">{numbers.length ? numbers.join(", ") : "aucun"}</pre>
               </div>
             {/if}
             {#if c.stderr}

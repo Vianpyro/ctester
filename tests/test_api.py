@@ -368,7 +368,7 @@ class FakeDatabase:
                 continue
             root = m.get("reply_to") or m["id"]
             hits.append({"id": m["id"], "exercise_id": m["exercise_id"],
-                         "extrait": m["text"][:240],
+                         "excerpt": m["text"][:240],
                          "created_at": m["created_at"],
                          "upvotes": sum(1 for (i, _), v in self.useful.items()
                                         if i == m["id"] and v == 1),
@@ -677,8 +677,8 @@ def test_release_drives_the_catalogue_and_closes_the_rest():
         assert states == {"ouvert": "available", "ferme": "scheduled"}, states
         assert catalog["collections"][0]["items"] == ["ouvert", "ferme"]
 
-        assert c.get("/tp/ouvert.json").json()["statement"] == "Consigne."
-        assert c.get("/tp/ferme.json").status_code == 404
+        assert c.get("/exercise/ouvert.json").json()["statement"] == "Consigne."
+        assert c.get("/exercise/ferme.json").status_code == 404
 
         body = {"key": config.KEY, "files": {"submission.c": "int main(void){}"}}
         assert c.post("/submit", json=dict(body, exercise_id="ferme")).status_code == 400
@@ -686,7 +686,7 @@ def test_release_drives_the_catalogue_and_closes_the_rest():
 
         config.PUBLISHED = ""
         assert c.get("/catalog.json").status_code == 404
-        assert c.get("/tp/ouvert.json").status_code == 404
+        assert c.get("/exercise/ouvert.json").status_code == 404
         assert c.post("/submit", json=dict(body, exercise_id="ouvert")).status_code == 400
 
 
@@ -751,7 +751,7 @@ def test_a_typst_statement_page_is_a_cacheable_file():
         assert c.get("/statement/ouvert/dark-2.svg").status_code == 200
         assert c.get("/statement/ouvert/dark-3.svg").status_code == 404
 
-        detail = c.get("/tp/ouvert.json").json()
+        detail = c.get("/exercise/ouvert.json").json()
         assert detail["statement"] == "", detail
         assert detail["statement_format"] == "typst", detail
         assert detail["statement_pages"] == 2, detail
@@ -802,7 +802,7 @@ def test_a_markdown_statement_answers_exactly_what_it_did_before():
         publish_content.publish(content_catalogue.discover(root), published)
         config.PUBLISHED = published
 
-        detail = c.get("/tp/ouvert.json").json()
+        detail = c.get("/exercise/ouvert.json").json()
         assert detail == {"statement": "Consigne.",
                           "files": [{"name": "submission.c", "template": ""}]}, detail
         assert c.get("/statement/ouvert/dark-1.svg").status_code == 404
@@ -834,14 +834,14 @@ def test_dates_apply_to_students_and_the_teacher_still_sees():
         publish_content.publish(content_catalogue.discover(root), published)
         config.PUBLISHED = published
 
-        assert c.get("/tp/ferme.json").status_code == 404
-        assert c.get("/tp/ferme.json", headers=auth("alice")).status_code == 404
-        r = c.get("/tp/ferme.json", headers=auth("prof"))
+        assert c.get("/exercise/ferme.json").status_code == 404
+        assert c.get("/exercise/ferme.json", headers=auth("alice")).status_code == 404
+        r = c.get("/exercise/ferme.json", headers=auth("prof"))
         assert r.status_code == 200 and r.json()["statement"] == "Consigne.", r.text
         assert r.headers["cache-control"] == "no-store", dict(r.headers)
         assert "etag" not in r.headers, dict(r.headers)
 
-        opened = c.get("/tp/ouvert.json", headers=auth("prof"))
+        opened = c.get("/exercise/ouvert.json", headers=auth("prof"))
         assert opened.headers["cache-control"] == "no-cache", dict(opened.headers)
         assert opened.headers["etag"], dict(opened.headers)
 
@@ -862,13 +862,13 @@ def test_dates_apply_to_students_and_the_teacher_still_sees():
         assert base.states[("sub-prof", "ferme")] == "solved", base.states
 
         draft = {"exercise_id": "ferme", "files": {"submission.c": "int main(void){}"}}
-        assert c.put("/brouillon", json=draft,
+        assert c.put("/draft", json=draft,
                      headers=auth("alice")).status_code == 400
-        assert c.put("/brouillon", json=draft,
+        assert c.put("/draft", json=draft,
                      headers=auth("prof")).status_code == 200
 
-        assert c.get("/etats", headers=auth("prof")).json()["moderator"] is True
-        assert c.get("/etats", headers=auth("alice")).json()["moderator"] is False
+        assert c.get("/states", headers=auth("prof")).json()["moderator"] is True
+        assert c.get("/states", headers=auth("alice")).json()["moderator"] is False
 
 
 def auth(name):
@@ -1068,7 +1068,7 @@ def test_malformed_exercise_id():
         assert catalogue.find_exercise("a" * 32) is None
         for hostile in ("../tps", "tp2/../../etc", "TP2-EX3", "tp2 ex3", ""):
             assert catalogue.find_exercise(hostile) is None, hostile
-        assert c.get("/tp/..%2Fcatalog.json").status_code == 404
+        assert c.get("/exercise/..%2Fcatalog.json").status_code == 404
         assert c.get("/quiz/tp2-ex3.json").status_code == 404
         base, name = catalogue.published_source(
             catalogue.find_exercise("tp2-ex3"), "detail")
@@ -1111,14 +1111,14 @@ def test_anonymous_quota_per_station_and_shorter_window_when_logged_in():
                   "files": {"submission.c": "int main(){return 0;}"}}
         nat = {"CF-Connecting-IP": "10.0.0.1"}
         for station in ("p1", "p2"):
-            r = c.post("/submit?poste=" + station, json=payload, headers=nat)
+            r = c.post("/submit?station=" + station, json=payload, headers=nat)
             assert r.status_code == 200, (station, r.status_code, r.text)
-        assert c.post("/submit?poste=p1", json=payload, headers=nat).status_code == 429
-        assert c.post("/submit?poste=p3", json=payload, headers=nat).status_code == 200
+        assert c.post("/submit?station=p1", json=payload, headers=nat).status_code == 429
+        assert c.post("/submit?station=p3", json=payload, headers=nat).status_code == 200
         assert c.post("/submit", json=payload, headers=nat).status_code == 200
         assert c.post("/submit", json=payload, headers=nat).status_code == 429
         for _ in range(3):
-            r = c.post("/submit?poste=p1", json=payload,
+            r = c.post("/submit?station=p1", json=payload,
                        headers={**auth("alice"), **nat})
             assert r.status_code == 200, (r.status_code, r.text)
 
@@ -1127,15 +1127,15 @@ def test_quota_consumes_nothing_on_a_refused_request():
     with context(tokens={"alice": "sub-alice"}) as (c, _, _tmp):
         deps.state_quota = quotas.Quota(cooldown=0, hourly=2)
         for _ in range(5):
-            r = c.put("/brouillon", json={"exercise_id": "inconnu", "files": {}},
+            r = c.put("/draft", json={"exercise_id": "inconnu", "files": {}},
                       headers=auth("alice"))
             assert r.status_code == 400, r.status_code
         for _ in range(2):
-            r = c.put("/brouillon",
+            r = c.put("/draft",
                       json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
                       headers=auth("alice"))
             assert r.status_code == 200, (r.status_code, r.text)
-        r = c.put("/brouillon",
+        r = c.put("/draft",
                   json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
                   headers=auth("alice"))
         assert r.status_code == 429, (r.status_code, r.text)
@@ -1243,7 +1243,7 @@ def test_no_route_accepts_an_identity_in_the_body():
 
     tokens = {"alice": "sub-alice", "bob": "sub-bob"}
     with context(tokens=tokens) as (c, base, _tmp):
-        r = c.put("/brouillon",
+        r = c.put("/draft",
                   json={"exercise_id": "tp2-ex3", "files": {"submission.c": "a moi"},
                         "account": "sub-bob", "sub": "sub-bob"},
                   headers=auth("alice"))
@@ -1257,7 +1257,7 @@ def test_no_sub_crosses_the_forum_boundary():
     with context(tokens=tokens, moderators=["sub-prof"]) as (c, base, _tmp):
         c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "une question"},
                headers=auth("alice"))
-        c.post("/forum/profil",
+        c.post("/forum/profile",
                json={"display_name": "Alice", "group_number": 4, "display_name_public": True,
                      "group_number_public": True}, headers=auth("alice"))
         r = c.get("/forum?ex=tp2-ex3", headers=auth("prof"))
@@ -1319,7 +1319,7 @@ def test_malformed_message_and_job_ids():
 def test_opting_in_without_writing_shows_nothing():
     with context(tokens={"alice": "sub-alice"},
                   moderators=["sub-prof"]) as (c, base, _tmp):
-        r = c.post("/forum/profil",
+        r = c.post("/forum/profile",
                    json={"display_name": "", "group_number": None, "display_name_public": True,
                          "group_number_public": True}, headers=auth("alice"))
         assert r.status_code == 200, (r.status_code, r.text)
@@ -1332,7 +1332,7 @@ def test_a_silent_database_never_becomes_a_zero():
     base = FakeDatabase()
     base.read_progress = lambda user: None
     with context(tokens={"alice": "sub-alice"}, base=base) as (c, _, _tmp):
-        r = c.get("/progres", headers=auth("alice"))
+        r = c.get("/progress", headers=auth("alice"))
         assert r.status_code == 503, (r.status_code, r.text)
         assert "xp" not in r.text, r.text
 
@@ -1423,7 +1423,7 @@ def test_detail_and_quiz_survive_a_rollback_mid_request():
     try:
         with context() as (c, _base, _tmp):
             catalog_router.published_source = lambda entry, what: (None, None)
-            r = c.get("/tp/tp2-ex3.json")
+            r = c.get("/exercise/tp2-ex3.json")
             assert r.status_code == 404 and r.json() == {"error": "inconnu"}, r.text
             r = c.get("/quiz/quiz1.json")
             assert r.status_code == 404 and r.json() == {"error": "pas un quiz"}, r.text
@@ -1433,11 +1433,11 @@ def test_detail_and_quiz_survive_a_rollback_mid_request():
 
 def test_states_and_practice_during_a_database_outage():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
-        assert c.get("/etats", headers=auth("alice")).json() == {
+        assert c.get("/states", headers=auth("alice")).json() == {
             "states": [], "moderator": False}
-        assert c.get("/pratique", headers=auth("alice")).json() == {"practice": []}
+        assert c.get("/practice", headers=auth("alice")).json() == {"practice": []}
         base.states[("sub-alice", "tp2-ex3")] = "solved"
-        r = c.get("/etats", headers=auth("alice"))
+        r = c.get("/states", headers=auth("alice"))
         assert r.json() == {"states": [{"exercise_id": "tp2-ex3", "status": "solved"}],
                             "moderator": False}, r.text
 
@@ -1445,32 +1445,32 @@ def test_states_and_practice_during_a_database_outage():
     base.read_states = lambda user: None
     base.read_practice_summary = lambda user: None
     with context(tokens={"alice": "sub-alice"}, base=base) as (c, _fake, _tmp):
-        assert c.get("/etats", headers=auth("alice")).status_code == 503
-        assert c.get("/pratique", headers=auth("alice")).status_code == 503
+        assert c.get("/states", headers=auth("alice")).status_code == 503
+        assert c.get("/practice", headers=auth("alice")).status_code == 503
 
 
 def test_read_draft_refuses_an_unknown_exercise_and_distinguishes_absence():
     with context(tokens={"alice": "sub-alice"}) as (c, _base, _tmp):
-        r = c.get("/brouillon?ex=inconnu", headers=auth("alice"))
+        r = c.get("/draft?ex=inconnu", headers=auth("alice"))
         assert r.status_code == 400 and r.json() == {"error": "TP inconnu"}, r.text
 
-        r = c.get("/brouillon?ex=tp2-ex3", headers=auth("alice"))
+        r = c.get("/draft?ex=tp2-ex3", headers=auth("alice"))
         assert r.status_code == 200 and r.json() == {"sources": None}, r.text
 
-        c.put("/brouillon", json={"exercise_id": "tp2-ex3", "files": {"submission.c": "int x;"}},
+        c.put("/draft", json={"exercise_id": "tp2-ex3", "files": {"submission.c": "int x;"}},
               headers=auth("alice"))
-        r = c.get("/brouillon?ex=tp2-ex3", headers=auth("alice"))
+        r = c.get("/draft?ex=tp2-ex3", headers=auth("alice"))
         assert r.json() == {"sources": {"submission.c": "int x;"}}, r.text
 
 
 def test_the_draft_is_stored_in_its_canonical_form():
     with context(tokens={"alice": "sub-alice"}) as (c, _base, _tmp):
-        c.put("/brouillon",
+        c.put("/draft",
               json={"exercise_id": "tp2-ex3",
                     "files": {"submission.c": "\ufeffint main(void){\r\n"
                                               "    return 0;   \r\n}\r\n\r\n"}},
               headers=auth("alice"))
-        r = c.get("/brouillon?ex=tp2-ex3", headers=auth("alice"))
+        r = c.get("/draft?ex=tp2-ex3", headers=auth("alice"))
         saved = r.json()["sources"]["submission.c"]
         assert saved == "int main(void){\n    return 0;\n}\n\n", repr(saved)
         assert saved.count("\n") == 4, repr(saved)
@@ -1479,13 +1479,13 @@ def test_the_draft_is_stored_in_its_canonical_form():
 def test_write_draft_refuses_a_file_outside_the_allow_list_before_the_quota():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
         for _ in range(5):
-            r = c.put("/brouillon",
+            r = c.put("/draft",
                       json={"exercise_id": "tp2-ex3", "files": {"hack.c": "x"}},
                       headers=auth("alice"))
             assert r.status_code == 400, r.text
             assert "fichier inattendu" in r.json()["error"], r.text
         assert not base.drafts
-        r = c.put("/brouillon",
+        r = c.put("/draft",
                   json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
                   headers=auth("alice"))
         assert r.status_code == 200, r.text
@@ -1495,7 +1495,7 @@ def test_write_draft_during_a_database_outage():
     base = FakeDatabase()
     base.write_draft = lambda *a: False
     with context(tokens={"alice": "sub-alice"}, base=base) as (c, _fake, _tmp):
-        r = c.put("/brouillon",
+        r = c.put("/draft",
                   json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
                   headers=auth("alice"))
         assert r.status_code == 503, r.text
@@ -1504,15 +1504,15 @@ def test_write_draft_during_a_database_outage():
 def test_deleting_the_account_fails_without_leaving_the_illusion_of_success():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
         base.states[("sub-alice", "tp2-ex3")] = "solved"
-        r = c.delete("/moi", headers=auth("alice"))
+        r = c.delete("/account", headers=auth("alice"))
         assert r.status_code == 200 and r.json() == {"ok": True}, r.text
-        assert c.get("/etats", headers=auth("alice")).json() == {
+        assert c.get("/states", headers=auth("alice")).json() == {
             "states": [], "moderator": False}
 
     base = FakeDatabase()
     base.forget = lambda user: False
     with context(tokens={"alice": "sub-alice"}, base=base) as (c, _fake, _tmp):
-        r = c.delete("/moi", headers=auth("alice"))
+        r = c.delete("/account", headers=auth("alice"))
         assert r.status_code == 503, r.text
 
 
@@ -1715,7 +1715,7 @@ def test_a_verification_leaves_evidence_and_no_xp():
         assert evidences[0]["payload"]["passed"] is True
         assert set(evidences[0]["payload"]) == {"job", "passed"}
 
-        view = c.get("/progres", headers=auth("alice")).json()
+        view = c.get("/progress", headers=auth("alice")).json()
         assert view["xp"] == 0, view
         assert {c_["id"]: c_["band"] for c_ in view["mastery"]["skills"]} == {
             "variables": "verifie"}
@@ -1727,7 +1727,7 @@ def test_a_failed_verification_reads_as_to_consolidate():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
         _verdict("verif-tp2", "b" * 32, {"status": "ok", "passed": 1, "total": 3})
         assert c.get("/r/" + "b" * 32).status_code == 200
-        view = c.get("/progres", headers=auth("alice")).json()
+        view = c.get("/progress", headers=auth("alice")).json()
         assert [c_["band"] for c_ in view["mastery"]["skills"]] == ["a-consolider"]
         assert not base.xp and not view["achievements"], (base.xp, view["achievements"])
 
@@ -1736,7 +1736,7 @@ def test_silent_evidence_answers_503():
     base = FakeDatabase()
     base.read_events = lambda *a, **k: None
     with context(tokens={"alice": "sub-alice"}, base=base) as (c, _, _tmp):
-        r = c.get("/progres", headers=auth("alice"))
+        r = c.get("/progress", headers=auth("alice"))
         assert r.status_code == 503, (r.status_code, r.text)
         assert "mastery" not in r.text and "xp" not in r.text, r.text
 
@@ -2018,7 +2018,7 @@ def test_search_never_surfaces_someone_elses_private_question():
         def found(who):
             r = c.get("/forum/search?q=segfault", headers=auth(who))
             assert r.status_code == 200, r.text
-            return [x["extrait"] for x in r.json()["results"]]
+            return [x["excerpt"] for x in r.json()["results"]]
 
         assert "segfault mysterieux" in found("alice")
         assert "segfault mysterieux" not in found("bob")
@@ -2166,7 +2166,7 @@ def test_the_leaderboard_is_opt_in_and_mute_under_the_cohort():
         r = c.get("/leaderboard", headers=auth("alice"))
         assert r.status_code == 200 and r.json()["participating"] is False
 
-        r = c.post("/forum/profil",
+        r = c.post("/forum/profile",
                    json={"group_number": 4, "leaderboard_opt_in": True},
                    headers=auth("alice"))
         assert r.status_code == 200, r.text
@@ -2181,7 +2181,7 @@ def test_the_leaderboard_is_opt_in_and_mute_under_the_cohort():
         r = c.post("/leaderboard/alias", json={}, headers=auth("alice"))
         assert r.status_code == 200 and r.json()["alias"] != alias
 
-        c.post("/forum/profil", json={"group_number": 4,
+        c.post("/forum/profile", json={"group_number": 4,
                                       "leaderboard_opt_in": False},
                headers=auth("alice"))
         assert fake.profiles["sub-alice"]["group_number"] == 4
@@ -2192,12 +2192,12 @@ def test_the_leaderboard_is_opt_in_and_mute_under_the_cohort():
 def test_a_locked_frame_is_refused():
     with context(tokens={"alice": "sub-alice"},
                   moderators=["sub-prof"]) as (c, _fake, _tmp):
-        offered = c.get("/forum/profil", headers=auth("alice")).json()["frames"]
+        offered = c.get("/forum/profile", headers=auth("alice")).json()["frames"]
         assert [f["id"] for f in offered] == ["simple"], offered
-        r = c.post("/forum/profil", json={"plate_frame": "tolerance"},
+        r = c.post("/forum/profile", json={"plate_frame": "tolerance"},
                    headers=auth("alice"))
         assert r.status_code == 400, r.text
-        assert c.post("/forum/profil", json={"plate_frame": "simple"},
+        assert c.post("/forum/profile", json={"plate_frame": "simple"},
                       headers=auth("alice")).status_code == 200
 
 
@@ -2221,7 +2221,7 @@ def test_a_mute_database_answers_503_on_the_new_screens():
 
     with context(tokens={"alice": "sub-alice"}, base=Mute(),
                   moderators=["sub-prof"]) as (c, _fake, _tmp):
-        for route in ("/leaderboard", "/collection", "/progres"):
+        for route in ("/leaderboard", "/collection", "/progress"):
             r = c.get(route, headers=auth("alice"))
             assert r.status_code == 503, (route, r.status_code, r.text)
             assert not re.search(r"\\d", r.json().get("error", "")), r.text
@@ -2236,7 +2236,7 @@ def test_forum_id_based_routes_reject_an_invalid_form():
             lambda: c.post("/forum/helpful", json={"id": "too-short"},
                           headers=auth("alice")),
             lambda: c.delete("/forum?id=too-short", headers=auth("alice")),
-            lambda: c.post("/forum/signalement",
+            lambda: c.post("/forum/report",
                           json={"id": "too-short", "kind": "message"},
                           headers=auth("alice")),
             lambda: c.post("/forum/moderation",
@@ -2277,13 +2277,13 @@ def test_report_a_message_or_a_name():
         c.post("/forum", json={"exercise_id": "tp2-ex3", "text": "dubious"},
                headers=auth("alice"))
         mid = fake.messages[0]["id"]
-        r = c.post("/forum/signalement", json={"id": mid, "kind": "message"},
+        r = c.post("/forum/report", json={"id": mid, "kind": "message"},
                    headers=auth("bob"))
         assert r.status_code == 200 and r.json() == {"ok": True}, r.text
-        r = c.post("/forum/signalement", json={"id": mid, "kind": "name"},
+        r = c.post("/forum/report", json={"id": mid, "kind": "name"},
                    headers=auth("bob"))
         assert r.status_code == 200 and r.json() == {"ok": True}, r.text
-        r = c.post("/forum/signalement", json={"id": mid}, headers=auth("bob"))
+        r = c.post("/forum/report", json={"id": mid}, headers=auth("bob"))
         assert r.status_code == 200, r.text
 
     base = FakeDatabase()
@@ -2293,14 +2293,14 @@ def test_report_a_message_or_a_name():
                  moderators=["sub-prof"]) as (c, _fake, _tmp):
         for body in ({"id": "0" * 32, "kind": "message"},
                      {"id": "0" * 32, "kind": "name"}):
-            r = c.post("/forum/signalement", json=body, headers=auth("alice"))
+            r = c.post("/forum/report", json=body, headers=auth("alice"))
             assert r.status_code == 503, (body, r.text)
 
 
 def test_moderation_clears_a_reported_name_without_touching_the_rest_of_the_profile():
     tokens = {"alice": "sub-alice", "prof": "sub-prof"}
     with context(tokens=tokens, moderators=["sub-prof"]) as (c, fake, _tmp):
-        c.post("/forum/profil",
+        c.post("/forum/profile",
               json={"display_name": "Léa", "display_name_public": True,
                     "group_number": 4, "group_number_public": True},
               headers=auth("alice"))
@@ -2458,10 +2458,10 @@ def test_post_validates_each_field_then_reports_an_outage():
 def test_profile_validates_the_name_and_group_then_reports_an_outage():
     with context(tokens={"alice": "sub-alice"}, groups=(4, 6),
                  moderators=["sub-prof"]) as (c, _fake, _tmp):
-        r = c.post("/forum/profil", json={"display_name": "x" * 999},
+        r = c.post("/forum/profile", json={"display_name": "x" * 999},
                    headers=auth("alice"))
         assert r.status_code == 400, r.text
-        r = c.post("/forum/profil", json={"group_number": 999},
+        r = c.post("/forum/profile", json={"group_number": 999},
                    headers=auth("alice"))
         assert r.status_code == 400, r.text
 
@@ -2469,9 +2469,9 @@ def test_profile_validates_the_name_and_group_then_reports_an_outage():
     base.forum_profile = lambda user: None
     with context(tokens={"alice": "sub-alice"}, base=base,
                  moderators=["sub-prof"]) as (c, _fake, _tmp):
-        r = c.get("/forum/profil", headers=auth("alice"))
+        r = c.get("/forum/profile", headers=auth("alice"))
         assert r.status_code == 503, r.text
-        r = c.post("/forum/profil", json={"display_name": "Léa"},
+        r = c.post("/forum/profile", json={"display_name": "Léa"},
                    headers=auth("alice"))
         assert r.status_code == 503, r.text
 
@@ -2479,7 +2479,7 @@ def test_profile_validates_the_name_and_group_then_reports_an_outage():
     base.forum_write_profile = lambda *a, **k: False
     with context(tokens={"alice": "sub-alice"}, base=base,
                  moderators=["sub-prof"]) as (c, _fake, _tmp):
-        r = c.post("/forum/profil", json={"display_name": "Léa"},
+        r = c.post("/forum/profile", json={"display_name": "Léa"},
                    headers=auth("alice"))
         assert r.status_code == 503, r.text
 
@@ -2487,7 +2487,7 @@ def test_profile_validates_the_name_and_group_then_reports_an_outage():
     base.forum_taken_aliases = lambda: None
     with context(tokens={"alice": "sub-alice"}, base=base,
                  moderators=["sub-prof"]) as (c, _fake, _tmp):
-        r = c.post("/forum/profil", json={"leaderboard_opt_in": True},
+        r = c.post("/forum/profile", json={"leaderboard_opt_in": True},
                    headers=auth("alice"))
         assert r.status_code == 503, r.text
 
@@ -2497,7 +2497,7 @@ def test_oidc_json_is_empty_when_sign_in_is_disabled():
 
 
 def test_sub_responds_503_outside_oidc_configuration():
-    r = client.get("/etats", headers=auth("alice"))
+    r = client.get("/states", headers=auth("alice"))
     assert r.status_code == 503 and "persistance" in r.json()["error"], r.text
 
 
@@ -3001,12 +3001,12 @@ def test_the_team_document_does_not_touch_the_individual_draft():
                    json={"assignment_id": "devoir", "exercise_id": "dev-a",
                          "files": {"main.c": "équipe\n"}})
         assert fake.drafts == {}
-        client.put("/brouillon", headers=_headers("t-alice"),
+        client.put("/draft", headers=_headers("t-alice"),
                    json={"exercise_id": "tp2-ex3",
                          "files": {"submission.c": "moi\n"}})
         assert fake.drafts[("sub-alice", "tp2-ex3")] == {"submission.c": "moi\n"}
         assert fake.documents[("e1", "dev-a")] == {"main.c": "équipe\n"}
-        r = client.put("/brouillon", headers=_headers("t-bob"),
+        r = client.put("/draft", headers=_headers("t-bob"),
                        json={"exercise_id": "dev-a",
                              "files": {"main.c": "seul\n"}})
         assert r.status_code == 200

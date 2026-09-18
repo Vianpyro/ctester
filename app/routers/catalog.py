@@ -17,7 +17,7 @@ def catalog(request: Request):
                                   "application/json; charset=utf-8")
 
 
-@router.get("/tp/{exercise_id}.json")
+@router.get("/exercise/{exercise_id}.json")
 def detail(exercise_id: str, request: Request, preview: Preview):
     entry = find_exercise(exercise_id, preview)
     if entry is None:

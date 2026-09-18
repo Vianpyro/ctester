@@ -35,7 +35,7 @@
           {/if}
           {#if r.upvotes}<span class="tag">{r.upvotes} × même question</span>{/if}
         </p>
-        <p class="extrait">{r.extrait}</p>
+        <p class="extrait">{r.excerpt}</p>
         <button type="button" class="nav" onclick={() => thread.openPermalink(r.id)}>
           Ouvrir
         </button>

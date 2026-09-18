@@ -48,7 +48,7 @@ def submit(body: SubmissionIn, request: Request):
         name, blob = "files.json", json.dumps(files).encode()
 
     who = security.client_id(request.headers, deps.tcp_peer(request),
-                             station=request.query_params.get("poste", "")[:64])
+                             station=request.query_params.get("station", "")[:64])
     with deps.lock:
         wait = (deps.signed_in_quota if sub else deps.quota).check(who, time.time())
         if wait:

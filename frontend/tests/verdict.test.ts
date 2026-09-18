@@ -6,6 +6,7 @@ import {
   STEP_STATE,
   caseClass,
   caseInputs,
+  caseNumbers,
   estimatedWait,
   firstError,
   isJudgeFailure,
@@ -61,6 +62,14 @@ describe("firstError", () => {
 
   it("reads the French wording too, which gcc emits under a French locale", () => {
     expect(firstError("submission.c:4:5: erreur: attendu ';'")).toContain("attendu");
+  });
+});
+
+describe("caseNumbers", () => {
+  it("reads `numbers`, and still reads `nombres` from verdicts written before the rename", () => {
+    expect(caseNumbers({ case: 1, reason: "", numbers: [1, 2] })).toEqual([1, 2]);
+    expect(caseNumbers({ case: 1, reason: "", nombres: [3] })).toEqual([3]);
+    expect(caseNumbers({ case: 1, reason: "" })).toBeUndefined();
   });
 });
 

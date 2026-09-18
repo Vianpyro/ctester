@@ -46,7 +46,7 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
   if (url === "catalog.json") {
     return Promise.resolve(new Response(JSON.stringify(RELEASE), { status: 200 }));
   }
-  if (url.startsWith("tp/")) {
+  if (url.startsWith("exercise/")) {
     return Promise.resolve(
       new Response(
         JSON.stringify({
@@ -293,9 +293,9 @@ describe("the anonymous page", () => {
 
   it("emits nothing outside four kinds of request", async () => {
     await render();
-    const kinds = new Set(asked.map((u) => u.split("?")[0]!.replace(/^tp\/.*/, "tp/")));
+    const kinds = new Set(asked.map((u) => u.split("?")[0]!.replace(/^exercise\/.*/, "exercise/")));
     for (const kind of kinds) {
-      expect(["catalog.json", "live", "oidc.json", "tp/"], kind).toContain(kind);
+      expect(["catalog.json", "live", "oidc.json", "exercise/"], kind).toContain(kind);
     }
     expect(kinds.has("catalog.json")).toBe(true);
     expect(kinds.has("oidc.json")).toBe(true);

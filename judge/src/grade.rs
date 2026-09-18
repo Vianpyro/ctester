@@ -546,7 +546,7 @@ pub fn verdict_io(rc: i64, output: &str, cases: &[Value], nonce: &str, tol: f64)
                 "case": number,
                 "stdin": stdin,
                 "stdout": head(text, MAX_CASE_OUTPUT),
-                "nombres": numbers,
+                "numbers": numbers,
                 "stderr": head(err, MAX_STDERR),
                 "reason": reason,
             }));
@@ -1018,7 +1018,7 @@ mod tests {
             ),
             (json!(2), json!("12\n7\n"), json!("Surface = 9"))
         );
-        assert_eq!(second["nombres"], json!([9.0]));
+        assert_eq!(second["numbers"], json!([9.0]));
         assert!(
             got["cases"][1]["reason"]
                 .as_str()

@@ -454,7 +454,7 @@ def forum_search(terms, reader, limit):
         read=True)
     if rows is None:
         return None
-    return [{"id": r[0], "exercise_id": r[1], "extrait": r[2],
+    return [{"id": r[0], "exercise_id": r[1], "excerpt": r[2],
              "created_at": _minute(r[3]), "upvotes": int(r[4]),
              "replies": int(r[5])} for r in rows]
 

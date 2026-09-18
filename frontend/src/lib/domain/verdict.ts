@@ -95,6 +95,9 @@ export function caseClass(reason: string | undefined): string {
 export const showsContract = (c: FailedCase): boolean =>
   caseClass(c.reason) === "mauvaise sortie" && !/mot attendu|mentionne/.test(c.reason || "");
 
+export const caseNumbers = (c: FailedCase): (string | number)[] | undefined =>
+  c.numbers ?? c.nombres;
+
 export const caseInputs = (stdin: string | undefined): string[] =>
   (stdin || "")
     .split("\n")

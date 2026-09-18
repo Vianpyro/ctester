@@ -102,19 +102,19 @@ def phase_page(measures):
 
 def private_phase(measures):
     if not TOKEN:
-        print("%-14s NOT PLAYED (CTESTER_LOAD_TOKEN empty)" % "progres")
-        print("%-14s NOT PLAYED (CTESTER_LOAD_TOKEN empty)" % "brouillon")
+        print("%-14s NOT PLAYED (CTESTER_LOAD_TOKEN empty)" % "progress")
+        print("%-14s NOT PLAYED (CTESTER_LOAD_TOKEN empty)" % "draft")
         return
     measures.append(in_parallel(
-        Measures("progres"), STUDENTS,
-        lambda n: call("GET", "/progres", student=n, token=True)))
+        Measures("progress"), STUDENTS,
+        lambda n: call("GET", "/progress", student=n, token=True)))
     if not TP:
-        print("%-14s NOT PLAYED (CTESTER_LOAD_EXERCISE empty)" % "brouillon")
+        print("%-14s NOT PLAYED (CTESTER_LOAD_EXERCISE empty)" % "draft")
         return
     body = {"exercise_id": TP, "files": {}}
     measures.append(in_parallel(
-        Measures("brouillon"), STUDENTS,
-        lambda n: call("PUT", "/brouillon", body, student=n, token=True)))
+        Measures("draft"), STUDENTS,
+        lambda n: call("PUT", "/draft", body, student=n, token=True)))
 
 
 def submission_phase(measures):
