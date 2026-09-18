@@ -1,6 +1,6 @@
 import { localGet, localSet } from "../storage";
 
-const KEY = "ctester.chat.ouvert";
+const KEY = "ctester.chat.open";
 
 class Dock {
   open = $state(false);

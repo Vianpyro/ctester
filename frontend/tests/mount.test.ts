@@ -94,7 +94,7 @@ beforeEach(() => {
   drafts.clearAll();
   session.deployment = null;
   session.setToken(null);
-  localStorage.removeItem("ctester.exercice");
+  localStorage.removeItem("ctester.exercise");
 });
 
 afterEach(() => {
@@ -214,7 +214,7 @@ describe("the anonymous page", () => {
   });
 
   it("rouvre le dernier exercice au rechargement, et le lien profond le bat", async () => {
-    localStorage.setItem("ctester.exercice", "tp2-ex3");
+    localStorage.setItem("ctester.exercise", "tp2-ex3");
     await render();
     expect(document.getElementById("now")!.textContent).toContain("ex.3");
 
@@ -229,7 +229,7 @@ describe("the anonymous page", () => {
   });
 
   it("retombe sur le premier exercice quand le dernier n'est plus ouvrable", async () => {
-    localStorage.setItem("ctester.exercice", "tp9-ex1");
+    localStorage.setItem("ctester.exercise", "tp9-ex1");
     await render();
     expect(document.getElementById("now")!.textContent).toContain("ex.1 conversion");
   });

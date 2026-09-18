@@ -3,7 +3,7 @@ import { session, whenSignedOut } from "../auth/session.svelte";
 import { localGet, localSet } from "../storage";
 import { dock } from "./dock.svelte";
 
-const KEY = "ctester.chat.vu";
+const KEY = "ctester.chat.seen";
 const EVERY = 60_000;
 
 // ponytail: a poll, not a push. /forum/live only rings the room of the thread a client is

@@ -1,4 +1,4 @@
-<script lang="ts" module>  export const CHARTER_SEEN = "ctester.charte";
+<script lang="ts" module>  export const CHARTER_SEEN = "ctester.charter";
 
   export const CHARTER = [
     "Entraide conceptuelle : une question, une idée, ce que tu observes, ce que tu as déjà essayé.",

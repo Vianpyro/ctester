@@ -19,10 +19,10 @@ const POLL_EVERY = 2000;
 const POLL_TRIES = 150;
 
 function stationId(): string {
-  const held = localGet("ctester.poste");
+  const held = localGet("ctester.station");
   if (held) return held;
   const fresh = randomId();
-  localSet("ctester.poste", fresh);
+  localSet("ctester.station", fresh);
   return fresh;
 }
 

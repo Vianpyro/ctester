@@ -1,6 +1,6 @@
 import { sessionGet, sessionSet } from "../storage";
 
-const KEY_STORAGE = "ctester.cle";
+const KEY_STORAGE = "ctester.key";
 
 let cached: string | null = null;
 

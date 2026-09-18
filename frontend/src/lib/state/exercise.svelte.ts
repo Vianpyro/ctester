@@ -8,10 +8,10 @@ import { localGet, localSet } from "../storage";
 import type { Exercise } from "../domain/catalog";
 import type { ExerciseDetail } from "../api/types";
 
-const DERNIER = "ctester.exercice";
+const LAST_EXERCISE = "ctester.exercise";
 
 export function dernierExercice(): string {
-  return localGet(DERNIER);
+  return localGet(LAST_EXERCISE);
 }
 
 export type StatementState =
@@ -65,7 +65,7 @@ class ExerciseState {
       this.statement = { kind: "none" };
       return;
     }
-    localSet(DERNIER, ex.id);
+    localSet(LAST_EXERCISE, ex.id);
     if (ex.mode === "quiz") quiz.clear();
     const detail = await catalog.detail(ex.id);
     if (thisLoad !== this.#load) return;
