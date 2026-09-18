@@ -550,14 +550,14 @@ def test_typst_one_statement_format_at_a_time():
         assert model["exercises"]["demo"]["statement"] == "Consigne."
         assert content_catalogue.public_detail(model, "demo") == {
             "statement": "Consigne.",
-            "files": [{"name": "submission.c", "template": ""}]}, "le Markdown a bougé"
+            "files": [{"name": "submission.c", "template": ""}]}, "the Markdown changed"
 
         with open(os.path.join(exercise, "statement.typ"), "w", encoding="utf-8") as fh:
             fh.write("= x\n")
         try:
             content_catalogue.discover(root)
         except content_catalogue.ContentValidationError as exc:
-            assert "statement.md ET statement.typ" in str(exc), exc
+            assert "statement.md AND statement.typ" in str(exc), exc
         else:
             raise AssertionError("both formats were accepted")
 
@@ -566,7 +566,7 @@ def test_typst_one_statement_format_at_a_time():
         try:
             content_catalogue.discover(root)
         except content_catalogue.ContentValidationError as exc:
-            assert "il manque statement.md ou statement.typ" in str(exc), exc
+            assert "statement.md or statement.typ is missing" in str(exc), exc
         else:
             raise AssertionError("an exercise without a statement was accepted")
     finally:
@@ -608,7 +608,7 @@ def test_typst_the_projection_refuses_an_unexpected_source_or_asset():
             files.update(wrong)
             bad = [c for c, v in files.items()
                        if c.endswith(".typ")
-                       or (isinstance(v, bytes) and not publish_content.ACTIF_RE.match(c))]
+                       or (isinstance(v, bytes) and not publish_content.ACTIVE_RE.match(c))]
             if expected is None:
                 assert not bad, (wrong, bad)
             else:
@@ -792,7 +792,7 @@ def test_typst_an_error_names_the_exercise_the_file_and_the_line():
             message = str(exc)
             assert "demo" in message, message
             assert "statement.typ" in message, message
-            assert ":3:" in message, ("pas de ligne dans le message", message)
+            assert ":3:" in message, ("no line in the message", message)
         else:
             raise AssertionError("a broken statement.typ was rendered")
     finally:
@@ -998,9 +998,9 @@ def test_discover_rejects_each_exercise_level_defect():
         (lambda r: _write_json(os.path.join(ex(r), "exercise.json"), with_(summary=42)),
          "summary must be text"),
         (lambda r: os.remove(os.path.join(ex(r), "statement.md")),
-         "il manque statement.md ou statement.typ"),
+         "statement.md or statement.typ is missing"),
         (lambda r: open(os.path.join(ex(r), "statement.typ"), "w").close(),
-         "statement.md ET statement.typ sont présents"),
+         "statement.md AND statement.typ are both present"),
         (lambda r: os.remove(os.path.join(ex(r), "assessment", "io.json")),
          "no mode present"),
         (lambda r: _write_json(os.path.join(ex(r), "assessment", "io.json"),
@@ -1402,7 +1402,7 @@ def test_no_index_precedes_the_column_it_indexes():
                     if c.strip()}
         late = columns & by_table.get(index.group(2), set())
         if late:
-            faults.append("%s indexe %s, que l'ALTER ajoute plus bas"
+            faults.append("%s indexes %s, which the ALTER adds further down"
                           % (index.group(1), ", ".join(sorted(late))))
     assert not faults, "indexes declared before their column: " + " ; ".join(faults)
 
@@ -2307,7 +2307,7 @@ def test_the_web_container_imports_only_what_it_mounts():
                 if module in forbidden:
                     faults.append(os.path.relpath(path, ROOT) + " -> " + module)
     assert not faults, (
-        "ces modules de la racine ne sont pas montés dans le conteneur web : "
+        "these root modules are not mounted in the web container: "
         + ", ".join(faults))
 
 
@@ -2334,7 +2334,7 @@ def test_the_canonical_form_removes_what_cannot_be_seen():
 def test_the_canonical_form_leaves_everything_else_alone():
     cases = _canonical_cases()
     for c in cases["silences"]:
-        assert c["out"] == c["in"], ("ce cas doit être un point fixe", c["why"])
+        assert c["out"] == c["in"], ("this case must be a fixed point", c["why"])
         assert source.canonicalize(c["in"]) == c["in"], c["why"]
 
 

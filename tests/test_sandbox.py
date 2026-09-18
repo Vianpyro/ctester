@@ -10,27 +10,27 @@ import sys
 import tempfile
 import time
 
-RACINE = pathlib.Path(__file__).resolve().parents[1]
-WORKER = RACINE / "worker"
-CONTENU = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
-                       else RACINE.parent / "unittests" / "content").resolve()
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+WORKER = ROOT / "worker"
+CONTENT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
+                       else ROOT.parent / "unittests" / "content").resolve()
 SOLUTIONS = pathlib.Path(os.environ.get("CTESTER_SOLUTIONS") or next(
-    (c for c in (CONTENU.parent / "solutions",
-                 CONTENU.parent.parent / "solutions") if c.is_dir()),
-    CONTENU.parent / "solutions")).resolve()
-UNITY = CONTENU / "shared" / "unity"
+    (c for c in (CONTENT.parent / "solutions",
+                 CONTENT.parent.parent / "solutions") if c.is_dir()),
+    CONTENT.parent / "solutions")).resolve()
+UNITY = CONTENT / "shared" / "unity"
 
 
-def assessment(exercice):
-    return CONTENU / "exercises" / exercice / "assessment"
+def assessment(exercise):
+    return CONTENT / "exercises" / exercise / "assessment"
 
 
-def corrige(exercice):
-    for candidat in (SOLUTIONS / exercice,
-                     SOLUTIONS.joinpath(*exercice.split("-", 1))):
-        if candidat.is_dir():
-            return candidat
-    raise SystemExit("no reference solution found for " + exercice
+def corrected(exercise):
+    for candidate in (SOLUTIONS / exercise,
+                     SOLUTIONS.joinpath(*exercise.split("-", 1))):
+        if candidate.is_dir():
+            return candidate
+    raise SystemExit("no reference solution found for " + exercise
                      + " under " + str(SOLUTIONS))
 
 sys.path.insert(0, str(WORKER))
@@ -44,7 +44,7 @@ if subprocess.run(["gcc", "-std=gnu23", "-E", "-"], input="", capture_output=Tru
     STD = "gnu2x"
 
 
-REGLAGES = {
+SETTINGS = {
     "CTESTER_C_STD": STD,
     "CTESTER_SANITIZERS": "-fsanitize=address,undefined",
     "CTESTER_ASAN_OPTIONS": "exitcode=86:detect_leaks=0",
@@ -53,105 +53,105 @@ REGLAGES = {
 }
 
 
-def rendre(nom, racine):
-    texte = (WORKER / nom).read_text(encoding="utf-8")
-    texte = texte.replace("/in/", f"{racine}/in/").replace("/work", f"{racine}/work")
-    script = racine / nom
-    script.write_text(texte, encoding="utf-8")
+def render(name, root):
+    text = (WORKER / name).read_text(encoding="utf-8")
+    text = text.replace("/in/", f"{root}/in/").replace("/work", f"{root}/work")
+    script = root / name
+    script.write_text(text, encoding="utf-8")
     script.chmod(0o755)
     return script
 
 
-def lancer(mode, fichiers, exercice, **reglages):
-    racine = pathlib.Path(tempfile.mkdtemp(prefix="e2e-"))
-    (racine / "work").mkdir()
-    (racine / "in/src").mkdir(parents=True)
-    for nom, contenu in fichiers.items():
-        (racine / "in/src" / nom).write_text(contenu, encoding="utf-8")
+def run(mode, files, exercise, **settings):
+    root = pathlib.Path(tempfile.mkdtemp(prefix="e2e-"))
+    (root / "work").mkdir()
+    (root / "in/src").mkdir(parents=True)
+    for name, content in files.items():
+        (root / "in/src" / name).write_text(content, encoding="utf-8")
 
     if mode == "io":
-        (racine / "in/cases").mkdir()
+        (root / "in/cases").mkdir()
         conf = json.loads(
-            (assessment(exercice) / "io.json").read_text(encoding="utf-8"))
-        for i, cas in enumerate(conf["cases"], 1):
-            (racine / "in/cases" / ("%02d.in" % i)).write_text(cas["stdin"], encoding="utf-8")
-        script = rendre("build-io.sh", racine)
+            (assessment(exercise) / "io.json").read_text(encoding="utf-8"))
+        for i, case in enumerate(conf["cases"], 1):
+            (root / "in/cases" / ("%02d.in" % i)).write_text(case["stdin"], encoding="utf-8")
+        script = render("build-io.sh", root)
         cases = conf["cases"]
     else:
-        shutil.copytree(assessment(exercice), racine / "in/tests")
-        shutil.copytree(UNITY, racine / "in/unity")
-        script = rendre("build-unity.sh", racine)
+        shutil.copytree(assessment(exercise), root / "in/tests")
+        shutil.copytree(UNITY, root / "in/unity")
+        script = render("build-unity.sh", root)
         cases = None
 
     done = subprocess.run(["bash", str(script)], capture_output=True, text=True,
-                          env={**os.environ, **REGLAGES, **reglages,
-                               "CTESTER_NONCE": NONCE}, cwd=racine)
-    return done.returncode, done.stdout, cases, racine
+                          env={**os.environ, **SETTINGS, **settings,
+                               "CTESTER_NONCE": NONCE}, cwd=root)
+    return done.returncode, done.stdout, cases, root
 
 
-def lancer_console(source, entree=None, budget=20, entete=None, **reglages):
-    racine = pathlib.Path(tempfile.mkdtemp(prefix="console-"))
-    (racine / "work").mkdir()
-    (racine / "in/src").mkdir(parents=True)
-    (racine / "in/src/main.c").write_text(source, encoding="utf-8")
-    if entete:
-        nom, texte = entete
-        (racine / "in/src" / nom).write_text(texte, encoding="utf-8")
-    script = rendre("build-scratch.sh", racine)
+def run_console(source, entry=None, budget=20, header=None, **settings):
+    root = pathlib.Path(tempfile.mkdtemp(prefix="console-"))
+    (root / "work").mkdir()
+    (root / "in/src").mkdir(parents=True)
+    (root / "in/src/main.c").write_text(source, encoding="utf-8")
+    if header:
+        name, text = header
+        (root / "in/src" / name).write_text(text, encoding="utf-8")
+    script = render("build-scratch.sh", root)
     proc = subprocess.Popen(
         ["bash", str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, bufsize=0, cwd=racine,
-        env={**os.environ, **REGLAGES, **reglages, "CTESTER_NONCE": NONCE})
-    vu, debut = b"", time.time()
-    while time.time() - debut < budget:
-        pret, _, _ = select.select([proc.stdout], [], [], 0.2)
-        if pret:
-            paquet = os.read(proc.stdout.fileno(), 65536)
-            if not paquet:
+        stderr=subprocess.STDOUT, bufsize=0, cwd=root,
+        env={**os.environ, **SETTINGS, **settings, "CTESTER_NONCE": NONCE})
+    seen, start = b"", time.time()
+    while time.time() - start < budget:
+        ready, _, _ = select.select([proc.stdout], [], [], 0.2)
+        if ready:
+            package = os.read(proc.stdout.fileno(), 65536)
+            if not package:
                 break
-            vu += paquet
-        if entree and entree[0].encode() in vu:
-            proc.stdin.write(entree[1].encode())
+            seen += package
+        if entry and entry[0].encode() in seen:
+            proc.stdin.write(entry[1].encode())
             proc.stdin.flush()
-            entree = None
-    return proc, vu, racine
+            entry = None
+    return proc, seen, root
 
 
-def phases(sortie):
-    marqueur = (NONCE + " RUN\n").encode()
-    if marqueur not in sortie:
-        return sortie, b""
-    avant, apres = sortie.split(marqueur, 1)
-    return avant, apres
+def phases(output):
+    marker = (NONCE + " RUN\n").encode()
+    if marker not in output:
+        return output, b""
+    before, after = output.split(marker, 1)
+    return before, after
 
 
-def sources_c(dossier):
-    return sorted(f.name for f in dossier.iterdir() if f.suffix == ".c")
+def sources_c(directory):
+    return sorted(f.name for f in directory.iterdir() if f.suffix == ".c")
 
 
-def module_c(fichiers, exercice, nom="calendrier.c"):
-    if nom not in fichiers:
+def module_c(files, exercise, name="calendrier.c"):
+    if name not in files:
         raise SystemExit(
-            f"reference solution for {exercice!r} has no {nom} "
-            f"(files found: {sorted(fichiers)}) -- solutions repo out of sync?")
-    return nom
+            f"reference solution for {exercise!r} has no {name} "
+            f"(files found: {sorted(files)}) -- solutions repo out of sync?")
+    return name
 
 
-rates = []
+failures = []
 
 
-def montrer(res):
-    apercu = {k: v for k, v in res.items() if k not in ("warnings", "gcc")}
-    print("      verdict: " + json.dumps(apercu, ensure_ascii=False)[:300])
+def show(res):
+    preview = {k: v for k, v in res.items() if k not in ("warnings", "gcc")}
+    print("      verdict: " + json.dumps(preview, ensure_ascii=False)[:300])
 
 
-def check(cond, libelle):
-    print(("ok    " if cond else "FAIL  ") + libelle)
+def check(cond, label):
+    print(("ok    " if cond else "FAIL  ") + label)
     if not cond:
-        rates.append(libelle)
+        failures.append(label)
 
 
-print("\n--- 0a. l'invite arrive AVANT qu'on tape ---")
+print("\n--- 0a. the prompt arrives BEFORE anything is typed ---")
 DIALOGUE = """#include <stdio.h>
 
 int main(void)
@@ -163,73 +163,73 @@ int main(void)
     return 0;
 }
 """
-proc, vu, _ = lancer_console(DIALOGUE, entree=("Entrez un nombre : ", "21\n"))
-avant, apres = phases(vu)
-check(b"Entrez un nombre : " in apres,
-      "l'invite est lisible AVANT que le programme n'ait reçu quoi que ce soit")
-check(b"le double est 42" in apres,
-      "et la reponse tapee revient traitee : " + repr(apres[-40:]))
-check(avant == b"", "gcc n'a rien dit, donc la phase `build` est vide")
-check(NONCE.encode() not in apres,
-      "le marqueur de phase ne franchit jamais la frontiere")
+proc, seen, _ = run_console(DIALOGUE, entry=("Entrez un nombre : ", "21\n"))
+before, after = phases(seen)
+check(b"Entrez un nombre : " in after,
+      "the prompt is readable BEFORE the program has received anything")
+check(b"le double est 42" in after,
+      "and the typed answer comes back processed: " + repr(after[-40:]))
+check(before == b"", "gcc said nothing, so the `build` phase is empty")
+check(NONCE.encode() not in after,
+      "the phase marker never crosses the boundary")
 proc.kill()
 
-print("\n--- 0b. `while (1);` meurt sur le TEMPS CPU ---")
-proc, vu, _ = lancer_console("int main(void){ for(;;); }", budget=25,
+print("\n--- 0b. `while (1);` dies on CPU TIME ---")
+proc, seen, _ = run_console("int main(void){ for(;;); }", budget=25,
                              CTESTER_CPU_SECONDS="2")
 proc.wait(timeout=10)
-_, apres = phases(vu)
+_, after = phases(seen)
 check(proc.returncode not in (0, None),
-      "le programme est tue (code %r)" % proc.returncode)
-check(b"Killed" not in apres and b"ulimit" not in apres,
-      "et sa sortie ne contient AUCUN bruit de bash : " + repr(apres[:120]))
+      "the program is killed (code %r)" % proc.returncode)
+check(b"Killed" not in after and b"ulimit" not in after,
+      "and its output contains NO bash noise: " + repr(after[:120]))
 
-print("\n--- 0c. ...mais un programme qui ATTEND survit au meme plafond ---")
-proc, vu, _ = lancer_console(DIALOGUE, budget=6, CTESTER_CPU_SECONDS="2")
-_, apres = phases(vu)
+print("\n--- 0c. ...but a program that WAITS survives the same cap ---")
+proc, seen, _ = run_console(DIALOGUE, budget=6, CTESTER_CPU_SECONDS="2")
+_, after = phases(seen)
 check(proc.poll() is None,
-      "il est toujours vivant apres 6 s murales avec 2 s de CPU au plafond")
-check(b"Entrez un nombre : " in apres, "et il attend bien son entree")
+      "it is still alive after 6 s of wall time with a 2 s CPU cap")
+check(b"Entrez un nombre : " in after, "and it is indeed waiting for its input")
 proc.kill()
 
-print("\n--- 0d. une erreur de compilation sort en 10, avec le texte de gcc ---")
-proc, vu, _ = lancer_console("int main(void){ return zzz; }", budget=25)
+print("\n--- 0d. a compilation error exits with 10, with gcc's text ---")
+proc, seen, _ = run_console("int main(void){ return zzz; }", budget=25)
 proc.wait(timeout=15)
-avant, apres = phases(vu)
-check(proc.returncode == 10, "code de sortie 10 (%r)" % proc.returncode)
-check(b"zzz" in avant, "le texte de gcc est dans la phase `build`")
-check(apres == b"", "et rien n'a tourne")
+before, after = phases(seen)
+check(proc.returncode == 10, "exit code 10 (%r)" % proc.returncode)
+check(b"zzz" in before, "gcc's text is in the `build` phase")
+check(after == b"", "and nothing ran")
 
-print("\n--- 0d bis. l'en-tete de la Console est trouve a cote de main.c ---")
-proc, vu, _ = lancer_console(
+print("\n--- 0d bis. the Console header is found next to main.c ---")
+proc, seen, _ = run_console(
     '#include <stdio.h>\n#include "pile.h"\n\n'
     'int triple(int n) { return N * n; }\n\n'
     'int main(void)\n{\n    printf("triple : %d\\n", triple(14));\n    return 0;\n}\n',
-    entete=("pile.h", "#ifndef PILE_H\n#define PILE_H\n#define N 3\nint triple(int n);\n#endif\n"),
+    header=("pile.h", "#ifndef PILE_H\n#define PILE_H\n#define N 3\nint triple(int n);\n#endif\n"),
     budget=25)
 proc.wait(timeout=15)
-avant, apres = phases(vu)
-check(proc.returncode == 0, "code de sortie 0 (%r) : %r" % (proc.returncode, avant[-200:]))
-check(b"triple : 42" in apres, "la macro et le prototype de pile.h servent : " + repr(apres[-40:]))
-proc, vu, _ = lancer_console('#include "pile.h"\nint main(void){ return N; }\n', budget=25)
+before, after = phases(seen)
+check(proc.returncode == 0, "exit code 0 (%r): %r" % (proc.returncode, before[-200:]))
+check(b"triple : 42" in after, "the macro and the prototype from pile.h are used: " + repr(after[-40:]))
+proc, seen, _ = run_console('#include "pile.h"\nint main(void){ return N; }\n', budget=25)
 proc.wait(timeout=15)
-avant, _ = phases(vu)
-check(proc.returncode == 10 and b"pile.h" in avant,
-      "sans l'en-tete, gcc le dit dans la phase `build` (%r)" % proc.returncode)
+before, _ = phases(seen)
+check(proc.returncode == 10 and b"pile.h" in before,
+      "without the header, gcc says so in the `build` phase (%r)" % proc.returncode)
 
-print("\n--- 0e. build-scratch.sh ne connait NI cas, NI test ---")
-_texte_scratch = "\n".join(
-    ligne for ligne in (WORKER / "build-scratch.sh").read_text(encoding="utf-8").splitlines()
-    if not ligne.lstrip().startswith("#"))
-for _interdit in ("/in/cases", "/in/tests", "/in/unity", "io.json",
+print("\n--- 0e. build-scratch.sh knows NEITHER cases NOR tests ---")
+_scratch_text = "\n".join(
+    line for line in (WORKER / "build-scratch.sh").read_text(encoding="utf-8").splitlines()
+    if not line.lstrip().startswith("#"))
+for _forbidden in ("/in/cases", "/in/tests", "/in/unity", "io.json",
                   "unity.json", "expect"):
-    check(_interdit not in _texte_scratch,
-          "aucune instruction de build-scratch.sh ne touche %s" % _interdit)
-check(_texte_scratch.count("/in/") == _texte_scratch.count("/in/src"),
-      "le seul chemin de /in qu'il lit est /in/src")
+    check(_forbidden not in _scratch_text,
+          "no build-scratch.sh instruction touches %s" % _forbidden)
+check(_scratch_text.count("/in/") == _scratch_text.count("/in/src"),
+      "the only /in path it reads is /in/src")
 
 
-NEGLIGE = """#include <stdio.h>
+CARELESS = """#include <stdio.h>
 
 int main(void)
 {
@@ -242,10 +242,10 @@ int main(void)
     return 0;
 }
 """
-rc, out, cases, _ = lancer("io", {"submission.c": NEGLIGE}, "tp2-ex0")
+rc, out, cases, _ = run("io", {"submission.c": CARELESS}, "tp2-ex0")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 1. correct but sloppy code ---")
-montrer(res)
+show(res)
 check(res["status"] == "ok" and res["passed"] == res["total"],
       "the verdict is a SUCCESS")
 check(res.get("warnings"), "the warnings block is still attached")
@@ -254,104 +254,104 @@ check("inutilisee" in res.get("warnings", ""),
 check(res["passed"] == res["total"],
       f"every case passes ({res['passed']}/{res['total']})")
 
-SANS_ESPERLUETTE = NEGLIGE.replace('scanf("%d", &naissance)', 'scanf("%d", naissance)')
-rc, out, cases, _ = lancer("io", {"submission.c": SANS_ESPERLUETTE}, "tp2-ex0")
+WITHOUT_AMPERSAND = CARELESS.replace('scanf("%d", &naissance)', 'scanf("%d", naissance)')
+rc, out, cases, _ = run("io", {"submission.c": WITHOUT_AMPERSAND}, "tp2-ex0")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 2. scanf without & ---")
-texte = res.get("warnings", "") + res.get("gcc", "")
-check("int *" in texte, "gcc says it expected an int *")
-check("naissance" in texte or "%d" in texte, "and points at the faulty conversion")
-for ligne in texte.strip().splitlines():
-    if "expects argument" in ligne:
-        print("      " + ligne.strip()[:100])
+text = res.get("warnings", "") + res.get("gcc", "")
+check("int *" in text, "gcc says it expected an int *")
+check("naissance" in text or "%d" in text, "and points at the faulty conversion")
+for line in text.strip().splitlines():
+    if "expects argument" in line:
+        print("      " + line.strip()[:100])
 
-sol = corrige("tp7-ex1")
-fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-nom = module_c(fichiers, "tp7-ex1")
-fichiers[nom] += "\nstatic int jamais_utilisee_e2e = 42;\n"
-rc, out, cases, racine = lancer("unity", fichiers, "tp7-ex1")
+sol = corrected("tp7-ex1")
+files = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
+name = module_c(files, "tp7-ex1")
+files[name] += "\nstatic int never_used_e2e = 42;\n"
+rc, out, cases, root = run("unity", files, "tp7-ex1")
 res = judge.verdict(rc, out, "unity", NONCE)
-test_src = (racine / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
-sien = "\n".join(fichiers.values())
-jetons = {m for m in re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
-          if m not in sien and not m.startswith(("TEST_", "UNITY"))
+test_src = (root / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
+own_sources = "\n".join(files.values())
+tokens = {m for m in re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
+          if m not in own_sources and not m.startswith(("TEST_", "UNITY"))
           and m not in ("static", "return", "include", "stdbool", "unsigned")}
-fuites = sorted(j for j in jetons if j in str(res))
+leaks = sorted(j for j in tokens if j in str(res))
 print("\n--- 3. no leak ---")
-montrer(res)
+show(res)
 check(res["status"] == "ok" and res["passed"] == res["total"],
       f"the reference solution passes ({res.get('passed')}/{res.get('total')})")
 check(bool(res.get("warnings")), "warnings are indeed present (otherwise this check is empty)")
 check("test_calendrier" not in str(res), "no mention of the test file")
-check(not fuites, "no identifier specific to the test in the verdict"
-      + (" -- LEAKED: " + ", ".join(fuites[:8]) if fuites else ""))
-check(len(jetons) > 5, f"the check had something to bite on ({len(jetons)} identifiers watched)")
+check(not leaks, "no identifier specific to the test in the verdict"
+      + (" -- LEAKED: " + ", ".join(leaks[:8]) if leaks else ""))
+check(len(tokens) > 5, f"the check had something to bite on ({len(tokens)} identifiers watched)")
 
 
-sol = corrige("tp2-ex0")
+sol = corrected("tp2-ex0")
 buggy = (sol / sources_c(sol)[0]).read_text(encoding="utf-8")
-DEBORDE = "    int t_e2e[3];\n    t_e2e[7] = 1;\n    return "
-buggy = buggy.replace("    return ", DEBORDE, 1)
-rc, out, cases, _ = lancer("io", {"submission.c": buggy}, "tp2-ex0")
+OVERFLOW = "    int t_e2e[3];\n    t_e2e[7] = 1;\n    return "
+buggy = buggy.replace("    return ", OVERFLOW, 1)
+rc, out, cases, _ = run("io", {"submission.c": buggy}, "tp2-ex0")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 4. overflow in io mode: the report is returned ---")
-cas = res["cases"][0] if res["cases"] else {}
-check("debord" in cas.get("reason", "") or "débord" in cas.get("reason", ""),
-      "the judge names the error class: " + cas.get("reason", "(no failing case)")[:60])
-check("AddressSanitizer" in cas.get("stderr", ""),
+case = res["cases"][0] if res["cases"] else {}
+check("debord" in case.get("reason", "") or "débord" in case.get("reason", ""),
+      "the judge names the error class: " + case.get("reason", "(no failing case)")[:60])
+check("AddressSanitizer" in case.get("stderr", ""),
       "and the ASan report reaches the student")
-for ligne in cas.get("stderr", "").splitlines():
-    if "ERROR:" in ligne or "submission.c:" in ligne:
-        print("      " + ligne.strip()[:96])
+for line in case.get("stderr", "").splitlines():
+    if "ERROR:" in line or "submission.c:" in line:
+        print("      " + line.strip()[:96])
         break
 
-sol = corrige("tp7-ex1")
-fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-nom_c = module_c(fichiers, "tp7-ex1")
-fichiers[nom_c] = ("static int deborde_e2e[4];\n" + fichiers[nom_c]).replace(
-    "return", "deborde_e2e[9] = 1;\n    return", 1)
-rc, out, cases, racine = lancer("unity", fichiers, "tp7-ex1")
+sol = corrected("tp7-ex1")
+files = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
+c_name = module_c(files, "tp7-ex1")
+files[c_name] = ("static int overflow_e2e[4];\n" + files[c_name]).replace(
+    "return", "overflow_e2e[9] = 1;\n    return", 1)
+rc, out, cases, root = run("unity", files, "tp7-ex1")
 res = judge.verdict(rc, out, "unity", NONCE)
 print("\n--- 5. overflow in unity mode: the fact, without the report ---")
-montrer(res)
+show(res)
 check(res["status"] == "memory_error",
       "the verdict is a memory overflow, not a \"failed test\"")
 check("AddressSanitizer" not in str(res) and "#0" not in str(res),
       "no fragment of the ASan report leaked")
-test_src = (racine / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
-sien = "\n".join(fichiers.values())
-jetons = {m for m in re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
-          if m not in sien and not m.startswith(("TEST_", "UNITY"))
+test_src = (root / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
+own_sources = "\n".join(files.values())
+tokens = {m for m in re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
+          if m not in own_sources and not m.startswith(("TEST_", "UNITY"))
           and m not in ("static", "return", "include", "stdbool", "unsigned")}
-fuites = sorted(j for j in jetons if j in str(res))
-check(not fuites, "no identifier from the test file in the verdict"
-      + (" -- LEAKED: " + ", ".join(fuites[:8]) if fuites else ""))
+leaks = sorted(j for j in tokens if j in str(res))
+check(not leaks, "no identifier from the test file in the verdict"
+      + (" -- LEAKED: " + ", ".join(leaks[:8]) if leaks else ""))
 
-BOUCLE = '#include <stdio.h>\nint main(void){ while (1) {} return 0; }\n'
-rc, out, cases, _ = lancer("io", {"submission.c": BOUCLE}, "tp2-ex0",
+LOOP = '#include <stdio.h>\nint main(void){ while (1) {} return 0; }\n'
+rc, out, cases, _ = run("io", {"submission.c": LOOP}, "tp2-ex0",
                            CTESTER_RUN_TIMEOUT="2")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 6a. infinite loop in io mode ---")
-cas = res["cases"][0] if res.get("cases") else {}
+case = res["cases"][0] if res.get("cases") else {}
 check(res.get("passed") == 0, "no case passes (status %r)" % res["status"])
-check("boucle infinie" in cas.get("reason", ""),
-      "the message names the infinite loop: " + cas.get("reason", "(none)")[:80])
+check("boucle infinie" in case.get("reason", ""),
+      "the message names the infinite loop: " + case.get("reason", "(none)")[:80])
 
-sol = corrige("tp7-ex1")
-fichiers = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-nom = module_c(fichiers, "tp7-ex1")
-fichiers[nom] += (
-    "\n__attribute__((constructor)) static void boucle_e2e(void)"
+sol = corrected("tp7-ex1")
+files = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
+name = module_c(files, "tp7-ex1")
+files[name] += (
+    "\n__attribute__((constructor)) static void loop_e2e(void)"
     " { while (1) {} }\n")
-rc, out, cases, _ = lancer("unity", fichiers, "tp7-ex1", CTESTER_RUN_TIMEOUT="2")
+rc, out, cases, _ = run("unity", files, "tp7-ex1", CTESTER_RUN_TIMEOUT="2")
 res = judge.verdict(rc, out, "unity", NONCE)
 print("\n--- 6b. infinite loop in unity mode ---")
-montrer(res)
+show(res)
 check(res["status"] == "timeout", "the verdict is a timeout, not a crash")
 check("boucle infinie" in res.get("message", ""),
       "and the message names the infinite loop")
 
 print()
-print("%d CHECK(S) FAILED" % len(rates) if rates
+print("%d CHECK(S) FAILED" % len(failures) if failures
       else "the sandbox holds its invariants")
-sys.exit(1 if rates else 0)
+sys.exit(1 if failures else 0)

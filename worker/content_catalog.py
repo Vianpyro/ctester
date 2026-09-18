@@ -188,9 +188,9 @@ def _exercise(root, dirname, known_skills, errors, prefix=""):
         errors.append("%s: summary must be text" % where)
     statement_format, statement = "md", ""
     try:
-        statement_format, valeur = typst_build.statement_of(path)
+        statement_format, value = typst_build.statement_of(path)
         if statement_format == "md":
-            statement = valeur
+            statement = value
     except typst_build.TypstError as exc:
         errors.append("%s: %s" % (where, exc))
     assessment = os.path.join(path, "assessment")

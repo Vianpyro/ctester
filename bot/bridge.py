@@ -17,24 +17,24 @@ STATE_PATH = os.environ.get("CTESTER_BRIDGE_STATE", "/state/bridge.json")
 INTERVAL = int(os.environ.get("CTESTER_BRIDGE_INTERVAL", "5") or 5)
 
 
-def salons(brut):
-    paires = {}
-    for morceau in str(brut or "").replace("\n", ",").split(","):
-        morceau = morceau.strip()
-        if not morceau or "=" not in morceau:
+def parse_channels(raw):
+    pairs = {}
+    for piece in str(raw or "").replace("\n", ",").split(","):
+        piece = piece.strip()
+        if not piece or "=" not in piece:
             continue
-        salon, fil = morceau.split("=", 1)
-        salon, fil = salon.strip(), fil.strip()
+        channel, thread = piece.split("=", 1)
+        channel, thread = channel.strip(), thread.strip()
         # Only public chat threads: the bridge must never reach private questions.
-        if salon.isdigit() and fil.startswith("@chat:"):
-            paires[salon] = fil
-    return paires
+        if channel.isdigit() and thread.startswith("@chat:"):
+            pairs[channel] = thread
+    return pairs
 
 
-SALONS = salons(os.environ.get("CTESTER_DISCORD_CHANNELS", ""))
+CHANNELS = parse_channels(os.environ.get("CTESTER_DISCORD_CHANNELS", ""))
 
 
-def a_relayer(message):
+def should_relay(message):
     if not isinstance(message, dict):
         return False
     # Messages posted by the site's own webhook would loop back.
@@ -46,133 +46,133 @@ def a_relayer(message):
     return bool(str(message.get("content") or "").strip())
 
 
-def nom_affiche(message):
+def display_name(message):
     auteur = message.get("author") or {}
-    membre = message.get("member") or {}
-    return (membre.get("nick") or auteur.get("global_name")
+    member = message.get("member") or {}
+    return (member.get("nick") or auteur.get("global_name")
             or auteur.get("username") or "Discord")
 
 
-def lire_etat():
+def read_state():
     try:
         with open(STATE_PATH, encoding="utf-8") as fh:
-            valeur = json.load(fh)
-        return valeur if isinstance(valeur, dict) else {}
+            value = json.load(fh)
+        return value if isinstance(value, dict) else {}
     except Exception:
         return {}
 
 
-def ecrire_etat(etat):
+def write_state(state):
     try:
         os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
-        provisoire = STATE_PATH + ".tmp"
-        with open(provisoire, "w", encoding="utf-8") as fh:
-            json.dump(etat, fh)
-        os.replace(provisoire, STATE_PATH)
-    except Exception as erreur:
-        print("ctester-bridge: état non écrit :", erreur, flush=True)
+        temporary = STATE_PATH + ".tmp"
+        with open(temporary, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        os.replace(temporary, STATE_PATH)
+    except Exception as error:
+        print("ctester-bridge: state not written:", error, flush=True)
 
 
 def _get(url):
-    requete = urllib.request.Request(
+    request = urllib.request.Request(
         url, headers={"Authorization": "Bot " + TOKEN,
                       "User-Agent": "ctester-bridge/1.0"})
-    with urllib.request.urlopen(requete, timeout=20) as reponse:
-        return json.loads(reponse.read(1 << 20))
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.loads(response.read(1 << 20))
 
 
-def messages(salon, apres):
-    chemin = API + "/channels/" + salon + "/messages?limit=50"
-    if apres:
-        chemin += "&after=" + apres
-    valeur = _get(chemin)
-    return list(reversed(valeur)) if isinstance(valeur, list) else []
+def messages(channel, after):
+    path = API + "/channels/" + channel + "/messages?limit=50"
+    if after:
+        path += "&after=" + after
+    value = _get(path)
+    return list(reversed(value)) if isinstance(value, list) else []
 
 
-def pousser(fil, message):
-    corps = json.dumps({
-        "exercise_id": fil,
+def push(thread, message):
+    body = json.dumps({
+        "exercise_id": thread,
         "discord_id": str((message.get("author") or {}).get("id") or ""),
-        "display_name": nom_affiche(message),
+        "display_name": display_name(message),
         "text": message.get("content") or "",
     }).encode("utf-8")
-    requete = urllib.request.Request(
-        BRIDGE_URL + "/forum/bridge", data=corps,
+    request = urllib.request.Request(
+        BRIDGE_URL + "/forum/bridge", data=body,
         headers={"Content-Type": "application/json",
                  "Authorization": "Bearer " + BRIDGE_KEY})
     try:
-        with urllib.request.urlopen(requete, timeout=15):
+        with urllib.request.urlopen(request, timeout=15):
             return True
-    except urllib.error.HTTPError as erreur:
-        print("ctester-bridge: refuse (%s) : %s"
-              % (erreur.code, erreur.read(400)), flush=True)
+    except urllib.error.HTTPError as error:
+        print("ctester-bridge: refused (%s): %s"
+              % (error.code, error.read(400)), flush=True)
         return False
-    except Exception as erreur:
-        print("ctester-bridge: API injoignable :", erreur, flush=True)
+    except Exception as error:
+        print("ctester-bridge: API unreachable:", error, flush=True)
         return False
 
 
-def tour(etat):
-    for salon, fil in SALONS.items():
+def poll_once(state):
+    for channel, thread in CHANNELS.items():
         try:
-            lot = messages(salon, etat.get(salon))
-        except Exception as erreur:
-            print("ctester-bridge: Discord injoignable :", erreur, flush=True)
+            batch = messages(channel, state.get(channel))
+        except Exception as error:
+            print("ctester-bridge: Discord unreachable:", error, flush=True)
             continue
         # The position moves even past a refused message, or it would be retried forever.
-        for message in lot:
-            etat[salon] = str(message.get("id") or etat.get(salon) or "")
-            if a_relayer(message):
-                pousser(fil, message)
-    return etat
+        for message in batch:
+            state[channel] = str(message.get("id") or state.get(channel) or "")
+            if should_relay(message):
+                push(thread, message)
+    return state
 
 
-def demarrer():
-    if not (TOKEN and BRIDGE_URL and BRIDGE_KEY and SALONS):
-        print("ctester-bridge: non configure (jeton, URL, cle ou salons "
-              "manquants) -- rien a faire.", flush=True)
+def start():
+    if not (TOKEN and BRIDGE_URL and BRIDGE_KEY and CHANNELS):
+        print("ctester-bridge: not configured (token, URL, key or channels "
+              "missing) -- nothing to do.", flush=True)
         return 0
-    print("ctester-bridge: %d salon(s), sondage toutes les %d s"
-          % (len(SALONS), INTERVAL), flush=True)
+    print("ctester-bridge: %d channel(s), polling every %d s"
+          % (len(CHANNELS), INTERVAL), flush=True)
     # Without a saved position, start from the latest message instead of replaying history.
-    etat = lire_etat()
-    for salon in SALONS:
-        if etat.get(salon):
+    state = read_state()
+    for channel in CHANNELS:
+        if state.get(channel):
             continue
         try:
-            lot = messages(salon, None)
-            if lot:
-                etat[salon] = str(lot[-1].get("id") or "")
-        except Exception as erreur:
-            print("ctester-bridge: amorcage impossible :", erreur, flush=True)
-    ecrire_etat(etat)
+            batch = messages(channel, None)
+            if batch:
+                state[channel] = str(batch[-1].get("id") or "")
+        except Exception as error:
+            print("ctester-bridge: amorcage impossible :", error, flush=True)
+    write_state(state)
     while True:
-        ecrire_etat(tour(etat))
+        write_state(poll_once(state))
         # REST polling instead of the gateway: a few seconds of latency is fine for a course chat.
         time.sleep(INTERVAL)
 
 
 def autotest():
-    assert salons("111=@chat:general") == {"111": "@chat:general"}
-    assert salons("111=@chat:general, 222=@chat:tp2-ex3") == {
+    assert parse_channels("111=@chat:general") == {"111": "@chat:general"}
+    assert parse_channels("111=@chat:general, 222=@chat:tp2-ex3") == {
         "111": "@chat:general", "222": "@chat:tp2-ex3"}
-    assert salons("111=tp2-ex3") == {}
-    assert salons("abc=@chat:general") == {}
-    assert salons("") == {} and salons(None) == {}
+    assert parse_channels("111=tp2-ex3") == {}
+    assert parse_channels("abc=@chat:general") == {}
+    assert parse_channels("") == {} and parse_channels(None) == {}
 
-    humain = {"content": "salut", "author": {"id": "9", "username": "Lea"}}
-    assert a_relayer(humain) is True
-    assert a_relayer(dict(humain, webhook_id="42")) is False
-    assert a_relayer({"content": "x", "author": {"bot": True}}) is False
-    assert a_relayer(dict(humain, content="   ")) is False
-    assert a_relayer(None) is False
+    human = {"content": "salut", "author": {"id": "9", "username": "Lea"}}
+    assert should_relay(human) is True
+    assert should_relay(dict(human, webhook_id="42")) is False
+    assert should_relay({"content": "x", "author": {"bot": True}}) is False
+    assert should_relay(dict(human, content="   ")) is False
+    assert should_relay(None) is False
 
-    assert nom_affiche(humain) == "Lea"
-    assert nom_affiche(dict(humain, member={"nick": "Lea B."})) == "Lea B."
-    assert nom_affiche({"author": {}}) == "Discord"
+    assert display_name(human) == "Lea"
+    assert display_name(dict(human, member={"nick": "Lea B."})) == "Lea B."
+    assert display_name({"author": {}}) == "Discord"
     print("ctester-bridge: autotest ok", flush=True)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(autotest() if "--autotest" in sys.argv else demarrer())
+    sys.exit(autotest() if "--autotest" in sys.argv else start())

@@ -591,8 +591,8 @@ async function rafraichir() {
     if (data.degraded) {
       etat("Base injoignable, file et contenu seulement", "tiede");
     } else if (ingestion && ingestion.ok === false) {
-      etat("Le journal ne s'ingère plus" + (ingestion.depuis
-        ? " depuis " + duree((Date.now() / 1000) - ingestion.depuis) : "")
+      etat("Le journal ne s'ingère plus" + (ingestion.since
+        ? " depuis " + duree((Date.now() / 1000) - ingestion.since) : "")
         + " — aucun nouveau run n'arrivera", "casse");
     } else {
       etat("À jour " + new Date().toLocaleTimeString("fr-CA"));

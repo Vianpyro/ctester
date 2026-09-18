@@ -32,60 +32,60 @@ def moderator(request: Request) -> str:
     """The same test as the student API: the account comes from the validated token,
     never from the request."""
     if not security.oidc_enabled():
-        raise _Refus(503, "la connexion n'est pas configurée sur ce déploiement")
+        raise _Refusal(503, "la connexion n'est pas configurée sur ce déploiement")
     if not security.userinfo_url():
-        raise _Refus(503, "l'API n'atteint pas l'IdP : vérifie que le conteneur"
+        raise _Refusal(503, "l'API n'atteint pas l'IdP : vérifie que le conteneur"
                           " résout CTESTER_OIDC_ISSUER (extra_hosts)")
     sub = security.current_user(request.headers)
     if sub is None:
-        raise _Refus(401, "connexion requise ou expirée")
+        raise _Refusal(401, "connexion requise ou expirée")
     if not security.is_moderator(sub):
-        raise _Refus(403, "réservé à l'enseignant")
+        raise _Refusal(403, "réservé à l'enseignant")
     return sub
 
 
-def _origine(url):
+def _origin(url):
     """Scheme and host only: connect-src takes an origin, not a path."""
     if not url.startswith("https://"):
         return ""
     return "https://" + url[8:].split("/", 1)[0]
 
 
-class _Refus(Exception):
+class _Refusal(Exception):
     def __init__(self, code, message):
         super().__init__(message)
         self.code = code
         self.message = message
 
 
-Moderateur = Annotated[str, Depends(moderator)]
+Moderator = Annotated[str, Depends(moderator)]
 
 
 def create_app():
     app = FastAPI(title="ctester admin", docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
-    async def _entetes(request, call_next):
-        reponse = await call_next(request)
-        # Le code affiche vient des etudiants et la page detient un jeton de
-        # moderateur : sans CSP, un fichier .c contenant du HTML deviendrait du XSS.
-        # Le rendu passe par textContent, ceci en est la seconde ligne.
-        reponse.headers["Content-Security-Policy"] = "; ".join([
+    async def _headers(request, call_next):
+        response = await call_next(request)
+        # The code shown comes from students and the page holds a moderator token:
+        # without a CSP, a .c file containing HTML would become XSS. Rendering goes
+        # through textContent; this is the second line of defense.
+        response.headers["Content-Security-Policy"] = "; ".join([
             "default-src 'none'",
             "script-src 'self'",
             "style-src 'self' https://fonts.googleapis.com",
             "font-src https://fonts.gstatic.com",
-            "connect-src 'self' " + _origine(config.OIDC_ISSUER),
+            "connect-src 'self' " + _origin(config.OIDC_ISSUER),
             "base-uri 'none'",
             "form-action 'none'",
             "frame-ancestors 'none'",
         ]).strip()
-        reponse.headers["Referrer-Policy"] = "no-referrer"
-        reponse.headers["X-Content-Type-Options"] = "nosniff"
-        return reponse
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
-    @app.exception_handler(_Refus)
-    async def _refus(request, exc):
+    @app.exception_handler(_Refusal)
+    async def _refusal(request, exc):
         return JSONResponse({"error": exc.message}, status_code=exc.code)
 
     @app.get("/api/oidc")
@@ -116,18 +116,18 @@ def create_app():
         return FileResponse(os.path.join(STATIC, "admin.css"), media_type="text/css")
 
     @app.get("/api/overview")
-    def api_overview(_: Moderateur):
+    def api_overview(_: Moderator):
         return _payload({
             "queue": overview.queue(),
             "release": overview.release(),
             "workers": overview.workers(),
             "windows": overview.windows(),
-            "ingestion": dict(drain.etat),
+            "ingestion": dict(drain.state),
             "stats": state.read_run_stats(1),
         })
 
     @app.get("/api/runs")
-    def api_runs(_: Moderateur, limit: int = 100, status: str = "",
+    def api_runs(_: Moderator, limit: int = 100, status: str = "",
                  exercise: str = "", worker: str = "", reveal: int = 0):
         """`account` is left out unless asked for, by the query itself: hiding a column
         while still shipping the name in the JSON would only hide it from the reader."""
@@ -135,12 +135,12 @@ def create_app():
             limit, status or None, exercise or None, worker or None, bool(reveal))})
 
     @app.get("/api/code")
-    def api_code(_: Moderateur, job_id: str = "", exercise_id: str = "",
+    def api_code(_: Moderator, job_id: str = "", exercise_id: str = "",
                  account: str = ""):
         return JSONResponse(code_service.pour(job_id[:64], exercise_id[:64], account[:128]))
 
     @app.get("/api/stats")
-    def api_stats(_: Moderateur, days: int = 7):
+    def api_stats(_: Moderator, days: int = 7):
         days = max(1, min(days, 180))
         return _payload({
             "days": days,

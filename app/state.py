@@ -951,14 +951,14 @@ def read_runs(limit, status=None, exercise_id=None, worker_id=None, reveal=False
             params.append("%" + value + "%")
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     params.append(max(1, min(int(limit), 500)))
-    colonnes = RUN_COLUMNS if reveal else tuple(
+    columns = RUN_COLUMNS if reveal else tuple(
         c for c in RUN_COLUMNS if c != "account")
     rows = _query(
-        "SELECT " + ", ".join(colonnes) + " FROM judge_run" + clause +
+        "SELECT " + ", ".join(columns) + " FROM judge_run" + clause +
         " ORDER BY finished_at DESC LIMIT %s", tuple(params), read=True)
     if rows is None:
         return None
-    return [dict(zip(colonnes, _run_row(row))) for row in rows]
+    return [dict(zip(columns, _run_row(row))) for row in rows]
 
 
 def _run_row(row):
