@@ -11,8 +11,11 @@ Nothing here writes to the service: the only table it fills is its own copy of t
 judge's run journal.
 """
 
+import asyncio
+import json
 import os
 import sys
+import time
 from typing import Annotated
 
 import code as code_service
@@ -22,7 +25,8 @@ import overview
 import security
 import state
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from services import spool
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 PORT = int(os.environ.get("CTESTER_ADMIN_PORT", "8001"))
@@ -97,23 +101,28 @@ def create_app():
     def healthz():
         return {"state": "ok"}
 
+    # Revalidated on every load: without it the browser guesses a lifetime from the
+    # file's age, and a deploy can leave an old admin.js running against a new page.
+    fresh = {"Cache-Control": "no-cache"}
+
     @app.get("/")
     def index():
-        return FileResponse(os.path.join(STATIC, "index.html"))
+        return FileResponse(os.path.join(STATIC, "index.html"), headers=fresh)
 
     @app.get("/admin.js")
     def script():
         return FileResponse(os.path.join(STATIC, "admin.js"),
-                            media_type="application/javascript")
+                            media_type="application/javascript", headers=fresh)
 
     @app.get("/auth.js")
     def auth():
         return FileResponse(os.path.join(STATIC, "auth.js"),
-                            media_type="application/javascript")
+                            media_type="application/javascript", headers=fresh)
 
     @app.get("/admin.css")
     def style():
-        return FileResponse(os.path.join(STATIC, "admin.css"), media_type="text/css")
+        return FileResponse(os.path.join(STATIC, "admin.css"), media_type="text/css",
+                            headers=fresh)
 
     @app.get("/api/overview")
     def api_overview(_: Moderator):
@@ -124,6 +133,23 @@ def create_app():
             "windows": overview.windows(),
             "ingestion": dict(drain.health),
             "stats": state.read_run_stats(1),
+        })
+
+    @app.get("/api/live")
+    async def api_live(_: Moderator):
+        """Server-sent events, read by fetch() so the token rides in the header.
+
+        `queue` whenever the spool changes, `runs` whenever the drain stored new runs.
+        The stream ends after LIVE_MAX and the page reconnects: that is what makes the
+        token be checked again, since a stream is only authorized when it opens.
+
+        `async def`, unlike every other endpoint: it never touches the database, and a
+        `def` would hold a threadpool thread for as long as a tab stays open."""
+        return StreamingResponse(_live(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache",
+            # Nginx buffers proxied responses by default; this header turns it off for
+            # this one, with no change to the proxy host.
+            "X-Accel-Buffering": "no",
         })
 
     @app.get("/api/runs")
@@ -153,6 +179,49 @@ def create_app():
         })
 
     return app
+
+
+LIVE_TICK = 0.25
+LIVE_MAX = 120
+LIVE_HEARTBEAT = 15
+
+
+def _event(name, data):
+    return "event: %s\ndata: %s\n\n" % (name, json.dumps(data, separators=(",", ":")))
+
+
+async def _live():
+    """A job waits under a second and runs in under a second: polling every few seconds
+    almost never sees one. Scanning the spool every LIVE_TICK does, for a few hundred
+    stat() calls, and only a change is sent."""
+    deadline = time.monotonic() + LIVE_MAX
+    last_key = None
+    last_sent = 0.0
+    ingested = drain.health["ingested"]
+    finished = None
+    yield "retry: 1000\n\n"
+    while time.monotonic() < deadline:
+        jobs = await asyncio.to_thread(spool.scan_jobs)
+        done = {name for name, _, is_done in jobs if is_done}
+        # A new verdict: have the drain store it now rather than on its next pass.
+        if finished is not None and done - finished:
+            drain.wake.set()
+        finished = done
+        q = await asyncio.to_thread(overview.queue, jobs)
+        key = (q["pending"], q["running"], q["done_waiting"],
+               tuple((j["job_id"], j["running"]) for j in q["head"]))
+        now = time.monotonic()
+        # While something waits, once a second anyway: the waiting times must move.
+        if key != last_key or (q["pending"] and now - last_sent >= 1):
+            yield _event("queue", q)
+            last_key, last_sent = key, now
+        elif now - last_sent >= LIVE_HEARTBEAT:
+            yield ": \n\n"
+            last_sent = now
+        if drain.health["ingested"] != ingested:
+            ingested = drain.health["ingested"]
+            yield _event("runs", {"ingested": ingested})
+        await asyncio.sleep(LIVE_TICK)
 
 
 def _payload(body):

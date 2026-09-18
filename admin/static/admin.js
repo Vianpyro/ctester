@@ -102,6 +102,7 @@ function loginScreen(reason) {
     clearInterval(refreshTimer);
     refreshTimer = null;
   }
+  stopLive();
   document.body.classList.add("loggedout");
   $("login-reason").textContent = reason || "";
 }
@@ -312,7 +313,8 @@ function fillQueue(target, q) {
     [{ title: "exercice" }, { title: "attente", cls: "n", width: "4.5rem" }],
     head,
     (j) => {
-      const tr = cells([text(j.exercise_id), [duration(j.waiting_s), "n"]]);
+      const tr = cells([text(j.exercise_id),
+                        j.running ? ["en cours", "n state-ok"] : [duration(j.waiting_s), "n"]]);
       tr.title = (j.signed_in ? "connecté" : "anonyme") + ", job " + j.job_id.slice(-8);
       return tr;
     },
@@ -656,12 +658,14 @@ function period() {
 // on the longest one a request can outlast the tick: the dashboard then slows to the
 // database's real speed instead of piling up requests.
 let inFlight = { preview: false, stats: false };
+let lastOverview = null;
 
 async function refresh() {
   if (inFlight.preview) return;
   inFlight.preview = true;
   try {
     const data = await json("/api/overview");
+    lastOverview = data;
     vitals(data);
     workers(data.workers, data.queue && data.queue.workers_configured);
     file(data.queue);
@@ -673,7 +677,8 @@ async function refresh() {
         ? " depuis " + duration((Date.now() / 1000) - ingestion.since) : "")
         + " — aucun nouveau run n'arrivera", "broken");
     } else {
-      state("À jour " + new Date().toLocaleTimeString("fr-CA"));
+      state((liveUp ? "En direct · à jour " : "À jour ")
+        + new Date().toLocaleTimeString("fr-CA"));
     }
   } catch (err) {
     state("Rafraîchissement impossible : " + err.message, "broken");
@@ -742,8 +747,94 @@ function tick() {
 // A background tab asks for nothing; on return it refreshes at once rather than
 // waiting for the next tick.
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) tick();
+  if (document.hidden) {
+    stopLive();
+  } else {
+    tick();
+    startLive();
+  }
 });
+
+/* ---- live -------------------------------------------------------------- */
+
+// The queue and the new runs arrive over /api/live the moment they change; the 5 s
+// tick stays for everything else, and is the fallback when the stream is down.
+// fetch() rather than EventSource: EventSource cannot send the Authorization header,
+// and a token in the URL would end up in the proxy's logs.
+let live = null;
+let liveUp = false;
+
+function startLive() {
+  if (live || document.hidden || document.body.classList.contains("loggedout")) return;
+  const controller = new AbortController();
+  live = controller;
+  void follow(controller.signal).then((clean) => {
+    liveUp = false;
+    if (live !== controller) return;
+    live = null;
+    // The server ends every stream after two minutes so the token is checked again:
+    // reconnect at once after a clean end, after a pause after a failure.
+    setTimeout(startLive, clean ? 0 : 5000);
+  });
+}
+
+function stopLive() {
+  if (!live) return;
+  const controller = live;
+  live = null;
+  controller.abort();
+}
+
+// True when the server ended the stream, false when it failed or never opened.
+async function follow(signal) {
+  try {
+    const bearer = await validToken();
+    if (!bearer) throw new Error("session expirée");
+    const response = await fetch("/api/live", {
+      headers: { accept: "text/event-stream", authorization: "Bearer " + bearer },
+      signal,
+    });
+    if (!response.ok || !response.body) throw new Error("HTTP " + response.status);
+    liveUp = true;
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return true;
+      buffer += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buffer.indexOf("\n\n")) >= 0) {
+        liveEvent(buffer.slice(0, cut));
+        buffer = buffer.slice(cut + 2);
+      }
+    }
+  } catch {
+    return false;
+  }
+}
+
+function liveEvent(block) {
+  let name = "message";
+  let data = "";
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) name = line.slice(6).trim();
+    else if (line.startsWith("data:")) data += line.slice(5).trim();
+  }
+  if (!data) return;
+  let payload;
+  try {
+    payload = JSON.parse(data);
+  } catch {
+    return;
+  }
+  if (name === "queue") {
+    file(payload);
+    if (lastOverview) vitals({ ...lastOverview, queue: payload });
+  } else if (name === "runs") {
+    void listRuns();
+  }
+}
 
 $("reveal").addEventListener("change", () => {
   // The signature changes with the column: the table must be rebuilt.
@@ -767,4 +858,5 @@ start().then((bearer) => {
   document.body.classList.remove("loggedout");
   tick();
   refreshTimer = setInterval(tick, REFRESH);
+  startLive();
 }, (err) => loginScreen(err.message));

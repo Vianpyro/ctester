@@ -22,6 +22,11 @@ EVERY = 30
 # otherwise the dashboard freezes with nothing to say so.
 health = {"ok": True, "since": None, "ingested": 0}
 
+# Set by /api/live the moment a verdict lands in results/: the pass runs then, not up to
+# EVERY seconds later, which is how a run reaches the dashboard within a second. EVERY
+# stays the fallback for a verdict nobody was watching.
+wake = threading.Event()
+
 
 def journal_files():
     """Sorted by name, which is sorted by date: the judge names them after the day."""
@@ -81,11 +86,13 @@ def _rows(records):
 
 def run_forever(every=EVERY):
     while True:
+        # Cleared before the pass, not after: a verdict landing during it wakes the next.
+        wake.clear()
         try:
             _record(drain_once())
         except Exception as exc:  # noqa: BLE001 -- a bad line must not stop the loop
             _record(None, repr(exc))
-        time.sleep(every)
+        wake.wait(every)
 
 
 def _record(stored, exception=""):

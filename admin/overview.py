@@ -29,8 +29,10 @@ def windows():
     return {"open": max(0, n - 1) if isinstance(n, int) else None}
 
 
-def queue():
-    jobs = spool.scan_jobs()
+def queue(jobs=None):
+    """`jobs` is a scan already made, so /api/live reads the spool once per tick."""
+    if jobs is None:
+        jobs = spool.scan_jobs()
     pending = sorted((stamp, name) for name, stamp, done in jobs if not done)
     # A claimed job has the judge's lock but no verdict yet: it is running, not waiting.
     running = sum(1 for _, name in pending if _claimed(name))
@@ -55,7 +57,8 @@ def _claimed(job_id):
 def _job(job_id, waiting):
     exercise_id, owner = spool.job_metadata(job_id)
     return {"job_id": job_id, "exercise_id": exercise_id,
-            "signed_in": owner is not None, "waiting_s": round(waiting, 1)}
+            "signed_in": owner is not None, "waiting_s": round(waiting, 1),
+            "running": _claimed(job_id)}
 
 
 def release():
