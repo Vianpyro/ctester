@@ -1,58 +1,57 @@
-// Connexion OIDC pour une page sans build : portage de
-// frontend/src/lib/auth/oidc.ts, reduit a ce dont le tableau de bord a besoin.
-// Les contraintes commentees la-bas valent ici aussi.
+// OIDC login for a page without a build: a port of frontend/src/lib/auth/oidc.ts,
+// reduced to what the dashboard needs. The constraints commented there apply here too.
 
 const TOKEN_KEY = "ctester-admin-token";
 const REFRESH_KEY = "ctester-admin-refresh";
 const EXPIRY_KEY = "ctester-admin-expiry";
 const PKCE_KEY = "ctester-admin-pkce";
 
-// Rauthy n'accepte un refresh token que dans la derniere minute du jeton d'acces,
-// et s'en servir plus tot revoque toutes les sessions. 30 s reste dans la fenetre.
+// Rauthy only accepts a refresh token in the access token's last minute, and using
+// it earlier revokes every session. 30 s stays inside that window.
 const REFRESH_MARGIN = 30;
 
-let jeton = null;
-let reglages = null;
-let decouverte = null;
-let enCours = null;        // un seul refresh a la fois : la rotation les invaliderait
+let token = null;
+let settings = null;
+let cachedDiscovery = null;
+let inProgress = null;        // one refresh at a time: rotation would invalidate the others
 
-const secondes = () => Math.floor(Date.now() / 1000);
+const seconds = () => Math.floor(Date.now() / 1000);
 
-function lire(cle) {
+function read(key) {
   try {
-    return localStorage.getItem(cle) || "";
+    return localStorage.getItem(key) || "";
   } catch {
     return "";
   }
 }
 
-function ecrire(cle, valeur) {
+function write(key, value) {
   try {
-    if (valeur) localStorage.setItem(cle, valeur);
-    else localStorage.removeItem(cle);
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
   } catch {
-    /* navigation privee : la session vivra le temps de l'onglet */
+    /* private browsing: the session lives as long as the tab */
   }
 }
 
 async function config() {
-  if (!reglages) {
-    const reponse = await fetch("/api/oidc");
-    reglages = await reponse.json();
-    if (!reglages.issuer || !reglages.client_id) {
+  if (!settings) {
+    const response = await fetch("/api/oidc");
+    settings = await response.json();
+    if (!settings.issuer || !settings.client_id) {
       throw new Error("la connexion n'est pas configuree sur ce deploiement");
     }
   }
-  return reglages;
+  return settings;
 }
 
 async function discovery() {
-  if (!decouverte) {
+  if (!cachedDiscovery) {
     const { issuer } = await config();
-    const reponse = await fetch(issuer + "/.well-known/openid-configuration");
-    decouverte = await reponse.json();
+    const response = await fetch(issuer + "/.well-known/openid-configuration");
+    cachedDiscovery = await response.json();
   }
-  return decouverte;
+  return cachedDiscovery;
 }
 
 const base64url = (octets) =>
@@ -61,98 +60,98 @@ const base64url = (octets) =>
     .replace(/\//g, "_")
     .replace(/=+$/, "");
 
-const aleatoire = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
+const random = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
 
-// crypto.subtle n'existe qu'en contexte securise : sans HTTPS, la connexion est
-// impossible, pas seulement degradee.
-async function defiPour(verifieur) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifieur));
+// crypto.subtle only exists in a secure context: without HTTPS, login is impossible,
+// not merely degraded.
+async function challengeFor(verifier) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
   return base64url(new Uint8Array(digest));
 }
 
-// L'URI enregistree cote Rauthy doit etre exactement celle-ci.
+// The URI registered in Rauthy must be exactly this one.
 const redirection = () => location.origin + location.pathname;
 
-function garder(octroi) {
-  jeton = octroi.access_token || null;
-  ecrire(TOKEN_KEY, jeton || "");
-  ecrire(REFRESH_KEY, octroi.refresh_token || "");
-  ecrire(EXPIRY_KEY, octroi.expires_in
-    ? String(secondes() + Number(octroi.expires_in))
+function keep(grant) {
+  token = grant.access_token || null;
+  write(TOKEN_KEY, token || "");
+  write(REFRESH_KEY, grant.refresh_token || "");
+  write(EXPIRY_KEY, grant.expires_in
+    ? String(seconds() + Number(grant.expires_in))
     : "");
 }
 
-export function oublier() {
-  jeton = null;
-  enCours = null;
-  ecrire(TOKEN_KEY, "");
-  ecrire(REFRESH_KEY, "");
-  ecrire(EXPIRY_KEY, "");
+export function forget() {
+  token = null;
+  inProgress = null;
+  write(TOKEN_KEY, "");
+  write(REFRESH_KEY, "");
+  write(EXPIRY_KEY, "");
 }
 
-function bientotExpire() {
-  const fin = Number(lire(EXPIRY_KEY)) || 0;
-  // Sans echeance connue on garde le jeton : un 401 declenchera le renouvellement,
-  // alors qu'un renouvellement premature ferait revoquer la session.
-  return fin > 0 && secondes() >= fin - REFRESH_MARGIN;
+function expiresSoon() {
+  const end = Number(read(EXPIRY_KEY)) || 0;
+  // Without a known expiry the token is kept: a 401 will trigger the renewal,
+  // whereas a premature renewal would get the session revoked.
+  return end > 0 && seconds() >= end - REFRESH_MARGIN;
 }
 
-async function echanger(corps) {
+async function exchange(corps) {
   const doc = await discovery();
-  const reponse = await fetch(doc.token_endpoint, {
+  const response = await fetch(doc.token_endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(corps).toString(),
   });
-  if (!reponse.ok) return null;
+  if (!response.ok) return null;
   try {
-    return await reponse.json();
+    return await response.json();
   } catch {
     return null;
   }
 }
 
-function rafraichirJeton() {
-  if (enCours) return enCours;
-  const porte = lire(REFRESH_KEY);
-  if (!porte) return Promise.resolve(false);
-  enCours = config()
-    .then(({ client_id }) => echanger({
+function renewToken() {
+  if (inProgress) return inProgress;
+  const refreshToken = read(REFRESH_KEY);
+  if (!refreshToken) return Promise.resolve(false);
+  inProgress = config()
+    .then(({ client_id }) => exchange({
       grant_type: "refresh_token",
-      refresh_token: porte,
+      refresh_token: refreshToken,
       client_id,
     }))
-    .then((octroi) => {
-      enCours = null;
-      if (!octroi || !octroi.access_token) {
-        oublier();
+    .then((grant) => {
+      inProgress = null;
+      if (!grant || !grant.access_token) {
+        forget();
         return false;
       }
-      garder(octroi);
+      keep(grant);
       return true;
     }, () => {
-      enCours = null;
+      inProgress = null;
       return false;
     });
-  return enCours;
+  return inProgress;
 }
 
-/** Le jeton a envoyer, renouvele si besoin ; null quand il faut se reconnecter. */
-export async function jetonValide() {
-  // Relu du stockage apres un rechargement : sans ca on renouvellerait a chaque
-  // ouverture de page, bien avant la fenetre que Rauthy autorise.
-  if (!jeton) jeton = lire(TOKEN_KEY) || null;
-  if (jeton && !bientotExpire()) return jeton;
-  return (await rafraichirJeton()) ? jeton : null;
+/** The token to send, renewed if needed; null when a new login is needed. */
+export async function validToken() {
+  // Reread from storage after a reload: otherwise every page load would renew,
+  // well before the window Rauthy allows.
+  if (!token) token = read(TOKEN_KEY) || null;
+  if (token && !expiresSoon()) return token;
+  return (await renewToken()) ? token : null;
 }
 
-export async function connecter() {
+export async function connect() {
   const doc = await discovery();
   const { client_id } = await config();
-  const verifieur = aleatoire();
-  const etat = aleatoire();
+  const verifier = random();
+  const state = random();
   try {
-    sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifieur, etat }));
+    sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state }));
   } catch {
     throw new Error("le stockage de session est indisponible");
   }
@@ -161,49 +160,48 @@ export async function connecter() {
     client_id,
     redirect_uri: redirection(),
     scope: "openid profile offline_access",
-    state: etat,
-    code_challenge: await defiPour(verifieur),
+    state: state,
+    code_challenge: await challengeFor(verifier),
     code_challenge_method: "S256",
   });
   location.assign(doc.authorization_endpoint + "?" + params.toString());
 }
 
-async function terminer(code, etat) {
-  let garde = null;
+async function finish(code, state) {
+  let saved = null;
   try {
-    garde = JSON.parse(sessionStorage.getItem(PKCE_KEY) || "null");
+    saved = JSON.parse(sessionStorage.getItem(PKCE_KEY) || "null");
     sessionStorage.removeItem(PKCE_KEY);
   } catch {
-    garde = null;
+    saved = null;
   }
-  // Sans cette verification, un lien portant le code de quelqu'un d'autre
-  // connecterait a sa place.
-  if (!garde || !garde.etat || garde.etat !== etat) return false;
+  // Without this check, a link carrying someone else's code would log in as them.
+  if (!saved || !saved.state || saved.state !== state) return false;
   const { client_id } = await config();
-  const octroi = await echanger({
+  const grant = await exchange({
     grant_type: "authorization_code",
     code,
     client_id,
     redirect_uri: redirection(),
-    code_verifier: garde.verifieur || "",
+    code_verifier: saved.verifier || "",
   });
-  if (!octroi || !octroi.access_token) return false;
-  garder(octroi);
+  if (!grant || !grant.access_token) return false;
+  keep(grant);
   return true;
 }
 
 /**
- * Retour de Rauthy s'il y a lieu, puis un jeton utilisable ou null.
- * Le code est retire de l'URL : un rechargement ne doit pas le rejouer.
+ * The return from Rauthy if any, then a usable token or null.
+ * The code is removed from the URL: a reload must not replay it.
  */
-export async function demarrer() {
+export async function start() {
   const params = new URLSearchParams(location.search);
   const code = params.get("code");
-  const etat = params.get("state");
-  if (code && etat) {
-    const ouvert = await terminer(code, etat);
+  const state = params.get("state");
+  if (code && state) {
+    const opened = await finish(code, state);
     history.replaceState(null, "", location.pathname);
-    if (ouvert) return jeton;
+    if (opened) return token;
   }
-  return jetonValide();
+  return validToken();
 }
