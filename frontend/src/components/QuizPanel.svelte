@@ -14,9 +14,9 @@
     {#if quiz.loading}
       <p>Chargement…</p>
     {:else}
-      {#each quiz.pages as page, n (page.titre)}
+      {#each quiz.pages as page, n (page.title)}
         <div hidden={n !== quiz.page}>
-          <div class="qgroup">{page.titre}</div>
+          <div class="qgroup">{page.title}</div>
           {#each page.questions as q (q.id)}
             <div class="qrow">
               <span id={"qlabel-" + q.id}>{q.label}</span>

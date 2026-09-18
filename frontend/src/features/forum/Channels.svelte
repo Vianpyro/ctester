@@ -22,7 +22,7 @@
   const isPrivate = $derived(thread.mode === "forum");
 </script>
 
-<ul class="canaux">
+<ul class="channels">
   {#each entries as [mode, label, about, key]}
     <li>
       <button
@@ -32,7 +32,7 @@
         aria-current={thread.mode === mode}
         onclick={() => thread.openChannel(mode)}
         >{label}{#if unread.has(key)}<span
-            class="pastille"
+            class="pill"
             aria-label="Des messages non lus"
           ></span>{/if}</button
       >
@@ -48,13 +48,13 @@
   >
     {isPrivate ? "← Revenir au chat" : "Mes questions à l'enseignant"}
     {#if !isPrivate && unread.has(thread.currentExercise)}
-      <span class="pastille" aria-label="Des messages non lus"></span>
+      <span class="pill" aria-label="Des messages non lus"></span>
     {/if}
   </button>
 {/if}
 
 {#if session.discordUrl}
-  <a class="nav discordlien" href={session.discordUrl} target="_blank" rel="noopener noreferrer">
+  <a class="nav discordlink" href={session.discordUrl} target="_blank" rel="noopener noreferrer">
     Discord du cours ↗
   </a>
 {/if}

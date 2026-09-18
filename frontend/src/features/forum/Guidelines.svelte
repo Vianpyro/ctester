@@ -20,9 +20,9 @@
   const { onAccept, onCancel }: Props = $props();
 </script>
 
-<div id="charte" use:barPanel>
+<div id="charter" use:barPanel>
   <h2>Avant de publier</h2>
-  <ul class="regles">
+  <ul class="rules">
     {#each CHARTER as rule}<li>{rule}</li>{/each}
   </ul>
   <p>

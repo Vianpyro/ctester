@@ -23,8 +23,8 @@ export function prepareTypstHtml(source: string): Prepared {
   for (const img of body.querySelectorAll("img")) {
     const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(img.getAttribute("src") ?? "");
     if (!m) continue;
-    const texte = m[2] ? atob(m[3]!) : decodeURIComponent(m[3]!);
-    const octets = Uint8Array.from(texte, (c) => c.charCodeAt(0));
+    const text = m[2] ? atob(m[3]!) : decodeURIComponent(m[3]!);
+    const octets = Uint8Array.from(text, (c) => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([octets], { type: m[1] }));
     blobs.push(url);
     img.setAttribute("src", url);
@@ -36,11 +36,11 @@ export function prepareTypstHtml(source: string): Prepared {
 
   for (const pre of body.querySelectorAll("pre")) {
     if (pre.closest(".typ-recopier")) continue;
-    const bouton = doc.createElement("button");
-    bouton.type = "button";
-    bouton.className = "copier";
-    bouton.textContent = "Copier";
-    pre.prepend(bouton);
+    const button = doc.createElement("button");
+    button.type = "button";
+    button.className = "copy";
+    button.textContent = "Copier";
+    pre.prepend(button);
   }
   return { html: body.innerHTML, blobs };
 }

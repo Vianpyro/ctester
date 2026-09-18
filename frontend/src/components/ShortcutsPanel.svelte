@@ -22,23 +22,23 @@
   ];
 </script>
 
-<div id="raccourcis" hidden={!open} use:barPanel>
+<div id="shortcuts" hidden={!open} use:barPanel>
   <h2 bind:this={title} tabindex="-1">Raccourcis clavier</h2>
-  <p class="sous">
+  <p class="sub">
     Aucun n'est obligatoire : tout se fait aussi à la souris. Ils sont là pour qui a
     l'habitude d'un éditeur.
   </p>
 
   {#each SECTIONS as section (section.title)}
     <h3>{section.title}</h3>
-    <dl class="touches">
+    <dl class="keys">
       {#each section.rows as row (row.label)}
         <dt>
           {#each row.caps as cap (cap)}<kbd>{cap}</kbd>{/each}
         </dt>
         <dd>
           {row.label}
-          {#if row.note}<span class="apropos">{row.note}</span>{/if}
+          {#if row.note}<span class="about">{row.note}</span>{/if}
         </dd>
       {/each}
     </dl>

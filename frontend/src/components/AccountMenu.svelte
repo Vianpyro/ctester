@@ -3,7 +3,7 @@
   import { session } from "../lib/auth/session.svelte";
 
   interface Props {
-    openView: (name: "progres" | "leaderboard" | "collection" | "scratch") => void;
+    openView: (name: "progress" | "leaderboard" | "collection" | "scratch") => void;
   }
 
   const { openView }: Props = $props();
@@ -21,19 +21,19 @@
 </script>
 
 {#if session.forumOffered}
-  <button type="button" id="identite" class="nav" onclick={openIdentity}>Mon identité</button>
+  <button type="button" id="identity" class="nav" onclick={openIdentity}>Mon identité</button>
 {/if}
-<span class="menutitre">Facultatif</span>
+<span class="menutitle">Facultatif</span>
 <button type="button" id="leaderboard" class="nav" onclick={() => go("leaderboard")}>
   Classement
 </button>
 <button type="button" id="collection" class="nav" onclick={() => go("collection")}>
   Collection
 </button>
-<span class="menutitre">Ce compte</span>
-<button type="button" id="deconnexion" class="nav" onclick={() => profile.signOut()}>
+<span class="menutitle">Ce compte</span>
+<button type="button" id="logout" class="nav" onclick={() => profile.signOut()}>
   Se déconnecter
 </button>
-<button type="button" id="oublier" class="nav" onclick={() => profile.deleteAccount()}>
+<button type="button" id="forget" class="nav" onclick={() => profile.deleteAccount()}>
   Supprimer mes données
 </button>

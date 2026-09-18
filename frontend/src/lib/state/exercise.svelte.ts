@@ -10,7 +10,7 @@ import type { ExerciseDetail } from "../api/types";
 
 const LAST_EXERCISE = "ctester.exercise";
 
-export function dernierExercice(): string {
+export function lastExercise(): string {
   return localGet(LAST_EXERCISE);
 }
 

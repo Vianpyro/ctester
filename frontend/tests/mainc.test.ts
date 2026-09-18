@@ -29,25 +29,25 @@ describe("disassemble", () => {
   it("hoists a top-level include and keeps the student's own comment on it", () => {
     const piece = disassemble('#include <stdio.h>  // pour printf\nint main(void){}');
     expect(piece.includes).toEqual([
-      { cle: "<stdio.h>", ligne: "#include <stdio.h>  // pour printf" },
+      { key: "<stdio.h>", line: "#include <stdio.h>  // pour printf" },
     ]);
-    expect(piece.corps).toBe("int main(void){}");
+    expect(piece.body).toBe("int main(void){}");
   });
 
   it("does NOT hoist an include already inside a student `#if`", () => {
     const piece = disassemble("#ifdef X\n#include <math.h>\n#endif\nint main(void){}");
     expect(piece.includes).toEqual([]);
-    expect(piece.corps).toContain("#include <math.h>");
+    expect(piece.body).toContain("#include <math.h>");
   });
 
   it("leaves `#define` where it is -- the `#if` is what keeps two labs from clashing", () => {
     const piece = disassemble("#define DIMANCHE 0\nint main(void){}");
-    expect(piece.corps).toContain("#define DIMANCHE 0");
+    expect(piece.body).toContain("#define DIMANCHE 0");
   });
 
   it("removes only `_CRT_SECURE_NO_WARNINGS`, which the file already sets at the top", () => {
     const piece = disassemble("#define _CRT_SECURE_NO_WARNINGS\nint main(void){}");
-    expect(piece.corps).not.toContain("_CRT_SECURE_NO_WARNINGS");
+    expect(piece.body).not.toContain("_CRT_SECURE_NO_WARNINGS");
   });
 });
 
@@ -103,8 +103,8 @@ describe("build", () => {
       "TP 2",
       AT,
     );
-    expect(built.texte).toContain("#define exercice 1");
-    expect(built.vides).toEqual([0]);
+    expect(built.text).toContain("#define exercice 1");
+    expect(built.empty).toEqual([0]);
     expect(built.total).toBe(2);
   });
 
@@ -116,14 +116,14 @@ describe("build", () => {
       "TP 2",
       AT,
     );
-    expect(built.texte).toContain("#define exercice 0");
+    expect(built.text).toContain("#define exercice 0");
   });
 
   it("keeps an exercise with no draft, with a comment saying so", () => {
     const built = build([exercise("tp2-ex3", "ex.3")], {}, "", "TP 2", AT);
-    expect(built.texte).toContain("#if exercice == 3");
-    expect(built.texte).toContain("Aucun code enregistré");
-    expect(built.vides).toEqual([3]);
+    expect(built.text).toContain("#if exercice == 3");
+    expect(built.text).toContain("Aucun code enregistré");
+    expect(built.empty).toEqual([3]);
   });
 
   it("deduplicates on the HEADER, not on the line", () => {
@@ -137,27 +137,27 @@ describe("build", () => {
       "TP 2",
       AT,
     );
-    const includes = built.texte.match(/#include <stdio\.h>/g) ?? [];
+    const includes = built.text.match(/#include <stdio\.h>/g) ?? [];
     expect(includes).toHaveLength(1);
-    expect(built.texte).toContain("#include <stdio.h>  // pour printf");
+    expect(built.text).toContain("#include <stdio.h>  // pour printf");
   });
 
   it("dates the file in the READER's zone, not in UTC", () => {
     expect(today(AT)).toBe("2026-09-09");
     const built = build([exercise("tp2-ex1", "ex.1")], {}, "", "TP 2", AT);
-    expect(built.texte).toContain("Date : 2026-09-09");
+    expect(built.text).toContain("Date : 2026-09-09");
   });
 
   it("pre-fills the author without imposing it, and stays empty when unknown", () => {
-    expect(build([exercise("tp2-ex1", "ex.1")], {}, "Vianney", "TP 2", AT).texte).toContain(
+    expect(build([exercise("tp2-ex1", "ex.1")], {}, "Vianney", "TP 2", AT).text).toContain(
       "Auteur : Vianney",
     );
-    expect(build([exercise("tp2-ex1", "ex.1")], {}, "", "TP 2", AT).texte).toContain("Auteur : ");
+    expect(build([exercise("tp2-ex1", "ex.1")], {}, "", "TP 2", AT).text).toContain("Auteur : ");
   });
 
   it("sets the preprocessor preamble the course expects", () => {
     const built = build([exercise("tp2-ex1", "ex.1")], {}, "", "TP 2", AT);
-    expect(built.texte).toContain("#define _CRT_SECURE_NO_WARNINGS");
-    expect(built.texte).toContain("Description : Exercice 1 — TP 2 — TCH009");
+    expect(built.text).toContain("#define _CRT_SECURE_NO_WARNINGS");
+    expect(built.text).toContain("Description : Exercice 1 — TP 2 — TCH009");
   });
 });

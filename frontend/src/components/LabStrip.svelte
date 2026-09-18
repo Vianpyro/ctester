@@ -16,11 +16,11 @@
   const solved = $derived(neighbors.filter((e) => statuses.of(e.id) === "solved").length);
 </script>
 
-<nav id="bandelabo" aria-label="Exercices de ce laboratoire, et accès au catalogue" hidden={!shown}>
+<nav id="labband" aria-label="Exercices de ce laboratoire, et accès au catalogue" hidden={!shown}>
   {#if shown}
     {#each neighbors as ex (ex.id)}
       {@const note = lockNote(ex)}
-      {@const bloque = !!note && !catalog.staff}
+      {@const locked = !!note && !catalog.staff}
       {@const state = tileState(ex, !!note, statuses.byExercise)}
       {@const current = ex.id === catalog.selectedId}
       {@const said =
@@ -29,22 +29,22 @@
         (current ? ", ouvert dans l'éditeur" : "")}
       <button
         type="button"
-        class={"tile " + state.cls + (ex.bonus ? " bonus" : "") + (current ? " courant" : "")}
+        class={"tile " + state.cls + (ex.bonus ? " bonus" : "") + (current ? " current" : "")}
         title={ex.short + " — " + said}
-        aria-disabled={bloque ? "true" : undefined}
+        aria-disabled={locked ? "true" : undefined}
         aria-current={current ? "true" : undefined}
         onclick={() => {
-          if (!bloque && !current) exercise.open(ex.id);
+          if (!locked && !current) exercise.open(ex.id);
         }}
       >
         {stripLabel(ex)}
-        <span class="horsecran"> — {said}</span>
+        <span class="offscreen"> — {said}</span>
         {#if statuses.of(ex.id)}
-          <i class="marque">{STATUS_MARK[statuses.of(ex.id)!] ?? ""}</i>
+          <i class="mark">{STATUS_MARK[statuses.of(ex.id)!] ?? ""}</i>
         {/if}
-        {#if ex.verification}<i class="quoi">vérif</i>{/if}
-        {#if ex.bonus}<i class="quoi">bonus</i>{/if}
-        {#if note}<span class="cadenas">🔒</span>{/if}
+        {#if ex.verification}<i class="what">vérif</i>{/if}
+        {#if ex.bonus}<i class="what">bonus</i>{/if}
+        {#if note}<span class="padlock">🔒</span>{/if}
       </button>
     {/each}
 

@@ -2319,21 +2319,21 @@ def _canonical_cases():
 
 def test_the_canonical_form_fixture_is_there():
     cases = _canonical_cases()
-    assert len(cases["encodage"]) >= 6, cases
-    assert len(cases["espaces_morts"]) >= 5, cases
-    assert len(cases["silences"]) >= 7, cases
+    assert len(cases["encoding"]) >= 6, cases
+    assert len(cases["dead_whitespace"]) >= 5, cases
+    assert len(cases["untouched"]) >= 7, cases
 
 
 def test_the_canonical_form_removes_what_cannot_be_seen():
     cases = _canonical_cases()
-    for group in ("encodage", "espaces_morts"):
+    for group in ("encoding", "dead_whitespace"):
         for c in cases[group]:
             assert source.canonicalize(c["in"]) == c["out"], (group, c["why"])
 
 
 def test_the_canonical_form_leaves_everything_else_alone():
     cases = _canonical_cases()
-    for c in cases["silences"]:
+    for c in cases["untouched"]:
         assert c["out"] == c["in"], ("this case must be a fixed point", c["why"])
         assert source.canonicalize(c["in"]) == c["in"], c["why"]
 
@@ -2345,7 +2345,7 @@ def test_the_canonical_form_spares_a_line_continuation():
 
 def test_the_canonical_form_never_changes_the_line_count():
     cases = _canonical_cases()
-    everything = cases["encodage"] + cases["espaces_morts"] + cases["silences"]
+    everything = cases["encoding"] + cases["dead_whitespace"] + cases["untouched"]
     for c in everything + [{"in": x, "why": x} for x in
                      ("", "x", "x\n", "x\n\n\n", "\n\n", "   ", "a\n   ")]:
         before = c["in"]

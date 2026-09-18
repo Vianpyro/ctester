@@ -119,14 +119,14 @@ describe("the page's structure, which the stylesheet depends on", () => {
 
   it("keeps the workbench inside `<main>`, and its three columns inside it", async () => {
     await render();
-    const travail = document.getElementById("travail")!;
+    const travail = document.getElementById("work")!;
     expect(travail.parentElement).toBe(document.querySelector("main"));
-    for (const id of ["consigne", "droite", "chatdock"]) {
+    for (const id of ["statement", "right", "chatdock"]) {
       expect(document.getElementById(id)!.parentElement, id).toBe(travail);
     }
     expect([...travail.children].map((el) => el.id)).toEqual([
-      "consigne",
-      "droite",
+      "statement",
+      "right",
       "chatdock",
     ]);
   });
@@ -134,19 +134,19 @@ describe("the page's structure, which the stylesheet depends on", () => {
   it("keeps the three floating panels INSIDE `#top`, which is what they anchor to", async () => {
     await render();
     const bar = document.getElementById("top")!;
-    expect(document.getElementById("consentement")!.parentElement).toBe(bar);
+    expect(document.getElementById("consent")!.parentElement).toBe(bar);
   });
 
   it("opens the consent panel where it can be seen, and closes it again", async () => {
     deployment = { issuer: "https://auth.exemple.test", client_id: "ctester" };
     await render();
-    const panel = document.getElementById("consentement")!;
+    const panel = document.getElementById("consent")!;
     expect(panel.hidden).toBe(true);
-    (document.getElementById("connexion") as HTMLButtonElement).click();
+    (document.getElementById("login") as HTMLButtonElement).click();
     flushSync();
     expect(panel.hidden).toBe(false);
     expect(panel.parentElement).toBe(document.getElementById("top"));
-    (document.getElementById("consentnon") as HTMLButtonElement).click();
+    (document.getElementById("consentno") as HTMLButtonElement).click();
     flushSync();
     expect(panel.hidden).toBe(true);
   });
@@ -155,7 +155,7 @@ describe("the page's structure, which the stylesheet depends on", () => {
 describe("the anonymous page", () => {
   it("mounts, and draws the workbench", async () => {
     await render();
-    expect(document.getElementById("travail")).not.toBeNull();
+    expect(document.getElementById("work")).not.toBeNull();
     expect(document.getElementById("code")).not.toBeNull();
     expect(document.getElementById("out")).not.toBeNull();
     expect(document.getElementById("go")).not.toBeNull();
@@ -165,13 +165,13 @@ describe("the anonymous page", () => {
     await render();
     const zone = document.getElementById("code") as HTMLTextAreaElement;
     expect(zone.value).toBe("// écris ici");
-    expect(document.getElementById("consignetexte")!.textContent).toBe("Convertis des degrés.");
+    expect(document.getElementById("statementtext")!.textContent).toBe("Convertis des degrés.");
     expect(document.getElementById("now")!.textContent).toContain("TP2 : ex.1 conversion");
   });
 
   it("draws the strip with the locked lab's neighbours left out of the flat list", async () => {
     await render();
-    const strip = document.getElementById("bandelabo")!;
+    const strip = document.getElementById("labband")!;
     expect(strip.hidden).toBe(false);
     expect(strip.textContent).toContain("ex.1");
     expect(strip.textContent).toContain("ex.2");
@@ -182,7 +182,7 @@ describe("the anonymous page", () => {
 
   it("porte le mot des deux catégories sur la tuile, puisqu'il n'y a plus de légende", async () => {
     await render();
-    const strip = document.getElementById("bandelabo")!;
+    const strip = document.getElementById("labband")!;
     const bonus = [...strip.querySelectorAll<HTMLElement>(".tile")].find((b) =>
       b.title.startsWith("ex.3"),
     )!;
@@ -191,10 +191,10 @@ describe("the anonymous page", () => {
 
   it("dashes the bonus tile from the flag, layered over its progress class", async () => {
     await render();
-    const tiles = [...document.getElementById("bandelabo")!.querySelectorAll<HTMLElement>(".tile")];
+    const tiles = [...document.getElementById("labband")!.querySelectorAll<HTMLElement>(".tile")];
     const bonus = tiles.find((b) => b.title.startsWith("ex.3"))!;
     expect([...bonus.classList]).toContain("bonus");
-    expect([...bonus.classList]).toContain("afaire");
+    expect([...bonus.classList]).toContain("todo");
     expect(bonus.title).toContain("bonus facultatif");
     const ordinary = tiles.find((b) => b.title.startsWith("ex.2"))!;
     expect([...ordinary.classList]).not.toContain("bonus");
@@ -204,12 +204,12 @@ describe("the anonymous page", () => {
   it("ramene a l'exercice quand on clique le titre, depuis n'importe quel ecran", async () => {
     await render();
     const { view } = await import("../src/lib/state/view.svelte");
-    view.show("progres");
+    view.show("progress");
     flushSync();
-    expect(document.getElementById("travail")!.hidden).toBe(true);
-    (document.getElementById("accueil") as HTMLButtonElement).click();
+    expect(document.getElementById("work")!.hidden).toBe(true);
+    (document.getElementById("home") as HTMLButtonElement).click();
     flushSync();
-    expect(document.getElementById("travail")!.hidden).toBe(false);
+    expect(document.getElementById("work")!.hidden).toBe(false);
     expect(view.current).toBe("");
   });
 
@@ -236,7 +236,7 @@ describe("the anonymous page", () => {
 
   it("keeps the menu's locked exercise reachable, with its date", async () => {
     await render();
-    const menu = document.getElementById("exliste")!;
+    const menu = document.getElementById("exlist")!;
     expect(menu.textContent).toContain("TP 9");
     const locked = menu.querySelector('[data-id="tp9-ex1"]')!;
     expect(locked.getAttribute("aria-disabled")).toBe("true");
@@ -249,14 +249,14 @@ describe("the anonymous page", () => {
     const { catalog } = await import("../src/lib/state/catalog.svelte");
     catalog.setStaff(true);
     flushSync();
-    const locked = document.querySelector('#exliste [data-id="tp9-ex1"]')!;
+    const locked = document.querySelector('#exlist [data-id="tp9-ex1"]')!;
     expect(locked.getAttribute("aria-disabled")).toBeNull();
-    expect(locked.className).not.toContain("verrouille");
+    expect(locked.className).not.toContain("locked");
     expect(locked.textContent).toContain("ouvre le");
     catalog.setStaff(false);
     flushSync();
     expect(
-      document.querySelector('#exliste [data-id="tp9-ex1"]')!.getAttribute("aria-disabled"),
+      document.querySelector('#exlist [data-id="tp9-ex1"]')!.getAttribute("aria-disabled"),
     ).toBe("true");
   });
 
@@ -265,12 +265,12 @@ describe("the anonymous page", () => {
     const out = document.getElementById("out")!;
     expect(out.className).toBe("idle");
     expect(out.textContent).toContain("En attente d'une soumission.");
-    expect(out.querySelector(".etapes")).toBeNull();
+    expect(out.querySelector(".steps")).toBeNull();
   });
 
   it("says the access key is missing at LOAD time, not at the first submission", async () => {
     await render();
-    const banner = document.getElementById("systeme")!;
+    const banner = document.getElementById("system")!;
     expect(banner.hidden).toBe(false);
     expect(banner.textContent).toContain("clé d'accès");
     expect(banner.textContent).toContain("Moodle");
@@ -285,9 +285,9 @@ describe("the anonymous page", () => {
 
   it("offers NO account button on a deployment with no issuer", async () => {
     await render();
-    expect(document.getElementById("connexion")).toBeNull();
-    expect(document.getElementById("menucompte")).toBeNull();
-    expect(document.getElementById("mesprogres")).toBeNull();
+    expect(document.getElementById("login")).toBeNull();
+    expect(document.getElementById("accountmenu")).toBeNull();
+    expect(document.getElementById("myprogress")).toBeNull();
     expect(document.getElementById("discussions")).toBeNull();
   });
 
@@ -329,7 +329,7 @@ describe("the anonymous page", () => {
     const dock = document.getElementById("chatdock")!;
     expect(dock.hidden).toBe(true);
     expect(dock.textContent).toBe("");
-    expect(document.getElementById("travail")!.className).toBe("");
+    expect(document.getElementById("work")!.className).toBe("");
   });
 });
 
@@ -360,12 +360,12 @@ describe("les raccourcis de la page", () => {
     await render();
     const event = key("s", { ctrlKey: true });
     expect(event.defaultPrevented, "sinon le navigateur ouvre « Enregistrer la page »").toBe(true);
-    expect(document.querySelector("#systeme")?.textContent).toContain("sauvegardé tout seul");
+    expect(document.querySelector("#system")?.textContent).toContain("sauvegardé tout seul");
   });
 
   it("le message de Ctrl+S s'efface tout seul, ET REND LE BANDEAU", async () => {
     await render();
-    const banner = () => document.querySelector("#systeme")?.textContent ?? "";
+    const banner = () => document.querySelector("#system")?.textContent ?? "";
     const before = banner();
     expect(before, "ce cas n'a de sens que si le bandeau parlait déjà").not.toBe("");
 
@@ -402,23 +402,23 @@ describe("les raccourcis de la page", () => {
 describe("l'aide-mémoire", () => {
   it("s'ouvre à F1, se ferme à Échap, et arrive en morceau séparé", async () => {
     await render();
-    expect(document.querySelector("#raccourcis")).toBeNull();
+    expect(document.querySelector("#shortcuts")).toBeNull();
     expect(key("F1").defaultPrevented).toBe(true);
-    await until("le panneau des raccourcis", () => !!document.querySelector("#raccourcis"));
-    const panel = document.querySelector("#raccourcis");
+    await until("le panneau des raccourcis", () => !!document.querySelector("#shortcuts"));
+    const panel = document.querySelector("#shortcuts");
     expect(panel?.hasAttribute("hidden")).toBe(false);
     expect(panel?.parentElement?.id).toBe("top");
 
     key("Escape");
     flushSync();
-    expect(document.querySelector("#raccourcis")?.hasAttribute("hidden")).toBe(true);
+    expect(document.querySelector("#shortcuts")?.hasAttribute("hidden")).toBe(true);
   });
 
   it("dit ce qu'il ne prend PAS au navigateur", async () => {
     await render();
     key("F1");
-    await until("le panneau des raccourcis", () => !!document.querySelector("#raccourcis"));
-    const text = document.querySelector("#raccourcis")?.textContent ?? "";
+    await until("le panneau des raccourcis", () => !!document.querySelector("#shortcuts"));
+    const text = document.querySelector("#shortcuts")?.textContent ?? "";
     expect(text).toContain("Annuler");
     expect(text).toContain("Refaire");
     expect(text).toContain("Ctrl+Maj+K est pris par le navigateur");

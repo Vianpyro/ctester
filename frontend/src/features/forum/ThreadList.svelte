@@ -19,13 +19,13 @@
 
   const STATE_WORDS: [keyof NonNullable<typeof thread.state>, string, string][] = [
     ["resolved", "résolue", "accent"],
-    ["answered", "répondue", "contour"],
+    ["answered", "répondue", "outline"],
     ["unanswered", "sans réponse", ""],
   ];
 </script>
 
-<div class="bloc">
-  <h3 class="soustitre">{thread.permalink ? "Une conversation" : "Le fil"}</h3>
+<div class="block">
+  <h3 class="subtitle">{thread.permalink ? "Une conversation" : "Le fil"}</h3>
 
   {#if thread.permalink}
     <button type="button" class="nav" onclick={() => thread.backToThread()}>
@@ -34,14 +34,14 @@
   {/if}
 
   {#if !messages.length}
-    <p class="aide">
+    <p class="help">
       {thread.isChat
         ? "Personne n'a encore écrit ici. Une question, même « bête », en débloque souvent plusieurs."
         : "Personne n'a encore écrit sur cet exercice. Une question bien posée en aide souvent plusieurs."}
     </p>
   {:else}
     {#if thread.state}
-      <div class="etatfil">
+      <div class="threadstate">
         {#each STATE_WORDS as [field, word, extra]}
           {#if thread.state[field]}
             <span class={"tag " + extra}>{word}</span>
@@ -49,7 +49,7 @@
         {/each}
       </div>
     {/if}
-    <ul class="fil">
+    <ul class="thread">
       {#each ordered as root (root.id)}
         <MessageItem message={root} />
         {#each repliesOf[root.id] ?? [] as answer (answer.id)}

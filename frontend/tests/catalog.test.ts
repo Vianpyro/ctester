@@ -56,7 +56,7 @@ const byId = (id: string): Exercise => model.catalog.find((e) => e.id === id)!;
 
 describe("normalize", () => {
   it("keeps every exercise in the menu tree and only the open ones in the flat list", () => {
-    expect(model.collections.map((c) => c.titre)).toEqual([
+    expect(model.collections.map((c) => c.title)).toEqual([
       "TP 2",
       "TP 10",
       "Révision",
@@ -69,12 +69,12 @@ describe("normalize", () => {
   it("hands the instructor the locked ones too, and only when told to", () => {
     const staff = normalize(release, true);
     expect(staff.catalog.map((e) => e.id)).toContain("tp10-ex1");
-    expect(staff.collections.map((c) => c.titre)).toEqual(model.collections.map((c) => c.titre));
+    expect(staff.collections.map((c) => c.title)).toEqual(model.collections.map((c) => c.title));
     expect(lockNote(staff.catalog.find((e) => e.id === "tp10-ex1")!)).toMatch(/^ouvre le /);
   });
 
   it("drops a collection whose items were never published rather than showing an empty one", () => {
-    expect(model.collections.map((c) => c.titre)).not.toContain("Vide");
+    expect(model.collections.map((c) => c.title)).not.toContain("Vide");
   });
 
   it("puts an exercise with no collection into Autres instead of losing it", () => {
@@ -99,7 +99,7 @@ describe("normalize", () => {
 
   it("keeps assignments in their own list, not folded into collections", () => {
     expect(model.assignments.map((a) => a.id)).toEqual(["devoir"]);
-    expect(model.collections.map((c) => c.titre)).not.toContain("Analyseur");
+    expect(model.collections.map((c) => c.title)).not.toContain("Analyseur");
   });
 });
 
@@ -125,7 +125,7 @@ describe("lockNote", () => {
 describe("tileState", () => {
   it("keeps PROGRESS and LOCATION as separate axes", () => {
     expect(tileState(byId("tp2-ex1"), false, { "tp2-ex1": "solved" })).toEqual({
-      cls: "reussi",
+      cls: "solved",
       word: "réussi",
     });
   });
@@ -137,7 +137,7 @@ describe("tileState", () => {
   });
 
   it("marks a verification so it is recognizable before being opened", () => {
-    expect(tileState(byId("tp2-verif"), false, {}).cls).toBe("verif");
+    expect(tileState(byId("tp2-verif"), false, {}).cls).toBe("verification");
   });
 });
 

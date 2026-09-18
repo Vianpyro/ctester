@@ -19,10 +19,10 @@ describe("prepareTypstHtml", () => {
       ),
     );
     const host = dom(html);
-    const [libre, recopier] = host.querySelectorAll("pre");
-    expect(libre!.querySelector("button.copier")).not.toBeNull();
-    expect(recopier!.querySelector("button.copier")).toBeNull();
-    expect(libre!.querySelector("code")!.textContent).toBe("int x;");
+    const [free, recopier] = host.querySelectorAll("pre");
+    expect(free!.querySelector("button.copy")).not.toBeNull();
+    expect(recopier!.querySelector("button.copy")).toBeNull();
+    expect(free!.querySelector("code")!.textContent).toBe("int x;");
   });
 
   it("drops scripts, styles and event handlers", () => {

@@ -213,22 +213,22 @@ describe("un document verrouillé", () => {
   it("laisse la NAVIGATION marcher : on peut lire ce qu'on ne peut pas écrire", () => {
     const { area } = typing("int a;", { readOnly: true });
     press(area, "g", { ctrlKey: true });
-    expect(host.querySelector(".aller"), "Ctrl+G doit ouvrir le champ").not.toBeNull();
+    expect(host.querySelector(".goto"), "Ctrl+G doit ouvrir le champ").not.toBeNull();
   });
 });
 
 describe("aller à la ligne", () => {
   it("n'est PAS dans le document tant qu'on ne l'a pas demandé", () => {
     const { area } = typing("a\nb\nc");
-    expect(host.querySelector(".aller")).toBeNull();
+    expect(host.querySelector(".goto")).toBeNull();
     press(area, "g", { ctrlKey: true });
-    expect(host.querySelector(".aller")).not.toBeNull();
+    expect(host.querySelector(".goto")).not.toBeNull();
   });
 
   it("sélectionne la ligne demandée et referme", () => {
     const { area } = typing("aa\nbbb\nc");
     press(area, "g", { ctrlKey: true });
-    const field = host.querySelector<HTMLInputElement>(".aller input")!;
+    const field = host.querySelector<HTMLInputElement>(".goto input")!;
     field.value = "2";
     field.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
@@ -236,17 +236,17 @@ describe("aller à la ligne", () => {
     flushSync();
     expect(area.selectionStart).toBe(3);
     expect(area.selectionEnd).toBe(6);
-    expect(host.querySelector(".aller")).toBeNull();
+    expect(host.querySelector(".goto")).toBeNull();
   });
 
   it("rend le focus au code sur Échap, et ne bouge pas la sélection", () => {
     const { area } = typing("aa\nbbb\nc");
     area.setSelectionRange(1, 1);
     press(area, "g", { ctrlKey: true });
-    const field = host.querySelector<HTMLInputElement>(".aller input")!;
+    const field = host.querySelector<HTMLInputElement>(".goto input")!;
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     flushSync();
-    expect(host.querySelector(".aller")).toBeNull();
+    expect(host.querySelector(".goto")).toBeNull();
     expect(document.activeElement).toBe(area);
     expect(area.selectionStart).toBe(1);
   });

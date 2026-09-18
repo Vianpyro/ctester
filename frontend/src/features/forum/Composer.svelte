@@ -123,7 +123,7 @@
   <Guidelines onAccept={acceptGuidelines} onCancel={() => (showGuidelines = false)} />
 {/if}
 
-<div class={compact ? "chatsaisie" : "bloc"}>
+<div class={compact ? "chatsaisie" : "block"}>
   {#if thread.replyTo}
     <div class="row">
       <span class="tag accent">Réponse à un message</span>
@@ -145,14 +145,14 @@
   </div>
 
   {#if stuck}
-    <p class="aide">
+    <p class="help">
       Ta question partira avec l'exercice et l'étape. Ton code, lui, ne part pas — décris
       ce que tu observes.
     </p>
-    <div class="choix">
+    <div class="choice">
       <label for={prefix + "etape"}>Où ça coince</label>
       {#each thread.steps as s (s.id)}
-        <label class="coche">
+        <label class="check">
           <input
             type="radio"
             name={prefix + "etape"}
@@ -162,10 +162,10 @@
         </label>
       {/each}
     </div>
-    <div class="choix">
+    <div class="choice">
       <label for={prefix + "blocage"}>Ce qui bloque</label>
       {#each thread.blockedKinds as k (k.id)}
-        <label class="coche">
+        <label class="check">
           <input
             type="radio"
             name={prefix + "blocage"}
@@ -177,9 +177,9 @@
     </div>
   {/if}
 
-  <label for={prefix + "texte"}>{label}</label>
+  <label for={prefix + "text"}>{label}</label>
   <textarea
-    id={prefix + "texte"}
+    id={prefix + "text"}
     rows="4"
     bind:value={thread.typing}
     placeholder={stuck ? "J'ai vérifié le type de ma variable, mais…" : undefined}
@@ -187,45 +187,45 @@
     onkeydown={onKeydown}
   ></textarea>
 
-  <p class="aide">{hint}</p>
+  <p class="help">{hint}</p>
 
   {#if thread.renderable && !compact}
-    <h4 class="soustitre" id="forumapercutitre">Aperçu</h4>
-    <div role="region" aria-labelledby="forumapercutitre">
-      <Markdown source={thread.typing} class="md apercu" />
+    <h4 class="subtitle" id="forumpreviewtitle">Aperçu</h4>
+    <div role="region" aria-labelledby="forumpreviewtitle">
+      <Markdown source={thread.typing} class="md preview" />
     </div>
   {/if}
 
   {#if !thread.replyTo && !compact && thread.duplicates?.length}
-    <div class="bloc second">
-      <h4 class="soustitre">Peut-être déjà demandé</h4>
+    <div class="block second">
+      <h4 class="subtitle">Peut-être déjà demandé</h4>
       <SearchResults rows={thread.duplicates} empty="" />
-      <p class="aide">Si ce n'est pas ta question, publie la tienne : c'est fait pour.</p>
+      <p class="help">Si ce n'est pas ta question, publie la tienne : c'est fait pour.</p>
     </div>
   {/if}
 
   {#if stuck}
-    <div class="choix">
+    <div class="choice">
       <label for={prefix + "visibilite"}>Qui la voit</label>
-      <label class="coche">
+      <label class="check">
         <input
           type="radio"
           name={prefix + "visibilite"}
           checked={visibility === "private"}
           onchange={() => (visibility = "private")}
-        /><span>Seulement le chargé de lab</span><span class="aide">— par défaut</span>
+        /><span>Seulement le chargé de lab</span><span class="help">— par défaut</span>
       </label>
-      <label class="coche">
+      <label class="check">
         <input
           type="radio"
           name={prefix + "visibilite"}
           checked={visibility === "group"}
           onchange={() => (visibility = "group")}
-        /><span>Aussi les autres de mon groupe</span><span class="aide"
+        /><span>Aussi les autres de mon groupe</span><span class="help"
           >— quelqu'un peut répondre tout de suite</span
         >
       </label>
-      <p class="aide">
+      <p class="help">
         Tu pourras la rendre visible au groupe plus tard, en un clic, sans la republier.
       </p>
     </div>
@@ -233,19 +233,19 @@
 
   {#if thread.canAskPrivately}
     <div class="chatprive">
-      <label class="coche" for={prefix + "prive"}>
+      <label class="check" for={prefix + "prive"}>
         <input id={prefix + "prive"} type="checkbox" bind:checked={askPrivately} />
         <span>Demander en privé à l'enseignant</span>
       </label>
       {#if askPrivately}
-        <p class="aide">
+        <p class="help">
           Ton message n'ira pas dans le chat : seul l'enseignant le lira. Ton code, lui, ne
           part pas — décris ce que tu observes.
         </p>
-        <div class="choix">
+        <div class="choice">
           <label for={prefix + "etapeprive"}>Où ça coince</label>
           {#each thread.steps as s (s.id)}
-            <label class="coche">
+            <label class="check">
               <input
                 type="radio"
                 name={prefix + "etapeprive"}
@@ -263,6 +263,6 @@
     {thread.replyTo ? "Répondre" : "Publier"}
   </button>
   {#if !compact && exerciseTitle}
-    <span class="horsecran">Canal : {exerciseTitle}</span>
+    <span class="offscreen">Canal : {exerciseTitle}</span>
   {/if}
 </div>

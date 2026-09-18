@@ -36,26 +36,26 @@
   }
 </script>
 
-<h2 bind:this={title} id="forumtitre" tabindex="-1">Chat du cours</h2>
-<p class="aide">
+<h2 bind:this={title} id="forumtitle" tabindex="-1">Chat du cours</h2>
+<p class="help">
   Visible par les autres comptes connectés du cours. Ce n'est pas une note, et ça n'a
   aucun effet sur tes progrès. Tu y apparais sous « {masked} » — ton vrai nom n'apparaît
   que si tu l'affiches dans Compte → Mon identité.
 </p>
 
 {#if recalled}
-  <p class="rappel">
-    <span class="quoi">Ton dernier test sur cet exercice : </span><b>{recalled.title}</b>
+  <p class="reminder">
+    <span class="what">Ton dernier test sur cet exercice : </span><b>{recalled.title}</b>
   </p>
 {/if}
 
-<p class="annonce" aria-live="polite">{thread.said}</p>
+<p class="notice" aria-live="polite">{thread.said}</p>
 
-<div class="colonne">
-  <div class="bloc">
-    <h3 class="soustitre">Canaux</h3>
+<div class="column">
+  <div class="block">
+    <h3 class="subtitle">Canaux</h3>
     <Channels />
-    <p class="aide">
+    <p class="help">
       {thread.isChat
         ? "Ici tout est public : ton message est lisible par tous les comptes du cours, sous ton nom masqué."
         : "Ce que tu as envoyé en privé. Seul l'enseignant le lit."}
@@ -63,7 +63,7 @@
   </div>
 
   {#if catalog.catalog.length && thread.mode !== "chat-general"}
-    <div class="bloc">
+    <div class="block">
       <label for="forumex">Exercice</label>
       <select
         id="forumex"
@@ -81,27 +81,27 @@
     </div>
   {/if}
 
-  <details class="bloc second">
-    <summary class="soustitre">Ce qui se publie ici</summary>
-    <ul class="regles">
+  <details class="block second">
+    <summary class="subtitle">Ce qui se publie ici</summary>
+    <ul class="rules">
       {#each CHARTER as rule}<li>{rule}</li>{/each}
     </ul>
-    <p class="aide">
+    <p class="help">
       Modération humaine : rien n'est vérifié automatiquement. Signale plutôt que de
       répondre à une fuite.
     </p>
   </details>
 </div>
 
-<div class="colonne large">
+<div class="column large">
   {#if thread.messages === null}
-    <p class="rate">{thread.error}</p>
+    <p class="failed">{thread.error}</p>
   {:else}
-    <div class="bloc">
-      <h3 class="soustitre">Chercher</h3>
+    <div class="block">
+      <h3 class="subtitle">Chercher</h3>
       <input
         type="search"
-        id="forumrecherche"
+        id="forumsearch"
         placeholder="un mot de la question…"
         bind:value={terms}
         onkeydown={(e) => {
@@ -118,8 +118,8 @@
     <Composer />
 
     {#if thread.moderator}
-      <div class="bloc second">
-        <h3 class="soustitre">Modération</h3>
+      <div class="block second">
+        <h3 class="subtitle">Modération</h3>
         <p>
           {reportsWaiting
             ? reportsWaiting +

@@ -33,7 +33,7 @@ export const TEMPLATE =
 
 export interface Chunk {
   text: string;
-  kind: "" | "gccsortie" | "scratchecho";
+  kind: "" | "gccoutput" | "scratchecho";
 }
 
 class Scratch {
@@ -186,7 +186,7 @@ class Scratch {
       } else if (frame.t === "running") {
         this.say("En cours — tu peux répondre à ton programme.");
       } else if (frame.t === "build") {
-        this.write(frame.d, "gccsortie");
+        this.write(frame.d, "gccoutput");
       } else if (frame.t === "out") {
         this.say("En cours — tu peux répondre à ton programme.");
         this.write(frame.d);

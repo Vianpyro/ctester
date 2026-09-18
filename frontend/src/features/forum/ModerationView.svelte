@@ -34,24 +34,24 @@
   }
 </script>
 
-<h2 bind:this={title} id="moderationtitre" tabindex="-1">Modération</h2>
-<p class="annonce" aria-live="polite">{thread.said}</p>
+<h2 bind:this={title} id="moderationtitle" tabindex="-1">Modération</h2>
+<p class="notice" aria-live="polite">{thread.said}</p>
 
 {#if !thread.moderator}
-  <p class="rate">Cette page est réservée à la modération.</p>
+  <p class="failed">Cette page est réservée à la modération.</p>
 {:else}
-  <div class="bloc">
-    <h3 class="soustitre">Questions du moment</h3>
+  <div class="block">
+    <h3 class="subtitle">Questions du moment</h3>
     {#if !thread.top}
-      <p class="rate">Le classement des questions n'a pas pu être lu.</p>
+      <p class="failed">Le classement des questions n'a pas pu être lu.</p>
     {:else if !topRows.length}
-      <p class="aide">Rien qui ressorte sur les dernières {thread.top.hours} heures.</p>
+      <p class="help">Rien qui ressorte sur les dernières {thread.top.hours} heures.</p>
     {:else}
-      <ul class="fil">
+      <ul class="thread">
         {#each topRows.slice(0, 10) as r (r.id)}
           <li class="message">
-            <p class="qui">
-              <span class="auteur">{readableThread(r.exercise_id)}</span>
+            <p class="who">
+              <span class="author">{readableThread(r.exercise_id)}</span>
               {#if r.upvotes}<span class="tag accent">{r.upvotes} × « moi aussi »</span>{/if}
               <span class="tag">
                 {r.replies ? (r.replies > 1 ? r.replies + " réponses" : "1 réponse") : "sans réponse"}
@@ -59,31 +59,31 @@
               {#if r.visibility !== "thread"}<span class="tag">privée</span>{/if}
               {#if r.step}<span class="tag">{stepLabel(r.step)}</span>{/if}
             </p>
-            <p class="extrait">{r.text}</p>
+            <p class="excerpt">{r.text}</p>
             <button type="button" class="nav" onclick={() => openConversation(r.id)}>
               Ouvrir la conversation
             </button>
           </li>
         {/each}
       </ul>
-      <p class="aide">
+      <p class="help">
         Sur les dernières {thread.top.hours} heures. Aucun nom, aucun compte : un nombre par
         question.
       </p>
     {/if}
   </div>
 
-  <div class="bloc">
-    <h3 class="soustitre">Qui a besoin d'aide</h3>
+  <div class="block">
+    <h3 class="subtitle">Qui a besoin d'aide</h3>
     {#if thread.help === null}
-      <p class="rate">Le tableau d'aide n'a pas pu être lu.</p>
+      <p class="failed">Le tableau d'aide n'a pas pu être lu.</p>
     {:else}
-      <p class="aide">
+      <p class="help">
         Agrégé par exercice et par étape sur les {thread.help.hours} dernières heures. Aucun
         code, aucun nom : un compte de personnes suffit pour savoir où aller dans le local.
       </p>
       {#if !thread.help.rows.length}
-        <p class="aide">Personne n'a signalé être bloqué pour l'instant.</p>
+        <p class="help">Personne n'a signalé être bloqué pour l'instant.</p>
       {:else}
         <table class="rank-table">
           <thead>
@@ -106,7 +106,7 @@
             {/each}
           </tbody>
         </table>
-        <p class="aide">
+        <p class="help">
           Une question privée reste privée : seul son auteur peut l'ouvrir à son groupe. Ce
           tableau les compte toutes, parce que c'est le compte qui dit où aller.
         </p>
@@ -114,20 +114,20 @@
     {/if}
   </div>
 
-  <div class="bloc second">
-    <h3 class="soustitre">Signalements</h3>
+  <div class="block second">
+    <h3 class="subtitle">Signalements</h3>
     {#if thread.reports === null}
-      <p class="rate">La file de signalements n'a pas pu être lue.</p>
+      <p class="failed">La file de signalements n'a pas pu être lue.</p>
     {:else if !thread.reports.length}
-      <p class="aide">Aucun signalement en attente.</p>
+      <p class="help">Aucun signalement en attente.</p>
     {:else}
-      <ul class="fil">
+      <ul class="thread">
         {#each thread.reports as s (s.id)}
           <li class="message">
-            <p class="qui">
-              <span class="auteur">{s.exercise_id}</span>
-              <time class="quand">{localTime(s.created_at)}</time>
-              <span class="etat">
+            <p class="who">
+              <span class="author">{s.exercise_id}</span>
+              <time class="when">{localTime(s.created_at)}</time>
+              <span class="state">
                 {s.report_count} signalement{s.report_count > 1 ? "s" : ""}{s.hidden
                   ? " — masqué"
                   : ""}
@@ -151,21 +151,21 @@
     {/if}
   </div>
 
-  <div class="bloc second">
-    <h3 class="soustitre">Noms signalés</h3>
+  <div class="block second">
+    <h3 class="subtitle">Noms signalés</h3>
     {#if thread.reportedNames === null}
-      <p class="rate">La file des noms n'a pas pu être lue.</p>
+      <p class="failed">La file des noms n'a pas pu être lue.</p>
     {:else if !thread.reportedNames.length}
-      <p class="aide">Aucun nom signalé.</p>
+      <p class="help">Aucun nom signalé.</p>
     {:else}
-      <ul class="fil">
+      <ul class="thread">
         {#each thread.reportedNames as n (n.id)}
           <li class="message">
-            <p class="qui">
-              <span class="auteur">{n.display_name || "(nom déjà effacé)"}</span>
-              {#if n.group_number}<span class="groupe">groupe {n.group_number}</span>{/if}
-              <time class="quand">{localTime(n.created_at)}</time>
-              <span class="etat">{n.report_count} signalement{n.report_count > 1 ? "s" : ""}</span>
+            <p class="who">
+              <span class="author">{n.display_name || "(nom déjà effacé)"}</span>
+              {#if n.group_number}<span class="group">groupe {n.group_number}</span>{/if}
+              <time class="when">{localTime(n.created_at)}</time>
+              <span class="state">{n.report_count} signalement{n.report_count > 1 ? "s" : ""}</span>
             </p>
             <div class="row">
               <button type="button" class="nav" onclick={() => thread.clearName(n.id)}>

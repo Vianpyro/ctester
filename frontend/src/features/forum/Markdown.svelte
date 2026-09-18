@@ -6,7 +6,7 @@
     class?: string;
   }
 
-  const { source, class: className = "texte md" }: Props = $props();
+  const { source, class: className = "text md" }: Props = $props();
 
   const clean = $derived(renderMarkdown(source));
 </script>

@@ -43,10 +43,10 @@
 
 <div class="chatflux">
   {#if thread.messages === null}
-    <p class="rate">{thread.error}</p>
+    <p class="failed">{thread.error}</p>
   {:else}
     {#if thread.said}
-      <p class="annonce" aria-live="polite">{thread.said}</p>
+      <p class="notice" aria-live="polite">{thread.said}</p>
     {/if}
     <ThreadList />
   {/if}

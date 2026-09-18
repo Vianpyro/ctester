@@ -78,9 +78,9 @@ async function render() {
 describe("a Typst statement, all the way to the page", () => {
   it("draws the pages as images instead of rendered Markdown", async () => {
     await render();
-    const panneau = document.getElementById("consignetexte")!;
-    expect(panneau.classList.contains("md")).toBe(false);
-    const images = [...panneau.querySelectorAll("img")];
+    const panel = document.getElementById("statementtext")!;
+    expect(panel.classList.contains("md")).toBe(false);
+    const images = [...panel.querySelectorAll("img")];
     expect(images).toHaveLength(2);
     expect(images.map((img) => img.getAttribute("src"))).toEqual([
       "statement/tp2-ex1/dark-1.svg",
@@ -90,10 +90,10 @@ describe("a Typst statement, all the way to the page", () => {
 
   it("keeps the workspace grid at exactly three columns", async () => {
     await render();
-    const travail = document.getElementById("travail")!;
+    const travail = document.getElementById("work")!;
     expect([...travail.children].map((el) => el.id)).toEqual([
-      "consigne",
-      "droite",
+      "statement",
+      "right",
       "chatdock",
     ]);
   });

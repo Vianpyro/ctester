@@ -10,7 +10,7 @@ export interface QuizQuestion {
 }
 
 export interface QuizPage {
-  titre: string;
+  title: string;
   questions: QuizQuestion[];
 }
 
@@ -38,7 +38,7 @@ class QuizState {
       groups[q.id] = q.group;
       answers[q.id] = held[q.id] ?? "";
       const last = pages[pages.length - 1];
-      if (!last || last.titre !== q.group) pages.push({ titre: q.group, questions: [q] });
+      if (!last || last.title !== q.group) pages.push({ title: q.group, questions: [q] });
       else last.questions.push(q);
     }
     this.groupOf = groups;
@@ -58,7 +58,7 @@ class QuizState {
   currentScope(): Scope | null {
     const here = this.pages[this.page];
     if (!here) return null;
-    return { titre: here.titre, ids: here.questions.map((q) => q.id) };
+    return { title: here.title, ids: here.questions.map((q) => q.id) };
   }
 
   clear(): void {

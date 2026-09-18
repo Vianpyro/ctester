@@ -23,13 +23,13 @@ describe("the three stages", () => {
   });
 
   it("names the stage NOT REACHED, which is what answers `did my program even run?`", () => {
-    expect(OUTCOMES.compile_error!.etapes).toEqual(["ko", "", ""]);
-    expect(OUTCOMES.timeout!.etapes).toEqual(["ok", "ko", ""]);
+    expect(OUTCOMES.compile_error!.steps).toEqual(["ko", "", ""]);
+    expect(OUTCOMES.timeout!.steps).toEqual(["ok", "ko", ""]);
   });
 
   it("gives every failure exactly one next action", () => {
     for (const [status, outcome] of Object.entries(OUTCOMES)) {
-      expect(outcome.titre, status).toBeTruthy();
+      expect(outcome.title, status).toBeTruthy();
       expect(outcome.suite, status).toBeTruthy();
     }
     for (const mode of ["io", "unity", "quiz"]) {
@@ -113,7 +113,7 @@ describe("restrictToScope", () => {
   };
 
   it("restricts the READING only -- the judge graded the whole quiz", () => {
-    const shown = restrictToScope(graded, { titre: "Exercice 1", ids: ["q1", "q2"] });
+    const shown = restrictToScope(graded, { title: "Exercice 1", ids: ["q1", "q2"] });
     expect(shown.total).toBe(2);
     expect(shown.passed).toBe(1);
     expect(shown.wrong!.map((w) => w.id)).toEqual(["q1"]);
@@ -122,7 +122,7 @@ describe("restrictToScope", () => {
   });
 
   it("says the whole page is right when none of its questions is wrong", () => {
-    const shown = restrictToScope(graded, { titre: "Exercice 2", ids: ["q2", "q4"] });
+    const shown = restrictToScope(graded, { title: "Exercice 2", ids: ["q2", "q4"] });
     expect(shown.passed).toBe(2);
     expect(shown.total).toBe(2);
   });
@@ -145,7 +145,7 @@ describe("verdictHeadline", () => {
       passed: 2,
       wrong: [{ id: "q1", label: "une" }],
     };
-    expect(verdictHeadline(quiz, { titre: "Exercice 1", ids: ["q1", "q2"] })).toBe(
+    expect(verdictHeadline(quiz, { title: "Exercice 1", ids: ["q1", "q2"] })).toBe(
       "1 / 2 réponses justes — Exercice 1",
     );
   });
@@ -153,10 +153,10 @@ describe("verdictHeadline", () => {
   it("uses the outcome's short title on a failure, and falls back for an unknown status", () => {
     expect(
       verdictHeadline({ state: "done", status: "compile_error", kind: "io" }, null),
-    ).toBe(OUTCOMES.compile_error!.titre);
+    ).toBe(OUTCOMES.compile_error!.title);
     expect(
       verdictHeadline({ state: "done", status: "n_importe_quoi" as never, kind: "io" }, null),
-    ).toBe(OUTCOMES.error!.titre);
+    ).toBe(OUTCOMES.error!.title);
   });
 });
 

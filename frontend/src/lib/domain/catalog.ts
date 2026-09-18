@@ -23,7 +23,7 @@ export interface Exercise {
 }
 
 export interface Collection {
-  titre: string;
+  title: string;
   access: Access;
   available_from: string;
   items: Exercise[];
@@ -72,19 +72,19 @@ export function normalize(release: PublishedRelease, staff = false): CatalogMode
   for (const col of release.collections ?? []) {
     const items = (col.items ?? []).filter((id) => byId.has(id));
     if (!items.length) continue;
-    const titre = String(col.title ?? col.id ?? "");
+    const title = String(col.title ?? col.id ?? "");
     for (const id of items) classified.add(id);
     collections.push({
-      titre,
+      title,
       access: col.access ?? "available",
       available_from: col.release?.available_from ?? "",
-      items: items.map((id) => catalogEntry(byId.get(id)!, titre)),
+      items: items.map((id) => catalogEntry(byId.get(id)!, title)),
     });
   }
   const orphans = [...byId.keys()].filter((id) => !classified.has(id));
   if (orphans.length) {
     collections.push({
-      titre: "Autres",
+      title: "Autres",
       access: "available",
       available_from: "",
       items: orphans.map((id) => catalogEntry(byId.get(id)!, "Autres")),
@@ -117,12 +117,12 @@ export function tileState(
   locked: boolean,
   statuses: Record<string, ExerciseStatus | undefined>,
 ): { cls: string; word: string } {
-  if (locked) return { cls: "afaire", word: "pas encore ouvert" };
+  if (locked) return { cls: "todo", word: "pas encore ouvert" };
   const status = statuses[ex.id] ?? "";
-  if (status === "solved") return { cls: "reussi", word: "réussi" };
-  if (ex.verification) return { cls: "verif", word: "vérification" };
-  if (status === "attempted") return { cls: "afaire", word: "essayé" };
-  return { cls: "afaire", word: "à faire" };
+  if (status === "solved") return { cls: "solved", word: "réussi" };
+  if (ex.verification) return { cls: "verification", word: "vérification" };
+  if (status === "attempted") return { cls: "todo", word: "essayé" };
+  return { cls: "todo", word: "à faire" };
 }
 
 export function stripLabel(ex: Exercise): string {
@@ -153,7 +153,7 @@ export function stripNeighbors(collections: Collection[], group: string): Exerci
   const seen = new Set<string>();
   const rows: Exercise[] = [];
   for (const col of collections) {
-    if (col.titre !== group) continue;
+    if (col.title !== group) continue;
     for (const ex of col.items) {
       if (seen.has(ex.id)) continue;
       seen.add(ex.id);

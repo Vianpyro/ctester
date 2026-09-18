@@ -2,7 +2,7 @@
   import { profile } from "../lib/state/profile.svelte";
 </script>
 
-<div id="consentement" use:barPanel hidden={!profile.consentOpen}>
+<div id="consent" use:barPanel hidden={!profile.consentOpen}>
   <p>
     Te connecter fait conserver, sur le serveur de ce site&nbsp;: un identifiant de
     compte opaque (ni ton nom, ni ton courriel), le code que tu écris pour chaque
@@ -24,7 +24,7 @@
     <button type="button" id="consentok" onclick={() => profile.startSignIn()}>
       Continuer vers la connexion
     </button>
-    <button type="button" id="consentnon" class="nav" onclick={() => profile.cancelConsent()}>
+    <button type="button" id="consentno" class="nav" onclick={() => profile.cancelConsent()}>
       Annuler
     </button>
   </div>

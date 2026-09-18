@@ -58,17 +58,17 @@ export async function exportGroup(
   say("assemblage de " + group + "…");
   const sources = await gather(exercises);
   const built = build(exercises, sources, await author(), group);
-  if (built.vides.length === built.total) {
+  if (built.empty.length === built.total) {
     say("aucun code enregistré pour " + group + " : rien à exporter", true);
     return built;
   }
   try {
-    download("main.c", built.texte);
+    download("main.c", built.text);
   } catch {
     say("le téléchargement a échoué — copie ton code à la main", true);
     return built;
   }
-  const written = built.total - built.vides.length;
+  const written = built.total - built.empty.length;
   say(
     "main.c exporté — " +
       written +
@@ -76,7 +76,7 @@ export async function exportGroup(
       (written > 1 ? "s" : "") +
       " sur " +
       built.total +
-      (built.vides.length ? " (rien pour : " + built.vides.join(", ") + ")" : ""),
+      (built.empty.length ? " (rien pour : " + built.empty.join(", ") + ")" : ""),
   );
   return built;
 }

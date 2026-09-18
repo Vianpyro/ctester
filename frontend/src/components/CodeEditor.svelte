@@ -49,7 +49,7 @@
       {/each}
     </div>
     <span class="grow"></span>
-    <span id="sauvegarde" class={drafts.statusFailed ? "rate" : ""} aria-live="polite"
+    <span id="saving" class={drafts.statusFailed ? "failed" : ""} aria-live="polite"
       >{drafts.status}</span
     >
   </div>
