@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import re
 import sys
 import uuid
 
@@ -34,6 +35,33 @@ def count(table, user):
         (user,), read=True)
     assert rows is not None, "the database did not answer on " + table
     return rows[0][0]
+
+
+def upgrade_from_an_older_database():
+    """A database that already holds the tables must still gain the columns added since.
+
+    `CREATE TABLE IF NOT EXISTS` does nothing to a table that exists, so a column added
+    only inside the CREATE block reaches a fresh database and never an old one. Every
+    other check here starts from an empty database, which is exactly why that slipped
+    through until the dashboard stopped ingesting in production.
+    """
+    import psycopg
+    with open(os.path.join(ROOT, "app", "schema.sql"), encoding="utf-8") as fh:
+        sql = fh.read()
+    with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
+        cx.execute(sql)
+        # judge_run comme une base d'avant la colonne, puis on rejoue le schema.
+        cx.execute("ALTER TABLE judge_run DROP COLUMN IF EXISTS account")
+        cx.execute(sql)
+        presentes = {row[0] for row in cx.execute(
+            "SELECT column_name FROM information_schema.columns"
+            " WHERE table_name = 'judge_run'")}
+    manquantes = set(state.RUN_COLUMNS) - presentes
+    assert not manquantes, (
+        "judge_run: %s manque(nt) apres une mise a niveau. Une colonne ajoutee au"
+        " CREATE doit avoir son ALTER TABLE ... ADD COLUMN IF NOT EXISTS."
+        % ", ".join(sorted(manquantes)))
+    print("ok   schema.sql upgrades a database that already exists, not just a fresh one")
 
 
 def apply_schema():
@@ -185,6 +213,7 @@ def schema_migrates_a_roster_shaped_team_table():
                    " ('g04-e01', 'devoir', 'sub-hier', now())")
 
     apply_schema()
+    upgrade_from_an_older_database()
 
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
         ligne = cx.execute(

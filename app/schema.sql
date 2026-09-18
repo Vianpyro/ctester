@@ -218,6 +218,8 @@ CREATE TABLE IF NOT EXISTS team_submission (
 
 -- Repairs for databases created by earlier versions. Every statement must stay
 -- idempotent, and an index must come after the ALTER that adds its column.
+ALTER TABLE judge_run ADD COLUMN IF NOT EXISTS account TEXT NOT NULL DEFAULT '';
+
 ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS step         TEXT;
 ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS blocked_kind TEXT;
 ALTER TABLE forum_message ADD COLUMN IF NOT EXISTS visibility   TEXT NOT NULL
