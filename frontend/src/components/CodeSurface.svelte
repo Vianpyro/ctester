@@ -241,26 +241,26 @@
   </div>
 </div>
 {#if going !== null}
-  <div class="aller">
-    <label class="horsecran" for={idPrefix + "aller"}>Aller à la ligne</label>
+  <div class="goto">
+    <label class="offscreen" for={idPrefix + "goto"}>Aller à la ligne</label>
     <input
       bind:this={goField}
       bind:value={going}
-      id={idPrefix + "aller"}
+      id={idPrefix + "goto"}
       type="text"
       inputmode="numeric"
       placeholder="Aller à la ligne…"
       onkeydown={onGoKeydown}
       onblur={() => (going = null)}
     />
-    <span class="allerdit">Entrée pour y aller, Échap pour annuler</span>
+    <span class="gotohint">Entrée pour y aller, Échap pour annuler</span>
   </div>
 {/if}
 <div class="diags" aria-live="polite" hidden={issues.length === 0}>
   {#each issues as issue (issue.from + ":" + issue.message)}
     <button type="button" class={"diag " + issue.level} onclick={() => goTo(issue)}>
       <span class="diagline">ligne {rowColumn(value, issue.from).row + 1}</span>
-      <span class="diagtexte">{issue.message}</span>
+      <span class="diagtext">{issue.message}</span>
     </button>
   {/each}
 </div>

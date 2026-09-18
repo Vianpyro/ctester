@@ -1,165 +1,165 @@
 // No build step and no dependency: the dashboard is small enough to stay plain.
 
-import { connecter, demarrer, jetonValide, oublier } from "/auth.js";
+import { connect, start, validToken, forget } from "/auth.js";
 
 const $ = (id) => document.getElementById(id);
-const RAFRAICHIR = 5000;
+const REFRESH = 5000;
 
 // A verdict's colour says who should care. A student whose code does not compile
 // is the course working as intended, so it stays neutral; amber is a resource
 // limit, which can mean a badly calibrated exercise; red is the judge itself.
-const ETATS = {
+const STATES = {
   ok: "ok",
-  compile_error: "neutre",
-  link_error: "neutre",
-  forbidden_include: "neutre",
+  compile_error: "neutral",
+  link_error: "neutral",
+  forbidden_include: "neutral",
   compile_timeout: "attention",
   timeout: "attention",
   memory_error: "attention",
-  error: "alerte",
+  error: "alert",
   console: "console",
 };
 
-const classeEtat = (statut) => "etat-" + (ETATS[statut] || "neutre");
-const couleurEtat = (statut) => "var(--" + (ETATS[statut] || "neutre") + ")";
+const stateClass = (status) => "state-" + (STATES[status] || "neutral");
+const stateColor = (status) => "var(--" + (STATES[status] || "neutral") + ")";
 
-const deux = (n) => String(n).padStart(2, "0");
+const pad2 = (n) => String(n).padStart(2, "0");
 
-function horloge(iso) {
+function clock(iso) {
   const d = new Date(iso);
-  return deux(d.getHours()) + ":" + deux(d.getMinutes()) + ":" + deux(d.getSeconds());
+  return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
 }
 
-const texte = (v) => (v === null || v === undefined || v === "" ? "–" : String(v));
+const text = (v) => (v === null || v === undefined || v === "" ? "–" : String(v));
 
-function secondes(v) {
+function seconds(v) {
   if (typeof v !== "number") return "–";
   if (v >= 60) return Math.round(v / 60) + " min";
   return (v >= 10 ? Math.round(v) : v.toFixed(1)) + " s";
 }
 
-function duree(s) {
+function duration(s) {
   if (typeof s !== "number") return "–";
   if (s < 60) return Math.round(s) + " s";
   if (s < 3600) return Math.round(s / 60) + " min";
   return Math.round(s / 3600) + " h";
 }
 
-function el(tag, classe, contenu) {
+function el(tag, cls, content) {
   const node = document.createElement(tag);
-  if (classe) node.className = classe;
-  if (contenu !== undefined) node.textContent = contenu;
+  if (cls) node.className = cls;
+  if (content !== undefined) node.textContent = content;
   return node;
 }
 
-function vide(cible, message) {
-  cible.textContent = "";
-  cible.append(el("p", "vide", message));
+function showEmpty(target, message) {
+  target.textContent = "";
+  target.append(el("p", "empty", message));
 }
 
-// Reconstruire un panneau remet son defilement en haut : ne le faire que si les
-// donnees ont vraiment change, et remettre le lecteur ou il etait quand ca arrive.
-function rendre(cible, donnees, remplir) {
-  const signature = JSON.stringify(donnees);
-  if (cible.dataset.signature === signature) return;
-  const haut = cible.scrollTop;
-  remplir();
-  cible.dataset.signature = signature;
-  // ponytail: des lignes inserees en tete decalent ce que cette position montre ;
-  // s'ancrer sur un identifiant de ligne serait exact et nettement plus lourd.
-  cible.scrollTop = haut;
+// Rebuilding a panel scrolls it back to the top: only do it when the data really
+// changed, and put the reader back where they were when it happens.
+function render(target, data, fill) {
+  const signature = JSON.stringify(data);
+  if (target.dataset.signature === signature) return;
+  const top = target.scrollTop;
+  fill();
+  target.dataset.signature = signature;
+  // ponytail: rows inserted at the top shift what this position shows; anchoring
+  // on a row id would be exact and noticeably heavier.
+  target.scrollTop = top;
 }
 
 async function json(url) {
-  const porteur = await jetonValide();
-  if (!porteur) throw new Error("session expirée");
-  const reponse = await fetch(url, {
-    headers: { accept: "application/json", authorization: "Bearer " + porteur },
+  const bearer = await validToken();
+  if (!bearer) throw new Error("session expirée");
+  const response = await fetch(url, {
+    headers: { accept: "application/json", authorization: "Bearer " + bearer },
   });
-  // 401 : le jeton est mort malgre le renouvellement, il faut se reconnecter.
-  if (reponse.status === 401) {
-    oublier();
-    ecranConnexion("Session expirée.");
+  // 401: the token died despite the renewal, a new login is needed.
+  if (response.status === 401) {
+    forget();
+    loginScreen("Session expirée.");
     throw new Error("session expirée");
   }
-  if (reponse.status === 403) {
-    ecranConnexion("Ce compte n'est pas enseignant.");
+  if (response.status === 403) {
+    loginScreen("Ce compte n'est pas enseignant.");
     throw new Error("réservé à l'enseignant");
   }
-  if (reponse.status === 503) {
-    const dit = await reponse.json().catch(() => ({}));
-    ecranConnexion(dit.error || "Service indisponible.");
-    throw new Error(dit.error || "service indisponible");
+  if (response.status === 503) {
+    const said = await response.json().catch(() => ({}));
+    loginScreen(said.error || "Service indisponible.");
+    throw new Error(said.error || "service indisponible");
   }
-  if (!reponse.ok) throw new Error(reponse.status + " " + reponse.statusText);
-  return reponse.json();
+  if (!response.ok) throw new Error(response.status + " " + response.statusText);
+  return response.json();
 }
 
-let minuterie = null;
+let refreshTimer = null;
 
-function ecranConnexion(raison) {
-  if (minuterie) {
-    clearInterval(minuterie);
-    minuterie = null;
+function loginScreen(reason) {
+  if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
   }
-  document.body.classList.add("deconnecte");
-  $("connexion-raison").textContent = raison || "";
+  document.body.classList.add("loggedout");
+  $("login-reason").textContent = reason || "";
 }
 
 /* ---- vitals ------------------------------------------------------------ */
 
-function vital(cle, valeur, note, options = {}) {
+function vital(key, value, note, options = {}) {
   const node = el("div", "vital");
-  node.append(el("div", "cle", cle));
-  const v = el("div", "valeur" + (options.mono ? " mono" : "") + (options.alarme ? " alarme" : ""),
-               valeur);
+  node.append(el("div", "key", key));
+  const v = el("div", "value" + (options.mono ? " mono" : "") + (options.alarm ? " alarm" : ""),
+               value);
   node.append(v, el("div", "note", note || " "));
   return node;
 }
 
-function vitaux(data) {
-  const cible = $("vitaux");
-  rendre(cible, [data.queue, data.stats, data.release, data.windows],
-         () => remplirVitaux(cible, data));
+function vitals(data) {
+  const target = $("vitals");
+  render(target, [data.queue, data.stats, data.release, data.windows],
+         () => fillVitals(target, data));
 }
 
-function remplirVitaux(cible, data) {
-  cible.textContent = "";
+function fillVitals(target, data) {
+  target.textContent = "";
   const q = data.queue;
   const s = data.stats;
   const r = data.release;
 
   if (q) {
-    const attente = q.waiting === undefined ? q.pending : q.waiting;
-    cible.append(vital("En file", attente,
+    const waiting = q.waiting === undefined ? q.pending : q.waiting;
+    target.append(vital("En file", waiting,
       q.running ? q.running + " en cours de correction"
-        : (attente ? "plus ancien " + duree(q.oldest_s) : "rien en attente")));
-    cible.append(vital("Attente estimée", duree(q.eta_s),
+        : (waiting ? "plus ancien " + duration(q.oldest_s) : "rien en attente")));
+    target.append(vital("Attente estimée", duration(q.eta_s),
       q.pending ? "avant le dernier job" : "file libre"));
   }
   if (data.windows) {
     const n = data.windows.open;
-    cible.append(vital("Fenêtres", n === null || n === undefined ? "–" : n,
+    target.append(vital("Fenêtres", n === null || n === undefined ? "–" : n,
       n === null || n === undefined ? "API injoignable" : "ouvertes, connecté ou non"));
   }
   if (s) {
     const notes = s.graded === undefined ? s.total : s.graded;
-    const taux = notes ? Math.round((s.cache_hits / notes) * 100) : 0;
-    cible.append(vital("Runs 24 h", s.total,
+    const markFailed = notes ? Math.round((s.cache_hits / notes) * 100) : 0;
+    target.append(vital("Runs 24 h", s.total,
       s.total ? s.ok + " réussis" : "aucun run"));
-    cible.append(vital("Cache", taux + " %",
+    target.append(vital("Cache", markFailed + " %",
       s.cache_hits + " sans compiler, sur " + notes + " notés"));
-    cible.append(vital("Attente moyenne", secondes(s.average_wait_s), "avant un worker"));
-    cible.append(vital("Reprises", s.reprises,
+    target.append(vital("Attente moyenne", seconds(s.average_wait_s), "avant un worker"));
+    target.append(vital("Reprises", s.reprises,
       s.reprises ? "un worker a été interrompu" : "aucune interruption",
-      { alarme: s.reprises > 0 }));
+      { alarm: s.reprises > 0 }));
   }
   if (r) {
-    cible.append(vital("Révision", r.revision ? r.revision.slice(0, 10) : "–",
+    target.append(vital("Révision", r.revision ? r.revision.slice(0, 10) : "–",
       r.published_at
         ? new Date(r.published_at * 1000).toLocaleString("fr-CA",
             { dateStyle: "short", timeStyle: "short" })
-          + (r.exercises ? ", " + r.exercises + " exercices" : "")
+          + (r.exercises ? ", " + r.exercises + " exercises" : "")
         : "aucune release",
       { mono: true }));
   }
@@ -167,71 +167,71 @@ function remplirVitaux(cible, data) {
 
 /* ---- verdict distribution ---------------------------------------------- */
 
-function repartition(statuses) {
-  rendre($("legende"), statuses, () => remplirRepartition(statuses));
+function distribution(statuses) {
+  render($("legend"), statuses, () => fillDistribution(statuses));
 }
 
-function remplirRepartition(statuses) {
-  const jauge = $("jauge");
-  const legende = $("legende");
-  jauge.textContent = "";
-  legende.textContent = "";
-  const lignes = statuses || [];
-  const total = lignes.reduce((n, s) => n + s.count, 0);
+function fillDistribution(statuses) {
+  const gauge = $("gauge");
+  const legend = $("legend");
+  gauge.textContent = "";
+  legend.textContent = "";
+  const lines = statuses || [];
+  const total = lines.reduce((n, s) => n + s.count, 0);
   if (!total) {
-    legende.append(el("span", null, "Aucun verdict sur la période."));
+    legend.append(el("span", null, "Aucun verdict sur la période."));
     return;
   }
-  for (const s of lignes) {
+  for (const s of lines) {
     const part = el("span");
     part.style.width = (s.count / total) * 100 + "%";
-    part.style.background = couleurEtat(s.status);
+    part.style.background = stateColor(s.status);
     part.title = s.status + " : " + s.count;
-    jauge.append(part);
+    gauge.append(part);
 
     const item = el("span");
-    const puce = el("span", "puce");
-    puce.style.background = couleurEtat(s.status);
-    item.append(puce, document.createTextNode(s.status + " "), el("i", null, s.count));
-    legende.append(item);
+    const chip = el("span", "chip");
+    chip.style.background = stateColor(s.status);
+    item.append(chip, document.createTextNode(s.status + " "), el("i", null, s.count));
+    legend.append(item);
   }
 }
 
 /* ---- tables ------------------------------------------------------------ */
 
-function tableau(cible, colonnes, lignes, rendu, message) {
-  if (!lignes || lignes.length === 0) {
-    vide(cible, message);
+function fillTable(target, columns, lines, rendered, message) {
+  if (!lines || lines.length === 0) {
+    showEmpty(target, message);
     return;
   }
   const table = el("table");
   const colgroup = el("colgroup");
-  for (const col of colonnes) {
+  for (const col of columns) {
     const c = el("col");
-    if (col.largeur) c.style.width = col.largeur;
+    if (col.width) c.style.width = col.width;
     colgroup.append(c);
   }
   table.append(colgroup);
   const tr = el("tr");
-  for (const col of colonnes) {
-    tr.append(el("th", col.classe || null, col.titre));
+  for (const col of columns) {
+    tr.append(el("th", col.cls || null, col.title));
   }
   const thead = el("thead");
   thead.append(tr);
   const tbody = el("tbody");
-  for (const ligne of lignes) tbody.append(rendu(ligne));
+  for (const line of lines) tbody.append(rendered(line));
   table.append(thead, tbody);
-  cible.textContent = "";
-  cible.append(table);
+  target.textContent = "";
+  target.append(table);
 }
 
-// [texte, classe, infobulle] -- the third item carries what truncation hides.
-function cellules(valeurs) {
+// [text, class, tooltip] -- the third item carries what truncation hides.
+function cells(values) {
   const tr = el("tr");
-  for (const v of valeurs) {
-    const liste = Array.isArray(v) ? v : [v];
-    const td = el("td", liste[1] || null, liste[0]);
-    if (liste[2]) td.title = liste[2];
+  for (const v of values) {
+    const list = Array.isArray(v) ? v : [v];
+    const td = el("td", list[1] || null, list[0]);
+    if (list[2]) td.title = list[2];
     tr.append(td);
   }
   return tr;
@@ -239,51 +239,51 @@ function cellules(valeurs) {
 
 /* ---- panels ------------------------------------------------------------ */
 
-function workers(rows, configures) {
-  const cible = $("workers");
-  rendre(cible, [rows, configures], () => remplirWorkers(cible, rows, configures));
+function workers(rows, configured) {
+  const target = $("workers");
+  render(target, [rows, configured], () => fillWorkers(target, rows, configured));
 }
 
-function remplirWorkers(cible, rows, configures) {
+function fillWorkers(target, rows, configured) {
   const note = $("workers-note");
   if (!rows || rows.length === 0) {
-    note.textContent = configures ? "0 sur " + configures : "";
-    vide(cible, "Aucun run depuis 24 h.");
+    note.textContent = configured ? "0 sur " + configured : "";
+    showEmpty(target, "Aucun run depuis 24 h.");
     return;
   }
-  const vivants = rows.filter((w) => w.alive).length;
-  note.textContent = vivants + " actif" + (vivants > 1 ? "s" : "")
-    + (configures ? " sur " + configures : "");
-  cible.textContent = "";
-  const tries = [...rows].sort((a, b) =>
+  const alive = rows.filter((w) => w.alive).length;
+  note.textContent = alive + " actif" + (alive > 1 ? "s" : "")
+    + (configured ? " sur " + configured : "");
+  target.textContent = "";
+  const sorted = [...rows].sort((a, b) =>
     a.worker_id.localeCompare(b.worker_id, undefined, { numeric: true }));
-  for (const w of tries) {
-    const ligne = el("div", "ligne");
-    const point = el("span", w.alive ? "vivant" : "mort");
+  for (const w of sorted) {
+    const line = el("div", "line");
+    const point = el("span", w.alive ? "alive" : "dead");
     point.title = w.alive ? "a fini un run récemment" : "silencieux depuis 5 min";
-    const droite = el("div", "droite");
-    droite.append(el("b", null, w.runs), document.createTextNode(" runs, "
-      + secondes(w.average_s)));
-    ligne.append(point, el("span", "nom", "worker " + w.worker_id), droite);
-    if (w.failures) ligne.title = w.failures + " échec(s)";
-    cible.append(ligne);
+    const right = el("div", "right");
+    right.append(el("b", null, w.runs), document.createTextNode(" runs, "
+      + seconds(w.average_s)));
+    line.append(point, el("span", "name", "worker " + w.worker_id), right);
+    if (w.failures) line.title = w.failures + " échec(s)";
+    target.append(line);
   }
 }
 
-function usage(data, jours) {
-  const cible = $("usage");
-  rendre(cible, [data.usage, data.stats, jours], () => remplirUsage(cible, data, jours));
+function usage(data, days) {
+  const target = $("usage");
+  render(target, [data.usage, data.stats, days], () => fillUsage(target, data, days));
 }
 
-function remplirUsage(cible, data, jours) {
-  $("usage-note").textContent = jours === 1 ? "24 h" : jours + " jours";
+function fillUsage(target, data, days) {
+  $("usage-note").textContent = days === 1 ? "24 h" : days + " jours";
   if (!data.usage) {
-    vide(cible, "Base de données injoignable.");
+    showEmpty(target, "Base de données injoignable.");
     return;
   }
-  cible.textContent = "";
-  const grille = el("div", "usage");
-  const paires = [
+  target.textContent = "";
+  const grid = el("div", "usage");
+  const pairs = [
     ["Résolus", data.usage.solved],
     ["Comptes", data.usage.active_accounts],
     ["XP", data.usage.xp],
@@ -291,52 +291,52 @@ function remplirUsage(cible, data, jours) {
       ? Math.round((data.stats.ok / data.stats.graded) * 100) + " %"
       : "–"],
   ];
-  for (const [cle, valeur] of paires) {
-    const bloc = el("div");
-    bloc.append(el("div", "cle", cle), el("div", "valeur", valeur));
-    grille.append(bloc);
+  for (const [key, value] of pairs) {
+    const cell = el("div");
+    cell.append(el("div", "key", key), el("div", "value", value));
+    grid.append(cell);
   }
-  cible.append(grille);
+  target.append(grid);
 }
 
 function file(q) {
-  const cible = $("file");
-  rendre(cible, q, () => remplirFile(cible, q));
+  const target = $("queue");
+  render(target, q, () => fillQueue(target, q));
 }
 
-function remplirFile(cible, q) {
+function fillQueue(target, q) {
   const head = (q && q.head) || [];
-  $("file-note").textContent = q && q.pending
+  $("queue-note").textContent = q && q.pending
     ? q.pending + " en attente" : "";
-  tableau(cible,
-    [{ titre: "exercice" }, { titre: "attente", classe: "n", largeur: "4.5rem" }],
+  fillTable(target,
+    [{ title: "exercice" }, { title: "attente", cls: "n", width: "4.5rem" }],
     head,
     (j) => {
-      const tr = cellules([texte(j.exercise_id), [duree(j.waiting_s), "n"]]);
+      const tr = cells([text(j.exercise_id), [duration(j.waiting_s), "n"]]);
       tr.title = (j.signed_in ? "connecté" : "anonyme") + ", job " + j.job_id.slice(-8);
       return tr;
     },
     "Rien en attente.");
 }
 
-function exercices(rows, jours) {
-  rendre($("exercices"), [rows, jours], () => remplirExercices(rows, jours));
+function exercises(rows, days) {
+  render($("exercises"), [rows, days], () => fillExercises(rows, days));
 }
 
-function remplirExercices(rows, jours) {
-  $("exercices-note").textContent = jours === 1 ? "24 h" : jours + " jours";
-  tableau($("exercices"),
-    [{ titre: "exercice" }, { titre: "runs", classe: "n", largeur: "3.2rem" },
-     { titre: "échecs", classe: "n", largeur: "3.8rem" },
-     { titre: "moy.", classe: "n", largeur: "4.2rem" },
-     { titre: "p95", classe: "n", largeur: "4.2rem" }],
+function fillExercises(rows, days) {
+  $("exercises-note").textContent = days === 1 ? "24 h" : days + " jours";
+  fillTable($("exercises"),
+    [{ title: "exercice" }, { title: "runs", cls: "n", width: "3.2rem" },
+     { title: "échecs", cls: "n", width: "3.8rem" },
+     { title: "moy.", cls: "n", width: "4.2rem" },
+     { title: "p95", cls: "n", width: "4.2rem" }],
     rows,
-    (e) => cellules([
+    (e) => cells([
       [e.exercise_id || "–", null, e.exercise_id],
       [String(e.runs), "n"],
-      [String(e.failures), e.failures ? "n etat-alerte" : "n zero"],
-      [secondes(e.average_s), "n"],
-      [secondes(e.p95_s), "n"],
+      [String(e.failures), e.failures ? "n state-alert" : "n zero"],
+      [seconds(e.average_s), "n"],
+      [seconds(e.p95_s), "n"],
     ]),
     "Aucun run sur la période.");
 }
@@ -345,13 +345,13 @@ function remplirExercices(rows, jours) {
 
 const CHAT = "@chat:";
 
-function nomCanal(cle) {
-  if (cle === CHAT + "general") return "# général";
-  if (cle.startsWith(CHAT)) return "# " + cle.slice(CHAT.length);
-  return cle + " (privé)";
+function channelName(key) {
+  if (key === CHAT + "general") return "# général";
+  if (key.startsWith(CHAT)) return "# " + key.slice(CHAT.length);
+  return key + " (privé)";
 }
 
-function depuis(iso) {
+function since(iso) {
   const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
   if (minutes < 1) return "à l'instant";
   if (minutes < 60) return minutes + " min";
@@ -359,334 +359,351 @@ function depuis(iso) {
   return Math.round(minutes / 1440) + " j";
 }
 
-function canaux(rows, jours) {
-  rendre($("canaux"), [rows, jours], () => remplirCanaux(rows, jours));
+function channels(rows, days) {
+  render($("channels"), [rows, days], () => fillChannels(rows, days));
 }
 
-function remplirCanaux(rows, jours) {
-  $("canaux-note").textContent = jours === 1 ? "24 h" : jours + " jours";
-  tableau($("canaux"),
-    [{ titre: "canal" }, { titre: "msg", classe: "n", largeur: "3.2rem" },
-     { titre: "24 h", classe: "n", largeur: "3.2rem" },
-     { titre: "pers.", classe: "n", largeur: "3.6rem" },
-     { titre: "dernier", classe: "n", largeur: "5rem" }],
+function fillChannels(rows, days) {
+  $("channels-note").textContent = days === 1 ? "24 h" : days + " jours";
+  fillTable($("channels"),
+    [{ title: "canal" }, { title: "msg", cls: "n", width: "3.2rem" },
+     { title: "24 h", cls: "n", width: "3.2rem" },
+     { title: "pers.", cls: "n", width: "3.6rem" },
+     { title: "dernier", cls: "n", width: "5rem" }],
     rows,
-    (c) => cellules([
-      [nomCanal(c.thread), null, c.thread],
+    (c) => cells([
+      [channelName(c.thread), null, c.thread],
       [String(c.messages), "n"],
-      [String(c.recent), c.recent ? "n etat-attention" : "n zero"],
+      [String(c.recent), c.recent ? "n state-attention" : "n zero"],
       [String(c.people), "n"],
-      [depuis(c.last), "n", new Date(c.last).toLocaleString("fr-CA")],
+      [since(c.last), "n", new Date(c.last).toLocaleString("fr-CA")],
     ]),
     "Aucun message sur la période.");
 }
 
-function activite(data, jours) {
-  const cible = $("activite");
-  rendre(cible, [data.activity, jours], () => remplirActivite(cible, data, jours));
+function activity(data, days) {
+  const target = $("activity");
+  render(target, [data.activity, days], () => fillActivity(target, data, days));
 }
 
-function remplirActivite(cible, data, jours) {
-  const note = $("activite-note");
-  const bloc = data.activity;
-  if (!bloc || bloc.buckets.length === 0) {
+function fillActivity(target, data, days) {
+  const note = $("activity-note");
+  const cell = data.activity;
+  if (!cell || cell.buckets.length === 0) {
     note.textContent = "";
-    vide(cible, "Aucun run sur la période.");
+    showEmpty(target, "Aucun run sur la période.");
     return;
   }
-  const parHeure = bloc.unit === "hour";
-  note.textContent = parHeure ? "par heure" : "par jour";
+  const byHour = cell.unit === "hour";
+  note.textContent = byHour ? "par heure" : "par jour";
 
   // The axis is the chosen period, not the span that happens to hold data: a week
   // with one run must read as a quiet week, not as one busy day.
-  const pas = parHeure ? 3600e3 : 86400e3;
-  const vus = new Map(bloc.buckets.map((b) => [Math.floor(Date.parse(b.t) / pas), b]));
-  const fin = Math.floor(Date.now() / pas);
-  const debut = fin - (parHeure ? 24 : jours) + 1;
-  const suite = [];
-  for (let k = debut; k <= fin; k += 1) {
-    suite.push(vus.get(k) || { t: new Date(k * pas).toISOString(), runs: 0, failures: 0 });
+  const step = byHour ? 3600e3 : 86400e3;
+  const seen = new Map(cell.buckets.map((b) => [Math.floor(Date.parse(b.t) / step), b]));
+  const end = Math.floor(Date.now() / step);
+  const first = end - (byHour ? 24 : days) + 1;
+  const series = [];
+  for (let k = first; k <= end; k += 1) {
+    series.push(seen.get(k) || { t: new Date(k * step).toISOString(), runs: 0, failures: 0 });
   }
-  const sommet = Math.max(...suite.map((b) => b.runs), 1);
+  const peak = Math.max(...series.map((b) => b.runs), 1);
 
-  const histo = el("div", "histo");
+  const histogram = el("div", "histogram");
   // A term's worth of days needs thinner gutters than a day's worth of hours.
-  if (suite.length > 80) histo.style.gap = "1px";
-  for (const b of suite) {
-    const colonne = el("div", "colonne");
+  if (series.length > 80) histogram.style.gap = "1px";
+  for (const b of series) {
+    const column = el("div", "column");
     const date = new Date(b.t);
-    colonne.title = (parHeure
-      ? deux(date.getHours()) + " h"
+    column.title = (byHour
+      ? pad2(date.getHours()) + " h"
       : date.toLocaleDateString("fr-CA"))
       + " : " + b.runs + " run(s), " + b.failures + " échec(s)";
     if (!b.runs) {
-      colonne.append(el("span", "part creux"));
+      column.append(el("span", "part hollow"));
     } else {
-      const hauteur = (n) => "max(1px, " + (n / sommet) * 100 + "%)";
+      const barHeight = (n) => "max(1px, " + (n / peak) * 100 + "%)";
       if (b.failures) {
-        const rates = el("span", "part rate");
-        rates.style.height = hauteur(b.failures);
-        colonne.append(rates);
+        const failedBar = el("span", "part failed");
+        failedBar.style.height = barHeight(b.failures);
+        column.append(failedBar);
       }
       if (b.runs - b.failures) {
-        const reussis = el("span", "part reussi");
-        reussis.style.height = hauteur(b.runs - b.failures);
-        colonne.append(reussis);
+        const solved = el("span", "part solved");
+        solved.style.height = barHeight(b.runs - b.failures);
+        column.append(solved);
       }
     }
-    histo.append(colonne);
+    histogram.append(column);
   }
 
-  const axe = el("div", "axe");
-  const borne = (b) => {
+  const axis = el("div", "axis");
+  const edgeLabel = (b) => {
     const d = new Date(b.t);
-    return parHeure ? deux(d.getHours()) + " h"
+    return byHour ? pad2(d.getHours()) + " h"
       : d.toLocaleDateString("fr-CA", { month: "short", day: "numeric" });
   };
-  axe.append(el("span", null, borne(suite[0])),
-             el("span", null, "max " + sommet),
-             el("span", null, borne(suite[suite.length - 1])));
-  cible.textContent = "";
-  cible.append(histo, axe);
+  axis.append(el("span", null, edgeLabel(series[0])),
+             el("span", null, "max " + peak),
+             el("span", null, edgeLabel(series[series.length - 1])));
+  target.textContent = "";
+  target.append(histogram, axis);
 }
 
-let connus = null;
+let known = null;
 
 function runs(rows) {
-  const cible = $("runs");
+  const target = $("runs");
   if (rows === null || rows === undefined) {
-    rendre(cible, "panne", () => vide(cible,
+    render(target, "panne", () => showEmpty(target,
       "La base n'a pas répondu pour les runs. Si les autres panneaux sont remplis, "
       + "c'est que le schéma n'est pas à jour : applique app/schema.sql."));
     return;
   }
-  rendre(cible, rows, () => remplirRuns(cible, rows));
+  render(target, rows, () => fillRuns(target, rows));
 }
 
-function remplirRuns(cible, rows) {
-  tableau(cible,
-    [{ titre: "fini", classe: "mono", largeur: "5.9rem" },
-     { titre: "exercice", largeur: "11rem" }, { titre: "statut", largeur: "9rem" },
-     { titre: "mode", largeur: "4rem" },
-     { titre: "durée", classe: "n", largeur: "4.4rem" },
-     { titre: "attente", classe: "n", largeur: "4.8rem" },
-     { titre: "worker", classe: "n", largeur: "4rem" },
-     ...(revele() ? [{ titre: "auteur", largeur: "10rem" }] : []),
-     { titre: "code", largeur: "4rem" },
-     { titre: "job", classe: "mono" }],
+// Null when the run never reached the tests: a compilation error, a timeout.
+function testsCell(r) {
+  if (r.passed == null || r.total == null) return ["–", "n zero"];
+  const cls = r.passed === r.total ? "n state-ok" : "n state-neutral";
+  return [r.passed + "/" + r.total, cls];
+}
+
+// An anonymous run carries a hash of its browser's station id: the same tag means the
+// same browser, which tells two anonymous students apart.
+function authorCell(r) {
+  if (r.account) return [r.account, "count", r.account];
+  if (r.station) {
+    return ["anonyme · " + r.station, "count mono",
+      "aucun compte ; même étiquette = même navigateur"];
+  }
+  return ["anonyme", "count zero", "aucun compte"];
+}
+
+function fillRuns(target, rows) {
+  fillTable(target,
+    [{ title: "fini", cls: "mono", width: "5.9rem" },
+     { title: "exercice", width: "11rem" }, { title: "statut", width: "9rem" },
+     { title: "mode", width: "4rem" },
+     { title: "tests", cls: "n", width: "4rem" },
+     { title: "durée", cls: "n", width: "4.4rem" },
+     { title: "attente", cls: "n", width: "4.8rem" },
+     { title: "worker", cls: "n", width: "4rem" },
+     ...(revealed() ? [{ title: "auteur", width: "10rem" }] : []),
+     { title: "code", width: "4rem" },
+     { title: "job", cls: "mono" }],
     rows,
     (r) => {
-      const tr = cellules([
-        [horloge(r.finished_at), "mono"],
-        [texte(r.exercise_id), null, r.exercise_id],
-        [texte(r.status), classeEtat(r.status)],
-        [texte(r.kind), r.cache_hit ? "cache" : null,
+      const tr = cells([
+        [clock(r.finished_at), "mono"],
+        [text(r.exercise_id), null, r.exercise_id],
+        [text(r.status), stateClass(r.status)],
+        [text(r.kind), r.cache_hit ? "cache" : null,
          r.cache_hit ? "servi par le cache, sans compiler" : null],
-        [secondes(r.duration_s), "n"],
-        [secondes(r.queue_wait_s), "n"],
-        [texte(r.worker_id), "n mono"],
-        ...(revele()
-          ? [[r.account || "anonyme", r.account ? "compte" : "compte zero",
-              r.account || "aucun compte"]]
-          : []),
-        [r.exercise_id && !r.exercise_id.startsWith(":") ? "voir" : "–",
-         r.exercise_id && !r.exercise_id.startsWith(":") ? "voir" : "zero"],
+        testsCell(r),
+        [seconds(r.duration_s), "n"],
+        [seconds(r.queue_wait_s), "n"],
+        [text(r.worker_id), "n mono"],
+        ...(revealed() ? [authorCell(r)] : []),
+        [r.exercise_id && !r.exercise_id.startsWith(":") ? "show" : "–",
+         r.exercise_id && !r.exercise_id.startsWith(":") ? "show" : "zero"],
         [r.job_id, "mono", r.job_id],
       ]);
       if (r.exercise_id && !r.exercise_id.startsWith(":")) {
-        tr.cells[tr.cells.length - 2].addEventListener("click", () => void montrerCode(r));
+        tr.cells[tr.cells.length - 2].addEventListener("click", () => void showCode(r));
       }
-      if (connus && !connus.has(r.job_id)) tr.className = "neuf";
+      if (known && !known.has(r.job_id)) tr.className = "new";
       return tr;
     },
     "Aucun run enregistré.");
-  if (rows) connus = new Set(rows.map((r) => r.job_id));
+  if (rows) known = new Set(rows.map((r) => r.job_id));
 }
 
 /* ---- personal data ------------------------------------------------------ */
 
-const revele = () => $("reveler").checked;
+const revealed = () => $("reveal").checked;
 
-// Le compte n'est pas seulement cache : le serveur ne l'envoie que sur demande.
-function parametresRuns() {
+// The account is not merely hidden: the server only sends it on request.
+function runParams() {
   const params = new URLSearchParams({ limit: "150" });
-  if (revele()) params.set("reveal", "1");
-  const champs = { exercise: "f-exercice", status: "f-statut", worker: "f-worker" };
-  for (const [cle, id] of Object.entries(champs)) {
-    const valeur = $(id).value.trim();
-    if (valeur) params.set(cle, valeur);
+  if (revealed()) params.set("reveal", "1");
+  const fields = { exercise: "f-exercise", status: "f-status", worker: "f-worker" };
+  for (const [key, id] of Object.entries(fields)) {
+    const value = $(id).value.trim();
+    if (value) params.set(key, value);
   }
   return params;
 }
 
 const SOURCES = {
   run: "le code de ce run",
-  dernier: "dernier code soumis pour cet exercice",
+  last: "dernier code soumis pour cet exercice",
 };
 
-async function montrerCode(r) {
-  const boite = $("code");
-  $("code-titre").textContent = r.exercise_id;
+async function showCode(r) {
+  const box = $("code");
+  $("code-title").textContent = r.exercise_id;
   $("code-source").textContent = "chargement…";
-  $("code-corps").textContent = "";
-  boite.showModal();
+  $("code-body").textContent = "";
+  box.showModal();
   const params = new URLSearchParams({ job_id: r.job_id, exercise_id: r.exercise_id });
   if (r.account) params.set("account", r.account);
-  let bloc;
+  let cell;
   try {
-    bloc = await json("/api/code?" + params);
+    cell = await json("/api/code?" + params);
   } catch (err) {
     $("code-source").textContent = err.message;
     return;
   }
-  const noms = Object.keys(bloc.files || {});
-  if (!noms.length) {
-    // Le spool est balaye apres 600 s, et rien n'est garde pour un run jamais sonde.
+  const names = Object.keys(cell.files || {});
+  if (!names.length) {
+    // The spool is swept after 600 s, and nothing is kept for a run never polled.
     $("code-source").textContent = "plus disponible";
-    $("code-corps").append(el("p", "vide",
+    $("code-body").append(el("p", "empty",
       "Ce run est trop ancien pour le spool, et aucun code soumis n'est enregistré "
       + "pour ce compte sur cet exercice."));
     return;
   }
-  const quand = bloc.at ? new Date(bloc.at).toLocaleString("fr-CA") : "";
-  $("code-source").textContent = (SOURCES[bloc.source] || "") + (quand ? ", " + quand : "");
-  for (const nom of noms) {
-    $("code-corps").append(el("div", "fichier", nom));
-    // textContent, jamais innerHTML : ce texte vient d'un etudiant et cette page
-    // detient un jeton de moderateur.
-    $("code-corps").append(el("pre", null, bloc.files[nom]));
+  const when = cell.at ? new Date(cell.at).toLocaleString("fr-CA") : "";
+  $("code-source").textContent = (SOURCES[cell.source] || "") + (when ? ", " + when : "");
+  for (const name of names) {
+    $("code-body").append(el("div", "file", name));
+    // textContent, never innerHTML: this text comes from a student and this page
+    // holds a moderator token.
+    $("code-body").append(el("pre", null, cell.files[name]));
   }
 }
 
 /* ---- state line -------------------------------------------------------- */
 
-function etat(message, niveau) {
-  const ligne = $("etat");
-  $("etat-texte").textContent = message;
-  ligne.classList.toggle("casse", niveau === "casse");
-  ligne.classList.toggle("tiede", niveau === "tiede");
+function state(message, level) {
+  const line = $("state");
+  $("state-text").textContent = message;
+  line.classList.toggle("broken", level === "broken");
+  line.classList.toggle("warm", level === "warm");
 }
 
 /* ---- loading ----------------------------------------------------------- */
 
-function periode() {
-  const actif = document.querySelector('.periode button[aria-pressed="true"]');
-  return Number(actif ? actif.dataset.jours : 7);
+function period() {
+  const active = document.querySelector('.periode button[aria-pressed="true"]');
+  return Number(active ? active.dataset.days : 7);
 }
 
-// Une requete par lot a la fois. Le cout de /api/stats croit avec la periode, et sur
-// la plus longue une requete peut depasser le tick : le tableau ralentit alors a la
-// vitesse reelle de la base au lieu d'empiler des requetes.
-let enVol = { apercu: false, stats: false };
+// One request per batch at a time. The cost of /api/stats grows with the period, and
+// on the longest one a request can outlast the tick: the dashboard then slows to the
+// database's real speed instead of piling up requests.
+let inFlight = { preview: false, stats: false };
 
-async function rafraichir() {
-  if (enVol.apercu) return;
-  enVol.apercu = true;
+async function refresh() {
+  if (inFlight.preview) return;
+  inFlight.preview = true;
   try {
     const data = await json("/api/overview");
-    vitaux(data);
+    vitals(data);
     workers(data.workers, data.queue && data.queue.workers_configured);
     file(data.queue);
     const ingestion = data.ingestion;
     if (data.degraded) {
-      etat("Base injoignable, file et contenu seulement", "tiede");
+      state("Base injoignable, file et contenu seulement", "warm");
     } else if (ingestion && ingestion.ok === false) {
-      etat("Le journal ne s'ingère plus" + (ingestion.depuis
-        ? " depuis " + duree((Date.now() / 1000) - ingestion.depuis) : "")
-        + " — aucun nouveau run n'arrivera", "casse");
+      state("Le journal ne s'ingère plus" + (ingestion.since
+        ? " depuis " + duration((Date.now() / 1000) - ingestion.since) : "")
+        + " — aucun nouveau run n'arrivera", "broken");
     } else {
-      etat("À jour " + new Date().toLocaleTimeString("fr-CA"));
+      state("À jour " + new Date().toLocaleTimeString("fr-CA"));
     }
   } catch (err) {
-    etat("Rafraîchissement impossible : " + err.message, "casse");
+    state("Rafraîchissement impossible : " + err.message, "broken");
   }
   try {
-    await listeRuns();
+    await listRuns();
   } finally {
-    enVol.apercu = false;
+    inFlight.preview = false;
   }
 }
 
-async function statistiques() {
-  if (enVol.stats) return;
-  enVol.stats = true;
-  const jours = periode();
+async function statistics() {
+  if (inFlight.stats) return;
+  inFlight.stats = true;
+  const days = period();
   try {
-    const data = await json("/api/stats?days=" + jours);
-    repartition(data.statuses);
-    exercices(data.exercises, jours);
-    canaux(data.channels, jours);
-    activite(data, jours);
-    usage(data, jours);
+    const data = await json("/api/stats?days=" + days);
+    distribution(data.statuses);
+    exercises(data.exercises, days);
+    channels(data.channels, days);
+    activity(data, days);
+    usage(data, days);
   } catch (err) {
-    etat("Statistiques indisponibles : " + err.message, "casse");
+    state("Statistiques indisponibles : " + err.message, "broken");
   } finally {
-    enVol.stats = false;
+    inFlight.stats = false;
   }
 }
 
-async function listeRuns() {
+async function listRuns() {
   try {
-    const reponse = await json("/api/runs?" + parametresRuns());
-    runs(reponse.runs);
-    if (reponse.degraded) etat("Les runs ne remontent pas de la base", "tiede");
+    const response = await json("/api/runs?" + runParams());
+    runs(response.runs);
+    if (response.degraded) state("Les runs ne remontent pas de la base", "warm");
   } catch (err) {
-    etat("Runs indisponibles : " + err.message, "casse");
+    state("Runs indisponibles : " + err.message, "broken");
   }
 }
 
-for (const bouton of document.querySelectorAll(".periode button")) {
-  bouton.addEventListener("click", () => {
-    for (const autre of document.querySelectorAll(".periode button")) {
-      autre.removeAttribute("aria-pressed");
+for (const button of document.querySelectorAll(".period button")) {
+  button.addEventListener("click", () => {
+    for (const other of document.querySelectorAll(".period button")) {
+      other.removeAttribute("aria-pressed");
     }
-    bouton.setAttribute("aria-pressed", "true");
-    statistiques();
+    button.setAttribute("aria-pressed", "true");
+    statistics();
   });
 }
 
-for (const id of ["f-exercice", "f-statut", "f-worker"]) {
-  let minuteur;
+for (const id of ["f-exercise", "f-status", "f-worker"]) {
+  let resizeTimer;
   $(id).addEventListener("input", () => {
-    clearTimeout(minuteur);
-    minuteur = setTimeout(listeRuns, 250);
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(listRuns, 250);
   });
 }
 
-// Un seul tick pour tout : pendant un laboratoire on suit l'activite en direct, et la
-// periode selectionnee est alors « 24 h », ou les agregats sont triviaux.
-function tic() {
+// A single tick for everything: during a lab the activity is followed live, and the
+// selected period is then "24 h", where the aggregates are trivial.
+function tick() {
   if (document.hidden) return;
-  void rafraichir();
-  void statistiques();
+  void refresh();
+  void statistics();
 }
 
-// Un onglet en arriere-plan ne demande rien ; au retour on rafraichit tout de suite
-// plutot que d'attendre le prochain tick.
+// A background tab asks for nothing; on return it refreshes at once rather than
+// waiting for the next tick.
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) tic();
+  if (!document.hidden) tick();
 });
 
-$("reveler").addEventListener("change", () => {
-  // La signature change avec la colonne : le tableau doit se reconstruire.
+$("reveal").addEventListener("change", () => {
+  // The signature changes with the column: the table must be rebuilt.
   $("runs").dataset.signature = "";
-  void listeRuns();
+  void listRuns();
 });
 
-$("code-fermer").addEventListener("click", () => $("code").close());
+$("code-close").addEventListener("click", () => $("code").close());
 
-$("connexion-bouton").addEventListener("click", () => {
-  void connecter().catch((err) => ecranConnexion(err.message));
+$("login-button").addEventListener("click", () => {
+  void connect().catch((err) => loginScreen(err.message));
 });
 
-// La page se sert sans jeton ; c'est ici qu'on decide de montrer le tableau ou
-// l'ecran de connexion.
-demarrer().then((porteur) => {
-  if (!porteur) {
-    ecranConnexion("");
+// The page is served without a token; this is where the dashboard or the login
+// screen is chosen.
+start().then((bearer) => {
+  if (!bearer) {
+    loginScreen("");
     return;
   }
-  document.body.classList.remove("deconnecte");
-  tic();
-  minuterie = setInterval(tic, RAFRAICHIR);
-}, (err) => ecranConnexion(err.message));
+  document.body.classList.remove("loggedout");
+  tick();
+  refreshTimer = setInterval(tick, REFRESH);
+}, (err) => loginScreen(err.message));

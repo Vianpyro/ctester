@@ -44,7 +44,16 @@ IFS=$old_ifs
 
 if [ -n "$any_repo" ]; then
     head="$head$(date +%F)"
-    if [ "$head" = "$(cat "$stamp" 2>/dev/null || true)" ]; then
+    # Access is frozen into catalog.json, so an opening that has passed needs a republish
+    # even when no commit changed.
+    due=$(python3 -c 'import datetime as d, json, sys
+try:
+    n = json.load(open(sys.argv[1])).get("next_release")
+except (OSError, ValueError, AttributeError):
+    n = None
+print("yes" if n and d.datetime.fromisoformat(n) <= d.datetime.now(d.timezone.utc) else "")' \
+        "$published/current.json")
+    if [ -z "$due" ] && [ "$head" = "$(cat "$stamp" 2>/dev/null || true)" ]; then
         exit 0
     fi
 fi

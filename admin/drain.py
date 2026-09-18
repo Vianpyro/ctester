@@ -18,9 +18,9 @@ from journal import LINES_MAX, READ_MAX, parse_journal
 PATTERN = "runs-*.jsonl"
 EVERY = 30
 
-# Le dernier resultat du drain, lu par /api/overview. Une ingestion arretee doit
-# se voir : sinon le tableau se fige sans que rien ne l'annonce.
-etat = {"ok": True, "depuis": None, "ingerees": 0}
+# The drain's last result, read by /api/overview. A stalled ingestion must show:
+# otherwise the dashboard freezes with nothing to say so.
+health = {"ok": True, "since": None, "ingested": 0}
 
 
 def journal_files():
@@ -82,24 +82,24 @@ def _rows(records):
 def run_forever(every=EVERY):
     while True:
         try:
-            _noter(drain_once())
+            _record(drain_once())
         except Exception as exc:  # noqa: BLE001 -- a bad line must not stop the loop
-            _noter(None, repr(exc))
+            _record(None, repr(exc))
         time.sleep(every)
 
 
-def _noter(stockees, exception=""):
-    """Un passage qui echoue se signale une fois, pas a chaque tick."""
-    if stockees is None:
-        if etat["ok"]:
-            print("admin: le journal ne s'ingere plus" + (" : " + exception if exception
-                  else " (la base a refusé l'écriture ; schéma à jour ?)"), flush=True)
-            etat.update(ok=False, depuis=time.time())
+def _record(stored, exception=""):
+    """A failing pass is reported once, not on every tick."""
+    if stored is None:
+        if health["ok"]:
+            print("admin: the journal is no longer ingested" + (": " + exception if exception
+                  else " (the database refused the write; is the schema up to date?)"), flush=True)
+            health.update(ok=False, since=time.time())
         return
-    if not etat["ok"]:
-        print("admin: ingestion du journal rétablie", flush=True)
-    etat.update(ok=True, depuis=None)
-    etat["ingerees"] += stockees
+    if not health["ok"]:
+        print("admin: journal ingestion restored", flush=True)
+    health.update(ok=True, since=None)
+    health["ingested"] += stored
 
 
 def start():

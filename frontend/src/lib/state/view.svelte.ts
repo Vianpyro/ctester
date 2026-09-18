@@ -1,6 +1,6 @@
 export type ViewName =
   | ""
-  | "progres"
+  | "progress"
   | "forum"
   | "moderation"
   | "leaderboard"

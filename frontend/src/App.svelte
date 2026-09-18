@@ -3,7 +3,7 @@
   import { MISSING_KEY_MESSAGE, captureAccessKey, sessionKey } from "./lib/state/accesskey";
   import { catalog } from "./lib/state/catalog.svelte";
   import { dock } from "./lib/state/dock.svelte";
-  import { dernierExercice, exercise } from "./lib/state/exercise.svelte";
+  import { lastExercise, exercise } from "./lib/state/exercise.svelte";
   import { presence } from "./lib/state/presence.svelte";
   import { profile } from "./lib/state/profile.svelte";
   import { statuses } from "./lib/state/statuses.svelte";
@@ -55,15 +55,15 @@
     }
   }
 
-  async function openDestination(name: "progres" | "leaderboard" | "collection" | "scratch") {
+  async function openDestination(name: "progress" | "leaderboard" | "collection" | "scratch") {
     if (view.current === name) {
       view.show("");
       return;
     }
-    if (name === "progres") {
-      const mod = await bring("« Mes progrès »", () => import("./features/progres/Progress.svelte"));
+    if (name === "progress") {
+      const mod = await bring("« Mes progrès »", () => import("./features/progress/Progress.svelte"));
       if (!mod) return;
-      const { projection } = await import("./features/progres/projection.svelte");
+      const { projection } = await import("./features/progress/projection.svelte");
       await projection.load();
       Progress = mod.default as Component;
     } else if (name === "leaderboard") {
@@ -133,7 +133,7 @@
   });
 
   async function start(deepLink: string, authCode: string | null, authState: string | null) {
-    const toOpen = await catalog.load(deepLink, dernierExercice());
+    const toOpen = await catalog.load(deepLink, lastExercise());
     if (catalog.spotlighted) menuOpen = true;
     if (toOpen) await exercise.open(toOpen);
     else if (catalog.collections.length) menuOpen = true;
@@ -224,12 +224,12 @@
       !!active &&
       (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
 
-    if (helpOpen) return close(event, () => (helpOpen = false), "raccourcisbouton");
+    if (helpOpen) return close(event, () => (helpOpen = false), "shortcutsbutton");
     if (profile.identityOpen && !typing) {
       return close(event, () => (profile.identityOpen = false), "plate");
     }
-    if (profile.consentOpen) return close(event, () => profile.cancelConsent(), "connexion");
-    if (menuOpen) return close(event, () => ((menuOpen = false), (focusSearch = false)), "excourant");
+    if (profile.consentOpen) return close(event, () => profile.cancelConsent(), "login");
+    if (menuOpen) return close(event, () => ((menuOpen = false), (focusSearch = false)), "excurrent");
     if (profile.menuOpen) return close(event, () => (profile.menuOpen = false), "plate");
 
     if (view.current !== "" || typing) return;
@@ -279,18 +279,18 @@
 {/if}
 
 <main>
-  <div id="systeme" class={system.failed ? "panne" : ""} hidden={!system.text}>{system.text}</div>
+  <div id="system" class={system.failed ? "outage" : ""} hidden={!system.text}>{system.text}</div>
 
-  <div id="travail" class={dock.open ? "avecchat" : ""} hidden={!showWorkbench}>
+  <div id="work" class={dock.open ? "withchat" : ""} hidden={!showWorkbench}>
     <Statement />
 
-    <div id="droite">
+    <div id="right">
       <div id="now" class="phead" aria-live="polite">
         {#if here}
           <b>{here.label}</b>
           <span class="badge">{EXPECTED[here.mode] ?? ""}</span>
           {#if here.verification}
-            <span class="badge verif">vérification — sans XP</span>
+            <span class="badge verification">vérification — sans XP</span>
           {/if}
         {/if}
       </div>
@@ -318,8 +318,8 @@
     </aside>
   </div>
 
-  <section id="vueprogres" aria-labelledby="progrestitre" hidden={view.current !== "progres"}>
-    {#if Progress && view.current === "progres"}<Progress />{/if}
+  <section id="viewprogress" aria-labelledby="progresstitle" hidden={view.current !== "progress"}>
+    {#if Progress && view.current === "progress"}<Progress />{/if}
   </section>
   <section
     id="viewleaderboard"
@@ -338,16 +338,16 @@
   <section id="viewscratch" aria-labelledby="scratchtitle" hidden={view.current !== "scratch"}>
     {#if ConsoleView && view.current === "scratch"}<ConsoleView />{/if}
   </section>
-  <section id="vueforum" aria-labelledby="forumtitre" hidden={view.current !== "forum"}>
+  <section id="viewforum" aria-labelledby="forumtitle" hidden={view.current !== "forum"}>
     {#if ForumView && view.current === "forum"}<ForumView />{/if}
   </section>
   <section
-    id="vuemoderation"
-    aria-labelledby="moderationtitre"
+    id="viewmoderation"
+    aria-labelledby="moderationtitle"
     hidden={view.current !== "moderation"}
   >
     {#if ModerationView && view.current === "moderation"}<ModerationView />{/if}
   </section>
 
-  <div id="annonce" role="status" class="horsecran">{system.announcement}</div>
+  <div id="notice" role="status" class="offscreen">{system.announcement}</div>
 </main>

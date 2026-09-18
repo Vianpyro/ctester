@@ -1,4 +1,4 @@
-<script lang="ts" module>  export const CHARTER_SEEN = "ctester.charte";
+<script lang="ts" module>  export const CHARTER_SEEN = "ctester.charter";
 
   export const CHARTER = [
     "Entraide conceptuelle : une question, une idée, ce que tu observes, ce que tu as déjà essayé.",
@@ -20,9 +20,9 @@
   const { onAccept, onCancel }: Props = $props();
 </script>
 
-<div id="charte" use:barPanel>
+<div id="charter" use:barPanel>
   <h2>Avant de publier</h2>
-  <ul class="regles">
+  <ul class="rules">
     {#each CHARTER as rule}<li>{rule}</li>{/each}
   </ul>
   <p>

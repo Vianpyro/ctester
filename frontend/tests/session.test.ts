@@ -166,7 +166,7 @@ describe("renew", () => {
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     await renew();
     apiStatuses = [200];
-    await authRequest("etats");
+    await authRequest("states");
     const leaked = calls.filter(
       (c) => c.url !== TOKEN_ENDPOINT && (c.body.includes("refresh-1") || JSON.stringify(c.headers).includes("refresh-1")),
     );
@@ -214,45 +214,45 @@ describe("renew", () => {
 describe("authRequest", () => {
   it("carries the ACCESS token as a bearer header", async () => {
     apiStatuses = [200];
-    await authRequest("etats");
-    const call = calls.find((c) => c.url.endsWith("etats"))!;
+    await authRequest("states");
+    const call = calls.find((c) => c.url.endsWith("states"))!;
     expect(call.headers.Authorization).toBe("Bearer jeton-1");
   });
 
   it("renews once and retries once on a 401", async () => {
     apiStatuses = [401, 200];
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
-    const answer = await authRequest("etats");
+    const answer = await authRequest("states");
     expect(answer.ok).toBe(true);
-    expect(calls.filter((c) => c.url.endsWith("etats"))).toHaveLength(2);
+    expect(calls.filter((c) => c.url.endsWith("states"))).toHaveLength(2);
     expect(session.token).toBe("jeton-2");
   });
 
   it("signs out on a SECOND 401, rather than spinning", async () => {
     apiStatuses = [401, 401];
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
-    await authRequest("etats");
+    await authRequest("states");
     expect(session.token).toBeNull();
   });
 
   it("signs out when the renewal after a 401 is refused", async () => {
     apiStatuses = [401];
     grants = [null];
-    await authRequest("etats");
+    await authRequest("states");
     expect(session.token).toBeNull();
   });
 
   it("reports a dead network as status 0 rather than throwing", async () => {
     vi.stubGlobal("fetch", () => Promise.reject(new Error("hors ligne")));
-    const answer = await authRequest("etats");
+    const answer = await authRequest("states");
     expect(answer).toEqual({ ok: false, status: 0, body: null });
   });
 
   it("does not even leave without a session", async () => {
     session.setToken(null);
-    const answer = await authRequest("etats");
+    const answer = await authRequest("states");
     expect(answer.status).toBe(401);
-    expect(calls.filter((c) => c.url.endsWith("etats"))).toHaveLength(0);
+    expect(calls.filter((c) => c.url.endsWith("states"))).toHaveLength(0);
   });
 });
 

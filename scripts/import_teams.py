@@ -22,29 +22,29 @@ def read_roster(path):
     with open(path, newline="", encoding="utf-8-sig") as fh:
         for line, row in enumerate(csv.DictReader(fh), 2):
             account = (row.get("account") or "").strip()
-            groupe = (row.get("group_number") or "").strip()
-            numero = (row.get("number") or "").strip()
+            group = (row.get("group_number") or "").strip()
+            number = (row.get("number") or "").strip()
             if not account:
                 errors.append("line %d: account is required" % line)
                 continue
-            if not groupe.isdigit() or not 1 <= int(groupe) <= 99:
+            if not group.isdigit() or not 1 <= int(group) <= 99:
                 errors.append("line %d: group_number must be 1..99" % line)
                 continue
-            if not numero.isdigit() or not 1 <= int(numero) <= 99:
+            if not number.isdigit() or not 1 <= int(number) <= 99:
                 errors.append("line %d: number must be 1..99" % line)
                 continue
             if len(account) > 128:
                 errors.append("line %d: account is too long to be a `sub`" % line)
                 continue
-            rows.append((int(groupe), int(numero), account))
+            rows.append((int(group), int(number), account))
     if not rows:
         errors.append("the roster is empty")
     seen = {}
-    for groupe, numero, account in rows:
-        equipe = team_handle(groupe, numero)
-        if seen.setdefault(account, equipe) != equipe:
+    for group, number, account in rows:
+        team = team_handle(group, number)
+        if seen.setdefault(account, team) != team:
             errors.append("%s appears on two teams (%s and %s)"
-                          % (account[:12] + "\u2026", seen[account], equipe))
+                          % (account[:12] + "\u2026", seen[account], team))
     if errors:
         raise SystemExit("roster refused, nothing was written:\n- "
                          + "\n- ".join(errors))
@@ -53,63 +53,63 @@ def read_roster(path):
 
 def sizes(rows):
     return dict(collections.Counter(
-        team_handle(groupe, numero) for groupe, numero, _ in rows))
+        team_handle(group, number) for group, number, _ in rows))
 
 
 def statements(rows, assignment_id):
-    equipes = {}
-    for groupe, numero, _account in rows:
-        equipes[team_handle(groupe, numero)] = (groupe, numero)
+    teams = {}
+    for group, number, _account in rows:
+        teams[team_handle(group, number)] = (group, number)
     sql = []
-    for team_id, (groupe, numero) in sorted(equipes.items()):
+    for team_id, (group, number) in sorted(teams.items()):
         sql.append((
             "INSERT INTO team"
             "   (team_id, assignment_id, group_number, number, label)"
             " VALUES (%s, %s, %s, %s, %s)"
             " ON CONFLICT (team_id, assignment_id) DO NOTHING",
-            (team_id, assignment_id, groupe, numero, TEAM_NAME % numero)))
+            (team_id, assignment_id, group, number, TEAM_NAME % number)))
     sql.append((
         "DELETE FROM team_member"
         " WHERE assignment_id = %s AND account <> ALL(%s)",
         (assignment_id, [account for _, _, account in rows])))
-    for groupe, numero, account in rows:
+    for group, number, account in rows:
         sql.append((
             "INSERT INTO team_member (team_id, assignment_id, account)"
             " VALUES (%s, %s, %s)"
             " ON CONFLICT (assignment_id, account) DO UPDATE SET"
             "   team_id = EXCLUDED.team_id",
-            (team_handle(groupe, numero), assignment_id, account)))
+            (team_handle(group, number), assignment_id, account)))
     return sql
 
 
-def _litteral(valeur):
-    if valeur is None:
+def _literal(value):
+    if value is None:
         return "NULL"
-    if isinstance(valeur, bool):
-        raise ValueError("un booleen n'a rien a faire dans ce listage")
-    if isinstance(valeur, int):
-        return str(valeur)
-    if isinstance(valeur, list):
-        return "ARRAY[" + ", ".join(_litteral(v) for v in valeur) + "]::text[]"
-    return "'" + str(valeur).replace("'", "''") + "'"
+    if isinstance(value, bool):
+        raise ValueError("a boolean has no place in this roster")
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, list):
+        return "ARRAY[" + ", ".join(_literal(v) for v in value) + "]::text[]"
+    return "'" + str(value).replace("'", "''") + "'"
 
 
 def to_sql(rows, assignment_id):
     # For the Dell, whose host Python has no psycopg: pipe the output into psql.
-    lignes = ["BEGIN;"]
+    lines = ["BEGIN;"]
     for sql, params in statements(rows, assignment_id):
-        rendu = sql
-        for valeur in params:
-            rendu = rendu.replace("%s", _litteral(valeur), 1)
-        lignes.append(rendu + ";")
-    lignes.append("COMMIT;")
-    return "\n".join(lignes) + "\n"
+        rendered = sql
+        for value in params:
+            rendered = rendered.replace("%s", _literal(value), 1)
+        lines.append(rendered + ";")
+    lines.append("COMMIT;")
+    return "\n".join(lines) + "\n"
 
 
 def load(rows, assignment_id, dsn, dry_run=False):
     import psycopg
 
-    equipes = {team_handle(groupe, numero) for groupe, numero, _ in rows}
+    teams = {team_handle(group, number) for group, number, _ in rows}
     removed = 0
     with psycopg.connect(dsn) as cx:
         with cx.cursor() as cur:
@@ -119,7 +119,7 @@ def load(rows, assignment_id, dsn, dry_run=False):
                     removed = cur.rowcount
             if dry_run:
                 cx.rollback()
-    return len(equipes), len(rows), removed
+    return len(teams), len(rows), removed
 
 
 def main(argv=None):

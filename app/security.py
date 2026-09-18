@@ -120,5 +120,13 @@ def client_id(headers, peer, station=None):
     return address
 
 
+def station_tag(station):
+    """A short, stable pseudonym for an anonymous browser's random station id, so the
+    admin can tell anonymous submitters apart without storing the id itself."""
+    if not isinstance(station, str) or not station:
+        return None
+    return hashlib.sha256(("station:" + station[:64]).encode()).hexdigest()[:8]
+
+
 def is_moderator(sub):
     return bool(sub) and sub in config.FORUM_MODERATORS

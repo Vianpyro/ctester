@@ -31,7 +31,7 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
   if (url === "catalog.json") {
     return Promise.resolve(new Response(JSON.stringify(RELEASE), { status: 200 }));
   }
-  const id = url.slice("tp/".length, -".json".length);
+  const id = url.slice("exercise/".length, -".json".length);
   const body = JSON.stringify({
     statement: silent.has(id) ? "" : "Consigne de " + id,
     files: [{ name: "submission.c", template: "// gabarit " + id }],

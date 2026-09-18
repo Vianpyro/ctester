@@ -33,7 +33,7 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
   if (url === "catalog.json") {
     return Promise.resolve(new Response(JSON.stringify(RELEASE), { status: 200 }));
   }
-  if (url.startsWith("tp/")) {
+  if (url.startsWith("exercise/")) {
     return Promise.resolve(new Response(JSON.stringify(DETAIL), { status: 200 }));
   }
   if (url === "oidc.json") {
@@ -78,9 +78,9 @@ async function render() {
 describe("a Typst statement, all the way to the page", () => {
   it("draws the pages as images instead of rendered Markdown", async () => {
     await render();
-    const panneau = document.getElementById("consignetexte")!;
-    expect(panneau.classList.contains("md")).toBe(false);
-    const images = [...panneau.querySelectorAll("img")];
+    const panel = document.getElementById("statementtext")!;
+    expect(panel.classList.contains("md")).toBe(false);
+    const images = [...panel.querySelectorAll("img")];
     expect(images).toHaveLength(2);
     expect(images.map((img) => img.getAttribute("src"))).toEqual([
       "statement/tp2-ex1/dark-1.svg",
@@ -90,10 +90,10 @@ describe("a Typst statement, all the way to the page", () => {
 
   it("keeps the workspace grid at exactly three columns", async () => {
     await render();
-    const travail = document.getElementById("travail")!;
+    const travail = document.getElementById("work")!;
     expect([...travail.children].map((el) => el.id)).toEqual([
-      "consigne",
-      "droite",
+      "statement",
+      "right",
       "chatdock",
     ]);
   });
@@ -107,9 +107,9 @@ describe("a Typst statement, all the way to the page", () => {
 
   it("emits no request for the pages: an <img> is the browser's business", async () => {
     await render();
-    const kinds = new Set(asked.map((u) => u.split("?")[0]!.replace(/^tp\/.*/, "tp/")));
+    const kinds = new Set(asked.map((u) => u.split("?")[0]!.replace(/^exercise\/.*/, "exercise/")));
     for (const kind of kinds) {
-      expect(["catalog.json", "live", "oidc.json", "tp/"], kind).toContain(kind);
+      expect(["catalog.json", "live", "oidc.json", "exercise/"], kind).toContain(kind);
     }
     expect(asked.some((u) => u.includes(".svg"))).toBe(false);
   });

@@ -22,68 +22,68 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     try:
-        genre, _ = typst_build.statement_of(args.exercise)
+        kind, _ = typst_build.statement_of(args.exercise)
     except typst_build.TypstError as exc:
         print("%s: %s" % (args.exercise, exc), file=sys.stderr)
         return 1
-    if genre != "typ":
-        print("%s porte un statement.md : il n'y a rien à compiler, la page le "
-              "rend elle-même." % args.exercise, file=sys.stderr)
+    if kind != "typ":
+        print("%s has a statement.md: there is nothing to compile, the page "
+              "renders it itself." % args.exercise, file=sys.stderr)
         return 1
 
-    sortie = args.out or tempfile.mkdtemp(prefix="ctester-apercu-")
-    os.makedirs(sortie, exist_ok=True)
+    output = args.out or tempfile.mkdtemp(prefix="ctester-preview-")
+    os.makedirs(output, exist_ok=True)
     themes = typst_build.THEMES if args.theme == "both" else (args.theme,)
 
     if args.png:
-        return _png(args.exercise, sortie, themes)
+        return _png(args.exercise, output, themes)
 
     try:
-        rendu, du_cache = typst_build.render(args.exercise,
+        rendered, cached = typst_build.render(args.exercise,
                                              os.path.basename(os.path.abspath(args.exercise)))
     except typst_build.TypstError as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    ecrits = []
+    written = []
     for theme in themes:
-        for numero, octets in enumerate(rendu[theme], 1):
-            chemin = os.path.join(sortie, "%s-%d.svg" % (theme, numero))
-            with open(chemin, "wb") as fh:
-                fh.write(octets)
-            ecrits.append(chemin)
-    if rendu.get("html"):
-        chemin = os.path.join(sortie, "statement.html")
-        with open(chemin, "wb") as fh:
-            fh.write(rendu["html"])
-        ecrits.append(chemin)
-    print("%d page(s) par thème%s" % (len(rendu[themes[0]]),
-                                      " (depuis le cache)" if du_cache else ""))
-    for chemin in ecrits:
-        print("  " + chemin)
+        for number, data in enumerate(rendered[theme], 1):
+            path = os.path.join(output, "%s-%d.svg" % (theme, number))
+            with open(path, "wb") as fh:
+                fh.write(data)
+            written.append(path)
+    if rendered.get("html"):
+        path = os.path.join(output, "statement.html")
+        with open(path, "wb") as fh:
+            fh.write(rendered["html"])
+        written.append(path)
+    print("%d page(s) per theme%s" % (len(rendered[themes[0]]),
+                                      " (from the cache)" if cached else ""))
+    for path in written:
+        print("  " + path)
     return 0
 
 
-def _png(exercise, sortie, themes):
-    travail = tempfile.mkdtemp(prefix="ctester-typst-")
+def _png(exercise, output, themes):
+    workdir = tempfile.mkdtemp(prefix="ctester-typst-")
     try:
-        typst_build._preparer(exercise, travail)
+        typst_build._prepare(exercise, workdir)
         for theme in themes:
-            argv, env, cwd = typst_build._argv(travail, theme)
+            argv, env, cwd = typst_build._argv(workdir, theme)
             argv = [a.replace("svg", "png") if a in ("svg", theme + "-{p}.svg") else a
                     for a in argv]
             argv += ["--ppi", "200"]
-            fin = subprocess.run(argv, capture_output=True, text=True,
+            done = subprocess.run(argv, capture_output=True, text=True,
                                  timeout=typst_build.TIMEOUT, env=env, cwd=cwd)
-            if fin.returncode != 0:
-                print((fin.stderr or fin.stdout).strip(), file=sys.stderr)
+            if done.returncode != 0:
+                print((done.stderr or done.stdout).strip(), file=sys.stderr)
                 return 1
-        for nom in sorted(os.listdir(travail)):
-            if nom.endswith(".png"):
-                shutil.copy2(os.path.join(travail, nom), os.path.join(sortie, nom))
-                print("  " + os.path.join(sortie, nom))
+        for name in sorted(os.listdir(workdir)):
+            if name.endswith(".png"):
+                shutil.copy2(os.path.join(workdir, name), os.path.join(output, name))
+                print("  " + os.path.join(output, name))
         return 0
     finally:
-        shutil.rmtree(travail, ignore_errors=True)
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 if __name__ == "__main__":

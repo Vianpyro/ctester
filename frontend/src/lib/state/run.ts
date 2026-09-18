@@ -8,7 +8,7 @@ import { MISSING_KEY_MESSAGE, sessionKey } from "./accesskey";
 
 export async function afterVerdict(): Promise<void> {
   await statuses.load();
-  const progress = await import("../../features/progres/projection.svelte").catch(() => null);
+  const progress = await import("../../features/progress/projection.svelte").catch(() => null);
   await progress?.projection.refreshIfOpen();
 }
 

@@ -282,7 +282,7 @@ def delete_message(sub: SubForum, id: str = Query("")):
     return {"ok": True}
 
 
-@router.post("/forum/signalement")
+@router.post("/forum/report")
 def report(sub: SubForum, body: ForumReportIn):
     message_id = _message_id(body.id)
     if message_id is None:
@@ -367,7 +367,7 @@ def _clear_name(message_id):
     return {"ok": True}
 
 
-@router.get("/forum/profil")
+@router.get("/forum/profile")
 def get_profile(sub: SubForum, request: Request):
     profile = state.forum_profile(sub)
     if profile is None:
@@ -381,7 +381,7 @@ def get_profile(sub: SubForum, request: Request):
                             else security.current_name(request.headers)))
 
 
-@router.post("/forum/profil")
+@router.post("/forum/profile")
 def put_profile(sub: SubForum, body: ForumProfileIn):
     display_name, message = forum_service.forum_display_name(body.display_name)
     if message:

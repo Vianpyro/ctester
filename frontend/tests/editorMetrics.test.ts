@@ -19,21 +19,21 @@ function prop(ruleBody: string, name: string): string {
   return match![1]!.trim().replace(/\s+/g, " ");
 }
 
-describe("le contrat métrique de l'éditeur", () => {
+describe("the editor's metric contract", () => {
   const gutter = body(".gutter");
   const overlay = body(".hl, .codein");
 
-  it("donne à la gouttière et à la superposition LE MÊME raccourci `font`", () => {
+  it("gives the gutter and the overlay THE SAME `font` shorthand", () => {
     expect(prop(gutter, "font")).toBe(prop(overlay, "font"));
   });
 
-  it("garde ce `font` en RACCOURCI, avec sa fente line-height et sa pile littérale", () => {
-    const attendu = /^400 \d+(?:\.\d+)?px\/1\.5 ui-monospace, SFMono-Regular, Consolas, monospace$/;
-    expect(prop(overlay, "font")).toMatch(attendu);
-    expect(prop(gutter, "font")).toMatch(attendu);
+  it("keeps that `font` as a SHORTHAND, with its line-height slot and its literal stack", () => {
+    const expected = /^400 \d+(?:\.\d+)?px\/1\.5 ui-monospace, SFMono-Regular, Consolas, monospace$/;
+    expect(prop(overlay, "font")).toMatch(expected);
+    expect(prop(gutter, "font")).toMatch(expected);
   });
 
-  it("garde les deux couches superposables : même padding, même bordure, même boîte", () => {
+  it("keeps both layers stackable: same padding, same border, same box", () => {
     expect(prop(overlay, "padding")).toBe(".5rem .7rem");
     expect(prop(overlay, "border")).toBe("1px solid transparent");
     expect(prop(overlay, "box-sizing")).toBe("border-box");
@@ -42,9 +42,9 @@ describe("le contrat métrique de l'éditeur", () => {
     expect(prop(overlay, "tab-size")).toBe("4");
   });
 
-  it("aligne la gouttière VERTICALEMENT sur elles, sans exiger la même gouttière latérale", () => {
-    const vert = (p: string) => p.split(" ")[0];
-    expect(vert(prop(gutter, "padding"))).toBe(vert(prop(overlay, "padding")));
+  it("aligns the gutter VERTICALLY with them, without requiring the same side gutter", () => {
+    const vertical = (p: string) => p.split(" ")[0];
+    expect(vertical(prop(gutter, "padding"))).toBe(vertical(prop(overlay, "padding")));
     expect(prop(gutter, "margin")).toBe("0");
     expect(prop(gutter, "white-space")).toBe("pre");
     expect(prop(gutter, "border")).toBe("1px solid transparent");

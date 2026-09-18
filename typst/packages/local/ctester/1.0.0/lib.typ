@@ -1,8 +1,8 @@
 #import "theme.typ": palette, page-width, body-font, mono-font, body-size, mono-size, theme-name
-#import "blocks.typ": attention, exemple, note, recopier, signature
+#import "blocks.typ": attention, example, note, retype, signature
 #import "mermaid.typ": mermaid
 
-#let enonce(corps) = context if target() == "html" { corps } else {
+#let statement(body) = context if target() == "html" { body } else {
   set page(width: page-width, height: auto, margin: 5.5pt, fill: palette.bg)
   set text(font: body-font, size: body-size, fill: palette.fg, lang: "fr")
   set par(justify: false, leading: 0.65em, spacing: 0.9em)
@@ -16,7 +16,7 @@
   show raw: set text(font: mono-font, size: mono-size, fill: palette.fg)
   set raw(theme: "themes/ctester-" + theme-name + ".tmTheme")
 
-  show raw.where(block: true): it => if it.at("label", default: none) == <ctester-encadre> {
+  show raw.where(block: true): it => if it.at("label", default: none) == <ctester-framed> {
     it
   } else {
     block(
@@ -34,5 +34,5 @@
   set table(stroke: 0.5pt + palette.line, inset: (x: 5pt, y: 3.5pt),
             fill: (_, y) => if y == 0 { palette.panel })
 
-  corps
+  body
 }

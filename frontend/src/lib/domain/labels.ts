@@ -60,7 +60,7 @@ export const UNITS: Record<string, string> = {
 
 export const STATUS_WORD: Record<string, string> = { solved: "réussi", attempted: "essayé" };
 export const STATUS_MARK: Record<string, string> = { solved: "✓", attempted: "•" };
-export const STATUS_CLASS: Record<string, string> = { solved: "valide", attempted: "essaye" };
+export const STATUS_CLASS: Record<string, string> = { solved: "valid", attempted: "tryit" };
 
 export const plural = (n: number, word: string): string => n + " " + word + (n > 1 ? "s" : "");
 

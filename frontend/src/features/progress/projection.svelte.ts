@@ -21,14 +21,14 @@ class Projection {
   }
 
   async refreshIfOpen(): Promise<void> {
-    if (this.payload === null && view.current !== "progres") return;
+    if (this.payload === null && view.current !== "progress") return;
     await this.load();
   }
 
   forget(): void {
     this.payload = null;
     this.error = "";
-    if (view.current === "progres") view.show("");
+    if (view.current === "progress") view.show("");
   }
 }
 

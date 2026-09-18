@@ -15,14 +15,14 @@ describe("prepareTypstHtml", () => {
     const { html } = prepareTypstHtml(
       page(
         `<pre><code data-lang="c">int x;</code></pre>` +
-          `<div class="typ-recopier"><pre><code>for (;;);</code></pre></div>`,
+          `<div class="typ-retype"><pre><code>for (;;);</code></pre></div>`,
       ),
     );
     const host = dom(html);
-    const [libre, recopier] = host.querySelectorAll("pre");
-    expect(libre!.querySelector("button.copier")).not.toBeNull();
-    expect(recopier!.querySelector("button.copier")).toBeNull();
-    expect(libre!.querySelector("code")!.textContent).toBe("int x;");
+    const [free, retyped] = host.querySelectorAll("pre");
+    expect(free!.querySelector("button.copy")).not.toBeNull();
+    expect(retyped!.querySelector("button.copy")).toBeNull();
+    expect(free!.querySelector("code")!.textContent).toBe("int x;");
   });
 
   it("drops scripts, styles and event handlers", () => {

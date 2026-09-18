@@ -17,18 +17,18 @@
 
 <li
   class={"message" +
-    (m.retained ? " retenue" : "") +
-    (m.visibility === "private" ? " privee" : "") +
-    (reply ? " reponse" : "")}
+    (m.retained ? " retained" : "") +
+    (m.visibility === "private" ? " private" : "") +
+    (reply ? " answer" : "")}
 >
-  <p class="qui">
+  <p class="who">
     {#if m.retained}<span class="tag accent">réponse retenue</span>{/if}
-    <span class="auteur">{m.author}</span>
-    {#if m.group}<span class="groupe">{groupNumber(m.group)}</span>{/if}
-    <time class="quand" datetime={String(m.created_at).replace(" ", "T")}>
+    <span class="author">{m.author}</span>
+    {#if m.group}<span class="group">{groupNumber(m.group)}</span>{/if}
+    <time class="when" datetime={String(m.created_at).replace(" ", "T")}>
       {localTime(m.created_at)}
     </time>
-    {#if m.hidden}<span class="etat">masqué</span>{/if}
+    {#if m.hidden}<span class="state">masqué</span>{/if}
     {#if m.visibility === "private"}<span class="tag">privée</span>{/if}
     {#if m.visibility === "group"}<span class="tag">ouverte à ton groupe</span>{/if}
     {#if m.step}<span class="tag">{stepLabel(m.step)}</span>{/if}

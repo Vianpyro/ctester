@@ -21,8 +21,8 @@ function chord(key: string, mods: Partial<Omit<Chord, "key">> = {}): Chord {
 const ctrl = (key: string, mods: Partial<Omit<Chord, "key">> = {}) =>
   chord(key, { ctrlKey: true, ...mods });
 
-describe("ce qui est à nous", () => {
-  it("lie les sept transformations de texte", () => {
+describe("what is ours", () => {
+  it("binds the seven text transformations", () => {
     expect(matchShortcut(ctrl("/"))).toBe("commentLine");
     expect(matchShortcut(ctrl("?", { shiftKey: true }))).toBe("commentBlock");
     expect(matchShortcut(ctrl("d"))).toBe("duplicate");
@@ -33,7 +33,7 @@ describe("ce qui est à nous", () => {
     expect(matchShortcut(ctrl("Enter", { shiftKey: true }))).toBe("completeStatement");
   });
 
-  it("lie la navigation et la page", () => {
+  it("binds navigation and the page", () => {
     expect(matchShortcut(chord("F2"))).toBe("nextIssue");
     expect(matchShortcut(ctrl("g"))).toBe("gotoLine");
     expect(matchShortcut(ctrl("s"))).toBe("save");
@@ -43,32 +43,32 @@ describe("ce qui est à nous", () => {
     expect(matchShortcut(chord("Escape"))).toBe("escape");
   });
 
-  it("accepte ⌘ partout où Ctrl est accepté", () => {
+  it("accepts ⌘ wherever Ctrl is accepted", () => {
     expect(matchShortcut(chord("s", { metaKey: true }))).toBe("save");
     expect(matchShortcut(chord("d", { metaKey: true }))).toBe("duplicate");
     expect(matchShortcut(chord("Enter", { metaKey: true }))).toBe("run");
   });
 });
 
-describe("la disposition du clavier", () => {
-  it("commente la ligne que Maj soit tenu ou non", () => {
+describe("the keyboard layout", () => {
+  it("comments the line whether Shift is held or not", () => {
     expect(matchShortcut(ctrl("/"))).toBe("commentLine");
     expect(matchShortcut(ctrl("/", { shiftKey: true }))).toBe("commentLine");
   });
 
-  it("SILENCE : `?` n'est jamais le commentaire de LIGNE, et réciproquement", () => {
+  it("SILENCE: `?` is never the LINE comment, and vice versa", () => {
     expect(matchShortcut(ctrl("?"))).toBe("commentBlock");
     expect(matchShortcut(ctrl("?", { shiftKey: true }))).toBe("commentBlock");
     expect(matchShortcut(ctrl("/"))).not.toBe("commentBlock");
   });
 
-  it("SILENCE : AltGr n'est pas Ctrl, et il doit continuer d'écrire son caractère", () => {
+  it("SILENCE: AltGr is not Ctrl, and must keep typing its character", () => {
     expect(matchShortcut(ctrl("/", { altKey: true }))).toBeNull();
     expect(matchShortcut(ctrl("?", { altKey: true }))).toBeNull();
     expect(matchShortcut(ctrl("d", { altKey: true }))).toBeNull();
   });
 
-  it("SILENCE : une touche nue n'est jamais un raccourci", () => {
+  it("SILENCE: a bare key is never a shortcut", () => {
     expect(matchShortcut(chord("/"))).toBeNull();
     expect(matchShortcut(chord("?"))).toBeNull();
     expect(matchShortcut(chord("d"))).toBeNull();
@@ -76,31 +76,31 @@ describe("la disposition du clavier", () => {
   });
 });
 
-describe("Maj départage, et Verr.Maj ne départage rien", () => {
-  it("sépare le catalogue de la suppression de ligne", () => {
+describe("Shift tells them apart, and Caps Lock tells nothing apart", () => {
+  it("separates the catalogue from deleting a line", () => {
     expect(matchShortcut(ctrl("k"))).toBe("catalog");
     expect(matchShortcut(ctrl("k", { shiftKey: true }))).toBe("deleteLine");
   });
 
-  it("sépare Tester de « compléter l'instruction »", () => {
+  it("separates Test from \"complete the statement\"", () => {
     expect(matchShortcut(ctrl("Enter"))).toBe("run");
     expect(matchShortcut(ctrl("Enter", { shiftKey: true }))).toBe("completeStatement");
   });
 
-  it("sépare dupliquer de supprimer", () => {
+  it("separates duplicate from delete", () => {
     expect(matchShortcut(ctrl("d"))).toBe("duplicate");
     expect(matchShortcut(ctrl("d", { shiftKey: true }))).toBe("deleteLine");
   });
 
-  it("ouvre le catalogue même avec Verr.Maj -- le bogue que la table répare", () => {
+  it("opens the catalogue even with Caps Lock -- the bug the table fixes", () => {
     expect(matchShortcut(ctrl("K"))).toBe("catalog");
     expect(matchShortcut(ctrl("D"))).toBe("duplicate");
     expect(matchShortcut(ctrl("S"))).toBe("save");
   });
 });
 
-describe("SILENCE : ce qui reste au navigateur et à l'étudiant", () => {
-  it("ne touche à rien de ce qu'un éditeur doit au navigateur", () => {
+describe("SILENCE: what stays with the browser and the student", () => {
+  it("touches nothing an editor owes the browser", () => {
     for (const key of ["z", "y", "c", "v", "x", "a", "f", "p", "r", "w", "t"]) {
       expect(matchShortcut(ctrl(key)), "Ctrl+" + key).toBeNull();
     }
@@ -108,7 +108,7 @@ describe("SILENCE : ce qui reste au navigateur et à l'étudiant", () => {
     expect(matchShortcut(ctrl("y"))).toBeNull();
   });
 
-  it("ne réclame pas une flèche à qui il manque un modificateur", () => {
+  it("does not claim an arrow that lacks a modifier", () => {
     expect(matchShortcut(chord("ArrowUp"))).toBeNull();
     expect(matchShortcut(chord("ArrowUp", { shiftKey: true }))).toBeNull();
     expect(matchShortcut(chord("ArrowUp", { altKey: true }))).toBeNull();
@@ -116,21 +116,21 @@ describe("SILENCE : ce qui reste au navigateur et à l'étudiant", () => {
     expect(matchShortcut(chord("ArrowDown", { ctrlKey: true, shiftKey: true }))).toBeNull();
   });
 
-  it("ne réclame pas Échap dès qu'un modificateur est tenu", () => {
+  it("does not claim Escape as soon as a modifier is held", () => {
     expect(matchShortcut(ctrl("Escape"))).toBeNull();
     expect(matchShortcut(chord("Escape", { shiftKey: true }))).toBeNull();
     expect(matchShortcut(chord("Escape", { altKey: true }))).toBeNull();
   });
 
-  it("laisse Tab et les touches ordinaires à `keyEdit`", () => {
+  it("leaves Tab and ordinary keys to `keyEdit`", () => {
     for (const key of ["Tab", "Backspace", "a", "(", "{", '"', "'"]) {
       expect(matchShortcut(chord(key)), key).toBeNull();
     }
   });
 });
 
-describe("les deux ensembles", () => {
-  it("range chaque transformation de texte dans les commandes de l'éditeur", () => {
+describe("the two sets", () => {
+  it("files every text transformation under the editor's commands", () => {
     for (const id of TEXT_COMMANDS) {
       expect(EDITOR_COMMANDS.has(id), id).toBe(true);
     }
@@ -140,7 +140,7 @@ describe("les deux ensembles", () => {
     expect(TEXT_COMMANDS.has("gotoLine")).toBe(false);
   });
 
-  it("garde les commandes de la PAGE hors de la surface d'édition", () => {
+  it("keeps the PAGE commands out of the editing surface", () => {
     for (const id of ["save", "run", "help", "catalog", "escape"] as ShortcutId[]) {
       expect(EDITOR_COMMANDS.has(id), id).toBe(false);
     }

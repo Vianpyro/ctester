@@ -38,8 +38,8 @@ export function labelForNumbers(numbers: number[]): string {
 }
 
 export interface Disassembled {
-  includes: { cle: string; ligne: string }[];
-  corps: string;
+  includes: { key: string; line: string }[];
+  body: string;
 }
 
 // Only top-level #includes are hoisted: one inside the student's #if belongs to that condition.
@@ -55,14 +55,14 @@ export function disassemble(code: string): Disassembled {
     }
     if (depth === 0 && INCLUDE_RE.test(line)) {
       const found = HEADER_RE.exec(line);
-      includes.push({ cle: found ? found[1]! : line.trim(), ligne: line.trim() });
+      includes.push({ key: found ? found[1]! : line.trim(), line: line.trim() });
       continue;
     }
     if (depth === 0 && CRT_RE.test(line)) continue;
     if (OPEN_RE.test(line)) depth += 1;
     lines.push(line);
   }
-  return { includes, corps: lines.join("\n") };
+  return { includes, body: lines.join("\n") };
 }
 
 export const trim = (text: string): string =>
@@ -101,8 +101,8 @@ function header(name: string, group: string, numbers: number[], first: number, a
 }
 
 export interface Built {
-  texte: string;
-  vides: number[];
+  text: string;
+  empty: number[];
   total: number;
 }
 
@@ -113,7 +113,7 @@ export function build(
   group: string,
   at?: Date,
 ): Built {
-  const includes: { cle: string; ligne: string }[] = [];
+  const includes: { key: string; line: string }[] = [];
   const blocks: string[] = [];
   const numbers: number[] = [];
   const empty: number[] = [];
@@ -131,18 +131,18 @@ export function build(
     if (first === null) first = number;
     const piece = disassemble(code);
     for (const inc of piece.includes) {
-      if (!includes.some((seen) => seen.cle === inc.cle)) includes.push(inc);
+      if (!includes.some((seen) => seen.key === inc.key)) includes.push(inc);
     }
-    blocks.push(title + "\n#if exercice == " + number + "\n" + trim(piece.corps) + "\n#endif");
+    blocks.push(title + "\n#if exercice == " + number + "\n" + trim(piece.body) + "\n#endif");
   });
   const opening = first === null ? (numbers[0] === undefined ? 1 : numbers[0]) : first;
-  const texte =
+  const text =
     [
       header(name, group, numbers, opening, at),
-      includes.map((inc) => inc.ligne).join("\n"),
+      includes.map((inc) => inc.line).join("\n"),
       blocks.join("\n\n"),
     ]
       .filter(Boolean)
       .join("\n\n") + "\n";
-  return { texte, vides: empty, total: exercises.length };
+  return { text, empty: empty, total: exercises.length };
 }

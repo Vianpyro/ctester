@@ -15,7 +15,7 @@
     menuOpen: boolean;
     focusSearch: boolean;
     onMenu: (open: boolean, focusSearch?: boolean) => void;
-    openView: (name: "progres" | "leaderboard" | "collection" | "scratch") => void;
+    openView: (name: "progress" | "leaderboard" | "collection" | "scratch") => void;
     openChat: () => void;
     helpOpen: boolean;
     openHelp: () => void;
@@ -38,7 +38,7 @@
   <h1>
     <button
       type="button"
-      id="accueil"
+      id="home"
       title="Revenir à l'exercice"
       onclick={() => view.show("")}
     >
@@ -75,17 +75,17 @@
   </span>
   <span class="grow"></span>
 
-  <span class="groupe">
+  <span class="group">
     {#if signedIn}
-      <button type="button" id="mesprogres" class="nav" onclick={() => openView("progres")}>
-        {view.label("progres", "Mes progrès")}
+      <button type="button" id="myprogress" class="nav" onclick={() => openView("progress")}>
+        {view.label("progress", "Mes progrès")}
       </button>
       {#if session.forumOffered}
         <button type="button" id="discussions" class="nav" onclick={openChat}>
           {view.current === "forum" || view.current === "moderation"
             ? "Retour à l'exercice"
             : "Chat"}
-          {#if dock.unread}<span class="pastille" aria-label="Des messages non lus"></span>{/if}
+          {#if dock.unread}<span class="pill" aria-label="Des messages non lus"></span>{/if}
         </button>
       {/if}
       {#if session.scratchOffered}
@@ -99,10 +99,10 @@
 
   <button
     type="button"
-    id="raccourcisbouton"
+    id="shortcutsbutton"
     class="nav"
     aria-expanded={helpOpen}
-    aria-controls="raccourcis"
+    aria-controls="shortcuts"
     title="Les raccourcis clavier de la page"
     onclick={openHelp}
   >
@@ -120,7 +120,7 @@
   {#if !signedIn && session.oidcOffered}
     <button
       type="button"
-      id="connexion"
+      id="login"
       class="nav"
       title="Crée un compte pour débloquer la Console (code libre) et le chat"
       onclick={() => profile.askConsent()}
@@ -130,20 +130,20 @@
   {/if}
 
   {#if signedIn}
-    <details class="menu" id="menucompte" bind:open={profile.menuOpen}>
+    <details class="menu" id="accountmenu" bind:open={profile.menuOpen}>
       <summary class="nav plate" id="plate">
         <span class="initials" id="initials" aria-hidden="true">
           {initialsOf(plate?.display_name ?? "")}
         </span>
         <span id="whoami">{plate?.display_name || "Compte"}</span>
         {#if plate?.group_number}
-          <span class="groupe" id="mygroup">
+          <span class="group" id="mygroup">
             g.{String(plate.group_number).padStart(2, "0")}
           </span>
         {/if}
       </summary>
-      <div class="menupanneau">
-        <span id="moi">connecté</span>
+      <div class="menupanel">
+        <span id="me">connecté</span>
         <AccountMenu {openView} />
       </div>
     </details>

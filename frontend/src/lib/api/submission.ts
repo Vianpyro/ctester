@@ -9,7 +9,7 @@ export interface Accepted {
 }
 
 export function submit(body: SubmissionBody, station: string) {
-  return request<Accepted>("submit?poste=" + encodeURIComponent(station), {
+  return request<Accepted>("submit?station=" + encodeURIComponent(station), {
     method: "POST",
     json: body,
     headers: session.token ? { Authorization: "Bearer " + session.token } : {},

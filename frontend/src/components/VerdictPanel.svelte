@@ -13,6 +13,7 @@
     STEP_STATE,
     caseClass,
     caseInputs,
+    caseNumbers,
     estimatedWait,
     firstError,
     restrictToScope,
@@ -56,8 +57,8 @@
         : "Aucun exercice n'est encore ouvert.";
     }
     if (!shown) return "";
-    if (failed) return outcome!.titre;
-    const frame = shown.scope && shown.r.kind === "quiz" ? " — " + shown.scope.titre : "";
+    if (failed) return outcome!.title;
+    const frame = shown.scope && shown.r.kind === "quiz" ? " — " + shown.scope.title : "";
     return `${shown.r.passed ?? 0} / ${shown.r.total ?? 0} ${UNITS[shown.r.kind] ?? "réussis"}${frame}`;
   });
 
@@ -71,7 +72,7 @@
 
   const steps = $derived.by((): StepState[] | null => {
     if (phase.kind !== "done") return null;
-    if (failed) return outcome!.etapes;
+    if (failed) return outcome!.steps;
     return ["ok", "ok"];
   });
 
@@ -117,22 +118,22 @@
 
 <div bind:this={box} id="out" class={cls} tabindex="-1">
   {#if steps}
-    <div class="etapes">
+    <div class="steps">
       {#each steps as state, i}
         {@const [name, gender] = STEPS[i]!}
-        <span class={"pas " + (state || "vide")}>
+        <span class={"step " + (state || "empty")}>
           <b>{name}</b><i>{STEP_STATE[gender][state]}</i>
         </span>
       {/each}
     </div>
   {/if}
 
-  <div class={"verdict " + cls + (phase.kind === "done" && !failed ? " compte" : "")}>
+  <div class={"verdict " + cls + (phase.kind === "done" && !failed ? " count" : "")}>
     {headline}
   </div>
 
   {#if cls === "wait"}
-    <div class="barre"><i></i></div>
+    <div class="bar"><i></i></div>
   {/if}
 
   {#if shown && !failed && (shown.r.total ?? 0) > 0}
@@ -144,13 +145,13 @@
   {/if}
 
   {#if phase.kind === "idle" || phase.kind === "lost" || phase.kind === "cooldown"}
-    <p class="explique">
+    <p class="explain">
       {catalog.catalog.length
         ? idleHelp
         : "Le menu « Exercices » donne la date d'ouverture de chacun."}
     </p>
   {:else if shown?.r.message && shown.r.message !== headline}
-    <p class="explique">{shown.r.message}</p>
+    <p class="explain">{shown.r.message}</p>
   {/if}
 
   {#if shown && shown.r.status === "compile_error"}
@@ -172,38 +173,39 @@
       {#each shown.r.cases ?? [] as c, i}
         {@const kind = caseClass(c.reason)}
         {@const inputs = caseInputs(c.stdin)}
+        {@const numbers = caseNumbers(c)}
         <details class="case" open={i === 0}>
           <summary>Cas {c.case} — {kind}</summary>
-          <div class="corps">
-            <div class="champ">
-              <span class="quoi"
+          <div class="body">
+            <div class="case-field">
+              <span class="what"
                 >{inputs.length === 1
                   ? "Ton programme reçoit :"
                   : "Ton programme reçoit, dans cet ordre :"}</span
               >
-              <pre class="valeur">{inputs.length
+              <pre class="value">{inputs.length
                   ? inputs.join("   puis   ")
                   : "rien — ce cas ne lui fournit aucune entrée"}</pre>
             </div>
-            <div class="champ">
-              <span class="quoi">Ce qu'il a affiché :</span>
-              <pre class="valeur">{c.stdout || "(rien)"}</pre>
+            <div class="case-field">
+              <span class="what">Ce qu'il a affiché :</span>
+              <pre class="value">{c.stdout || "(rien)"}</pre>
             </div>
-            {#if c.nombres}
-              <div class="champ">
-                <span class="quoi">Les nombres que le juge y a lus :</span>
-                <pre class="valeur">{c.nombres.length ? c.nombres.join(", ") : "aucun"}</pre>
+            {#if numbers}
+              <div class="case-field">
+                <span class="what">Les nombres que le juge y a lus :</span>
+                <pre class="value">{numbers.length ? numbers.join(", ") : "aucun"}</pre>
               </div>
             {/if}
             {#if c.stderr}
-              <div class="champ">
-                <span class="quoi">Sa sortie d'erreur :</span>
-                <pre class="valeur">{c.stderr}</pre>
+              <div class="case-field">
+                <span class="what">Sa sortie d'erreur :</span>
+                <pre class="value">{c.stderr}</pre>
               </div>
             {/if}
-            <p class="pourquoi">{c.reason}</p>
+            <p class="why">{c.reason}</p>
             {#if showsContract(c)}
-              <p class="contrat">{CONTRACT}</p>
+              <p class="contract">{CONTRACT}</p>
             {/if}
           </div>
         </details>
@@ -212,8 +214,8 @@
   {/if}
 
   {#if shown && !failed && !complete && shown.r.kind === "unity" && (shown.r.failed ?? []).length}
-    <div class="rates">
-      <p class="quoi">
+    <div class="failures">
+      <p class="what">
         {(shown.r.failed ?? []).length === 1
           ? "Cette vérification a échoué. Son nom décrit le cas qu'elle teste :"
           : "Ces vérifications ont échoué. Leur nom décrit le cas qu'elles testent :"}
@@ -221,7 +223,7 @@
       <ul>
         {#each shown.r.failed ?? [] as name}<li>{name}</li>{/each}
       </ul>
-      <p class="contrat">
+      <p class="contract">
         Les valeurs attendues ne sont pas montrées : les trouver EST l'exercice.
       </p>
     </div>
@@ -233,7 +235,7 @@
         {@const group = quizGroup(w.id)}
         {@const ex = group.match(/Exercice\s*\d+/i)}
         {@const empty = !(w.given && w.given.trim())}
-        <li class={empty ? "rien" : ""}>
+        <li class={empty ? "nothing" : ""}>
           {(ex ? ex[0] + " — " : "") +
             w.label +
             (empty ? "" : ` (tu as répondu « ${w.given} »)`) +
@@ -252,7 +254,7 @@
         </button>
       {/if}
       {#if offersHelp}
-        <button type="button" class="nav aide" onclick={openDiscussions}>
+        <button type="button" class="nav help" onclick={openDiscussions}>
           En parler dans les discussions
         </button>
       {/if}
@@ -260,9 +262,9 @@
   {/if}
 
   {#if shown?.r.warnings}
-    <div class="avert">
-      <div class="titre">Avertissements du compilateur</div>
-      <div class="quoi">
+    <div class="warn">
+      <div class="title">Avertissements du compilateur</div>
+      <div class="what">
         Ce n'est pas une erreur : ton programme compile. Mais gcc a remarqué ceci, et
         ça vaut le coup d'œil.
       </div>

@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- LA COLORATION C DES ÉNONCÉS TYPST, ET C'EST LA MÊME QUE CELLE DE L'ÉDITEUR.
-     Les sept règles ci-dessous sont exactement les sept classes de
-     `frontend/src/lib/domain/highlight.ts` (tc ts tp tk tn tf tu), avec les
-     couleurs de `frontend/src/app.css`. Deux colorations pour un seul langage
-     doivent dire la même chose, sinon l'étudiant lit un `int` bleu dans son
-     éditeur et vert dans sa consigne.
+<!-- THE C HIGHLIGHTING OF TYPST STATEMENTS, AND IT IS THE SAME AS THE EDITOR'S.
+     The seven rules below are exactly the seven classes of
+     `frontend/src/lib/domain/highlight.ts` (tc ts tp tk tn tf tu), with the
+     colours of `frontend/src/app.css`. Two highlightings of one language must
+     say the same thing, or the student reads an `int` that is blue in the
+     editor and green in the statement.
 
-     GÉNÉRÉ, PUIS COMMITÉ : `test_the_typst_theme_carries_the_page_colors`
-     relit `app.css` et ce fichier et refuse qu'ils divergent. Éditer l'un sans
-     l'autre fait échouer la suite.
+     GENERATED, THEN COMMITTED: `test_the_typst_theme_carries_the_page_colors`
+     rereads `app.css` and this file and refuses any divergence. Editing one
+     without the other fails the suite.
 
-     PIÈGE MESURÉ : un `.tmTheme` ne colore que les jetons SCOPÉS. Les
-     identifiants nus (`s`, `main`, `n`) prennent le `fill` du `text` Typst
-     environnant, PAS le `foreground` ci-dessous -- sans un
-     `#set text(fill: ...)` à côté, ils sortent en noir, invisibles sur fond
-     sombre. C'est `code.typ` qui le pose. -->
+     MEASURED TRAP: a `.tmTheme` only colours SCOPED tokens. Bare identifiers
+     (`s`, `main`, `n`) take the `fill` of the surrounding Typst `text`, NOT
+     the `foreground` below -- without a `#set text(fill: ...)` next to it,
+     they come out black, invisible on a dark background. The `show raw` rule
+     in `lib.typ` sets it. -->
 <plist version="1.0"><dict>
   <key>name</key><string>ctester-dark</string>
   <key>settings</key><array>

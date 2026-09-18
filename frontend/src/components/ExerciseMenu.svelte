@@ -23,19 +23,19 @@
   const rows = $derived(
     catalog.collections.map((col) => ({
       col,
-      items: col.items.filter((ex) => matchesFilter(ex, col.titre, catalog.filter)),
+      items: col.items.filter((ex) => matchesFilter(ex, col.title, catalog.filter)),
     })),
   );
   const shown = $derived(rows.reduce((n, r) => n + r.items.length, 0));
 </script>
 
 <details class="menu" id="menuex" {open} ontoggle={(e) => onOpenChange((e.currentTarget as HTMLDetailsElement).open)}>
-  <summary class="nav" id="excourant">
-    <span class="quoi">Exercice</span>
-    <span class="titre">{catalog.selected?.short ?? "à choisir"}</span>
+  <summary class="nav" id="excurrent">
+    <span class="what">Exercice</span>
+    <span class="title">{catalog.selected?.short ?? "à choisir"}</span>
   </summary>
-  <div class="menupanneau">
-    <label class="horsecran" for="search">Filtrer les exercices</label>
+  <div class="menupanel">
+    <label class="offscreen" for="search">Filtrer les exercices</label>
     <input
       bind:this={field}
       bind:value={typed}
@@ -45,8 +45,8 @@
       placeholder="Filtrer… (Ctrl+K)"
       oninput={() => catalog.setFilter(typed)}
     />
-    <div id="exliste">
-      {#each rows as { col, items } (col.titre)}
+    <div id="exlist">
+      {#each rows as { col, items } (col.title)}
         {#if items.length}
           <details
             class="col"
@@ -56,39 +56,39 @@
               )}
           >
             <summary>
-              <span>{col.titre}</span>
-              {#if lockNote(col)}<span class="cadenas">🔒 {lockNote(col)}</span>{/if}
+              <span>{col.title}</span>
+              {#if lockNote(col)}<span class="padlock">🔒 {lockNote(col)}</span>{/if}
             </summary>
             {#each items as ex (ex.id)}
               {@const note = lockNote(ex)}
-              {@const bloque = !!note && !catalog.staff}
+              {@const locked = !!note && !catalog.staff}
               {@const done = statuses.of(ex.id)}
               <button
                 type="button"
-                class={"exline" + (ex.id === catalog.selectedId ? " on" : "") + (bloque ? " verrouille" : "")}
+                class={"exline" + (ex.id === catalog.selectedId ? " on" : "") + (locked ? " locked" : "")}
                 data-id={ex.id}
-                aria-disabled={bloque ? "true" : undefined}
+                aria-disabled={locked ? "true" : undefined}
                 onclick={() => {
-                  if (bloque) return;
+                  if (locked) return;
                   onOpenChange(false);
                   exercise.open(ex.id);
                 }}
               >
-                <span class="titre">{ex.short}</span>
-                {#if ex.verification}<span class="verif">vérification</span>{/if}
+                <span class="title">{ex.short}</span>
+                {#if ex.verification}<span class="verification">vérification</span>{/if}
                 {#if done}
-                  <span class={"etat " + (STATUS_CLASS[done] ?? done)}>
+                  <span class={"state " + (STATUS_CLASS[done] ?? done)}>
                     {(STATUS_MARK[done] ?? "") + " " + (STATUS_WORD[done] ?? done)}
                   </span>
                 {/if}
-                {#if note}<span class="cadenas">🔒 {note}</span>{/if}
+                {#if note}<span class="padlock">🔒 {note}</span>{/if}
               </button>
             {/each}
           </details>
         {/if}
       {/each}
       {#if catalog.filter && !shown}
-        <p class="aide">Aucun exercice ne correspond à « {typed} ».</p>
+        <p class="help">Aucun exercice ne correspond à « {typed} ».</p>
       {/if}
     </div>
   </div>

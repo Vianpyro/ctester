@@ -6,39 +6,39 @@
   import TypstStatement from "./TypstStatement.svelte";
   import TypstHtml from "./TypstHtml.svelte";
 
-  const etat = $derived(exercise.statement);
-  const ferme = $derived(lockNote(catalog.selected));
+  const current = $derived(exercise.statement);
+  const closed = $derived(lockNote(catalog.selected));
 
-  let htmlRate = $state<string | null>(null);
+  let htmlFailedFor = $state<string | null>(null);
 </script>
 
-<details id="consigne" open>
+<details id="statement" open>
   <summary class="phead">Consigne</summary>
-  {#if ferme}
-    <p class="apercu">🔒 Invisible pour les étudiants — {ferme}.</p>
+  {#if closed}
+    <p class="preview">🔒 Invisible pour les étudiants — {closed}.</p>
   {/if}
-  {#if etat.kind === "loading"}
-    <pre id="consignetexte" class="vide">Chargement…</pre>
-  {:else if etat.kind === "text"}
-    <div id="consignetexte" class="md">{@html renderStatement(etat.text)}</div>
-  {:else if etat.kind === "typst" && etat.html && htmlRate !== etat.id}
-    {@const id = etat.id}
-    <div id="consignetexte" class="md">
-      <TypstHtml {id} staff={etat.staff} onfail={() => (htmlRate = id)} />
+  {#if current.kind === "loading"}
+    <pre id="statementtext" class="empty">Chargement…</pre>
+  {:else if current.kind === "text"}
+    <div id="statementtext" class="md">{@html renderStatement(current.text)}</div>
+  {:else if current.kind === "typst" && current.html && htmlFailedFor !== current.id}
+    {@const id = current.id}
+    <div id="statementtext" class="md">
+      <TypstHtml {id} staff={current.staff} onfail={() => (htmlFailedFor = id)} />
     </div>
-  {:else if etat.kind === "typst"}
-    <div id="consignetexte" class="typstpages">
+  {:else if current.kind === "typst"}
+    <div id="statementtext" class="typstpages">
       <TypstStatement
-        id={etat.id}
-        pages={etat.pages}
-        staff={etat.staff}
-        title={etat.title}
+        id={current.id}
+        pages={current.pages}
+        staff={current.staff}
+        title={current.title}
       />
     </div>
-  {:else if etat.kind === "none"}
-    <pre id="consignetexte" class="vide">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.</pre>
+  {:else if current.kind === "none"}
+    <pre id="statementtext" class="empty">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.</pre>
   {:else}
-    <pre id="consignetexte" class="vide">La consigne n'a pas pu être chargée. Tu peux quand même écrire et tester : les noms de fichiers attendus, eux, sont déjà là.<button
+    <pre id="statementtext" class="empty">La consigne n'a pas pu être chargée. Tu peux quand même écrire et tester : les noms de fichiers attendus, eux, sont déjà là.<button
         type="button"
         class="nav"
         onclick={() => exercise.retryStatement()}>Réessayer</button
@@ -47,7 +47,7 @@
 </details>
 
 <style>
-  .apercu {
+  .preview {
     margin: 0.6rem 0.6rem 0;
     padding: 0.35rem 0.6rem;
     border: 1px solid var(--wait);

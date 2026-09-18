@@ -40,7 +40,7 @@ export const remove = (id: string) =>
   authRequest<{ ok: boolean }>("forum?id=" + encodeURIComponent(id), { method: "DELETE" });
 
 export const report = (id: string, kind?: "name") =>
-  authRequest<{ ok: boolean }>("forum/signalement", {
+  authRequest<{ ok: boolean }>("forum/report", {
     method: "POST",
     json: kind ? { id, kind } : { id },
   });
@@ -60,10 +60,10 @@ export const fetchHelp = () => authGet<HelpPayload>("forum/help");
 
 export const fetchTop = () => authGet<TopPayload>("forum/top");
 
-export const fetchProfile = () => authGet<ForumProfile>("forum/profil");
+export const fetchProfile = () => authGet<ForumProfile>("forum/profile");
 
 export const saveProfile = (payload: ForumProfileIn) =>
-  authRequest<{ ok: boolean }>("forum/profil", { method: "POST", json: payload });
+  authRequest<{ ok: boolean }>("forum/profile", { method: "POST", json: payload });
 
 export async function search(terms: string): Promise<SearchResult[]> {
   if (!String(terms || "").trim()) return [];

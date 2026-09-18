@@ -87,7 +87,7 @@
     const note = lockNote(ex);
     let state = tileState(ex, !!note, statuses.byExercise);
     const count = statuses.practice[ex.id];
-    if (!note && count && count.successes) state = { cls: "reussi", word: "réussi" };
+    if (!note && count && count.successes) state = { cls: "solved", word: "réussi" };
     const tries = count?.attempts
       ? ", " + count.attempts + " tentative" + (count.attempts > 1 ? "s" : "")
       : "";
@@ -110,17 +110,17 @@
   }
 </script>
 
-<h2 bind:this={title} id="progrestitre" tabindex="-1">Mes progrès</h2>
-<p class="aide">
+<h2 bind:this={title} id="progresstitle" tabindex="-1">Mes progrès</h2>
+<p class="help">
   Cette page n'est visible que par toi. Rien n'est transmis à ton enseignant, et ce n'est
   pas une note.
 </p>
 
 {#if !p}
-  <p class="rate">{projection.error}</p>
+  <p class="failed">{projection.error}</p>
 {:else}
-  <div class="tableau">
-    <div class="bloc plan">
+  <div class="board">
+    <div class="block plan">
       <div class="kicker">Action suivante</div>
       {#if !p.next}
         <p>
@@ -145,19 +145,19 @@
       {/if}
     </div>
 
-    <div class="bloc plan">
+    <div class="block plan">
       <div class="kicker">Maîtrise vérifiée</div>
       {#if !p.mastery.skills.length}
-        <p class="aide">Aucune vérification n'est ouverte pour l'instant.</p>
+        <p class="help">Aucune vérification n'est ouverte pour l'instant.</p>
       {:else}
         {@const verified = p.mastery.skills.filter((r) => r.band === "verifie").length}
-        <p class="gros">
+        <p class="big">
           {verified} compétence{verified > 1 ? "s" : ""} sur {p.mastery.skills.length}
         </p>
         {#each BAND_ORDER as id}
           {@const named = p.mastery.skills.filter((r) => r.band === id)}
           {#if named.length}
-            <p class="bandeligne">
+            <p class="bandline">
               <span class={"tag" + (id === "verifie" ? " accent" : "")}>
                 {bandTitles[id]?.title ?? id}
               </span>
@@ -168,7 +168,7 @@
       {/if}
     </div>
 
-    <div class="bloc plan">
+    <div class="block plan">
       <div class="kicker">Ce que tu as pratiqué</div>
       <div class="calendar">
         {#each calendar.cells as cell (cell.key)}
@@ -176,7 +176,7 @@
         {/each}
       </div>
       <p>{plural(calendar.active, "jour")} de pratique sur les treize dernières semaines.</p>
-      <p class="aide">
+      <p class="help">
         Une case foncée = un jour où tu as testé du code. Il n'y a pas de série à maintenir
         : un trou ne retire rien.
       </p>
@@ -184,18 +184,18 @@
   </div>
 {/if}
 
-<div class="bloc">
-  <h3 class="soustitre">Par laboratoire</h3>
+<div class="block">
+  <h3 class="subtitle">Par laboratoire</h3>
   {#if !catalog.collections.some((c) => c.items.length)}
-    <p class="aide">Aucun exercice n'est publié pour l'instant.</p>
+    <p class="help">Aucun exercice n'est publié pour l'instant.</p>
   {:else}
-    <div class="grille">
-      {#each catalog.collections.filter((c) => c.items.length) as col (col.titre)}
+    <div class="grid">
+      {#each catalog.collections.filter((c) => c.items.length) as col (col.title)}
         {@const openItems = col.items.filter((ex) => !lockNote(ex))}
         {@const done = openItems.filter((ex) => statuses.of(ex.id) === "solved").length}
-        <div class="labo">
-          <div class="quoi">
-            <span class="name">{col.titre}</span>
+        <div class="lab">
+          <div class="what">
+            <span class="name">{col.title}</span>
             {#if labTheme(col)}<span class="theme">{labTheme(col)}</span>{/if}
           </div>
           <div class="tiles">
@@ -211,25 +211,25 @@
                 }}
               >
                 {gridLabel(ex)}
-                <span class="horsecran"> — {t.word}</span>
-                {#if t.note}<span class="cadenas">🔒</span>{/if}
+                <span class="offscreen"> — {t.word}</span>
+                {#if t.note}<span class="padlock">🔒</span>{/if}
               </button>
             {/each}
           </div>
-          <div class="compte">
+          <div class="count">
             <span>
               {openItems.length
                 ? done + " sur " + openItems.length + " réussi" + (done > 1 ? "s" : "")
                 : "pas encore ouvert"}
             </span>
-            {#if isGroupExportable(catalog.catalog, col.titre)}
-              <span class="exportligne">
-                <button type="button" class="nav" onclick={() => exportLab(col.titre)}>
-                  Exporter le {col.titre} en main.c
+            {#if isGroupExportable(catalog.catalog, col.title)}
+              <span class="exportline">
+                <button type="button" class="nav" onclick={() => exportLab(col.title)}>
+                  Exporter le {col.title} en main.c
                 </button>
                 <span
-                  class={"exportetat" + (exportNotes[col.titre]?.failed ? " rate" : "")}
-                  aria-live="polite">{exportNotes[col.titre]?.text ?? ""}</span
+                  class={"exportstate" + (exportNotes[col.title]?.failed ? " failed" : "")}
+                  aria-live="polite">{exportNotes[col.title]?.text ?? ""}</span
                 >
               </span>
             {/if}
@@ -241,38 +241,38 @@
 </div>
 
 {#if p}
-  <div class="bloc">
-    <h3 class="soustitre">Maîtrise vérifiée</h3>
+  <div class="block">
+    <h3 class="subtitle">Maîtrise vérifiée</h3>
     {#if !p.mastery.skills.length}
-      <p class="aide">
+      <p class="help">
         Aucune vérification n'est ouverte pour l'instant. Ce sont les activités marquées
         « vérification » dans le menu des exercices.
       </p>
     {:else}
-      <ul class="competences">
+      <ul class="skills">
         {#each p.mastery.skills as c (c.id)}
           <li>
-            <span class="nom">{skillLabel(c.id)}</span>
-            <span class={"bande " + c.band}>{bandTitles[c.band]?.title ?? c.band}</span>
-            <span class="chiffres">
+            <span class="name">{skillLabel(c.id)}</span>
+            <span class={"band " + c.band}>{bandTitles[c.band]?.title ?? c.band}</span>
+            <span class="figures">
               {c.passed} vérification{c.passed > 1 ? "s" : ""} réussie{c.passed > 1 ? "s" : ""}
               sur {c.total}{c.attempted
                 ? ", " + c.attempted + " tentée" + (c.attempted > 1 ? "s" : "")
                 : ", aucune tentée"}
             </span>
-            <span class="jauge" aria-hidden="true">
+            <span class="gauge" aria-hidden="true">
               <i style={"width:" + (c.total ? Math.round((c.passed / c.total) * 100) : 0) + "%"}></i>
             </span>
           </li>
         {/each}
       </ul>
-      <dl class="bandes">
+      <dl class="bands">
         {#each p.mastery.bands as b (b.id)}
           <dt>{b.title}</dt>
           <dd>{b.description}</dd>
         {/each}
       </dl>
-      <p class="aide">
+      <p class="help">
         Une vérification ne rapporte aucun XP : elle dit ce que tu sais refaire, pas
         combien tu as travaillé. Une bande basse ne retire rien et n'est pas une note —
         elle indique où revenir pratiquer.
@@ -280,28 +280,28 @@
     {/if}
   </div>
 
-  <div class="bloc">
-    <h3 class="soustitre">Ce que tu as pratiqué</h3>
+  <div class="block">
+    <h3 class="subtitle">Ce que tu as pratiqué</h3>
     <p>
       {plural(p.exercises.practiced, "exercice")} pratiqué{p.exercises.practiced > 1 ? "s" : ""}
       sur {p.exercises.total} publié{p.exercises.total > 1 ? "s" : ""}, dont
       {p.exercises.solved} réussi{p.exercises.solved > 1 ? "s" : ""}.
     </p>
     {#if !p.skills.length}
-      <p class="aide">
+      <p class="help">
         Les exercices que tu as ouverts n'annoncent pas encore de compétence.
       </p>
     {:else}
-      <ul class="competences">
+      <ul class="skills">
         {#each p.skills as c (c.id)}
           <li>
-            <span class="nom">{skillLabel(c.id)}</span>
-            <span class="chiffres">
+            <span class="name">{skillLabel(c.id)}</span>
+            <span class="figures">
               {c.practiced} exercice{c.practiced > 1 ? "s" : ""} pratiqué{c.practiced > 1
                 ? "s"
                 : ""} sur {c.total}, dont {c.solved} réussi{c.solved > 1 ? "s" : ""}
             </span>
-            <span class="jauge" aria-hidden="true">
+            <span class="gauge" aria-hidden="true">
               <i
                 style={"width:" + (c.total ? Math.round((c.practiced / c.total) * 100) : 0) + "%"}
               ></i>
@@ -309,42 +309,42 @@
           </li>
         {/each}
       </ul>
-      <p class="aide">
+      <p class="help">
         « Pratiquée » veut dire que tu as soumis un exercice qui porte cette compétence.
         Ce n'est pas une maîtrise vérifiée.
       </p>
     {/if}
   </div>
 
-  <div class="bloc second">
-    <h3 class="soustitre">Niveau et XP</h3>
+  <div class="block second">
+    <h3 class="subtitle">Niveau et XP</h3>
     <p>
       Niveau {p.level.rank} — {p.xp} XP.{p.level.next === null
         ? " C'est le dernier niveau de la politique en cours."
         : " Encore " + p.level.remaining + " XP avant le niveau " + (p.level.rank + 1) + "."}
     </p>
-    <span class="jauge" aria-hidden="true">
+    <span class="gauge" aria-hidden="true">
       <i style={"width:" + levelProgress(p) + "%"}></i>
     </span>
-    <p class="aide">
+    <p class="help">
       Les XP reflètent l'activité de pratique ; ce ne sont ni une note ni une maîtrise
       vérifiée.
     </p>
   </div>
 
-  <div class="bloc">
-    <h3 class="soustitre">Accomplissements</h3>
+  <div class="block">
+    <h3 class="subtitle">Accomplissements</h3>
     {#if !p.achievements.length}
-      <p class="aide">
+      <p class="help">
         Aucun pour l'instant. Ils arrivent en pratiquant ; aucun n'est obligatoire.
       </p>
     {:else}
-      <dl class="succes">
+      <dl class="achievements">
         {#each p.achievements as s (s.id)}
           <dt>{s.title}</dt>
           <dd>
-            <span class="quoi">{s.description}</span>
-            <time class="quand" datetime={s.unlocked_at}>obtenu le {s.unlocked_at}</time>
+            <span class="what">{s.description}</span>
+            <time class="when" datetime={s.unlocked_at}>obtenu le {s.unlocked_at}</time>
           </dd>
         {/each}
       </dl>

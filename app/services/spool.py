@@ -34,7 +34,7 @@ def queue_position(jobs, job_id):
     return 0
 
 
-DURATIONS = "durees.json"
+DURATIONS = "durations.json"
 UNKNOWN_DURATION = 15.0
 
 
@@ -99,7 +99,7 @@ def new_job_id():
     return "%016x%s" % (time.time_ns(), secrets.token_hex(8))
 
 
-def write_job(exercise_id, name, blob, owner=None):
+def write_job(exercise_id, name, blob, owner=None, station=None):
     job_id = new_job_id()
     path = os.path.join(config.SPOOL, job_id)
     os.mkdir(path, 0o755)
@@ -111,6 +111,8 @@ def write_job(exercise_id, name, blob, owner=None):
         job = {"exercise_id": exercise_id}
         if isinstance(owner, str) and 0 < len(owner) <= 128:
             job["owner"] = owner
+        elif isinstance(station, str) and 0 < len(station) <= 16:
+            job["station"] = station
         json.dump(job, fh)
     os.replace(tmp, os.path.join(path, "job.json"))
     return job_id

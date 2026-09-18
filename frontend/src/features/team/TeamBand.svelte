@@ -122,14 +122,14 @@
 {#if room.refusal}
   <div class="teamhead">
     <b class="teamtitle">Devoir</b>
-    <span class="tag rate">pas d'espace d'équipe</span>
+    <span class="tag failed">pas d'espace d'équipe</span>
   </div>
-  <p class="aide">{room.refusal}</p>
+  <p class="help">{room.refusal}</p>
 {:else if context && assignment}
   <div class="teamhead">
     <b class="teamtitle">{assignment.title}</b>
     {#if assignment.deadline}
-      <span class={"tag" + (assignment.deadline_passed ? " rate" : "")}>{deadlineWord()}</span>
+      <span class={"tag" + (assignment.deadline_passed ? " failed" : "")}>{deadlineWord()}</span>
     {/if}
     <span class="tag">{context.team.label}</span>
     <span class="tag">groupe {String(context.team.group_number).padStart(2, "0")}</span>
@@ -144,7 +144,7 @@
       </span>
     {/each}
     <span class="grow"></span>
-    <span class={"etat" + (status.bad ? " rate" : "")}>{status.text}</span>
+    <span class={"state" + (status.bad ? " failed" : "")}>{status.text}</span>
   </div>
 
   <div class="teamactions">
@@ -165,19 +165,19 @@
       <span class="tag ok">remis le {context.submission.submitted_at.replace("T", " à ")}</span>
     {/if}
     <span class="grow"></span>
-    <span class="aide">{room.note}</span>
+    <span class="help">{room.note}</span>
   </div>
 
   {#if history}
     <div class="teamhistory">
       <h3>Historique partagé</h3>
       {#if history.failed}
-        <p class="aide">
+        <p class="help">
           L'historique n'est pas disponible pour l'instant. Ton code, lui, continue d'être
           enregistré.
         </p>
       {:else if !history.rows.length}
-        <p class="aide">
+        <p class="help">
           Rien encore. Une version est gardée à chaque fois que l'un de vous travaille sur
           cet exercice.
         </p>
@@ -185,7 +185,7 @@
         {#each history.rows as row (row.id)}
           <div class="revline">
             <span class="who">{memberName(row.author)}</span>
-            <time class="quand">{localTime(row.created_at)}</time>
+            <time class="when">{localTime(row.created_at)}</time>
             <span class="tag">{Math.round(row.bytes / 100) / 10} Ko</span>
             <span class="grow"></span>
             <button type="button" class="nav" onclick={() => restore(row)}>Restaurer</button>

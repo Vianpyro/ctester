@@ -70,10 +70,10 @@
     <input type="file" id="file" accept=".c,.txt" onchange={onFile} />
     <label for="file" class="btn">Importer un fichier</label>
   </span>
-  <span id="brouillon" class={drafts.exportFailed ? "rate" : ""} aria-live="polite"
+  <span id="draft" class={drafts.exportFailed ? "failed" : ""} aria-live="polite"
     >{drafts.exportNote}</span
   >
-  <button type="button" id="purger" class="nav" hidden={!drafts.hasAny} onclick={() => drafts.clearAll()}>
+  <button type="button" id="purge" class="nav" hidden={!drafts.hasAny} onclick={() => drafts.clearAll()}>
     Effacer mes brouillons
   </button>
   <button
@@ -89,7 +89,7 @@
   <span class="grow"></span>
   <button
     id="go"
-    class={(isQuiz ? "secondaire" : "") + (submission.busy ? " occupe" : "")}
+    class={(isQuiz ? "secondary" : "") + (submission.busy ? " busy" : "")}
     aria-busy={working ? "true" : "false"}
     onclick={() => runTest(false)}
   >
@@ -100,7 +100,7 @@
     type="button"
     id="goex"
     hidden={!isQuiz}
-    class={submission.busy ? "occupe" : ""}
+    class={submission.busy ? "busy" : ""}
     aria-busy={working ? "true" : "false"}
     onclick={() => runTest(true)}
   >

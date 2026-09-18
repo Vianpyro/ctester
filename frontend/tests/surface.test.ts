@@ -81,7 +81,7 @@ describe("the checker reaches the screen", () => {
 });
 
 describe("two editors, one document", () => {
-  it("KEEPS THE IDS APART -- `#travail` is hidden, not unmounted", () => {
+  it("KEEPS THE IDS APART -- `#work` is hidden, not unmounted", () => {
     surface("int x;\n");
     surface("int y;\n", "scratch");
     for (const id of ["edwrap", "gutter", "pane", "hl", "hlcode", "code"]) {
@@ -120,8 +120,8 @@ function typing(value: string, props: Record<string, unknown> = {}) {
   return { area: areas[areas.length - 1]!, seen };
 }
 
-describe("les commandes atteignent l'éditeur", () => {
-  it("duplique la ligne, et n'annonce le changement QU'UNE FOIS", () => {
+describe("the commands reach the editor", () => {
+  it("duplicates the line, and announces the change only ONCE", () => {
     const { area, seen } = typing("int a;");
     area.setSelectionRange(6, 6);
     press(area, "d", { ctrlKey: true });
@@ -129,21 +129,21 @@ describe("les commandes atteignent l'éditeur", () => {
     expect(seen).toHaveLength(1);
   });
 
-  it("commente la ligne", () => {
+  it("comments the line", () => {
     const { area } = typing("int a;");
     area.setSelectionRange(0, 0);
     press(area, "/", { ctrlKey: true });
     expect(area.value).toBe("// int a;");
   });
 
-  it("commente aussi quand Maj est tenu -- le clavier canadien-français", () => {
+  it("also comments when Shift is held -- the Canadian French keyboard", () => {
     const { area } = typing("int a;");
     area.setSelectionRange(0, 0);
     press(area, "/", { ctrlKey: true, shiftKey: true });
     expect(area.value).toBe("// int a;");
   });
 
-  it("supprime la ligne par ses DEUX chords", () => {
+  it("deletes the line through BOTH its chords", () => {
     const first = typing("a\nb");
     first.area.setSelectionRange(0, 0);
     press(first.area, "k", { ctrlKey: true, shiftKey: true });
@@ -152,10 +152,10 @@ describe("les commandes atteignent l'éditeur", () => {
     const second = typing("a\nb");
     second.area.setSelectionRange(0, 0);
     press(second.area, "D", { ctrlKey: true, shiftKey: true });
-    expect(second.area.value, "Ctrl+Maj+D, pour Firefox").toBe("b");
+    expect(second.area.value, "Ctrl+Shift+D, for Firefox").toBe("b");
   });
 
-  it("prévient le défaut MÊME quand la commande ne fait rien", () => {
+  it("prevents the default EVEN when the command does nothing", () => {
     const { area } = typing("a\nb");
     area.setSelectionRange(0, 0);
     const event = press(area, "ArrowUp", { altKey: true, shiftKey: true });
@@ -164,8 +164,8 @@ describe("les commandes atteignent l'éditeur", () => {
   });
 });
 
-describe("SILENCE : ce qui n'est pas à nous repart intact", () => {
-  it("ne touche pas à Ctrl+Z, et ne le prévient pas", () => {
+describe("SILENCE: what is not ours goes back untouched", () => {
+  it("does not touch Ctrl+Z, and does not prevent it", () => {
     const { area, seen } = typing("int a;");
     area.setSelectionRange(0, 0);
     const event = press(area, "z", { ctrlKey: true });
@@ -174,7 +174,7 @@ describe("SILENCE : ce qui n'est pas à nous repart intact", () => {
     expect(event.defaultPrevented, "Ctrl+Z doit rester au navigateur").toBe(false);
   });
 
-  it("ne prend pas une frappe AltGr pour un raccourci", () => {
+  it("does not take an AltGr keystroke for a shortcut", () => {
     const { area } = typing("int a;");
     area.setSelectionRange(0, 0);
     const event = press(area, "d", { ctrlKey: true, altKey: true });
@@ -182,24 +182,24 @@ describe("SILENCE : ce qui n'est pas à nous repart intact", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 
-  it("laisse Ctrl+S et Ctrl+Entrée remonter jusqu'à la fenêtre", () => {
+  it("lets Ctrl+S and Ctrl+Enter bubble up to the window", () => {
     const { area } = typing("int a;");
     for (const key of ["s", "Enter"]) {
       expect(press(area, key, { ctrlKey: true }).defaultPrevented, key).toBe(false);
     }
   });
 
-  it("garde Échap-puis-Tab, l'échappatoire clavier", () => {
+  it("keeps Escape-then-Tab, the keyboard escape hatch", () => {
     const { area } = typing("int a;");
     area.setSelectionRange(0, 0);
     expect(press(area, "Escape").defaultPrevented).toBe(false);
-    expect(press(area, "Tab").defaultPrevented, "Tab doit SORTIR du champ").toBe(false);
-    expect(area.value, "et ne rien indenter").toBe("int a;");
+    expect(press(area, "Tab").defaultPrevented, "Tab must LEAVE the field").toBe(false);
+    expect(area.value, "and indent nothing").toBe("int a;");
   });
 });
 
-describe("un document verrouillé", () => {
-  it("refuse l'édition EN LE DISANT, et prévient quand même le défaut", () => {
+describe("a locked document", () => {
+  it("refuses editing AND SAYS SO, and still prevents the default", () => {
     const { area, seen } = typing("int a;", { readOnly: true });
     area.setSelectionRange(0, 0);
     const event = press(area, "d", { ctrlKey: true });
@@ -210,25 +210,25 @@ describe("un document verrouillé", () => {
     system.clear();
   });
 
-  it("laisse la NAVIGATION marcher : on peut lire ce qu'on ne peut pas écrire", () => {
+  it("lets NAVIGATION work: one can read what one cannot write", () => {
     const { area } = typing("int a;", { readOnly: true });
     press(area, "g", { ctrlKey: true });
-    expect(host.querySelector(".aller"), "Ctrl+G doit ouvrir le champ").not.toBeNull();
+    expect(host.querySelector(".goto"), "Ctrl+G must open the field").not.toBeNull();
   });
 });
 
-describe("aller à la ligne", () => {
-  it("n'est PAS dans le document tant qu'on ne l'a pas demandé", () => {
+describe("go to line", () => {
+  it("is NOT in the document until it is asked for", () => {
     const { area } = typing("a\nb\nc");
-    expect(host.querySelector(".aller")).toBeNull();
+    expect(host.querySelector(".goto")).toBeNull();
     press(area, "g", { ctrlKey: true });
-    expect(host.querySelector(".aller")).not.toBeNull();
+    expect(host.querySelector(".goto")).not.toBeNull();
   });
 
-  it("sélectionne la ligne demandée et referme", () => {
+  it("selects the requested line and closes", () => {
     const { area } = typing("aa\nbbb\nc");
     press(area, "g", { ctrlKey: true });
-    const field = host.querySelector<HTMLInputElement>(".aller input")!;
+    const field = host.querySelector<HTMLInputElement>(".goto input")!;
     field.value = "2";
     field.dispatchEvent(new Event("input", { bubbles: true }));
     flushSync();
@@ -236,34 +236,34 @@ describe("aller à la ligne", () => {
     flushSync();
     expect(area.selectionStart).toBe(3);
     expect(area.selectionEnd).toBe(6);
-    expect(host.querySelector(".aller")).toBeNull();
+    expect(host.querySelector(".goto")).toBeNull();
   });
 
-  it("rend le focus au code sur Échap, et ne bouge pas la sélection", () => {
+  it("gives focus back to the code on Escape, and does not move the selection", () => {
     const { area } = typing("aa\nbbb\nc");
     area.setSelectionRange(1, 1);
     press(area, "g", { ctrlKey: true });
-    const field = host.querySelector<HTMLInputElement>(".aller input")!;
+    const field = host.querySelector<HTMLInputElement>(".goto input")!;
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     flushSync();
-    expect(host.querySelector(".aller")).toBeNull();
+    expect(host.querySelector(".goto")).toBeNull();
     expect(document.activeElement).toBe(area);
     expect(area.selectionStart).toBe(1);
   });
 });
 
-describe("la faute suivante (F2)", () => {
-  it("pose le curseur sur une faute", () => {
+describe("the next error (F2)", () => {
+  it("puts the caret on an error", () => {
     const { area } = typing("int a = 1\nint b = 2;\n");
     vi.advanceTimersByTime(700);
     flushSync();
     area.setSelectionRange(0, 0);
     const event = press(area, "F2");
     expect(event.defaultPrevented).toBe(true);
-    expect(area.selectionEnd, "la sélection doit avoir bougé").toBeGreaterThan(0);
+    expect(area.selectionEnd, "the selection must have moved").toBeGreaterThan(0);
   });
 
-  it("SILENCE quand le code est juste : la sélection ne bouge pas", () => {
+  it("SILENCE when the code is correct: the selection does not move", () => {
     const { area } = typing("int a = 1;\n");
     vi.advanceTimersByTime(700);
     flushSync();
@@ -274,8 +274,8 @@ describe("la faute suivante (F2)", () => {
   });
 });
 
-describe("les deux surfaces à la fois", () => {
-  it("pilote la Console sans toucher à l'exercice", () => {
+describe("both surfaces at once", () => {
+  it("drives the Console without touching the exercise", () => {
     const exercise = typing("int a;");
     const console_ = mount(CodeSurface, {
       target: host,

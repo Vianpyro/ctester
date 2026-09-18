@@ -13,57 +13,57 @@
   let html = $state("");
 
   $effect(() => {
-    const chemin = "statement/" + encodeURIComponent(id) + "/statement.html";
-    let annule = false;
+    const path = "statement/" + encodeURIComponent(id) + "/statement.html";
+    let cancelled = false;
     let blobs: string[] = [];
     void (async () => {
-      const reponse = await (staff ? authFetch(chemin) : fetch(api(chemin))).catch(() => null);
-      const texte = reponse?.ok ? await reponse.text().catch(() => null) : null;
-      if (annule) return;
-      const pret = texte === null ? null : prepareTypstHtml(texte);
-      if (!pret || !pret.html.trim()) {
+      const response = await (staff ? authFetch(path) : fetch(api(path))).catch(() => null);
+      const text = response?.ok ? await response.text().catch(() => null) : null;
+      if (cancelled) return;
+      const ready = text === null ? null : prepareTypstHtml(text);
+      if (!ready || !ready.html.trim()) {
         onfail();
         return;
       }
-      blobs = pret.blobs;
-      html = pret.html;
+      blobs = ready.blobs;
+      html = ready.html;
     })();
     return () => {
-      annule = true;
+      cancelled = true;
       for (const url of blobs) URL.revokeObjectURL(url);
     };
   });
 
-  function clic(event: MouseEvent) {
-    const bouton = (event.target as HTMLElement).closest("button.copier");
-    const pre = bouton?.closest("pre");
-    if (!bouton || !pre) return;
+  function click(event: MouseEvent) {
+    const button = (event.target as HTMLElement).closest("button.copy");
+    const pre = button?.closest("pre");
+    if (!button || !pre) return;
     const code = pre.querySelector("code")?.textContent ?? "";
     void navigator.clipboard?.writeText(code).then(() => {
-      bouton.textContent = "Copié";
-      setTimeout(() => (bouton.textContent = "Copier"), 1500);
+      button.textContent = "Copié";
+      setTimeout(() => (button.textContent = "Copier"), 1500);
     });
   }
 
-  function dansRecopier(event: Event): boolean {
-    const cible = event.target as Node | null;
+  function inRetypeBlock(event: Event): boolean {
+    const target = event.target as Node | null;
     const sel = document.getSelection();
-    const noeuds = [cible, sel?.anchorNode, sel?.focusNode];
-    return noeuds.some((n) => (n instanceof Element ? n : n?.parentElement)?.closest(".typ-recopier"));
+    const nodes = [target, sel?.anchorNode, sel?.focusNode];
+    return nodes.some((n) => (n instanceof Element ? n : n?.parentElement)?.closest(".typ-retype"));
   }
-  const bloquer = (event: Event) => {
-    if (dansRecopier(event)) event.preventDefault();
+  const block = (event: Event) => {
+    if (inRetypeBlock(event)) event.preventDefault();
   };
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -- clicks are delegated to the real Copy buttons, which keyboard users reach directly -->
   <div
     class="typsthtml"
-    onclick={clic}
-    oncopy={bloquer}
-    oncut={bloquer}
-    oncontextmenu={bloquer}
-    ondragstart={bloquer}
+    onclick={click}
+    oncopy={block}
+    oncut={block}
+    oncontextmenu={block}
+    ondragstart={block}
   >
     {@html html}
   </div>

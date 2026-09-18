@@ -47,8 +47,8 @@ def submit(body: SubmissionIn, request: Request):
             return headers.error(400, "soumission vide")
         name, blob = "files.json", json.dumps(files).encode()
 
-    who = security.client_id(request.headers, deps.tcp_peer(request),
-                             station=request.query_params.get("poste", "")[:64])
+    station = request.query_params.get("station", "")[:64]
+    who = security.client_id(request.headers, deps.tcp_peer(request), station=station)
     with deps.lock:
         wait = (deps.signed_in_quota if sub else deps.quota).check(who, time.time())
         if wait:
@@ -59,7 +59,8 @@ def submit(body: SubmissionIn, request: Request):
         pending = sum(1 for _, _, finished in spool.scan_jobs() if not finished)
         if pending >= config.QUEUE_MAX:
             return headers.error(503, "file pleine -- réessaie dans une minute")
-        job_id = spool.write_job(entry["id"], name, blob, sub)
+        job_id = spool.write_job(entry["id"], name, blob, sub,
+                                 station=None if sub else security.station_tag(station))
     return {"id": job_id}
 
 

@@ -103,14 +103,14 @@ Mermaid diagrams follow the theme. Avoid accents in node labels.
 ```typst
 #note[A useful detail.]
 #attention[What costs a failed verdict.]
-#exemple[Input: `5 12 42` — output: `42`.]
-#signature(fichier: "buffer.h", "int maximum(const int v[], int n);")
-#recopier(```c
+#example[Input: `5 12 42` — output: `42`.]
+#signature(file: "buffer.h", "int maximum(const int v[], int n);")
+#retype(```c
 for (int i = 0; i < n; i++) printf("%d\n", t[i]);
 ```)
 ```
 
-`note`, `attention` and `exemple` accept `titre:`. `recopier` marks code students must retype: it has
+`note`, `attention` and `example` accept `title:`. `retype` marks code students must retype: it has
 no Copy button and refuses selection. This discourages copying but does not prevent it.
 
 `#pagebreak()` starts a new SVG page (at most 16). HTML ignores it.

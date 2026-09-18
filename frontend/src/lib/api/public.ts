@@ -19,7 +19,7 @@ type Wire = {
 };
 
 export async function fetchDetail(id: string, staff = false): Promise<ExerciseDetail> {
-  const path = "tp/" + encodeURIComponent(id) + ".json";
+  const path = "exercise/" + encodeURIComponent(id) + ".json";
   const answer = staff ? await authRequest<Wire>(path) : await request<Wire>(path);
   if (!answer.ok || !answer.body) {
     return { statement: "", files: [], offline: true };

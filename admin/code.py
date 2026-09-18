@@ -20,24 +20,24 @@ import state
 from services import catalog, spool
 
 SOURCE_RUN = "run"
-SOURCE_DERNIER = "dernier"
+LAST_SOURCE = "dernier"
 
 
 def pour(job_id, exercise_id, account):
     """{source, files, at} -- `source` says which of the two answered, and the page
     must show it: passing off today's code as a Tuesday run would mislead."""
-    files = _du_spool(job_id, exercise_id)
+    files = _from_spool(job_id, exercise_id)
     if files:
-        return {"source": SOURCE_RUN, "files": files, "at": _quand(job_id)}
+        return {"source": SOURCE_RUN, "files": files, "at": _when(job_id)}
     if account:
-        dernier = state.read_submitted(account, exercise_id)
-        if dernier and dernier["files"]:
-            return {"source": SOURCE_DERNIER, "files": dernier["files"],
-                    "at": dernier["at"]}
+        last = state.read_submitted(account, exercise_id)
+        if last and last["files"]:
+            return {"source": LAST_SOURCE, "files": last["files"],
+                    "at": last["at"]}
     return {"source": None, "files": {}, "at": None}
 
 
-def _du_spool(job_id, exercise_id):
+def _from_spool(job_id, exercise_id):
     if not exercise_id or exercise_id.startswith(":"):
         return {}
     # preview=True: a closed or archived exercise is still the teacher's to read.
@@ -47,7 +47,7 @@ def _du_spool(job_id, exercise_id):
     return spool.job_sources(job_id, entry)
 
 
-def _quand(job_id):
+def _when(job_id):
     try:
         stamp = os.path.getmtime(os.path.join(config.SPOOL, job_id, "job.json"))
     except OSError:

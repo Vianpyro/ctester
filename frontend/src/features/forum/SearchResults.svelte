@@ -21,13 +21,13 @@
 </script>
 
 {#if !rows.length}
-  {#if empty}<p class="aide">{empty}</p>{/if}
+  {#if empty}<p class="help">{empty}</p>{/if}
 {:else}
-  <ul class="fil">
+  <ul class="thread">
     {#each rows as r (r.id)}
       <li class="message">
-        <p class="qui">
-          <span class="auteur">{readableThread(r.exercise_id)}</span>
+        <p class="who">
+          <span class="author">{readableThread(r.exercise_id)}</span>
           {#if r.replies}
             <span class="tag accent">{r.replies > 1 ? r.replies + " réponses" : "1 réponse"}</span>
           {:else}
@@ -35,7 +35,7 @@
           {/if}
           {#if r.upvotes}<span class="tag">{r.upvotes} × même question</span>{/if}
         </p>
-        <p class="extrait">{r.extrait}</p>
+        <p class="excerpt">{r.excerpt}</p>
         <button type="button" class="nav" onclick={() => thread.openPermalink(r.id)}>
           Ouvrir
         </button>

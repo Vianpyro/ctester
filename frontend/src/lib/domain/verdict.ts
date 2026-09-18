@@ -15,45 +15,45 @@ export const STEP_STATE: Record<"f" | "mp", Record<string, string>> = {
 };
 
 export interface Outcome {
-  etapes: [StepState, StepState, StepState];
-  titre: string;
+  steps: [StepState, StepState, StepState];
+  title: string;
   suite: string;
 }
 
 export const OUTCOMES: Record<string, Outcome> = {
   forbidden_include: {
-    etapes: ["ko", "", ""],
-    titre: "Un #include n'est pas autorisé",
+    steps: ["ko", "", ""],
+    title: "Un #include n'est pas autorisé",
     suite: "Retire cette ligne, puis relance le test.",
   },
   compile_error: {
-    etapes: ["ko", "", ""],
-    titre: "Ton fichier ne compile pas.",
+    steps: ["ko", "", ""],
+    title: "Ton fichier ne compile pas.",
     suite: "Corrige la PREMIÈRE erreur : les suivantes en découlent souvent.",
   },
   compile_timeout: {
-    etapes: ["ko", "", ""],
-    titre: "La compilation a été trop longue",
+    steps: ["ko", "", ""],
+    title: "La compilation a été trop longue",
     suite: "Réessaie. Si ça recommence, préviens ton enseignant.",
   },
   link_error: {
-    etapes: ["ko", "", ""],
-    titre: "Ton code ne s'assemble pas avec les tests",
+    steps: ["ko", "", ""],
+    title: "Ton code ne s'assemble pas avec les tests",
     suite: "Compare ta signature avec celle de l’énoncé, caractère par caractère.",
   },
   memory_error: {
-    etapes: ["ok", "ko", ""],
-    titre: "Ton programme sort de la mémoire qu'il a réservée",
+    steps: ["ok", "ko", ""],
+    title: "Ton programme sort de la mémoire qu'il a réservée",
     suite: "Revois tes conditions de boucle (< et non <=) et la taille que tu réserves.",
   },
   timeout: {
-    etapes: ["ok", "ko", ""],
-    titre: "Ton programme ne s'est pas arrêté",
+    steps: ["ok", "ko", ""],
+    title: "Ton programme ne s'est pas arrêté",
     suite: "Vérifie tes conditions de boucle et le nombre de valeurs que tu lis.",
   },
   error: {
-    etapes: ["ok", "ko", ""],
-    titre: "Ton programme s'est arrêté avant la fin",
+    steps: ["ok", "ko", ""],
+    title: "Ton programme s'est arrêté avant la fin",
     suite:
       "Plantage probable : indice hors des bornes, pointeur invalide, ou chaîne sans son terminateur.",
   },
@@ -95,6 +95,9 @@ export function caseClass(reason: string | undefined): string {
 export const showsContract = (c: FailedCase): boolean =>
   caseClass(c.reason) === "mauvaise sortie" && !/mot attendu|mentionne/.test(c.reason || "");
 
+export const caseNumbers = (c: FailedCase): (string | number)[] | undefined =>
+  c.numbers ?? c.nombres;
+
 export const caseInputs = (stdin: string | undefined): string[] =>
   (stdin || "")
     .split("\n")
@@ -102,7 +105,7 @@ export const caseInputs = (stdin: string | undefined): string[] =>
     .filter((v) => v !== "");
 
 export interface Scope {
-  titre: string;
+  title: string;
   ids: string[];
 }
 
@@ -121,8 +124,8 @@ export const isJudgeFailure = (r: Verdict): boolean =>
   r.status === "error" && /juge/.test(r.message || "");
 
 export function verdictHeadline(r: Verdict, scope: Scope | null): string {
-  if (r.status !== "ok") return (OUTCOMES[r.status] ?? OUTCOMES.error!).titre;
+  if (r.status !== "ok") return (OUTCOMES[r.status] ?? OUTCOMES.error!).title;
   const shown = scope && r.kind === "quiz" ? restrictToScope(r, scope) : r;
-  const frame = scope && r.kind === "quiz" ? " — " + scope.titre : "";
+  const frame = scope && r.kind === "quiz" ? " — " + scope.title : "";
   return `${shown.passed ?? 0} / ${shown.total ?? 0} ${UNITS[r.kind] ?? "réussis"}${frame}`;
 }

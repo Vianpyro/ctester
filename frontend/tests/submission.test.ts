@@ -217,34 +217,34 @@ describe("do not ask again for what was just asked", () => {
     expect(submits()).toHaveLength(2);
   });
 
-  it("KEEPS ONLY WHAT THE SERVER AGREES TO KEEP: `rejouer` is never memoized", async () => {
+  it("KEEPS ONLY WHAT THE SERVER AGREES TO KEEP: `rerun` is never memoized", async () => {
     const files = uniqueCode();
-    queue("o", { status: 200, body: { ...OK, rejouer: true } });
+    queue("o", { status: 200, body: { ...OK, rerun: true } });
     queue("p", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
     expect(submits()).toHaveLength(2);
   });
 
-  it("UN ESPACE DE FIN N'EST PAS UN AUTRE CODE", async () => {
+  it("A TRAILING SPACE IS NOT DIFFERENT CODE", async () => {
     const files = uniqueCode();
     queue("ws1", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
     expect(submits()).toHaveLength(1);
 
-    const espace = { "submission.c": files["submission.c"] + "   " };
-    await submission.submit(EXERCISE, KEY, { files: espace }, null, noop);
+    const space = { "submission.c": files["submission.c"] + "   " };
+    await submission.submit(EXERCISE, KEY, { files: space }, null, noop);
     expect(submits()).toHaveLength(1);
     expect(system.text).toMatch(/Même code que ta dernière soumission/);
   });
 
-  it("mais une VRAIE ligne de plus en est un", async () => {
+  it("but a REAL extra line is", async () => {
     const files = uniqueCode();
     queue("ws2", { status: 200, body: OK });
     queue("ws3", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
-    const ligne = { "submission.c": files["submission.c"] + "\n" };
-    await submission.submit(EXERCISE, KEY, { files: ligne }, null, noop);
+    const line = { "submission.c": files["submission.c"] + "\n" };
+    await submission.submit(EXERCISE, KEY, { files: line }, null, noop);
     expect(submits()).toHaveLength(2);
   });
 

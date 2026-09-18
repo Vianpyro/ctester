@@ -250,7 +250,7 @@ pub mod tests {
     fn hostile() -> (Scratch, Spool, PathBuf) {
         let scratch = Scratch::new("hostile");
         let root = scratch.0.join("spool");
-        let target = scratch.0.join("cible");
+        let target = scratch.0.join("target");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(target.join("secret"), "SECRET").unwrap();

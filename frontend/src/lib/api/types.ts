@@ -92,6 +92,8 @@ export interface FailedCase {
   stdin?: string;
   stdout?: string;
   stderr?: string;
+  numbers?: (string | number)[];
+  /** The same field in verdicts written before it was renamed. */
   nombres?: (string | number)[];
 }
 
@@ -114,7 +116,7 @@ export interface Verdict {
   cases?: FailedCase[];
   failed?: string[];
   wrong?: WrongAnswer[];
-  rejouer?: boolean;
+  rerun?: boolean;
 }
 
 export type PollResult =
@@ -290,7 +292,7 @@ export interface ForumProfileIn {
 export interface SearchResult {
   id: string;
   exercise_id: string;
-  extrait: string;
+  excerpt: string;
   replies: number;
   upvotes: number;
 }

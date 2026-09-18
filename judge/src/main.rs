@@ -295,6 +295,7 @@ mod runner {
             Run {
                 exercise_id,
                 account: self.spool.job_field(job, "owner"),
+                station: self.spool.job_field(job, "station"),
                 kind,
                 duration_s,
                 queue_wait_s,
@@ -400,7 +401,7 @@ mod runner {
                 if !self.results.claim(&job) {
                     continue;
                 }
-                eprintln!("ctester: cache servi {exercise_id} {} [file]", &sig[..12]);
+                eprintln!("ctester: cache served {exercise_id} {} [queue]", &sig[..12]);
                 let run = self.record(&job, &exercise_id, None, true);
                 if self.results.write_result(&job, verdict, &run).is_ok() {
                     served += 1;
@@ -432,15 +433,18 @@ mod runner {
             let fingerprint = cache::fingerprint(&self.config, &exercise_id, &exercise);
             let sig = cache::signature(&fingerprint, &conf, &exercise.path, &sent);
             if let Some(known) = self.cache.read(&sig) {
-                eprintln!("ctester: cache servi {exercise_id} {} [dépilé]", &sig[..12]);
+                eprintln!(
+                    "ctester: cache served {exercise_id} {} [dequeued]",
+                    &sig[..12]
+                );
                 return Ok(known);
             }
             let mut verdict = self.judge(job, &exercise, &conf, &sent)?;
             if cache::cachable(&conf, &verdict) {
                 self.cache.write(&sig, &verdict);
-                eprintln!("ctester: cache écrit {exercise_id} {}", &sig[..12]);
+                eprintln!("ctester: cache written {exercise_id} {}", &sig[..12]);
             } else if let Some(map) = verdict.as_object_mut() {
-                map.insert("rejouer".into(), json!(true));
+                map.insert("rerun".into(), json!(true));
             }
             Ok(verdict)
         }
@@ -715,7 +719,7 @@ mod runner {
         #[test]
         fn a_hostile_spool_reaches_nothing_outside_through_the_loop() {
             let mut w = World::new();
-            let target = w.scratch.0.join("cible");
+            let target = w.scratch.0.join("target");
             write(&target.join("secret"), "SECRET");
             let job = w.submit(
                 r#"{"exercise_id": "tp-io"}"#,

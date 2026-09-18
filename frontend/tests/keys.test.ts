@@ -21,68 +21,68 @@ function press(key: string, marked: string, shift = false): string | null {
   );
 }
 
-describe("les paires", () => {
-  it("ferme les quatre paires et laisse le curseur dedans", () => {
+describe("pairs", () => {
+  it("closes the four pairs and leaves the caret inside", () => {
     expect(press("(", "printf§")).toBe("printf(|)");
     expect(press("[", "int t§")).toBe("int t[|]");
     expect(press("{", "if (x) §")).toBe("if (x) {|}");
     expect(press('"', "puts(§)")).toBe('puts("|")');
   });
 
-  it("survole le fermant au lieu d'en écrire un second", () => {
+  it("steps over the closing one instead of typing a second", () => {
     expect(press(")", "printf(§)")).toBe("printf()|");
     expect(press('"', 'puts("hi§")')).toBe('puts("hi"|)');
   });
 
-  it("encadre une sélection plutôt que de la remplacer", () => {
+  it("wraps a selection rather than replacing it", () => {
     expect(press("(", "return §x + 1§;")).toBe("return (|x + 1|);");
     expect(press('"', "§salut§")).toBe('"|salut|"');
   });
 
-  it("N'ENCADRE PAS quand du texte suit : on tape devant un mot existant", () => {
+  it("does NOT WRAP when text follows: one is typing before an existing word", () => {
     expect(press("(", "§printf")).toBeNull();
     expect(press("[", "§tableau")).toBeNull();
   });
 
-  it("ne ferme pas une apostrophe collée à un mot", () => {
+  it("does not close an apostrophe stuck to a word", () => {
     expect(press("'", "// aujourd§")).toBeNull();
     expect(press("'", "// c§")).toBeNull();
   });
 
-  it("ferme une apostrophe là où c'est un littéral C", () => {
+  it("closes an apostrophe where it is a C literal", () => {
     expect(press("'", "char c = §;")).toBe("char c = '|';");
   });
 });
 
 describe("Backspace", () => {
-  it("efface les deux moitiés d'une paire vide", () => {
+  it("erases both halves of an empty pair", () => {
     expect(press("Backspace", "printf(§)")).toBe("printf|");
     expect(press("Backspace", 'puts("§")')).toBe("puts(|)");
   });
 
-  it("laisse le navigateur faire quand la paire n'est pas vide", () => {
+  it("leaves it to the browser when the pair is not empty", () => {
     expect(press("Backspace", "printf(§x)")).toBeNull();
   });
 
-  it("efface un niveau d'indentation d'un seul coup", () => {
+  it("erases one indentation level at once", () => {
     expect(press("Backspace", "        §x")).toBe("    |x");
     expect(press("Backspace", "      §x")).toBe("    |x");
   });
 });
 
 describe("Tab", () => {
-  it("va jusqu'au prochain multiple de quatre", () => {
+  it("goes to the next multiple of four", () => {
     expect(press("Tab", "§x")).toBe("    |x");
     expect(press("Tab", "  §x")).toBe("    |x");
     expect(press("Tab", "    §x")).toBe("        |x");
   });
 
-  it("indente tout un bloc sélectionné en gardant la sélection", () => {
+  it("indents a whole selected block and keeps the selection", () => {
     const out = press("Tab", "§un\ndeux\ntrois§");
     expect(out).toBe("|    un\n    deux\n    trois|");
   });
 
-  it("désindente le bloc avec Maj, et le rend à son état de départ", () => {
+  it("dedents the block with Shift, back to its starting state", () => {
     const indented = "    un\n    deux";
     const start = indented.length;
     const edit = keyEdit("Tab", true, indented, 0, start) as Edit;
@@ -90,51 +90,51 @@ describe("Tab", () => {
     expect(out).toBe("un\ndeux");
   });
 
-  it("désindente la ligne courante où que soit le curseur dedans", () => {
+  it("dedents the current line wherever the caret is in it", () => {
     expect(press("Tab", "    if§ (x)", true)).toBe("if| (x)");
   });
 
-  it("ne fait rien sur une ligne déjà à gauche", () => {
+  it("does nothing on a line already at the left", () => {
     expect(press("Tab", "if§ (x)", true)).toBe("if| (x)");
   });
 });
 
-describe("Entrée", () => {
-  it("recopie l'indentation de la ligne", () => {
+describe("Enter", () => {
+  it("carries over the line's indentation", () => {
     expect(press("Enter", "    x = 1;§")).toBe("    x = 1;\n    |");
   });
 
-  it("laisse le navigateur faire quand il n'y a rien à recopier", () => {
+  it("leaves it to the browser when there is nothing to carry over", () => {
     expect(press("Enter", "x = 1;§")).toBeNull();
   });
 
-  it("ouvre un bloc entre deux accolades, le fermant sur sa propre ligne", () => {
+  it("opens a block between two braces, closing it on its own line", () => {
     expect(press("Enter", "    if (x) {§}")).toBe("    if (x) {\n        |\n    }");
   });
 
-  it("indente d'un niveau après une accolade ouvrante seule", () => {
+  it("indents one level after a lone opening brace", () => {
     expect(press("Enter", "    if (x) {§")).toBe("    if (x) {\n        |");
   });
 });
 
-describe("l'accolade fermante", () => {
-  it("se recale d'un niveau quand elle est seule sur sa ligne", () => {
+describe("the closing brace", () => {
+  it("moves back one level when it is alone on its line", () => {
     expect(press("}", "if (x) {\n    y;\n        §")).toBe("if (x) {\n    y;\n    }|");
   });
 
-  it("ne bouge pas ce qui n'est pas de l'indentation", () => {
+  it("does not move what is not indentation", () => {
     expect(press("}", "if (x) { y;§")).toBeNull();
   });
 });
 
-describe("ce qui n'est pas à nous", () => {
-  it("laisse passer les touches sans effet d'édition", () => {
+describe("what is not ours", () => {
+  it("lets keys through that have no editing effect", () => {
     for (const key of ["ArrowLeft", "Home", "F5", "Shift", "PageDown"]) {
       expect(keyEdit(key, false, "x", 1, 1), key).toBeNull();
     }
   });
 
-  it("laisse passer une lettre ordinaire", () => {
+  it("lets an ordinary letter through", () => {
     expect(keyEdit("a", false, "x", 1, 1)).toBeNull();
   });
 });
@@ -160,163 +160,163 @@ function run(id: ShortcutId, marked: string): string | null {
 
 const text = (id: ShortcutId, marked: string) => run(id, marked)?.replace(/\|/g, "") ?? null;
 
-describe("commenter", () => {
-  it("pose `// ` sur la ligne du curseur", () => {
+describe("comment", () => {
+  it("puts `// ` on the caret's line", () => {
     expect(text("commentLine", "  int x§ = 1;")).toBe("  // int x = 1;");
   });
 
-  it("retire `// ` quand tout le bloc est commenté", () => {
+  it("removes `// ` when the whole block is commented", () => {
     expect(text("commentLine", "§// int x;\n// int y;§")).toBe("int x;\nint y;");
   });
 
-  it("SILENCE sur le sens : un bloc MIXTE se fait commenter, pas décommenter", () => {
+  it("SILENCE on the direction: a MIXED block gets commented, not uncommented", () => {
     expect(text("commentLine", "§// int x;\nint y;§")).toBe("// // int x;\n// int y;");
   });
 
-  it("aligne les `//` en COLONNE et garde l'indentation relative", () => {
+  it("aligns the `//` in a COLUMN and keeps the relative indentation", () => {
     expect(text("commentLine", "§    int a;\n        int b;§")).toBe(
       "    // int a;\n    //     int b;",
     );
   });
 
-  it("SILENCE sur les lignes vides d'un bloc : elles ne reçoivent rien", () => {
+  it("SILENCE on a block's empty lines: they receive nothing", () => {
     expect(text("commentLine", "§int a;\n\nint b;§")).toBe("// int a;\n\n// int b;");
   });
 
-  it("commente quand même une ligne vide SEULE, sinon la touche a l'air morte", () => {
+  it("still comments a LONE empty line, or the key looks dead", () => {
     expect(text("commentLine", "  §")).toBe("  // ");
   });
 
-  it("fait un aller-retour EXACT, et garde une espace d'alignement voulue", () => {
+  it("makes an EXACT round trip, and keeps a deliberate alignment space", () => {
     expect(text("commentLine", "§//x§")).toBe("x");
     expect(text("commentLine", "§// x§")).toBe("x");
     expect(text("commentLine", "§//  x§")).toBe(" x");
   });
 
-  it("SILENCE sur la ligne d'en dessous quand la sélection finit à son début", () => {
+  it("SILENCE on the line below when the selection ends at its start", () => {
     expect(text("commentLine", "§int a;\n§int b;")).toBe("// int a;\nint b;");
     expect(text("commentLine", "§int a;\ni§nt b;")).toBe("// int a;\n// int b;");
   });
 
-  it("garde le curseur sur sa ligne", () => {
+  it("keeps the caret on its line", () => {
     expect(run("commentLine", "int §x;")).toBe("// int |x;");
   });
 });
 
-describe("commentaire de bloc", () => {
-  it("encadre la sélection et la garde sélectionnée", () => {
+describe("block comment", () => {
+  it("wraps the selection and keeps it selected", () => {
     expect(run("commentBlock", "a = §b + c§;")).toBe("a = |/*b + c*/|;");
   });
 
-  it("désencadre ce qu'il a encadré", () => {
+  it("unwraps what it wrapped", () => {
     expect(text("commentBlock", "a = §/*b + c*/§;")).toBe("a = b + c;");
   });
 
-  it("pose une coquille vide sous le curseur nu", () => {
+  it("puts an empty shell under a bare caret", () => {
     expect(run("commentBlock", "a;§")).toBe("a;/* | */");
   });
 
-  it("SILENCE : un `*/` au milieu fait retomber sur le commentaire de ligne", () => {
+  it("SILENCE: a `*/` in the middle falls back to the line comment", () => {
     expect(text("commentBlock", "§int a; /* n */\nint b;§")).toBe("// int a; /* n */\n// int b;");
   });
 });
 
-describe("dupliquer", () => {
-  it("copie la ligne en dessous, même colonne, sans sélection", () => {
+describe("duplicate", () => {
+  it("copies the line below, same column, without a selection", () => {
     expect(run("duplicate", "int §x;")).toBe("int x;\nint |x;");
   });
 
-  it("copie un bloc de lignes ENTIÈRES en dessous, et sélectionne la COPIE", () => {
+  it("copies a block of WHOLE lines below, and selects the COPY", () => {
     expect(run("duplicate", "§int a;\nint b;§")).toBe("int a;\nint b;\n|int a;\nint b;|");
   });
 
-  it("copie une sélection partielle juste après elle", () => {
+  it("copies a partial selection right after it", () => {
     expect(run("duplicate", "f(§abc§);")).toBe("f(abc|abc|);");
   });
 
-  it("est répétable : deux passes donnent deux copies", () => {
+  it("is repeatable: two passes give two copies", () => {
     const once = text("duplicate", "§int a;")!;
     expect(once).toBe("int a;\nint a;");
   });
 });
 
-describe("supprimer la ligne", () => {
-  it("emporte la ligne et son saut de ligne", () => {
+describe("delete the line", () => {
+  it("takes the line and its line break", () => {
     expect(text("deleteLine", "int a;\nint §b;\nint c;")).toBe("int a;\nint c;");
   });
 
-  it("prend le saut de ligne D'AVANT sur la dernière ligne", () => {
+  it("takes the line break BEFORE on the last line", () => {
     expect(text("deleteLine", "int a;\nint §b;")).toBe("int a;");
   });
 
-  it("vide le fichier quand il n'y a qu'une ligne", () => {
+  it("empties the file when there is only one line", () => {
     expect(text("deleteLine", "int §a;")).toBe("");
   });
 
-  it("SILENCE sur un fichier déjà vide", () => {
+  it("SILENCE on an already empty file", () => {
     expect(run("deleteLine", "§")).toBeNull();
   });
 });
 
-describe("déplacer la ligne", () => {
-  it("monte la ligne et emmène le curseur avec elle", () => {
+describe("move the line", () => {
+  it("moves the line up and takes the caret along", () => {
     expect(run("moveUp", "int a;\nint §b;")).toBe("int |b;\nint a;");
   });
 
-  it("descend la ligne et emmène le curseur avec elle", () => {
+  it("moves the line down and takes the caret along", () => {
     expect(run("moveDown", "int §a;\nint b;")).toBe("int b;\nint |a;");
   });
 
-  it("garde la SÉLECTION sur le bloc déplacé, pour qu'on puisse recommencer", () => {
+  it("keeps the SELECTION on the moved block, so one can do it again", () => {
     expect(run("moveDown", "§int a;\nint b;§\nint c;")).toBe("int c;\n|int a;\nint b;|");
   });
 
-  it("promène le bloc quand on répète", () => {
+  it("carries the block along when repeated", () => {
     const once = text("moveUp", "a\nb\n§c")!;
     expect(once).toBe("a\nc\nb");
     expect(text("moveUp", "a\n§c\nb")).toBe("c\na\nb");
   });
 
-  it("SILENCE aux deux bouts, et le texte reste INTACT", () => {
+  it("SILENCE at both ends, and the text stays INTACT", () => {
     expect(run("moveUp", "int §a;\nint b;")).toBeNull();
     expect(run("moveDown", "int a;\nint §b;")).toBeNull();
     expect(run("moveUp", "§int a;\nint b;§")).toBeNull();
   });
 });
 
-describe("compléter l'instruction", () => {
-  it("ajoute le `;` et ouvre la ligne suivante, indentée", () => {
+describe("complete the statement", () => {
+  it("adds the `;` and opens the next line, indented", () => {
     expect(run("completeStatement", "    int x = 1§")).toBe("    int x = 1;\n    |");
   });
 
-  it("SILENCE : une ligne qui finit déjà par `;` n'en gagne pas un second", () => {
+  it("SILENCE: a line already ending with `;` does not get a second one", () => {
     expect(run("completeStatement", "    int x = 1;§")).toBe("    int x = 1;\n    |");
   });
 
-  it("SILENCE SUR `if (x)`, et c'est le point-virgule le plus cher du cours", () => {
+  it("SILENCE ON `if (x)`, the most expensive semicolon in the course", () => {
     expect(run("completeStatement", "    if (x)§")).toBe("    if (x)\n    |");
     expect(run("completeStatement", "for (;;)§")).toBe("for (;;)\n|");
     expect(run("completeStatement", "while (a)§")).toBe("while (a)\n|");
     expect(run("completeStatement", "#include <stdio.h>§")).toBe("#include <stdio.h>\n|");
   });
 
-  it("descend d'un niveau après une accolade ouvrante", () => {
+  it("goes down one level after an opening brace", () => {
     expect(run("completeStatement", "    if (x) {§")).toBe("    if (x) {\n        |");
   });
 });
 
-describe("aller à la ligne", () => {
-  it("rend la plage de la ligne demandée, numérotée depuis 1", () => {
+describe("go to line", () => {
+  it("returns the range of the requested line, numbered from 1", () => {
     expect(lineSpan("aa\nbbb\nc", 2)).toEqual({ from: 3, to: 6 });
     expect(lineSpan("aa\nbbb\nc", 1)).toEqual({ from: 0, to: 2 });
   });
 
-  it("BORNE au lieu de refuser : 999 veut dire « la fin »", () => {
+  it("CLAMPS instead of refusing: 999 means \"the end\"", () => {
     expect(parseLine("999", 5)).toBe(5);
     expect(parseLine("  3 ", 5)).toBe(3);
   });
 
-  it("SILENCE sur ce qui n'est pas un numéro de ligne", () => {
+  it("SILENCE on what is not a line number", () => {
     for (const bad of ["", "0", "abc", "-2", "1.5", "2e3"]) {
       expect(parseLine(bad, 5), bad).toBeNull();
     }

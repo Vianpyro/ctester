@@ -50,17 +50,17 @@ def upgrade_from_an_older_database():
         sql = fh.read()
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
         cx.execute(sql)
-        # judge_run comme une base d'avant la colonne, puis on rejoue le schema.
+        # judge_run as in a database from before the column, then replay the schema.
         cx.execute("ALTER TABLE judge_run DROP COLUMN IF EXISTS account")
         cx.execute(sql)
-        presentes = {row[0] for row in cx.execute(
+        present = {row[0] for row in cx.execute(
             "SELECT column_name FROM information_schema.columns"
             " WHERE table_name = 'judge_run'")}
-    manquantes = set(state.RUN_COLUMNS) - presentes
-    assert not manquantes, (
-        "judge_run: %s manque(nt) apres une mise a niveau. Une colonne ajoutee au"
-        " CREATE doit avoir son ALTER TABLE ... ADD COLUMN IF NOT EXISTS."
-        % ", ".join(sorted(manquantes)))
+    missing = set(state.RUN_COLUMNS) - present
+    assert not missing, (
+        "judge_run: %s missing after an upgrade. A column added to the"
+        " CREATE needs its ALTER TABLE ... ADD COLUMN IF NOT EXISTS."
+        % ", ".join(sorted(missing)))
     print("ok   schema.sql upgrades a database that already exists, not just a fresh one")
 
 
@@ -216,16 +216,16 @@ def schema_migrates_a_roster_shaped_team_table():
     upgrade_from_an_older_database()
 
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
-        ligne = cx.execute(
+        line = cx.execute(
             "SELECT group_number, number, label FROM team"
             " WHERE team_id = 'g04-e01'").fetchone()
-        assert ligne == (4, 1, "Équipe 1"), ligne
+        assert line == (4, 1, "Équipe 1"), line
         assert cx.execute("SELECT count(*) FROM team_member").fetchone()[0] == 1
         assert cx.execute(
             "SELECT count(*) FROM pg_indexes"
             " WHERE indexname = 'team_number_idx'").fetchone()[0] == 1
     _reset_teams()
-    print("ok   schema.sql migre la table `team` d'hier sans perdre de ligne")
+    print("ok   schema.sql migrates yesterday's `team` table without losing a row")
 
 
 def append_only():
@@ -432,88 +432,88 @@ def identity():
 
 
 def stuck_and_helpful():
-    BLOQUE = "8" * 32
+    BLOCKED = "8" * 32
     thread = state.forum_thread("tp2-ex3", 200, ALICE)
     assert thread, "the forum() step should have left a message behind"
 
-    assert state.forum_post(BLOQUE, "tp2-ex3", ALICE, "stuck",
+    assert state.forum_post(BLOCKED, "tp2-ex3", ALICE, "stuck",
                             "compilation", "unclear-error", "private")
     stuck = [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
-             if m["id"] == BLOQUE][0]
+             if m["id"] == BLOCKED][0]
     assert stuck["visibility"] == "private" and stuck["step"] == "compilation"
 
-    assert state.forum_open_to_group(BLOQUE, BOB) == []
-    assert state.forum_open_to_group(BLOQUE, ALICE) != []
-    assert state.forum_open_to_group(BLOQUE, ALICE) == []
+    assert state.forum_open_to_group(BLOCKED, BOB) == []
+    assert state.forum_open_to_group(BLOCKED, ALICE) != []
+    assert state.forum_open_to_group(BLOCKED, ALICE) == []
     assert [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
-            if m["id"] == BLOQUE][0]["visibility"] == "group"
+            if m["id"] == BLOCKED][0]["visibility"] == "group"
 
-    assert state.forum_vote(BLOQUE, ALICE, 1) == []
+    assert state.forum_vote(BLOCKED, ALICE, 1) == []
     assert state.forum_vote("0" * 32, BOB, 1) == []
-    assert state.forum_vote(BLOQUE, BOB, 1) != []
-    assert state.forum_vote(BLOQUE, BOB, 1) != []
-    assert state.forum_vote(BLOQUE, BOB, -1) == []
+    assert state.forum_vote(BLOCKED, BOB, 1) != []
+    assert state.forum_vote(BLOCKED, BOB, 1) != []
+    assert state.forum_vote(BLOCKED, BOB, -1) == []
     seen = [m for m in state.forum_thread("tp2-ex3", 200, BOB)
-           if m["id"] == BLOQUE][0]
+           if m["id"] == BLOCKED][0]
     assert seen["upvotes"] == 1 and seen["downvotes"] == 0
     assert seen["my_vote"] == 1
     assert [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
-            if m["id"] == BLOQUE][0]["my_vote"] == 0
+            if m["id"] == BLOCKED][0]["my_vote"] == 0
     assert state.forum_vote("c" * 32, ALICE, 1) != []
 
-    REPONSE = "7" * 32
-    assert state.forum_reply(REPONSE, "tp2-ex3", BOB, "essaie ça", BLOQUE) != []
-    ENCORE = "6" * 32
-    assert state.forum_reply(ENCORE, "tp2-ex3", ALICE, "merci", REPONSE) != []
-    par_id = {m["id"]: m for m in state.forum_thread("tp2-ex3", 200, ALICE)}
-    assert par_id[REPONSE]["reply_to"] == BLOQUE
-    assert par_id[ENCORE]["reply_to"] == BLOQUE, "une réponse vise la RACINE"
-    assert state.forum_reply("5" * 32, "tp2-ex0", BOB, "x", BLOQUE) == []
+    RESPONSE = "7" * 32
+    assert state.forum_reply(RESPONSE, "tp2-ex3", BOB, "essaie ça", BLOCKED) != []
+    AGAIN = "6" * 32
+    assert state.forum_reply(AGAIN, "tp2-ex3", ALICE, "merci", RESPONSE) != []
+    by_id = {m["id"]: m for m in state.forum_thread("tp2-ex3", 200, ALICE)}
+    assert by_id[RESPONSE]["reply_to"] == BLOCKED
+    assert by_id[AGAIN]["reply_to"] == BLOCKED, "a reply targets the ROOT"
+    assert state.forum_reply("5" * 32, "tp2-ex0", BOB, "x", BLOCKED) == []
     assert state.forum_reply("5" * 32, "tp2-ex3", BOB, "x", "0" * 32) == []
-    assert state.forum_vote(REPONSE, ALICE, -1) != []
-    assert state.forum_vote(REPONSE, ALICE, 1) != []
-    apres = {m["id"]: m for m in state.forum_thread("tp2-ex3", 200, ALICE)}
-    assert apres[REPONSE]["upvotes"] == 1 and apres[REPONSE]["downvotes"] == 0
-    assert state.forum_unvote(REPONSE, ALICE) != []
-    assert state.forum_unvote(REPONSE, ALICE) == []
+    assert state.forum_vote(RESPONSE, ALICE, -1) != []
+    assert state.forum_vote(RESPONSE, ALICE, 1) != []
+    after = {m["id"]: m for m in state.forum_thread("tp2-ex3", 200, ALICE)}
+    assert after[RESPONSE]["upvotes"] == 1 and after[RESPONSE]["downvotes"] == 0
+    assert state.forum_unvote(RESPONSE, ALICE) != []
+    assert state.forum_unvote(RESPONSE, ALICE) == []
     assert {m["id"]: m for m in state.forum_thread("tp2-ex3", 200, ALICE)}[
-        REPONSE]["upvotes"] == 0
+        RESPONSE]["upvotes"] == 0
 
     court = state.forum_thread("tp2-ex3", 1, ALICE)
-    racines = [m for m in court if not m["reply_to"]]
-    assert len(racines) == 1, court
-    assert all(m["reply_to"] == racines[0]["id"]
+    roots = [m for m in court if not m["reply_to"]]
+    assert len(roots) == 1, court
+    assert all(m["reply_to"] == roots[0]["id"]
                for m in court if m["reply_to"]), court
 
-    fil_cle, conv = state.forum_conversation(ENCORE, ALICE)
-    assert fil_cle == "tp2-ex3"
-    assert {m["id"] for m in conv} == {BLOQUE, REPONSE, ENCORE}
+    thread_key, conv = state.forum_conversation(AGAIN, ALICE)
+    assert thread_key == "tp2-ex3"
+    assert {m["id"] for m in conv} == {BLOCKED, RESPONSE, AGAIN}
     assert state.forum_conversation("0" * 32, ALICE) == (None, [])
 
-    PRIVEE = "4" * 32
-    assert state.forum_post(PRIVEE, "tp2-ex3", ALICE,
+    PRIVATE = "4" * 32
+    assert state.forum_post(PRIVATE, "tp2-ex3", ALICE,
                             "mon segfault mysterieux", "execution",
                             "wrong-result", "private")
-    a_elle = [r["id"] for r in state.forum_search("segfault", ALICE, 5)]
-    a_lui = [r["id"] for r in state.forum_search("segfault", BOB, 5)]
-    assert PRIVEE in a_elle, a_elle
-    assert PRIVEE not in a_lui, a_lui
+    alices_results = [r["id"] for r in state.forum_search("segfault", ALICE, 5)]
+    bobs_results = [r["id"] for r in state.forum_search("segfault", BOB, 5)]
+    assert PRIVATE in alices_results, alices_results
+    assert PRIVATE not in bobs_results, bobs_results
     assert state.forum_search("", ALICE, 5) == []
     for hostile in ("&& ||", '"', "a:*!", "'; DROP TABLE forum_message; --"):
         assert state.forum_search(hostile, ALICE, 5) is not None, hostile
 
     top = state.forum_top(24, 50)
-    assert top is not None and all(r["id"] != REPONSE for r in top), top
-    assert any(r["id"] == BLOQUE for r in top)
+    assert top is not None and all(r["id"] != RESPONSE for r in top), top
+    assert any(r["id"] == BLOCKED for r in top)
 
     before = seen["text"]
-    assert state.forum_moderate("m" * 32, BLOQUE, BOB, "retain") != []
+    assert state.forum_moderate("m" * 32, BLOCKED, BOB, "retain") != []
     retained = [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
-                if m["id"] == BLOQUE][0]
+                if m["id"] == BLOCKED][0]
     assert retained["retained"] is True and retained["text"] == before
-    assert state.forum_moderate("n" * 32, BLOQUE, BOB, "unretain") != []
+    assert state.forum_moderate("n" * 32, BLOCKED, BOB, "unretain") != []
     assert [m for m in state.forum_thread("tp2-ex3", 200, ALICE)
-            if m["id"] == BLOQUE][0]["retained"] is False
+            if m["id"] == BLOCKED][0]["retained"] is False
 
     rows = state.forum_help_rows(50, 24)
     line = [r for r in rows if r["step"] == "compilation"][0]
@@ -617,22 +617,22 @@ def deletion():
           "the team's work, and touches nobody else's")
 
 
-def _inscrire(assignment_id, groupe, numero, comptes):
+def _register(assignment_id, group, number, accounts):
     import psycopg
-    team_id = "g%02d-e%02d" % (groupe, numero)
+    team_id = "g%02d-e%02d" % (group, number)
     with psycopg.connect(ADMIN_DSN, autocommit=True) as cx:
         cx.execute("INSERT INTO team"
                    "   (team_id, assignment_id, group_number, number, label)"
                    " VALUES (%s, %s, %s, %s, %s)"
                    " ON CONFLICT (team_id, assignment_id) DO NOTHING",
-                   (team_id, assignment_id, groupe, numero,
-                    "Équipe %d" % numero))
-        for compte in comptes:
+                   (team_id, assignment_id, group, number,
+                    "Équipe %d" % number))
+        for account in accounts:
             cx.execute("INSERT INTO team_member (team_id, assignment_id, account)"
                        " VALUES (%s, %s, %s)"
                        " ON CONFLICT (assignment_id, account) DO UPDATE SET"
                        "   team_id = EXCLUDED.team_id",
-                       (team_id, assignment_id, compte))
+                       (team_id, assignment_id, account))
     return team_id
 
 
@@ -658,9 +658,9 @@ def teams():
     assert state.team_join(ALICE, "devoir", "g04-e02", 4, 2, "Équipe 2",
                            4) is None
 
-    equipe = state.team_of(ALICE, "devoir")
-    assert equipe["team_id"] == "g04-e01" and equipe["number"] == 1
-    assert equipe["group_number"] == 4 and equipe["label"] == "Équipe 1"
+    team = state.team_of(ALICE, "devoir")
+    assert team["team_id"] == "g04-e01" and team["number"] == 1
+    assert team["group_number"] == 4 and team["label"] == "Équipe 1"
     assert state.team_of("sub-personne", "devoir") is None
     assert state.team_of(ALICE, "autre-devoir") is None
     assert sorted(state.team_roster("devoir", "g04-e01")) == sorted([ALICE, CLEO])
@@ -673,10 +673,10 @@ def teams():
     assert state.team_roster("devoir", "g04-e01") != state.team_roster(
         "devoir", "g06-e01")
 
-    liste = state.team_counts("devoir", 4)
-    assert liste[0] == {"number": 1, "team_id": "g04-e01", "label": "Équipe 1",
-                        "members": 2}, liste
-    assert [e["members"] for e in liste] == [2, 0], liste
+    counts = state.team_counts("devoir", 4)
+    assert counts[0] == {"number": 1, "team_id": "g04-e01", "label": "Équipe 1",
+                        "members": 2}, counts
+    assert [e["members"] for e in counts] == [2, 0], counts
     assert state.team_counts("devoir", 6)[0]["members"] == 1
 
     assert state.team_leave(CLEO, "devoir")
@@ -688,62 +688,62 @@ def teams():
         try:
             cx.execute("INSERT INTO team_member (team_id, assignment_id, account)"
                        " VALUES ('g09-e09', 'devoir', 'sub-x')")
-            raise AssertionError("une équipe inexistante a été acceptée")
+            raise AssertionError("a nonexistent team was accepted")
         except psycopg.errors.ForeignKeyViolation:
             pass
 
-    _inscrire("autre-devoir", 6, 2, [ALICE])
-    miennes = state.team_memberships(ALICE)
-    assert {m["assignment_id"]: m["team_id"] for m in miennes} == {
-        "devoir": "g04-e01", "autre-devoir": "g06-e02"}, miennes
-    assert sorted(m["number"] for m in miennes) == [1, 2]
+    _register("autre-devoir", 6, 2, [ALICE])
+    mine = state.team_memberships(ALICE)
+    assert {m["assignment_id"]: m["team_id"] for m in mine} == {
+        "devoir": "g04-e01", "autre-devoir": "g06-e02"}, mine
+    assert sorted(m["number"] for m in mine) == [1, 2]
     assert state.team_memberships("sub-personne") == []
-    print("ok   teams: on prend une place libre, la place est comptée dans le "
-          "WHERE, et deux groupes ont chacun leur « Équipe 1 »")
+    print("ok   teams: a free seat is taken, the seat is counted in the "
+          "WHERE, and two groups each have their own \"Équipe 1\"")
 
 
 def team_documents():
-    fenetre = 120
+    window_seconds = 120
     _reset_teams()
-    _inscrire("devoir", 4, 1, [ALICE, CLEO])
-    _inscrire("devoir", 6, 1, [BOB])
+    _register("devoir", 4, 1, [ALICE, CLEO])
+    _register("devoir", 6, 1, [BOB])
 
-    def ecrire(compte, texte, window=fenetre):
-        return state.write_team_document("g04-e01", "dev-a", compte,
-                                         {"main.c": texte}, uuid.uuid4().hex,
+    def write(account, text, window=window_seconds):
+        return state.write_team_document("g04-e01", "dev-a", account,
+                                         {"main.c": text}, uuid.uuid4().hex,
                                          window)
 
     assert state.read_team_document("g04-e01", "dev-a") == {}
-    assert ecrire(ALICE, "un\n")
+    assert write(ALICE, "un\n")
     assert state.read_team_document("g04-e01", "dev-a") == {"main.c": "un\n"}
     assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 1
 
-    assert ecrire(ALICE, "deux\n") and ecrire(ALICE, "trois\n")
+    assert write(ALICE, "deux\n") and write(ALICE, "trois\n")
     assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 1
     assert state.read_team_document("g04-e01", "dev-a") == {"main.c": "trois\n"}
 
-    assert ecrire(CLEO, "quatre\n")
+    assert write(CLEO, "quatre\n")
     assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 2
 
-    assert ecrire(CLEO, "quatre\n", window=0)
+    assert write(CLEO, "quatre\n", window=0)
     assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 2
-    assert ecrire(CLEO, "cinq\n", window=0)
+    assert write(CLEO, "cinq\n", window=0)
     assert _rows("SELECT count(*) FROM team_revision WHERE team_id = 'g04-e01'") == 3
 
-    lignes = state.read_team_revisions("g04-e01", "dev-a", 10)
-    assert [r["account"] for r in lignes] == [CLEO, CLEO, ALICE], lignes
-    assert all(r["bytes"] > 0 for r in lignes)
+    lines = state.read_team_revisions("g04-e01", "dev-a", 10)
+    assert [r["account"] for r in lines] == [CLEO, CLEO, ALICE], lines
+    assert all(r["bytes"] > 0 for r in lines)
 
-    identifiant = lignes[0]["revision_id"]
-    assert state.read_team_revision("g04-e01", identifiant) == {"main.c": "cinq\n"}
-    assert state.read_team_revision("g06-e01", identifiant) == {}
+    identifier = lines[0]["revision_id"]
+    assert state.read_team_revision("g04-e01", identifier) == {"main.c": "cinq\n"}
+    assert state.read_team_revision("g06-e01", identifier) == {}
 
     assert state.write_team_document("g06-e01", "dev-a", BOB, {"main.c": "bob\n"},
-                                     uuid.uuid4().hex, fenetre)
+                                     uuid.uuid4().hex, window_seconds)
     assert state.read_team_document("g04-e01", "dev-a") == {"main.c": "cinq\n"}
     assert state.read_team_document("g06-e01", "dev-a") == {"main.c": "bob\n"}
-    print("ok   team_document: un UPSERT et une révision coalescée en UNE "
-          "instruction, isolés par équipe")
+    print("ok   team_document: an UPSERT and a coalesced revision in ONE "
+          "statement, isolated per team")
 
 
 def team_submissions():
@@ -757,10 +757,10 @@ def team_submissions():
     assert state.read_team_submission("devoir", "g04-e01")["submitted_by"] == CLEO
     assert state.write_team_submission("devoir", "g06-e01", BOB, {"Devoir/main.c": "b\n"})
     assert state.read_team_submission("devoir", "g06-e01")["submitted_by"] == BOB
-    equipes = {e["team_id"]: e for e in state.read_teams("devoir")}
-    assert equipes["g04-e01"]["members"] == 2 and equipes["g04-e01"]["group_number"] == 4
-    assert equipes["g06-e01"]["members"] == 1
-    print("ok   team_submission: une seule remise par équipe, remplaçable")
+    teams_by_id = {e["team_id"]: e for e in state.read_teams("devoir")}
+    assert teams_by_id["g04-e01"]["members"] == 2 and teams_by_id["g04-e01"]["group_number"] == 4
+    assert teams_by_id["g06-e01"]["members"] == 1
+    print("ok   team_submission: one handin per team, replaceable")
 
 
 def team_privileges():
@@ -777,28 +777,28 @@ def team_privileges():
         ("team_member.account", "UPDATE team_member SET account = 'sub-x'"),
         ("team_revision UPDATE", "UPDATE team_revision SET account = 'sub-x'"),
     )
-    manques = []
-    for nom, sql in refuses:
+    gaps = []
+    for name, sql in refuses:
         with psycopg.connect(DSN, autocommit=True) as cx:
             try:
                 cx.execute(sql)
-                manques.append(nom)
+                gaps.append(name)
             except psycopg.errors.InsufficientPrivilege:
                 pass
-    assert not manques, "écriture acceptée sur : " + ", ".join(manques)
+    assert not gaps, "write accepted on: " + ", ".join(gaps)
     with psycopg.connect(DSN, autocommit=True) as cx:
         cx.execute("SELECT count(*) FROM team")
         cx.execute("UPDATE team_document SET sources = sources")
         cx.execute("UPDATE team_submission SET files = files")
         cx.execute("DELETE FROM team_member WHERE account = 'sub-absent'")
-    print("ok   team: on entre et on sort, mais rien ne se modifie -- ni une "
-          "équipe, ni une appartenance")
+    print("ok   team: one joins and leaves, but nothing is modified -- neither a "
+          "team nor a membership")
 
 
 def _rows(sql, params=()):
-    lignes = state._query(sql, params, read=True)
-    assert lignes is not None, sql
-    return lignes[0][0]
+    lines = state._query(sql, params, read=True)
+    assert lines is not None, sql
+    return lines[0][0]
 
 
 def main():

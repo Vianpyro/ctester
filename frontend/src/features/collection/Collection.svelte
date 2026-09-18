@@ -36,31 +36,31 @@
 <h2 bind:this={title} id="collectiontitle" tabindex="-1">Ma collection</h2>
 
 {#if !payload}
-  <p class="rate">{error}</p>
+  <p class="failed">{error}</p>
 {:else}
-  <p class="aide">
+  <p class="help">
     {held} pièce{held > 1 ? "s" : ""} sur {payload.cards.length} · privée par défaut
   </p>
   <div class="cards">
     {#each payload.cards as c (c.id)}
       <div class={"card " + (c.held ? "held" : "locked")}>
-        <div class="entete">
+        <div class="header">
           <span class="code">{c.id}</span>
           <span class="code">{c.rarity === null || c.rarity === undefined ? "—" : c.rarity + " %"}</span>
         </div>
-        <div class="dessin"><CardArt id={c.id} /></div>
+        <div class="drawing"><CardArt id={c.id} /></div>
         <div class="name">{c.name}</div>
-        <div class="quoi">{c.held ? c.condition : "verrouillée · " + c.condition}</div>
-        <span class="horsecran"> — {c.held ? "obtenue" : "pas encore obtenue"}</span>
+        <div class="what">{c.held ? c.condition : "verrouillée · " + c.condition}</div>
+        <span class="offscreen"> — {c.held ? "obtenue" : "pas encore obtenue"}</span>
       </div>
     {/each}
   </div>
-  <p class="aide">
+  <p class="help">
     Une carte grise est encore verrouillée et dit à quelle condition elle tombe — rien de
     caché derrière un tirage au sort, rien qui s'achète, rien qui expire. Une carte ne
     donne aucun avantage : c'est une trace de ce que tu as fait.
   </p>
-  <p class="aide">
+  <p class="help">
     {payload.cohort
       ? "Le pourcentage est la part des comptes ayant pratiqué qui possèdent la carte, mesurée — jamais une rareté décrétée."
       : "Les pourcentages apparaîtront quand assez de comptes auront pratiqué."}

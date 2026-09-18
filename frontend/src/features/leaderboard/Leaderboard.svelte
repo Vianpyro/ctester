@@ -55,23 +55,23 @@
 </script>
 
 <h2 bind:this={title} id="leaderboardtitle" tabindex="-1">Classement</h2>
-<p class="aide">
+<p class="help">
   Facultatif. Tu y participes parce que tu l'as coché, et tu peux te retirer à tout moment
   : ta pratique et tes progrès ne changent pas.
 </p>
 
-{#if said}<p class="annonce" aria-live="polite">{said}</p>{/if}
+{#if said}<p class="notice" aria-live="polite">{said}</p>{/if}
 
 {#if !payload}
-  <p class="rate">{error}</p>
+  <p class="failed">{error}</p>
 {:else if !payload.participating && !payload.moderator}
-  <div class="bloc plan">
+  <div class="block plan">
     <div class="kicker">Tu n'y participes pas</div>
     <p>
       Le classement est facultatif, et tu n'y es pas. Rien de ce que tu fais n'y apparaît
       tant que tu ne l'as pas coché.
     </p>
-    <p class="aide">
+    <p class="help">
       Tu y apparaîtrais sous un pseudonyme tiré au hasard, jamais sous ton nom, et tu
       pourrais te retirer à tout moment sans que ta pratique ni tes progrès changent.
     </p>
@@ -108,7 +108,7 @@
     </div>
   {/if}
 
-  <div class="bloc">
+  <div class="block">
     {#if payload.moderator}
       <p>
         Tu n'apparais pas au classement : il ne compte que les comptes étudiants qui s'y
@@ -120,15 +120,15 @@
         <b class="alias-value">{payload.alias || "—"}</b>
         <button type="button" class="nav" onclick={newAlias}>Un autre nom</button>
       </p>
-      <p class="aide">
+      <p class="help">
         Tiré au hasard, jamais ton vrai nom, et rechangeable autant de fois que tu veux.
       </p>
     {/if}
   </div>
 
   {#if payload.me}
-    <div class="bloc plan rang">
-      <span class="chiffre">{payload.me.rank}</span>
+    <div class="block plan rank">
+      <span class="figure">{payload.me.rank}</span>
       <div>
         <p>
           sur {plural(payload.cohort, "compte")}{payload.scope === "course"
@@ -136,7 +136,7 @@
             : " de ton groupe"}, ces {payload.window_days} derniers jours
         </p>
         {#if payload.gap}
-          <p class="aide">
+          <p class="help">
             {payload.gap.solved > 0
               ? plural(payload.gap.solved, "exercice") +
                 " de plus et tu passes " +
@@ -146,14 +146,14 @@
               : "Tu es à égalité avec la place au-dessus."}
           </p>
         {:else}
-          <p class="aide">Personne devant toi cette semaine.</p>
+          <p class="help">Personne devant toi cette semaine.</p>
         {/if}
       </div>
     </div>
   {/if}
 
   {#if payload.rows.length}
-    <div class="bloc">
+    <div class="block">
       <table class="rank-table">
         <thead>
           <tr>
@@ -170,19 +170,19 @@
           {/each}
         </tbody>
       </table>
-      <p class="aide">
+      <p class="help">
         Refaire un exercice déjà réussi ne compte pas : la colonne ne bouge qu'à la
         première réussite. Les rangs suivants ne sont pas affichés — chaque personne voit
         sa propre ligne.
       </p>
     </div>
   {:else}
-    <div class="bloc">
+    <div class="block">
       <p>
         Vous êtes {plural(payload.cohort, "compte")} à participer ici. Il en faut au moins
         {payload.minimum} pour afficher un tableau.
       </p>
-      <p class="aide">
+      <p class="help">
         En dessous, un classement nomme tout le monde — y compris la dernière personne. Tu
         vois donc ta ligne, et rien d'autre.
       </p>
@@ -190,13 +190,13 @@
   {/if}
 
   {#if (payload.divisions ?? []).length}
-    <div class="bloc">
-      <h3 class="soustitre">Divisions du cours</h3>
+    <div class="block">
+      <h3 class="subtitle">Divisions du cours</h3>
       <div class="divisions">
         {#each payload.divisions ?? [] as d (d.id)}
           <div class={"division" + (d.id === payload.division?.id ? " on" : "")}>
             <span class="name">{d.title}</span>
-            <span class="quoi">
+            <span class="what">
               {d.id === payload.division?.id
                 ? "tu es ici — " + plural(d.accounts, "compte")
                 : plural(d.accounts, "compte")}
@@ -204,7 +204,7 @@
           </div>
         {/each}
       </div>
-      <p class="aide">
+      <p class="help">
         Les divisions montent, jamais ne descendent en cours de session : un mauvais mois
         ne fait rien perdre.
       </p>

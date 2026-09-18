@@ -9,7 +9,7 @@ from services.catalog import find_exercise, validate_files
 router = APIRouter(tags=["account"])
 
 
-@router.get("/etats")
+@router.get("/states")
 def get_statuses(sub: Sub):
     values = state.read_states(sub)
     if values is None:
@@ -17,7 +17,7 @@ def get_statuses(sub: Sub):
     return {"states": values, "moderator": security.is_moderator(sub)}
 
 
-@router.get("/pratique")
+@router.get("/practice")
 def get_practice(sub: Sub):
     summary = state.read_practice_summary(sub)
     if summary is None:
@@ -25,14 +25,14 @@ def get_practice(sub: Sub):
     return {"practice": summary}
 
 
-@router.get("/brouillon")
+@router.get("/draft")
 def get_draft(sub: Sub, ex: str = Query("")):
     if find_exercise(ex, security.is_moderator(sub)) is None:
         return headers.error(400, "TP inconnu")
     return {"sources": state.read_resume(sub, ex)}
 
 
-@router.put("/brouillon")
+@router.put("/draft")
 def put_draft(sub: Sub, body: DraftIn, request: Request):
     entry = find_exercise(body.exercise_id, security.is_moderator(sub))
     if entry is None:
@@ -64,7 +64,7 @@ def put_preferences(sub: Sub, body: PreferencesIn, request: Request):
     return {"ok": True}
 
 
-@router.delete("/moi")
+@router.delete("/account")
 def delete_account(sub: Sub):
     if not state.forget(sub):
         return headers.error(503, "la base ne répond pas")

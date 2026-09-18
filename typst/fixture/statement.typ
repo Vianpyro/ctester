@@ -5,7 +5,7 @@
 Écris une fonction qui parcourt un tableau d'entiers et rend la plus grande
 valeur qu'il contient. Le tableau n'est jamais vide.
 
-#signature(fichier: "tampon.h", "int maximum(const int valeurs[], int n);")
+#signature(file: "tampon.h", "int maximum(const int valeurs[], int n);")
 
 == Ce que la fonction doit faire
 
@@ -60,7 +60,7 @@ tableau ci-dessous est *calculé* à partir de la liste, pas recopié à la main
     .flatten(),
 )
 
-#exemple[
+#example[
   Pour `n = 3`, le tableau vaut #raw(valeurs.slice(0, 3).map(str).join(", "))
   et la fonction rend #raw(str(calc.max(..valeurs.slice(0, 3)))).
 ]

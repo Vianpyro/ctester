@@ -19,10 +19,10 @@ const POLL_EVERY = 2000;
 const POLL_TRIES = 150;
 
 function stationId(): string {
-  const held = localGet("ctester.poste");
+  const held = localGet("ctester.station");
   if (held) return held;
   const fresh = randomId();
-  localSet("ctester.poste", fresh);
+  localSet("ctester.station", fresh);
   return fresh;
 }
 
@@ -138,7 +138,7 @@ class SubmissionState {
       }
       this.#record(verdict, scope, exercise);
       const flight = this.#inFlight;
-      if (flight && flight.token === token && !verdict.rejouer && verdict.status !== "error") {
+      if (flight && flight.token === token && !verdict.rerun && verdict.status !== "error") {
         this.#known.set(flight.exercise, { key: flight.key, verdict });
       }
       try {

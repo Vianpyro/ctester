@@ -10,86 +10,86 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/admin.css">
 </head>
-<body class="deconnecte">
+<body class="loggedout">
 
-<section class="connexion">
+<section class="login">
   <h1>ctester <b>administration</b></h1>
   <p>Réservé à l'enseignant.</p>
-  <button type="button" id="connexion-bouton">Se connecter</button>
-  <p class="raison" id="connexion-raison"></p>
+  <button type="button" id="login-button">Se connecter</button>
+  <p class="reason" id="login-reason"></p>
 </section>
 
-<header class="barre">
+<header class="bar">
   <h1>ctester <b>administration</b></h1>
-  <div class="periode" role="group" aria-label="Période des statistiques">
+  <div class="period" role="group" aria-label="Période des statistiques">
     <button type="button" data-jours="1">24 h</button>
     <button type="button" data-jours="7" aria-pressed="true">7 jours</button>
     <button type="button" data-jours="30">30 jours</button>
     <button type="button" data-jours="120">Session</button>
   </div>
-  <p class="etat" id="etat"><span class="point" id="point"></span><span id="etat-texte">Chargement</span></p>
+  <p class="state" id="state"><span class="point" id="point"></span><span id="state-text">Chargement</span></p>
 </header>
 
-<section class="vitaux" id="vitaux" aria-label="État du service"></section>
+<section class="vitals" id="vitals" aria-label="État du service"></section>
 
-<section class="repartition" aria-label="Répartition des verdicts">
-  <div class="jauge" id="jauge"></div>
-  <div class="legende" id="legende"></div>
+<section class="distribution" aria-label="Répartition des verdicts">
+  <div class="gauge" id="gauge"></div>
+  <div class="legend" id="legend"></div>
 </section>
 
 <main>
   <div class="rail">
-    <section class="panneau">
+    <section class="panel">
       <h2>Workers <span class="note" id="workers-note"></span></h2>
-      <div class="corps" id="workers"></div>
+      <div class="body" id="workers"></div>
     </section>
-    <section class="panneau">
-      <h2>File d'attente <span class="note" id="file-note"></span></h2>
-      <div class="corps" id="file"></div>
+    <section class="panel">
+      <h2>File d'attente <span class="note" id="queue-note"></span></h2>
+      <div class="body" id="queue"></div>
     </section>
-    <section class="panneau">
+    <section class="panel">
       <h2>Usage <span class="note" id="usage-note"></span></h2>
-      <div class="corps" id="usage"></div>
+      <div class="body" id="usage"></div>
     </section>
   </div>
 
-  <section class="panneau">
+  <section class="panel">
     <h2>Derniers runs
-      <span class="filtres">
-        <label class="bascule" title="Affiche le compte de l'auteur. Masqué par défaut : un projecteur, un partage d'écran, un collègue qui passe.">
-          <input type="checkbox" id="reveler"> données personnelles
+      <span class="filters">
+        <label class="toggle" title="Affiche le compte de l'auteur, ou l'étiquette de navigateur d'un run anonyme. Masqué par défaut : un projecteur, un partage d'écran, un collègue qui passe.">
+          <input type="checkbox" id="reveal"> données personnelles
         </label>
-        <input id="f-exercice" placeholder="exercice" aria-label="Filtrer par exercice">
-        <input id="f-statut" placeholder="statut" aria-label="Filtrer par statut">
+        <input id="f-exercise" placeholder="exercice" aria-label="Filtrer par exercice">
+        <input id="f-status" placeholder="statut" aria-label="Filtrer par statut">
         <input id="f-worker" placeholder="worker" aria-label="Filtrer par worker">
       </span>
     </h2>
-    <div class="corps" id="runs"></div>
+    <div class="body" id="runs"></div>
   </section>
 
   <div class="rail">
-    <section class="panneau">
-      <h2>Par exercice <span class="note" id="exercices-note"></span></h2>
-      <div class="corps" id="exercices"></div>
+    <section class="panel">
+      <h2>Par exercice <span class="note" id="exercises-note"></span></h2>
+      <div class="body" id="exercises"></div>
     </section>
-    <section class="panneau">
-      <h2>Discussions <span class="note" id="canaux-note"></span></h2>
-      <div class="corps" id="canaux"></div>
+    <section class="panel">
+      <h2>Discussions <span class="note" id="channels-note"></span></h2>
+      <div class="body" id="channels"></div>
     </section>
-    <section class="panneau">
-      <h2>Activité <span class="note" id="activite-note"></span></h2>
-      <div class="corps corps-activite" id="activite"></div>
+    <section class="panel">
+      <h2>Activité <span class="note" id="activity-note"></span></h2>
+      <div class="body activity-body" id="activity"></div>
     </section>
   </div>
 </main>
 
 <dialog id="code">
   <header>
-    <b id="code-titre"></b>
+    <b id="code-title"></b>
     <span class="note" id="code-source"></span>
-    <button type="button" id="code-fermer" aria-label="Fermer">Fermer</button>
+    <button type="button" id="code-close" aria-label="Fermer">Fermer</button>
   </header>
-  <div id="code-corps"></div>
+  <div id="code-body"></div>
 </dialog>
 
 <script src="/admin.js" type="module"></script>

@@ -31,30 +31,30 @@ def public_quiz(quiz):
     }
 
 # Checked on the projection itself, so a field added later cannot leak an answer key.
-INTERDIT = frozenset((
+FORBIDDEN = frozenset((
     "answer", "answers", "expect", "expected", "stdin", "cases", "tolerance",
     "note", "notes", "path", "paths", "seed", "solution", "solutions",
     "allowed_includes", "config",
 ))
 
 
-def _cles(value):
+def _keys(value):
     if isinstance(value, dict):
         for key, sub in value.items():
             yield key
-            for found in _cles(sub):
+            for found in _keys(sub):
                 yield found
     elif isinstance(value, list):
         for item in value:
-            for found in _cles(item):
+            for found in _keys(item):
                 yield found
 
 
 # Preview is a date rather than a second filter, so access() stays the only rule.
-APERCU = dt.datetime(9999, 1, 1, tzinfo=dt.timezone.utc)
+PREVIEW = dt.datetime(9999, 1, 1, tzinfo=dt.timezone.utc)
 
 
-ACTIF_RE = re.compile(
+ACTIVE_RE = re.compile(
     r"\A(?:staff/)?statements/[a-z0-9][a-z0-9-]{0,62}/"
     r"(?:(?:dark|light)-(?:[1-9]|1[0-6])\.svg|statement\.html)\Z")
 
@@ -64,53 +64,53 @@ def projection(model, now=None, renders=None):
     files = {"catalog.json": content_catalog.public_catalogue(model, now)}
     for exercise_id, entry in model["exercises"].items():
         pages = renders.get(exercise_id) or {}
-        compte = len(pages.get("dark") or ())
+        account = len(pages.get("dark") or ())
         html = pages.get("html")
-        detail = content_catalog.public_detail(model, exercise_id, now, compte, bool(html))
-        prefixe = ""
+        detail = content_catalog.public_detail(model, exercise_id, now, account, bool(html))
+        prefix = ""
         if detail is None:
-            detail = content_catalog.public_detail(model, exercise_id, APERCU, compte,
+            detail = content_catalog.public_detail(model, exercise_id, PREVIEW, account,
                                                    bool(html))
             if detail is None:
                 continue
-            prefixe = "staff/"
-        files["%sexercises/%s.json" % (prefixe, exercise_id)] = detail
+            prefix = "staff/"
+        files["%sexercises/%s.json" % (prefix, exercise_id)] = detail
         if entry["mode"] == "quiz":
-            files["%squiz/%s.json" % (prefixe, exercise_id)] = public_quiz(entry["config"])
+            files["%squiz/%s.json" % (prefix, exercise_id)] = public_quiz(entry["config"])
         if html:
-            files["%sstatements/%s/statement.html" % (prefixe, exercise_id)] = html
+            files["%sstatements/%s/statement.html" % (prefix, exercise_id)] = html
         for theme in typst_build.THEMES:
-            for numero, octets in enumerate(pages.get(theme) or (), 1):
+            for number, data in enumerate(pages.get(theme) or (), 1):
                 files["%sstatements/%s/%s-%d.svg"
-                      % (prefixe, exercise_id, theme, numero)] = octets
-    fuites = sorted({key for value in files.values() for key in _cles(value)}
-                    & INTERDIT)
-    if fuites:
+                      % (prefix, exercise_id, theme, number)] = data
+    leaks = sorted({key for value in files.values() for key in _keys(value)}
+                    & FORBIDDEN)
+    if leaks:
         raise content_catalog.ContentValidationError(
-            ["private key in the public projection: " + ", ".join(fuites)])
-    for chemin, valeur in sorted(files.items()):
-        if chemin.endswith(".typ"):
+            ["private key in the public projection: " + ", ".join(leaks)])
+    for path, content in sorted(files.items()):
+        if path.endswith(".typ"):
             raise content_catalog.ContentValidationError(
-                ["a Typst source reached the public projection: " + chemin])
-        if isinstance(valeur, bytes) and not ACTIF_RE.match(chemin):
+                ["a Typst source reached the public projection: " + path])
+        if isinstance(content, bytes) and not ACTIVE_RE.match(path):
             raise content_catalog.ContentValidationError(
-                ["unexpected binary artefact in the projection: " + chemin])
+                ["unexpected binary artefact in the projection: " + path])
     return files
 
 
 def revision(files):
     # Rendered SVGs are hashed too: a changed rendering must produce a new release.
-    json_part = {chemin: valeur for chemin, valeur in files.items()
-                 if not isinstance(valeur, bytes)}
+    json_part = {path: value for path, value in files.items()
+                 if not isinstance(value, bytes)}
     h = hashlib.sha256()
     h.update(json.dumps(json_part, sort_keys=True, ensure_ascii=False).encode("utf-8"))
-    for chemin in sorted(files):
-        valeur = files[chemin]
-        if isinstance(valeur, bytes):
+    for path in sorted(files):
+        value = files[path]
+        if isinstance(value, bytes):
             h.update(b"\0")
-            h.update(chemin.encode("utf-8"))
+            h.update(path.encode("utf-8"))
             h.update(b"\0")
-            h.update(hashlib.sha256(valeur).digest())
+            h.update(hashlib.sha256(value).digest())
     return h.hexdigest()[:16]
 
 
@@ -134,6 +134,27 @@ def _write(path, value):
         json.dump(value, fh, ensure_ascii=False)
 
 
+def _releases(value):
+    if isinstance(value, dict):
+        if isinstance(value.get("release"), dict):
+            yield value["release"]
+        for sub in value.values():
+            yield from _releases(sub)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _releases(item)
+
+
+def next_release(model, now=None):
+    """The earliest opening still ahead: content.sh republishes once it has passed."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    moments = [moment for release in _releases(model)
+               if release.get("state") == "scheduled"
+               for moment in [content_catalog._iso_datetime(release.get("available_from"))]
+               if moment is not None and moment > now]
+    return min(moments).isoformat() if moments else None
+
+
 def publish(model, dest, now=None, keep=3, renders=None):
     # The pointer moves last. It is a file, not a symlink, because Docker resolves
     # symlinks at mount time and a switch would only show after a restart.
@@ -141,39 +162,40 @@ def publish(model, dest, now=None, keep=3, renders=None):
     rev = revision(files)
     release = os.path.join(dest, rev)
     if not os.path.isdir(release):
-        temporaire = release + ".tmp"
-        shutil.rmtree(temporaire, ignore_errors=True)
-        for relatif, value in files.items():
-            _write(os.path.join(temporaire, relatif.replace("/", os.sep)), value)
-        _write(os.path.join(temporaire, "manifest.json"), {
+        temporary = release + ".tmp"
+        shutil.rmtree(temporary, ignore_errors=True)
+        for relative, value in files.items():
+            _write(os.path.join(temporary, relative.replace("/", os.sep)), value)
+        _write(os.path.join(temporary, "manifest.json"), {
             "schema_version": content_catalog.SCHEMA_VERSION, "revision": rev,
             "published_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "exercises": len(model["exercises"]),
             "collections": len(model["collections"]),
             "assignments": len(model.get("assignments", {}))})
-        os.replace(temporaire, release)
-    pointeur = os.path.join(dest, POINTER)
-    _write(pointeur + ".tmp", {"revision": rev,
-                               "published_at": dt.datetime.now(dt.timezone.utc).isoformat()})
-    os.replace(pointeur + ".tmp", pointeur)
-    _elaguer(dest, rev, keep)
+        os.replace(temporary, release)
+    pointer = os.path.join(dest, POINTER)
+    _write(pointer + ".tmp", {"revision": rev,
+                               "published_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                               "next_release": next_release(model, now)})
+    os.replace(pointer + ".tmp", pointer)
+    _prune(dest, rev, keep)
     return rev
 
 
-def _publie_le(dest, name):
+def _published_at(dest, name):
     # From the manifest: on Linux, releases published in quick succession share a directory mtime.
-    chemin = os.path.join(dest, name)
+    path = os.path.join(dest, name)
     try:
-        with open(os.path.join(chemin, "manifest.json"), encoding="utf-8") as fh:
+        with open(os.path.join(path, "manifest.json"), encoding="utf-8") as fh:
             return dt.datetime.fromisoformat(json.load(fh)["published_at"]).timestamp()
     except (OSError, ValueError, KeyError, TypeError):
-        return os.path.getmtime(chemin)
+        return os.path.getmtime(path)
 
 
-def _elaguer(dest, garder, keep):
-    releases = [(_publie_le(dest, name), name)
+def _prune(dest, live_revision, keep):
+    releases = [(_published_at(dest, name), name)
                 for name in os.listdir(dest)
-                if name != garder and os.path.isdir(os.path.join(dest, name))]
+                if name != live_revision and os.path.isdir(os.path.join(dest, name))]
     for _, name in sorted(releases, reverse=True)[max(keep - 1, 0):]:
         shutil.rmtree(os.path.join(dest, name), ignore_errors=True)
 
@@ -187,11 +209,11 @@ def publish_catalogue(content, published, preview=False):
         raise RuntimeError(
             "CTESTER_CONTENT and CTESTER_PUBLISHED are required to publish")
     model = content_catalog.discover(content_catalog.content_roots(content))
-    renders, (total, du_cache) = typst_build.render_all(model, published)
+    renders, (total, cached) = typst_build.render_all(model, published)
     if total:
-        print("ctester: %d énoncé(s) Typst rendu(s), dont %d depuis le cache"
-              % (total, du_cache), file=sys.stderr, flush=True)
-    publish(model, published, now=APERCU if preview else None, renders=renders)
+        print("ctester: %d Typst statement(s) rendered, %d of them from the cache"
+              % (total, cached), file=sys.stderr, flush=True)
+    publish(model, published, now=PREVIEW if preview else None, renders=renders)
     return list(model["exercises"].values())
 
 
@@ -206,7 +228,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         model = content_catalog.discover(args.root)
-        renders, compte = ({}, (0, 0)) if args.no_render else typst_build.render_all(model, args.dest)
+        renders, account = ({}, (0, 0)) if args.no_render else typst_build.render_all(model, args.dest)
         rev = publish(model, args.dest, keep=args.keep, renders=renders)
     except typst_build.TypstError as exc:
         print("publish refused, the active release is untouched:", file=sys.stderr)
@@ -220,7 +242,7 @@ def main(argv=None):
     print("published: revision %s (%d exercise(s), %d collection(s), "
           "%d Typst statement(s), %d from cache)"
           % (rev, len(model["exercises"]), len(model["collections"]),
-             compte[0], compte[1]))
+             account[0], account[1]))
     return 0
 
 
