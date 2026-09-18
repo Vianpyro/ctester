@@ -587,7 +587,7 @@ function state(message, level) {
 /* ---- loading ----------------------------------------------------------- */
 
 function period() {
-  const active = document.querySelector('.periode button[aria-pressed="true"]');
+  const active = document.querySelector('.period button[aria-pressed="true"]');
   return Number(active ? active.dataset.days : 7);
 }
 
