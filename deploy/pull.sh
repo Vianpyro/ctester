@@ -39,8 +39,8 @@ install -d -o root -g root -m 0755 "$dir/results"
 "$judge" self-check > /dev/null
 
 spool_empty() {
-    # durees.json is the judge's permanent ETA record, not a job.
-    [ -z "$(ls -A "$dir/spool" 2>/dev/null | grep -vx durees.json || true)" ]
+    # durations.json (durees.json before the rename) is the judge's ETA record, not a job.
+    [ -z "$(ls -A "$dir/spool" 2>/dev/null | grep -vxE 'durations\.json|durees\.json' || true)" ]
 }
 
 open_windows() {

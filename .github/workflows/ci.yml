@@ -105,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write   # le seul droit d'écriture du fichier : publier les alertes
+      security-events: write   # the only write permission in this file: publishing the alerts
     steps:
       - uses: actions/checkout@v7
         with:
@@ -123,7 +123,7 @@ jobs:
       contents: read
       actions: read
       pages: write
-      id-token: write    # l'OIDC que deploy-pages échange, pas un secret stocké
+      id-token: write    # the OIDC token deploy-pages exchanges, not a stored secret
     environment:
       name: github-pages
       url: ${{ steps.deploiement.outputs.page_url }}
