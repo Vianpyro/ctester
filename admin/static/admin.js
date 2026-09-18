@@ -563,16 +563,77 @@ async function showCode(r) {
     $("code-body").append(el("p", "empty",
       "Ce run est trop ancien pour le spool, et aucun code soumis n'est enregistré "
       + "pour ce compte sur cet exercice."));
-    return;
+  } else {
+    const when = cell.at ? new Date(cell.at).toLocaleString("fr-CA") : "";
+    $("code-source").textContent = (SOURCES[cell.source] || "") + (when ? ", " + when : "");
+    for (const name of names) {
+      $("code-body").append(el("div", "file", name));
+      $("code-body").append(highlighted(cell.files[name]));
+    }
   }
-  const when = cell.at ? new Date(cell.at).toLocaleString("fr-CA") : "";
-  $("code-source").textContent = (SOURCES[cell.source] || "") + (when ? ", " + when : "");
-  for (const name of names) {
-    $("code-body").append(el("div", "file", name));
-    // textContent, never innerHTML: this text comes from a student and this page
-    // holds a moderator token.
-    $("code-body").append(el("pre", null, cell.files[name]));
+  if (cell.result) verdictOf(cell.result);
+}
+
+// The same tokenizer as the student editor (frontend/src/lib/domain/highlight.ts), so
+// both pages colour a file alike.
+const C_KEYWORDS =
+  "auto|break|case|char|const|continue|default|do|double|else|" +
+  "enum|extern|float|for|goto|if|inline|int|long|register|restrict|return|" +
+  "short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|" +
+  "volatile|while|bool|true|false|NULL";
+
+const C_RE = new RegExp([
+  "(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?\\*\\/)",
+  "(\"(?:\\\\.|[^\"\\\\\\n])*\"|'(?:\\\\.|[^'\\\\\\n])*')",
+  "(^[ \\t]*#[ \\t]*\\w+)",
+  "\\b(" + C_KEYWORDS + ")\\b",
+  "\\b(\\d[\\w.]*)",
+  "([A-Za-z_]\\w*)(?=\\s*\\()",
+  "\\b([A-Z][A-Z0-9_]{2,})\\b",
+].join("|"), "gm");
+
+const C_CLASS = ["tc", "ts", "tp", "tk", "tn", "tf", "tu"];
+
+// Text nodes and spans, never innerHTML: this text comes from a student and this page
+// holds a moderator token.
+function highlighted(src) {
+  const pre = el("pre", "c");
+  let last = 0;
+  for (const m of src.matchAll(C_RE)) {
+    pre.append(src.slice(last, m.index));
+    const which = m.slice(1, C_CLASS.length + 1).findIndex((g) => g !== undefined);
+    pre.append(el("span", C_CLASS[which], m[0]));
+    last = m.index + m[0].length;
   }
+  pre.append(src.slice(last));
+  return pre;
+}
+
+// What the student saw: the compiler's complaint, or the cases that failed with what
+// the program printed. Only the failed cases are in the verdict, never the passed ones.
+function verdictOf(result) {
+  const body = $("code-body");
+  const summary = [result.status || "?"];
+  if (Number.isInteger(result.total)) summary.push(result.passed + "/" + result.total);
+  body.append(el("div", "file verdict", "Verdict : " + summary.join(" · ")));
+  if (result.message) body.append(el("p", "reason", result.message));
+  output(body, "gcc", result.gcc);
+  output(body, "avertissements", result.warnings);
+  if (Array.isArray(result.failed) && result.failed.length) {
+    output(body, "tests échoués", result.failed.join("\n"));
+  }
+  for (const c of Array.isArray(result.cases) ? result.cases : []) {
+    body.append(el("div", "case", "Cas " + c.case + (c.reason ? " : " + c.reason : "")));
+    output(body, "stdin", c.stdin);
+    output(body, "stdout", c.stdout, true);
+    output(body, "stderr", c.stderr);
+  }
+}
+
+function output(body, label, text, always) {
+  if (typeof text !== "string" || (!text && !always)) return;
+  body.append(el("div", "stream", label));
+  body.append(el("pre", "out", text || "(rien)"));
 }
 
 /* ---- state line -------------------------------------------------------- */
