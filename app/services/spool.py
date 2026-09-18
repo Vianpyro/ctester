@@ -34,7 +34,7 @@ def queue_position(jobs, job_id):
     return 0
 
 
-DURATIONS = "durees.json"
+DURATIONS = "durations.json"
 UNKNOWN_DURATION = 15.0
 
 

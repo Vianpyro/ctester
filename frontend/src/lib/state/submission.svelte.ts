@@ -138,7 +138,7 @@ class SubmissionState {
       }
       this.#record(verdict, scope, exercise);
       const flight = this.#inFlight;
-      if (flight && flight.token === token && !verdict.rejouer && verdict.status !== "error") {
+      if (flight && flight.token === token && !verdict.rerun && verdict.status !== "error") {
         this.#known.set(flight.exercise, { key: flight.key, verdict });
       }
       try {

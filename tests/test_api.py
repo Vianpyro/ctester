@@ -1783,13 +1783,13 @@ def test_eta_sums_measured_durations_and_falls_back_to_an_average():
             assert c.get("/r/" + first).json()["eta"] == 15
             assert c.get("/r/" + second).json()["eta"] == 30
 
-            with open(os.path.join(config.RESULTS, "durees.json"), "w",
+            with open(os.path.join(config.RESULTS, "durations.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump({"tp2-ex3": [4.0, 20]}, fh)
             assert c.get("/r/" + first).json()["eta"] == 4
             assert c.get("/r/" + second).json()["eta"] == 8
 
-            with open(os.path.join(config.RESULTS, "durees.json"), "w",
+            with open(os.path.join(config.RESULTS, "durations.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump({"tp1": [2.0, 20], "tp7-ex1": [10.0, 20]}, fh)
             assert c.get("/r/" + first).json()["eta"] == 6
@@ -1797,7 +1797,7 @@ def test_eta_sums_measured_durations_and_falls_back_to_an_average():
             config.WORKERS = 2
             assert c.get("/r/" + second).json()["eta"] == 6
 
-            with open(os.path.join(config.RESULTS, "durees.json"), "w",
+            with open(os.path.join(config.RESULTS, "durations.json"), "w",
                       encoding="utf-8") as fh:
                 fh.write("{ pas du json")
             r = c.get("/r/" + first)

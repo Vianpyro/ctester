@@ -116,7 +116,7 @@ export interface Verdict {
   cases?: FailedCase[];
   failed?: string[];
   wrong?: WrongAnswer[];
-  rejouer?: boolean;
+  rerun?: boolean;
 }
 
 export type PollResult =

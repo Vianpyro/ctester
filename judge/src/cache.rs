@@ -23,13 +23,13 @@ const NEVER_CACHED: [&str; 3] = ["timeout", "compile_timeout", "error"];
 
 static LEXER: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(concat!(
-        r"(?s)(?P<bloc>/\*.*?\*/)",
-        r"|(?P<ligne>//(?:[^\n\\]|\\.)*)",
-        r#"|(?P<chaine>"(?:[^"\\\n]|\\.)*")"#,
-        r"|(?P<car>'(?:[^'\\\n]|\\.)*')",
-        r"|(?P<mot>[A-Za-z_][A-Za-z0-9_]*|\.?[0-9](?:[A-Za-z0-9_.]|[eEpP][-+])*)",
-        r"|(?P<blanc>[\s\x1c-\x1f]+)",
-        r"|(?P<autre>.)",
+        r"(?s)(?P<block>/\*.*?\*/)",
+        r"|(?P<line>//(?:[^\n\\]|\\.)*)",
+        r#"|(?P<string>"(?:[^"\\\n]|\\.)*")"#,
+        r"|(?P<char>'(?:[^'\\\n]|\\.)*')",
+        r"|(?P<word>[A-Za-z_][A-Za-z0-9_]*|\.?[0-9](?:[A-Za-z0-9_.]|[eEpP][-+])*)",
+        r"|(?P<space>[\s\x1c-\x1f]+)",
+        r"|(?P<other>.)",
     ))
     .expect("static lexer")
 });
@@ -49,11 +49,11 @@ pub fn normalize_c(source: &str) -> String {
     let (mut space, mut directive, mut line_start) = (false, false, true);
     for caps in LEXER.captures_iter(source) {
         let text = caps.get(0).map_or("", |m| m.as_str());
-        let trivia = ["bloc", "ligne", "blanc"]
+        let trivia = ["block", "line", "space"]
             .iter()
             .any(|g| caps.name(g).is_some());
         if trivia {
-            if caps.name("blanc").is_some() && text.contains('\n') && directive {
+            if caps.name("space").is_some() && text.contains('\n') && directive {
                 out.push('\n');
                 (space, directive) = (false, false);
             } else {

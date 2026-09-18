@@ -14,7 +14,9 @@ use serde_json::{Map, Value, json};
 
 use crate::spool::{Job, random_hex};
 
-const DURATIONS: &str = "durees.json";
+const DURATIONS: &str = "durations.json";
+/// The same file before it was renamed, read while the new one does not exist yet.
+const LEGACY_DURATIONS: &str = "durees.json";
 /// A line longer than this is dropped rather than risk being split across two `write` calls.
 const RUN_LINE_MAX: usize = 4096;
 const DURATION_WINDOW: i64 = 20;
@@ -39,7 +41,7 @@ fn mkdir(path: &Path) -> io::Result<()> {
 }
 
 /// What the run journal records on top of the verdict itself. Console sessions use
-/// `exercise_id = ":console"`, the key `durees.json` already uses for them.
+/// `exercise_id = ":console"`, the key `durations.json` already uses for them.
 pub struct Run<'a> {
     pub exercise_id: &'a str,
     /// The OIDC subject, or empty: an anonymous run, or a Console session, whose job
@@ -243,7 +245,9 @@ impl Results {
     }
 
     pub fn durations(&self) -> Map<String, Value> {
-        let read = std::fs::read(self.root.join(DURATIONS)).ok();
+        let read = std::fs::read(self.root.join(DURATIONS))
+            .or_else(|_| std::fs::read(self.root.join(LEGACY_DURATIONS)))
+            .ok();
         match read.and_then(|b| serde_json::from_slice(&b).ok()) {
             Some(Value::Object(map)) => map,
             _ => Map::new(),
@@ -270,7 +274,7 @@ impl Results {
         let _ = self.write_json(None, DURATIONS, &Value::Object(all));
     }
 
-    /// Only job directories: `durees.json` and `.console` are the service's, not a job's.
+    /// Only job directories: `durations.json` and `.console` are the service's, not a job's.
     pub fn sweep(&self, now: SystemTime, after: Duration) {
         let Ok(entries) = std::fs::read_dir(&self.root) else {
             return;
@@ -368,10 +372,20 @@ mod tests {
             results.record_duration("tp1", 20.0);
         }
         assert_eq!(results.durations()["tp1"][1], json!(DURATION_WINDOW + 1));
-        std::fs::write(results.root.join(DURATIONS), "pas du json").unwrap();
+        std::fs::write(results.root.join(DURATIONS), "not json").unwrap();
         assert!(results.durations().is_empty());
         results.record_duration("tp1", 3.0);
         assert_eq!(results.durations()["tp1"], json!([3.0, 1]));
+    }
+
+    #[test]
+    fn durations_are_read_from_the_legacy_file_until_the_new_one_exists() {
+        let (_scratch, results) = results();
+        std::fs::write(results.root.join(LEGACY_DURATIONS), r#"{"tp1": [4.0, 3]}"#).unwrap();
+        assert_eq!(results.durations()["tp1"], json!([4.0, 3]));
+        results.record_duration("tp1", 8.0);
+        assert_eq!(results.durations()["tp1"], json!([5.0, 4]));
+        assert!(results.root.join(DURATIONS).exists());
     }
 
     #[test]

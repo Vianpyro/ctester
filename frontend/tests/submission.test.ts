@@ -217,9 +217,9 @@ describe("do not ask again for what was just asked", () => {
     expect(submits()).toHaveLength(2);
   });
 
-  it("KEEPS ONLY WHAT THE SERVER AGREES TO KEEP: `rejouer` is never memoized", async () => {
+  it("KEEPS ONLY WHAT THE SERVER AGREES TO KEEP: `rerun` is never memoized", async () => {
     const files = uniqueCode();
-    queue("o", { status: 200, body: { ...OK, rejouer: true } });
+    queue("o", { status: 200, body: { ...OK, rerun: true } });
     queue("p", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
