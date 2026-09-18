@@ -15,13 +15,13 @@ describe("prepareTypstHtml", () => {
     const { html } = prepareTypstHtml(
       page(
         `<pre><code data-lang="c">int x;</code></pre>` +
-          `<div class="typ-recopier"><pre><code>for (;;);</code></pre></div>`,
+          `<div class="typ-retype"><pre><code>for (;;);</code></pre></div>`,
       ),
     );
     const host = dom(html);
-    const [free, recopier] = host.querySelectorAll("pre");
+    const [free, retyped] = host.querySelectorAll("pre");
     expect(free!.querySelector("button.copy")).not.toBeNull();
-    expect(recopier!.querySelector("button.copy")).toBeNull();
+    expect(retyped!.querySelector("button.copy")).toBeNull();
     expect(free!.querySelector("code")!.textContent).toBe("int x;");
   });
 

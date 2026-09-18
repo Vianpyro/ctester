@@ -1,9 +1,9 @@
 #import "theme.typ": palette, mono-font, mono-size
 
-#let _cadre(classe, accent, titre, corps) = context if target() == "html" {
-  html.elem("aside", attrs: (class: "typ-" + classe), {
-    if titre != none { html.elem("strong", titre) }
-    corps
+#let _frame(cls, accent, title, body) = context if target() == "html" {
+  html.elem("aside", attrs: (class: "typ-" + cls), {
+    if title != none { html.elem("strong", title) }
+    body
   })
 } else {
   block(
@@ -11,50 +11,50 @@
     fill: palette.panel,
     stroke: (left: 2pt + accent, rest: 0.5pt + palette.line),
     inset: (x: 7pt, y: 6pt),
-    radius: 0pt,           // `--coin: 0` dans app.css : la page est à coins carrés.
+    radius: 0pt,           // `--coin: 0` in app.css: the page has square corners.
     spacing: 8pt,
     {
-      if titre != none {
+      if title != none {
         block(spacing: 4pt, text(size: 0.85em, weight: 600, fill: accent,
-                                 tracking: 0.3pt, upper(titre)))
+                                 tracking: 0.3pt, upper(title)))
       }
-      corps
+      body
     },
   )
 }
 
-#let note(corps, titre: "Note") = _cadre("note", palette.ink, titre, corps)
+#let note(body, title: "Note") = _frame("note", palette.ink, title, body)
 
-#let attention(corps, titre: "Attention") = _cadre("attention", palette.bad, titre, corps)
+#let attention(body, title: "Attention") = _frame("attention", palette.bad, title, body)
 
-#let exemple(corps, titre: "Exemple") = _cadre("exemple", palette.ok, titre, corps)
+#let example(body, title: "Exemple") = _frame("example", palette.ok, title, body)
 
-#let _code(source, fichier, fond, classe) = context {
+#let _code(source, file, fill, cls) = context {
 let code = if type(source) == str { source } else { source.text }
 if target() == "html" {
-  html.elem("div", attrs: (class: classe), {
-    if fichier != none { html.elem("small", fichier) }
+  html.elem("div", attrs: (class: cls), {
+    if file != none { html.elem("small", file) }
     raw(code, lang: "c", block: true)
   })
 } else {
   block(
     width: 100%,
-    fill: fond,
+    fill: fill,
     stroke: (left: 2pt + palette.ink-fill, rest: 0.5pt + palette.line),
     inset: (x: 7pt, y: 6pt),
     spacing: 8pt,
     {
-      if fichier != none {
+      if file != none {
         block(spacing: 4pt,
-              text(size: 0.8em, fill: palette.muted, font: mono-font, fichier))
+              text(size: 0.8em, fill: palette.muted, font: mono-font, file))
       }
       text(font: mono-font, size: mono-size, fill: palette.fg,
-           [#raw(code, lang: "c", block: true) <ctester-encadre>])
+           [#raw(code, lang: "c", block: true) <ctester-framed>])
     },
   )
 }
 }
 
-#let signature(code, fichier: none) = _code(code, fichier, palette.ink-wash, "typ-signature")
+#let signature(code, file: none) = _code(code, file, palette.ink-wash, "typ-signature")
 
-#let recopier(code, fichier: none) = _code(code, fichier, palette.panel, "typ-recopier")
+#let retype(code, file: none) = _code(code, file, palette.panel, "typ-retype")

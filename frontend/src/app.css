@@ -294,10 +294,10 @@ main {
 .typsthtml aside > p:last-child { margin-bottom: 0; }
 .typsthtml .typ-attention { border-left-color: var(--bad); }
 .typsthtml .typ-attention > strong:first-child { color: var(--bad); }
-.typsthtml .typ-exemple { border-left-color: var(--ok); }
-.typsthtml .typ-exemple > strong:first-child { color: var(--ok); }
-.typsthtml :is(.typ-signature, .typ-recopier) small { color: var(--muted); font-family: var(--mono); }
-.typsthtml .typ-recopier { user-select: none; -webkit-user-select: none; }
+.typsthtml .typ-example { border-left-color: var(--ok); }
+.typsthtml .typ-example > strong:first-child { color: var(--ok); }
+.typsthtml :is(.typ-signature, .typ-retype) small { color: var(--muted); font-family: var(--mono); }
+.typsthtml .typ-retype { user-select: none; -webkit-user-select: none; }
 .typsthtml table { border-collapse: collapse; margin: 0 0 .7rem; }
 .typsthtml :is(td, th) { border: 1px solid var(--line); padding: .15rem .45rem; }
 .typsthtml img { max-width: 100%; height: auto; }

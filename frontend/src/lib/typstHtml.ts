@@ -35,7 +35,7 @@ export function prepareTypstHtml(source: string): Prepared {
   }
 
   for (const pre of body.querySelectorAll("pre")) {
-    if (pre.closest(".typ-recopier")) continue;
+    if (pre.closest(".typ-retype")) continue;
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "copy";

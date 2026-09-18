@@ -45,14 +45,14 @@
     });
   }
 
-  function inCopyBlock(event: Event): boolean {
+  function inRetypeBlock(event: Event): boolean {
     const target = event.target as Node | null;
     const sel = document.getSelection();
     const nodes = [target, sel?.anchorNode, sel?.focusNode];
-    return nodes.some((n) => (n instanceof Element ? n : n?.parentElement)?.closest(".typ-recopier"));
+    return nodes.some((n) => (n instanceof Element ? n : n?.parentElement)?.closest(".typ-retype"));
   }
   const block = (event: Event) => {
-    if (inCopyBlock(event)) event.preventDefault();
+    if (inRetypeBlock(event)) event.preventDefault();
   };
 </script>
 

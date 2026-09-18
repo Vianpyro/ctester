@@ -125,8 +125,8 @@ def _prepare(exercise_dir, workdir):
         else:
             shutil.copy2(source, target)
     with open(os.path.join(workdir, "main.typ"), "w", encoding="utf-8") as fh:
-        fh.write('#import "@local/ctester:1.0.0": enonce\n'
-                 "#show: enonce\n"
+        fh.write('#import "@local/ctester:1.0.0": statement\n'
+                 "#show: statement\n"
                  '#include "statement.typ"\n')
 
 
