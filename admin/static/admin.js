@@ -585,10 +585,16 @@ async function rafraichir() {
     vitaux(data);
     workers(data.workers, data.queue && data.queue.workers_configured);
     file(data.queue);
-    etat(data.degraded
-      ? "Base injoignable, file et contenu seulement"
-      : "À jour " + new Date().toLocaleTimeString("fr-CA"),
-      data.degraded ? "tiede" : null);
+    const ingestion = data.ingestion;
+    if (data.degraded) {
+      etat("Base injoignable, file et contenu seulement", "tiede");
+    } else if (ingestion && ingestion.ok === false) {
+      etat("Le journal ne s'ingère plus" + (ingestion.depuis
+        ? " depuis " + duree((Date.now() / 1000) - ingestion.depuis) : "")
+        + " — aucun nouveau run n'arrivera", "casse");
+    } else {
+      etat("À jour " + new Date().toLocaleTimeString("fr-CA"));
+    }
   } catch (err) {
     etat("Rafraîchissement impossible : " + err.message, "casse");
   }

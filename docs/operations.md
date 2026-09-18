@@ -353,6 +353,10 @@ per-exercise statistics and where the discussion is. What it reads:
 | `published/current.json` | the revision the API is serving |
 | `exercise_state`, `practice_attempt`, `xp_transaction` | solved counts, active accounts, XP |
 | `web`'s `/live` | open browser windows right now |
+
+Console sessions are kept out of every timing and success aggregate: their duration is the
+student's typing, and their queue wait is the global console lock rather than a busy worker.
+They keep their own `:console` row under *Par exercice*, which is where console usage belongs.
 | `forum_message` | the Discussions panel: per-channel message counts and last activity, never any message text |
 
 Everything on the page refreshes on the same 5 s tick. A request is skipped while the previous
@@ -386,6 +390,21 @@ poll constantly a dead worker shows up within one job.
 The admin app ingests the journal into `judge_run` every 30 seconds, remembering a byte offset
 per file, and skips any job id it already stored — so a restart, a retry or a replay never
 duplicates a row. `results/` is read-only to it, so it never truncates a journal file.
+
+**If ingestion stalls, the page says so.** The drain refuses to advance its cursor when a
+write fails, so nothing is lost -- the journal files stay on disk and are replayed in full once
+the cause is fixed. The usual cause is a schema older than the code: the drain writes `account`,
+and a database that predates that column rejects every insert. The state line turns red with
+"Le journal ne s'ingère plus", and `docker logs ctester-admin-1` carries the same message once,
+not on every tick.
+
+```sh
+docker exec ctester-postgres psql -U postgres -d ctester -tAc   "SELECT count(*) FROM information_schema.columns
+   WHERE table_name='judge_run' AND column_name='account'"
+```
+
+`0` means the schema is behind. Ansible applies `app/schema.sql` on every converge, so the fix
+is normally to converge -- check that the clone at `ctester_app_dir` carries the commit first.
 
 Nothing prunes the journal: one line per run is roughly 1 MB a day. If it ever matters:
 

@@ -58,6 +58,8 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
   holds a moderator token.
 - **The judge journals every run** to `results/runs-<date>.jsonl`, from `write_result()` so no
   exit path is missed. A test binds its fields to `admin/journal.py` and `state.RUN_COLUMNS`.
+- **A Console session is not a graded run.** It is excluded from failures, the success rate and
+  every timing average; `exercise_id = ':console'` keeps it visible on its own.
 
 ## Style
 
