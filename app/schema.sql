@@ -323,7 +323,10 @@ CREATE TABLE IF NOT EXISTS judge_run (
     job_id       TEXT        PRIMARY KEY,
     exercise_id  TEXT        NOT NULL,
     account      TEXT        NOT NULL DEFAULT '',
+    station      TEXT        NOT NULL DEFAULT '',
     status       TEXT        NOT NULL,
+    passed       INTEGER,
+    total        INTEGER,
     kind         TEXT        NOT NULL,
     duration_s   REAL,
     queue_wait_s REAL,
@@ -334,6 +337,11 @@ CREATE TABLE IF NOT EXISTS judge_run (
 );
 
 CREATE INDEX IF NOT EXISTS judge_run_finished_idx ON judge_run (finished_at DESC);
+
+-- Repairs for journals ingested before these columns existed.
+ALTER TABLE judge_run ADD COLUMN IF NOT EXISTS station TEXT NOT NULL DEFAULT '';
+ALTER TABLE judge_run ADD COLUMN IF NOT EXISTS passed  INTEGER;
+ALTER TABLE judge_run ADD COLUMN IF NOT EXISTS total   INTEGER;
 
 -- One row per journal file: results/ is read-only to the API, so the judge's files are never
 -- truncated and the offset is how far each has been read.

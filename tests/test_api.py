@@ -1123,6 +1123,29 @@ def test_anonymous_quota_per_station_and_shorter_window_when_logged_in():
             assert r.status_code == 200, (r.status_code, r.text)
 
 
+def test_an_anonymous_job_carries_a_station_tag_and_a_signed_in_one_does_not():
+    with context(tokens={"alice": "sub-alice"}) as (c, _, _tmp):
+        deps.quota = quotas.Quota(cooldown=0, hourly=100)
+        deps.signed_in_quota = quotas.Quota(cooldown=0, hourly=100)
+        payload = {"key": "cle-de-session", "exercise_id": "tp2-ex3",
+                   "files": {"submission.c": "int main(){return 0;}"}}
+
+        def job(query, headers=None):
+            r = c.post("/submit" + query, json=payload, headers=headers or {})
+            assert r.status_code == 200, (r.status_code, r.text)
+            with open(os.path.join(config.SPOOL, r.json()["id"], "job.json"),
+                      encoding="utf-8") as fh:
+                return json.load(fh)
+
+        first, again, other = job("?station=p1"), job("?station=p1"), job("?station=p2")
+        assert first["station"] == again["station"] == security.station_tag("p1")
+        assert other["station"] != first["station"]
+        assert "p1" not in json.dumps(first), "the raw station id must not be stored"
+        assert "station" not in job("")
+        signed_in = job("?station=p1", auth("alice"))
+        assert signed_in == {"exercise_id": "tp2-ex3", "owner": "sub-alice"}
+
+
 def test_quota_consumes_nothing_on_a_refused_request():
     with context(tokens={"alice": "sub-alice"}) as (c, _, _tmp):
         deps.state_quota = quotas.Quota(cooldown=0, hourly=2)

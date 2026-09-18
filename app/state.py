@@ -907,8 +907,9 @@ def read_teams(assignment_id):
 # judge_run holds no account: it is the history of the service, not of a student, so
 # forget() leaves it alone.
 
-RUN_COLUMNS = ("job_id", "exercise_id", "account", "status", "kind", "duration_s",
-               "queue_wait_s", "worker_id", "cache_hit", "reprises", "finished_at")
+RUN_COLUMNS = ("job_id", "exercise_id", "account", "station", "status", "passed", "total",
+               "kind", "duration_s", "queue_wait_s", "worker_id", "cache_hit", "reprises",
+               "finished_at")
 
 
 def journal_offsets():
@@ -940,9 +941,8 @@ def forget_journal_files(seen):
 
 
 def read_runs(limit, status=None, exercise_id=None, worker_id=None, reveal=False):
-    """`account` is only ever selected when asked for: the masking is the query, not a
-    filter afterwards, so the default path never touches that column -- and still works
-    against a database whose schema predates it."""
+    """`account` and `station` are only ever selected when asked for: the masking is the
+    query, not a filter afterwards, so the default path never touches those columns."""
     where, params = [], []
     for column, value in (("status", status), ("exercise_id", exercise_id),
                           ("worker_id", worker_id)):
@@ -952,7 +952,7 @@ def read_runs(limit, status=None, exercise_id=None, worker_id=None, reveal=False
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     params.append(max(1, min(int(limit), 500)))
     columns = RUN_COLUMNS if reveal else tuple(
-        c for c in RUN_COLUMNS if c != "account")
+        c for c in RUN_COLUMNS if c not in ("account", "station"))
     rows = _query(
         "SELECT " + ", ".join(columns) + " FROM judge_run" + clause +
         " ORDER BY finished_at DESC LIMIT %s", tuple(params), read=True)

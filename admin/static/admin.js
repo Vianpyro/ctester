@@ -463,11 +463,30 @@ function runs(rows) {
   render(target, rows, () => fillRuns(target, rows));
 }
 
+// Null when the run never reached the tests: a compilation error, a timeout.
+function testsCell(r) {
+  if (r.passed == null || r.total == null) return ["–", "n zero"];
+  const cls = r.passed === r.total ? "n state-ok" : "n state-neutral";
+  return [r.passed + "/" + r.total, cls];
+}
+
+// An anonymous run carries a hash of its browser's station id: the same tag means the
+// same browser, which tells two anonymous students apart.
+function authorCell(r) {
+  if (r.account) return [r.account, "count", r.account];
+  if (r.station) {
+    return ["anonyme · " + r.station, "count mono",
+      "aucun compte ; même étiquette = même navigateur"];
+  }
+  return ["anonyme", "count zero", "aucun compte"];
+}
+
 function fillRuns(target, rows) {
   fillTable(target,
     [{ title: "fini", cls: "mono", width: "5.9rem" },
      { title: "exercice", width: "11rem" }, { title: "statut", width: "9rem" },
      { title: "mode", width: "4rem" },
+     { title: "tests", cls: "n", width: "4rem" },
      { title: "durée", cls: "n", width: "4.4rem" },
      { title: "attente", cls: "n", width: "4.8rem" },
      { title: "worker", cls: "n", width: "4rem" },
@@ -482,13 +501,11 @@ function fillRuns(target, rows) {
         [text(r.status), stateClass(r.status)],
         [text(r.kind), r.cache_hit ? "cache" : null,
          r.cache_hit ? "servi par le cache, sans compiler" : null],
+        testsCell(r),
         [seconds(r.duration_s), "n"],
         [seconds(r.queue_wait_s), "n"],
         [text(r.worker_id), "n mono"],
-        ...(revealed()
-          ? [[r.account || "anonyme", r.account ? "count" : "count zero",
-              r.account || "aucun compte"]]
-          : []),
+        ...(revealed() ? [authorCell(r)] : []),
         [r.exercise_id && !r.exercise_id.startsWith(":") ? "show" : "–",
          r.exercise_id && !r.exercise_id.startsWith(":") ? "show" : "zero"],
         [r.job_id, "mono", r.job_id],

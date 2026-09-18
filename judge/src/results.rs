@@ -47,6 +47,9 @@ pub struct Run<'a> {
     /// The OIDC subject, or empty: an anonymous run, or a Console session, whose job
     /// deliberately carries no owner.
     pub account: String,
+    /// A short hash of an anonymous browser's station id, empty when there is an account:
+    /// it tells two anonymous submitters apart without naming either.
+    pub station: String,
     /// The exercise's mode, resolved from the content rather than read back from the
     /// verdict: only a successful verdict carries `kind`, and a failed run is exactly
     /// when knowing the mode matters.
@@ -63,6 +66,7 @@ impl Run<'_> {
         Run {
             exercise_id,
             account: String::new(),
+            station: String::new(),
             kind: "",
             duration_s: None,
             queue_wait_s: None,
@@ -164,7 +168,11 @@ impl Results {
             "job_id": job.as_str(),
             "exercise_id": run.exercise_id,
             "account": run.account,
+            "station": run.station,
             "status": field("status"),
+            // Null when the run never reached the tests: a compilation error, a timeout.
+            "passed": verdict.get("passed").and_then(Value::as_i64),
+            "total": verdict.get("total").and_then(Value::as_i64),
             // The verdict only names the mode when it graded successfully.
             "kind": match run.kind.is_empty() {
                 true => field("kind"),
@@ -423,6 +431,36 @@ mod tests {
             assert_eq!(record["exercise_id"], json!("tp1"));
             assert_eq!(record["status"], json!("ok"));
         }
+    }
+
+    #[test]
+    fn the_journal_carries_the_station_and_the_test_counts() {
+        let (_scratch, results) = results();
+        let graded = json!({"status": "ok", "passed": 3, "total": 5});
+        let run = Run {
+            station: "0a1b2c3d".into(),
+            ..Run::of("tp1")
+        };
+        assert!(results.claim(&job(1)));
+        results.write_result(&job(1), graded, &run).unwrap();
+        assert!(results.claim(&job(2)));
+        results
+            .write_result(&job(2), json!({"status": "compile_error"}), &Run::of("tp1"))
+            .unwrap();
+        let journal = std::fs::read_dir(&results.root)
+            .unwrap()
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().starts_with("runs-"))
+            .expect("no run journal");
+        let text = std::fs::read_to_string(journal.path()).unwrap();
+        let fields: Vec<Value> = text
+            .lines()
+            .map(|line| {
+                let r: Value = serde_json::from_str(line).unwrap();
+                json!([r["station"], r["passed"], r["total"]])
+            })
+            .collect();
+        assert_eq!(fields, [json!(["0a1b2c3d", 3, 5]), json!(["", null, null])]);
     }
 
     #[test]

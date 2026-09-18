@@ -295,6 +295,7 @@ mod runner {
             Run {
                 exercise_id,
                 account: self.spool.job_field(job, "owner"),
+                station: self.spool.job_field(job, "station"),
                 kind,
                 duration_s,
                 queue_wait_s,

@@ -1445,6 +1445,25 @@ def test_the_journal_consumes_only_whole_lines():
     assert [line["job_id"] for line in lines] == ["b"]
 
 
+def test_the_journal_keeps_the_station_tag_and_the_test_counts():
+    blob = b"".join(json.dumps(record).encode() + b"\n" for record in (
+        {"job_id": "a", "station": "0a1b2c3d", "passed": 3, "total": 5},
+        {"job_id": "b", "station": "not hex!", "passed": None, "total": "5"},
+        {"job_id": "c", "station": "f" * 40, "passed": -1, "total": True},
+    ))
+    lines, _ = journal.parse_journal(blob)
+    assert [(line["station"], line["passed"], line["total"]) for line in lines] == [
+        ("0a1b2c3d", 3, 5), ("", None, None), ("", None, None)]
+
+
+def test_station_tag_is_short_stable_and_hides_the_raw_id():
+    tag = security.station_tag("3f0c9a52-poste")
+    assert tag == security.station_tag("3f0c9a52-poste")
+    assert len(tag) == 8 and all(c in "0123456789abcdef" for c in tag)
+    assert tag != security.station_tag("autre-poste")
+    assert security.station_tag("") is None and security.station_tag(None) is None
+
+
 def test_the_journal_skips_an_unreadable_line_without_blocking_the_cursor():
     good = json.dumps({"job_id": "c"}).encode()
     blob = b"pas du json\n" + b'{"job_id": 7}\n' + b"[]\n" + good + b"\n"
