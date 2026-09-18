@@ -134,6 +134,27 @@ def _write(path, value):
         json.dump(value, fh, ensure_ascii=False)
 
 
+def _releases(value):
+    if isinstance(value, dict):
+        if isinstance(value.get("release"), dict):
+            yield value["release"]
+        for sub in value.values():
+            yield from _releases(sub)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _releases(item)
+
+
+def next_release(model, now=None):
+    """The earliest opening still ahead: content.sh republishes once it has passed."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    moments = [moment for release in _releases(model)
+               if release.get("state") == "scheduled"
+               for moment in [content_catalog._iso_datetime(release.get("available_from"))]
+               if moment is not None and moment > now]
+    return min(moments).isoformat() if moments else None
+
+
 def publish(model, dest, now=None, keep=3, renders=None):
     # The pointer moves last. It is a file, not a symlink, because Docker resolves
     # symlinks at mount time and a switch would only show after a restart.
@@ -154,7 +175,8 @@ def publish(model, dest, now=None, keep=3, renders=None):
         os.replace(temporary, release)
     pointer = os.path.join(dest, POINTER)
     _write(pointer + ".tmp", {"revision": rev,
-                               "published_at": dt.datetime.now(dt.timezone.utc).isoformat()})
+                               "published_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                               "next_release": next_release(model, now)})
     os.replace(pointer + ".tmp", pointer)
     _prune(dest, rev, keep)
     return rev
