@@ -54,8 +54,8 @@ async function discovery() {
   return cachedDiscovery;
 }
 
-const base64url = (octets) =>
-  btoa(String.fromCharCode(...octets))
+const base64url = (bytes) =>
+  btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
@@ -96,12 +96,12 @@ function expiresSoon() {
   return end > 0 && seconds() >= end - REFRESH_MARGIN;
 }
 
-async function exchange(corps) {
+async function exchange(form) {
   const doc = await discovery();
   const response = await fetch(doc.token_endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(corps).toString(),
+    body: new URLSearchParams(form).toString(),
   });
   if (!response.ok) return null;
   try {

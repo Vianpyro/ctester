@@ -144,10 +144,10 @@ function fillVitals(target, data) {
   }
   if (s) {
     const notes = s.graded === undefined ? s.total : s.graded;
-    const rate = notes ? Math.round((s.cache_hits / notes) * 100) : 0;
+    const markFailed = notes ? Math.round((s.cache_hits / notes) * 100) : 0;
     target.append(vital("Runs 24 h", s.total,
       s.total ? s.ok + " réussis" : "aucun run"));
-    target.append(vital("Cache", rate + " %",
+    target.append(vital("Cache", markFailed + " %",
       s.cache_hits + " sans compiler, sur " + notes + " notés"));
     target.append(vital("Attente moyenne", seconds(s.average_wait_s), "avant un worker"));
     target.append(vital("Reprises", s.reprises,
@@ -199,7 +199,7 @@ function fillDistribution(statuses) {
 
 /* ---- tables ------------------------------------------------------------ */
 
-function tableau(target, columns, lines, rendered, message) {
+function fillTable(target, columns, lines, rendered, message) {
   if (!lines || lines.length === 0) {
     showEmpty(target, message);
     return;
@@ -239,25 +239,25 @@ function cells(values) {
 
 /* ---- panels ------------------------------------------------------------ */
 
-function workers(rows, configures) {
+function workers(rows, configured) {
   const target = $("workers");
-  render(target, [rows, configures], () => fillWorkers(target, rows, configures));
+  render(target, [rows, configured], () => fillWorkers(target, rows, configured));
 }
 
-function fillWorkers(target, rows, configures) {
+function fillWorkers(target, rows, configured) {
   const note = $("workers-note");
   if (!rows || rows.length === 0) {
-    note.textContent = configures ? "0 sur " + configures : "";
+    note.textContent = configured ? "0 sur " + configured : "";
     showEmpty(target, "Aucun run depuis 24 h.");
     return;
   }
   const alive = rows.filter((w) => w.alive).length;
   note.textContent = alive + " actif" + (alive > 1 ? "s" : "")
-    + (configures ? " sur " + configures : "");
+    + (configured ? " sur " + configured : "");
   target.textContent = "";
-  const tries = [...rows].sort((a, b) =>
+  const sorted = [...rows].sort((a, b) =>
     a.worker_id.localeCompare(b.worker_id, undefined, { numeric: true }));
-  for (const w of tries) {
+  for (const w of sorted) {
     const line = el("div", "line");
     const point = el("span", w.alive ? "alive" : "dead");
     point.title = w.alive ? "a fini un run récemment" : "silencieux depuis 5 min";
@@ -282,7 +282,7 @@ function fillUsage(target, data, days) {
     return;
   }
   target.textContent = "";
-  const grille = el("div", "usage");
+  const grid = el("div", "usage");
   const pairs = [
     ["Résolus", data.usage.solved],
     ["Comptes", data.usage.active_accounts],
@@ -292,11 +292,11 @@ function fillUsage(target, data, days) {
       : "–"],
   ];
   for (const [key, value] of pairs) {
-    const bloc = el("div");
-    bloc.append(el("div", "key", key), el("div", "value", value));
-    grille.append(bloc);
+    const cell = el("div");
+    cell.append(el("div", "key", key), el("div", "value", value));
+    grid.append(cell);
   }
-  target.append(grille);
+  target.append(grid);
 }
 
 function file(q) {
@@ -308,7 +308,7 @@ function fillQueue(target, q) {
   const head = (q && q.head) || [];
   $("queue-note").textContent = q && q.pending
     ? q.pending + " en attente" : "";
-  tableau(target,
+  fillTable(target,
     [{ title: "exercice" }, { title: "attente", cls: "n", width: "4.5rem" }],
     head,
     (j) => {
@@ -325,7 +325,7 @@ function exercises(rows, days) {
 
 function fillExercises(rows, days) {
   $("exercises-note").textContent = days === 1 ? "24 h" : days + " jours";
-  tableau($("exercises"),
+  fillTable($("exercises"),
     [{ title: "exercice" }, { title: "runs", cls: "n", width: "3.2rem" },
      { title: "échecs", cls: "n", width: "3.8rem" },
      { title: "moy.", cls: "n", width: "4.2rem" },
@@ -365,7 +365,7 @@ function channels(rows, days) {
 
 function fillChannels(rows, days) {
   $("channels-note").textContent = days === 1 ? "24 h" : days + " jours";
-  tableau($("channels"),
+  fillTable($("channels"),
     [{ title: "canal" }, { title: "msg", cls: "n", width: "3.2rem" },
      { title: "24 h", cls: "n", width: "3.2rem" },
      { title: "pers.", cls: "n", width: "3.6rem" },
@@ -388,31 +388,31 @@ function activity(data, days) {
 
 function fillActivity(target, data, days) {
   const note = $("activity-note");
-  const bloc = data.activity;
-  if (!bloc || bloc.buckets.length === 0) {
+  const cell = data.activity;
+  if (!cell || cell.buckets.length === 0) {
     note.textContent = "";
     showEmpty(target, "Aucun run sur la période.");
     return;
   }
-  const byHour = bloc.unit === "hour";
+  const byHour = cell.unit === "hour";
   note.textContent = byHour ? "par heure" : "par jour";
 
   // The axis is the chosen period, not the span that happens to hold data: a week
   // with one run must read as a quiet week, not as one busy day.
   const step = byHour ? 3600e3 : 86400e3;
-  const seen = new Map(bloc.buckets.map((b) => [Math.floor(Date.parse(b.t) / step), b]));
+  const seen = new Map(cell.buckets.map((b) => [Math.floor(Date.parse(b.t) / step), b]));
   const end = Math.floor(Date.now() / step);
-  const debut = end - (byHour ? 24 : days) + 1;
-  const suite = [];
-  for (let k = debut; k <= end; k += 1) {
-    suite.push(seen.get(k) || { t: new Date(k * step).toISOString(), runs: 0, failures: 0 });
+  const first = end - (byHour ? 24 : days) + 1;
+  const series = [];
+  for (let k = first; k <= end; k += 1) {
+    series.push(seen.get(k) || { t: new Date(k * step).toISOString(), runs: 0, failures: 0 });
   }
-  const peak = Math.max(...suite.map((b) => b.runs), 1);
+  const peak = Math.max(...series.map((b) => b.runs), 1);
 
   const histogram = el("div", "histogram");
   // A term's worth of days needs thinner gutters than a day's worth of hours.
-  if (suite.length > 80) histogram.style.gap = "1px";
-  for (const b of suite) {
+  if (series.length > 80) histogram.style.gap = "1px";
+  for (const b of series) {
     const column = el("div", "column");
     const date = new Date(b.t);
     column.title = (byHour
@@ -422,32 +422,32 @@ function fillActivity(target, data, days) {
     if (!b.runs) {
       column.append(el("span", "part hollow"));
     } else {
-      const hauteur = (n) => "max(1px, " + (n / peak) * 100 + "%)";
+      const barHeight = (n) => "max(1px, " + (n / peak) * 100 + "%)";
       if (b.failures) {
-        const rates = el("span", "part failed");
-        rates.style.height = hauteur(b.failures);
-        column.append(rates);
+        const failedBar = el("span", "part failed");
+        failedBar.style.height = barHeight(b.failures);
+        column.append(failedBar);
       }
       if (b.runs - b.failures) {
         const solved = el("span", "part solved");
-        solved.style.height = hauteur(b.runs - b.failures);
+        solved.style.height = barHeight(b.runs - b.failures);
         column.append(solved);
       }
     }
     histogram.append(column);
   }
 
-  const axe = el("div", "axis");
-  const borne = (b) => {
+  const axis = el("div", "axis");
+  const edgeLabel = (b) => {
     const d = new Date(b.t);
     return byHour ? pad2(d.getHours()) + " h"
       : d.toLocaleDateString("fr-CA", { month: "short", day: "numeric" });
   };
-  axe.append(el("span", null, borne(suite[0])),
+  axis.append(el("span", null, edgeLabel(series[0])),
              el("span", null, "max " + peak),
-             el("span", null, borne(suite[suite.length - 1])));
+             el("span", null, edgeLabel(series[series.length - 1])));
   target.textContent = "";
-  target.append(histogram, axe);
+  target.append(histogram, axis);
 }
 
 let known = null;
@@ -464,7 +464,7 @@ function runs(rows) {
 }
 
 function fillRuns(target, rows) {
-  tableau(target,
+  fillTable(target,
     [{ title: "fini", cls: "mono", width: "5.9rem" },
      { title: "exercice", width: "11rem" }, { title: "statut", width: "9rem" },
      { title: "mode", width: "4rem" },
@@ -511,8 +511,8 @@ const revealed = () => $("reveal").checked;
 function runParams() {
   const params = new URLSearchParams({ limit: "150" });
   if (revealed()) params.set("reveal", "1");
-  const champs = { exercise: "f-exercise", status: "f-status", worker: "f-worker" };
-  for (const [key, id] of Object.entries(champs)) {
+  const fields = { exercise: "f-exercise", status: "f-status", worker: "f-worker" };
+  for (const [key, id] of Object.entries(fields)) {
     const value = $(id).value.trim();
     if (value) params.set(key, value);
   }
@@ -532,14 +532,14 @@ async function showCode(r) {
   box.showModal();
   const params = new URLSearchParams({ job_id: r.job_id, exercise_id: r.exercise_id });
   if (r.account) params.set("account", r.account);
-  let bloc;
+  let cell;
   try {
-    bloc = await json("/api/code?" + params);
+    cell = await json("/api/code?" + params);
   } catch (err) {
     $("code-source").textContent = err.message;
     return;
   }
-  const names = Object.keys(bloc.files || {});
+  const names = Object.keys(cell.files || {});
   if (!names.length) {
     // The spool is swept after 600 s, and nothing is kept for a run never polled.
     $("code-source").textContent = "plus disponible";
@@ -548,13 +548,13 @@ async function showCode(r) {
       + "pour ce compte sur cet exercice."));
     return;
   }
-  const when = bloc.at ? new Date(bloc.at).toLocaleString("fr-CA") : "";
-  $("code-source").textContent = (SOURCES[bloc.source] || "") + (when ? ", " + when : "");
+  const when = cell.at ? new Date(cell.at).toLocaleString("fr-CA") : "";
+  $("code-source").textContent = (SOURCES[cell.source] || "") + (when ? ", " + when : "");
   for (const name of names) {
     $("code-body").append(el("div", "file", name));
     // textContent, never innerHTML: this text comes from a student and this page
     // holds a moderator token.
-    $("code-body").append(el("pre", null, bloc.files[name]));
+    $("code-body").append(el("pre", null, cell.files[name]));
   }
 }
 
@@ -577,11 +577,11 @@ function period() {
 // One request per batch at a time. The cost of /api/stats grows with the period, and
 // on the longest one a request can outlast the tick: the dashboard then slows to the
 // database's real speed instead of piling up requests.
-let enVol = { preview: false, stats: false };
+let inFlight = { preview: false, stats: false };
 
 async function refresh() {
-  if (enVol.preview) return;
-  enVol.preview = true;
+  if (inFlight.preview) return;
+  inFlight.preview = true;
   try {
     const data = await json("/api/overview");
     vitals(data);
@@ -603,13 +603,13 @@ async function refresh() {
   try {
     await listRuns();
   } finally {
-    enVol.preview = false;
+    inFlight.preview = false;
   }
 }
 
 async function statistics() {
-  if (enVol.stats) return;
-  enVol.stats = true;
+  if (inFlight.stats) return;
+  inFlight.stats = true;
   const days = period();
   try {
     const data = await json("/api/stats?days=" + days);
@@ -621,7 +621,7 @@ async function statistics() {
   } catch (err) {
     state("Statistiques indisponibles : " + err.message, "broken");
   } finally {
-    enVol.stats = false;
+    inFlight.stats = false;
   }
 }
 
@@ -655,7 +655,7 @@ for (const id of ["f-exercise", "f-status", "f-worker"]) {
 
 // A single tick for everything: during a lab the activity is followed live, and the
 // selected period is then "24 h", where the aggregates are trivial.
-function tic() {
+function tick() {
   if (document.hidden) return;
   void refresh();
   void statistics();
@@ -664,7 +664,7 @@ function tic() {
 // A background tab asks for nothing; on return it refreshes at once rather than
 // waiting for the next tick.
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) tic();
+  if (!document.hidden) tick();
 });
 
 $("reveal").addEventListener("change", () => {
@@ -687,6 +687,6 @@ start().then((bearer) => {
     return;
   }
   document.body.classList.remove("loggedout");
-  tic();
-  refreshTimer = setInterval(tic, REFRESH);
+  tick();
+  refreshTimer = setInterval(tick, REFRESH);
 }, (err) => loginScreen(err.message));

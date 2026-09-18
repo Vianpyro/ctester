@@ -1,6 +1,6 @@
 import { highlight } from "./domain/highlight";
 
-const RETIRES = "script, style, link, meta, base, iframe, object, embed, form";
+const STRIPPED = "script, style, link, meta, base, iframe, object, embed, form";
 
 export interface Prepared {
   html: string;
@@ -11,7 +11,7 @@ export function prepareTypstHtml(source: string): Prepared {
   // DOMParser neither runs scripts nor loads resources.
   const doc = new DOMParser().parseFromString(source, "text/html");
   const body = doc.body;
-  body.querySelectorAll(RETIRES).forEach((el) => el.remove());
+  body.querySelectorAll(STRIPPED).forEach((el) => el.remove());
   for (const el of body.querySelectorAll("*")) {
     for (const { name, value } of [...el.attributes]) {
       if (name.startsWith("on") || /^\s*javascript:/i.test(value)) el.removeAttribute(name);
@@ -24,8 +24,8 @@ export function prepareTypstHtml(source: string): Prepared {
     const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(img.getAttribute("src") ?? "");
     if (!m) continue;
     const text = m[2] ? atob(m[3]!) : decodeURIComponent(m[3]!);
-    const octets = Uint8Array.from(text, (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([octets], { type: m[1] }));
+    const bytes = Uint8Array.from(text, (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: m[1] }));
     blobs.push(url);
     img.setAttribute("src", url);
   }

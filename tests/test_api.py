@@ -215,11 +215,11 @@ class FakeDatabase:
         return True
 
     def read_team_submission(self, assignment_id, team_id):
-        remise = self.handins.get((assignment_id, team_id))
-        if remise is None:
+        record = self.handins.get((assignment_id, team_id))
+        if record is None:
             return {}
-        return {"submitted_by": remise["submitted_by"],
-                "submitted_at": remise["submitted_at"]}
+        return {"submitted_by": record["submitted_by"],
+                "submitted_at": record["submitted_at"]}
 
     def read_teams(self, assignment_id):
         lines = []
@@ -3142,10 +3142,10 @@ def test_the_handin_is_one_per_team_and_refuses_a_gap():
         assert fake.handins == {}
 
         fake.documents[("e1", "dev-b")] = {"lib.c": "double f(void){return 1;}\n"}
-        remise = client.post("/team/handin", headers=_headers("t-alice"),
+        record = client.post("/team/handin", headers=_headers("t-alice"),
                              json={"assignment_id": "devoir"})
-        assert remise.status_code == 200, remise.text
-        assert sorted(remise.json()["files"]) == ["Devoir/main.c",
+        assert record.status_code == 200, record.text
+        assert sorted(record.json()["files"]) == ["Devoir/main.c",
                                                    "Devoir/matrac_lib.c"]
         again = client.post("/team/handin", headers=_headers("t-cleo"),
                              json={"assignment_id": "devoir"})
@@ -3246,24 +3246,24 @@ def test_two_teammates_see_each_other_and_the_other_team_sees_nothing():
         collab.reset()
         with client.websocket_connect("/team/live") as alice:
             _hello(alice, "t-alice")
-            pret_alice = alice.receive_json()
-            assert pret_alice["t"] == "ready"
-            assert pret_alice["peers"] == 0 and pret_alice["me"] == "m1"
-            assert pret_alice["epoch"]
+            ready_alice = alice.receive_json()
+            assert ready_alice["t"] == "ready"
+            assert ready_alice["peers"] == 0 and ready_alice["me"] == "m1"
+            assert ready_alice["epoch"]
             assert alice.receive_json()["t"] == "presence"
             with client.websocket_connect("/team/live") as cleo:
                 _hello(cleo, "t-cleo")
-                pret_cleo = cleo.receive_json()
-                assert pret_cleo["peers"] == 1 and pret_cleo["me"] == "m2"
-                assert pret_cleo["epoch"] == pret_alice["epoch"]
+                ready_cleo = cleo.receive_json()
+                assert ready_cleo["peers"] == 1 and ready_cleo["me"] == "m2"
+                assert ready_cleo["epoch"] == ready_alice["epoch"]
                 assert cleo.receive_json()["t"] == "presence"
                 assert alice.receive_json() == {"t": "presence",
                                                 "online": ["m1", "m2"]}
                 with client.websocket_connect("/team/live") as bob:
                     _hello(bob, "t-bob")
-                    pret_bob = bob.receive_json()
-                    assert pret_bob["peers"] == 0
-                    assert pret_bob["epoch"] != pret_alice["epoch"]
+                    ready_bob = bob.receive_json()
+                    assert ready_bob["peers"] == 0
+                    assert ready_bob["epoch"] != ready_alice["epoch"]
                     assert bob.receive_json()["t"] == "presence"
 
                     alice.send_json({"t": "update", "d": "AAEC",

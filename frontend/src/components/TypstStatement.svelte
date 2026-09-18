@@ -17,7 +17,7 @@
     api("statement/" + encodeURIComponent(id) + "/" + name + "-" + number + ".svg");
 
   let missing = $state<Set<number>>(new Set());
-  const rate = (number: number) => {
+  const markFailed = (number: number) => {
     missing = new Set(missing).add(number);
   };
 
@@ -34,7 +34,7 @@
         ).catch(() => null);
         if (cancelled) return;
         if (!response?.ok) {
-          rate(number);
+          markFailed(number);
           continue;
         }
         const url = URL.createObjectURL(await response.blob());
@@ -66,7 +66,7 @@
         alt={"Consigne, page " + number + " sur " + pages}
         loading={number === 1 ? "eager" : "lazy"}
         decoding="async"
-        onerror={() => rate(number)}
+        onerror={() => markFailed(number)}
       />
     {/if}
   {/each}
