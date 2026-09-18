@@ -122,7 +122,7 @@ def create_app():
             "release": overview.release(),
             "workers": overview.workers(),
             "windows": overview.windows(),
-            "ingestion": dict(drain.state),
+            "ingestion": dict(drain.health),
             "stats": state.read_run_stats(1),
         })
 
