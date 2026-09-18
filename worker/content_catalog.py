@@ -115,7 +115,7 @@ def find_exercise(model, exercise_id, now=None):
     return entry
 
 
-def load_exercise(root, exercise_id, now=None, tout=False):
+def load_exercise(root, exercise_id, now=None, unreleased=False):
     """The worker's gate: re-checks the release instead of trusting the web tier."""
     if not isinstance(exercise_id, str) or not EXERCISE_RE.match(exercise_id):
         return None
@@ -124,7 +124,7 @@ def load_exercise(root, exercise_id, now=None, tout=False):
     data = _json(os.path.join(path, "exercise.json"), errors)
     if data is None or data.get("id") != exercise_id:
         return None
-    if not tout and access(data.get("release"), now) != "available":
+    if not unreleased and access(data.get("release"), now) != "available":
         return None
     assessment = os.path.join(path, "assessment")
     mode = detect_mode(assessment)

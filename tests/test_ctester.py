@@ -28,13 +28,13 @@ import typst_build  # noqa: E402
 import config     # noqa: E402
 import csp        # noqa: E402
 import state      # noqa: E402
-import policy as politique  # noqa: E402
+import policy as policy  # noqa: E402
 import security   # noqa: E402
 from services import catalog as catalogue    # noqa: E402
 from services import discord      # noqa: E402
 from services import forum        # noqa: E402
 from services import leaderboard  # noqa: E402
-from services import progress as progression  # noqa: E402
+from services import progress as progress  # noqa: E402
 from services import quotas       # noqa: E402
 from services import collab      # noqa: E402
 from services import teams       # noqa: E402
@@ -43,8 +43,8 @@ from services import source       # noqa: E402
 from services import scratch      # noqa: E402
 
 
-def lire(chemin):
-    with open(chemin, encoding="utf-8") as fh:
+def read_file(path):
+    with open(path, encoding="utf-8") as fh:
         return fh.read()
 
 UNITY_OK = """\
@@ -141,151 +141,151 @@ def test_content_v2_discovery_and_public_projection():
         shutil.rmtree(root)
 
 
-def _contenu_avec_drapeau(root, valeur, drapeau="verification"):
+def _content_with_flag(root, value, flag="verification"):
     _write_json(os.path.join(root, "catalog.json"),
                 {"schema_version": 1, "skills": ["variables"]})
     exercise = os.path.join(root, "exercises", "verif-tp2")
-    donnees = {"schema_version": 1, "id": "verif-tp2", "title": "Vérification",
+    data = {"schema_version": 1, "id": "verif-tp2", "title": "Vérification",
                "skills": ["variables"], "release": {"state": "available"}}
-    if valeur is not None:
-        donnees[drapeau] = valeur
-    _write_json(os.path.join(exercise, "exercise.json"), donnees)
+    if value is not None:
+        data[flag] = value
+    _write_json(os.path.join(exercise, "exercise.json"), data)
     with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
         fh.write("Lis ce code.")
     _write_json(os.path.join(exercise, "assessment", "quiz.json"),
                 {"questions": [{"id": "q1", "label": "?", "answer": "42"}]})
 
 
-def _depot(racine, competence, *ids):
-    _write_json(os.path.join(racine, "catalog.json"),
-                {"schema_version": 1, "skills": [competence]})
+def _repository(root, skill, *ids):
+    _write_json(os.path.join(root, "catalog.json"),
+                {"schema_version": 1, "skills": [skill]})
     for exercise_id in ids:
-        exercise = os.path.join(racine, "exercises", exercise_id)
+        exercise = os.path.join(root, "exercises", exercise_id)
         _write_json(os.path.join(exercise, "exercise.json"),
                     {"schema_version": 1, "id": exercise_id, "title": "Titre",
-                     "skills": [competence], "release": {"state": "available"}})
+                     "skills": [skill], "release": {"state": "available"}})
         with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
             fh.write("Lis ce code.")
         _write_json(os.path.join(exercise, "assessment", "quiz.json"),
                     {"questions": [{"id": "q1", "label": "?", "answer": "42"}]})
-    return racine
+    return root
 
 
-def _deux_depots():
-    base = tempfile.mkdtemp(prefix="ctester-depots-")
-    a = _depot(os.path.join(base, "cours-a", "content"), "boucles", "tp1-ex1", "tp1-ex2")
-    b = _depot(os.path.join(base, "cours-b", "content"), "pointeurs", "tp9-ex1")
+def _two_repositories():
+    base = tempfile.mkdtemp(prefix="ctester-repositories-")
+    a = _repository(os.path.join(base, "cours-a", "content"), "boucles", "tp1-ex1", "tp1-ex2")
+    b = _repository(os.path.join(base, "cours-b", "content"), "pointeurs", "tp9-ex1")
     return base, a, b
 
 
-def test_plusieurs_depots_fusionnent_en_un_seul_catalogue():
-    base, a, b = _deux_depots()
+def test_several_repositories_merge_into_one_catalogue():
+    base, a, b = _two_repositories()
     try:
-        modele = content_catalogue.discover([a, b])
-        assert list(modele["exercises"]) == ["tp1-ex1", "tp1-ex2", "tp9-ex1"]
-        # Le vocabulaire est l'union : un exercice peut viser une compétence déclarée ailleurs.
-        assert modele["skills"] == ["boucles", "pointeurs"], modele["skills"]
-        # Rien en aval ne nomme de source : la projection reste un espace de noms plat.
-        public = content_catalogue.public_catalogue(modele)
+        model = content_catalogue.discover([a, b])
+        assert list(model["exercises"]) == ["tp1-ex1", "tp1-ex2", "tp9-ex1"]
+        # The vocabulary is the union: an exercise may target a skill declared elsewhere.
+        assert model["skills"] == ["boucles", "pointeurs"], model["skills"]
+        # Nothing downstream names a source: the projection stays one flat namespace.
+        public = content_catalogue.public_catalogue(model)
         assert [e["id"] for e in public["exercises"]] == ["tp1-ex1", "tp1-ex2", "tp9-ex1"]
         assert "source" not in json.dumps(public)
     finally:
         shutil.rmtree(base)
 
 
-def test_la_revision_ne_depend_pas_de_l_ordre_des_depots():
-    base, a, b = _deux_depots()
+def test_the_revision_does_not_depend_on_the_repository_order():
+    base, a, b = _two_repositories()
     try:
-        un = publish_content.revision(
+        one = publish_content.revision(
             publish_content.projection(content_catalogue.discover([a, b])))
-        deux = publish_content.revision(
+        two = publish_content.revision(
             publish_content.projection(content_catalogue.discover([b, a])))
-        assert un == deux, "reordonner CTESTER_CONTENT republierait tout le catalogue"
+        assert one == two, "reordering CTESTER_CONTENT would republish the whole catalogue"
     finally:
         shutil.rmtree(base)
 
 
-def test_un_id_partage_entre_deux_depots_bloque_la_publication():
-    base, a, b = _deux_depots()
+def test_an_id_shared_by_two_repositories_blocks_publication():
+    base, a, b = _two_repositories()
     try:
-        _depot(b, "pointeurs", "tp1-ex1")
+        _repository(b, "pointeurs", "tp1-ex1")
         try:
             content_catalogue.discover([a, b])
         except content_catalogue.ContentValidationError as exc:
-            texte = str(exc)
-            assert "duplicate exercise id: tp1-ex1" in texte, texte
-            # Le message doit nommer les deux dépôts, sinon il est inutilisable.
-            assert "cours-a" in texte and "cours-b" in texte, texte
+            text = str(exc)
+            assert "duplicate exercise id: tp1-ex1" in text, text
+            # The message must name both repositories, or it is useless.
+            assert "cours-a" in text and "cours-b" in text, text
         else:
-            raise AssertionError("deux dépôts ont pu revendiquer le même id")
+            raise AssertionError("two repositories could claim the same id")
     finally:
         shutil.rmtree(base)
 
 
-def test_une_seule_racine_garde_ses_messages_sans_prefixe():
-    racine = tempfile.mkdtemp(prefix="ctester-content-")
+def test_a_single_root_keeps_its_messages_unprefixed():
+    root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
-        _depot(racine, "boucles", "tp1-ex1")
-        os.remove(os.path.join(racine, "exercises", "tp1-ex1", "statement.md"))
+        _repository(root, "boucles", "tp1-ex1")
+        os.remove(os.path.join(root, "exercises", "tp1-ex1", "statement.md"))
         try:
-            content_catalogue.discover(racine)
+            content_catalogue.discover(root)
         except content_catalogue.ContentValidationError as exc:
             assert str(exc).startswith("exercises/tp1-ex1:"), exc
         else:
-            raise AssertionError("énoncé manquant accepté")
+            raise AssertionError("missing statement accepted")
     finally:
-        shutil.rmtree(racine)
+        shutil.rmtree(root)
 
 
-def test_content_roots_se_decoupe_comme_la_variable_d_environnement():
+def test_content_roots_splits_like_the_environment_variable():
     assert content_catalogue.content_roots("/a") == ["/a"]
     assert content_catalogue.content_roots(["/a", "/b"]) == ["/a", "/b"]
-    decoupe = content_catalogue.content_roots("/a%s%s/b%s" % (os.pathsep, os.pathsep, os.pathsep))
-    assert decoupe == ["/a", "/b"], decoupe
+    roots = content_catalogue.content_roots("/a%s%s/b%s" % (os.pathsep, os.pathsep, os.pathsep))
+    assert roots == ["/a", "/b"], roots
 
 
-def test_content_v2_marque_une_verification():
-    for valeur, attendu in ((True, True), (False, None), (None, None)):
+def test_content_v2_marks_a_verification():
+    for value, expected in ((True, True), (False, None), (None, None)):
         root = tempfile.mkdtemp(prefix="ctester-content-")
         try:
-            _contenu_avec_drapeau(root, valeur)
+            _content_with_flag(root, value)
             public = content_catalogue.public_catalogue(content_catalogue.discover(root))
-            assert public["exercises"][0].get("verification") is attendu, valeur
+            assert public["exercises"][0].get("verification") is expected, value
             assert "answer" not in json.dumps(public)
         finally:
             shutil.rmtree(root)
     root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
-        _contenu_avec_drapeau(root, "oui")
+        _content_with_flag(root, "oui")
         try:
             content_catalogue.discover(root)
         except content_catalogue.ContentValidationError as exc:
             assert "verification" in str(exc), exc
         else:
-            raise AssertionError("drapeau non booleen accepte")
+            raise AssertionError("non-boolean flag accepted")
     finally:
         shutil.rmtree(root)
 
 
-def test_content_v2_marque_un_bonus():
-    for valeur, attendu in ((True, True), (False, None), (None, None)):
+def test_content_v2_marks_a_bonus():
+    for value, expected in ((True, True), (False, None), (None, None)):
         root = tempfile.mkdtemp(prefix="ctester-content-")
         try:
-            _contenu_avec_drapeau(root, valeur, "bonus")
+            _content_with_flag(root, value, "bonus")
             public = content_catalogue.public_catalogue(content_catalogue.discover(root))
-            assert public["exercises"][0].get("bonus") is attendu, valeur
+            assert public["exercises"][0].get("bonus") is expected, value
             assert "answer" not in json.dumps(public)
         finally:
             shutil.rmtree(root)
     root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
-        _contenu_avec_drapeau(root, "oui", "bonus")
+        _content_with_flag(root, "oui", "bonus")
         try:
             content_catalogue.discover(root)
         except content_catalogue.ContentValidationError as exc:
             assert "bonus" in str(exc), exc
         else:
-            raise AssertionError("drapeau non booleen accepte")
+            raise AssertionError("non-boolean flag accepted")
     finally:
         shutil.rmtree(root)
 
@@ -314,16 +314,16 @@ def test_content_v2_rejects_conflicting_modes_and_unknown_collection_item():
             message = str(exc)
             assert "several modes" in message and "unknown exercise" in message, message
         else:
-            raise AssertionError("contenu v2 invalide accepté")
+            raise AssertionError("invalid v2 content accepted")
     finally:
         shutil.rmtree(root)
 
 
-def _contenu_v2(root, etat_quiz):
+def _content_v2(root, quiz_state):
     _write_json(os.path.join(root, "catalog.json"), {"schema_version": 1, "skills": []})
     for name, release, config in (
             ("surface", {"state": "available"}, ("io.json", {"cases": [{"stdin": "1\n", "expect": [1]}]})),
-            ("nombres", etat_quiz, ("quiz.json", {"label": "Quiz", "questions": [
+            ("nombres", quiz_state, ("quiz.json", {"label": "Quiz", "questions": [
                 {"id": "q1", "group": "G", "label": "23", "type": "bin8", "answer": "00010111"}]})),
     ):
         exercise = os.path.join(root, "exercises", name)
@@ -340,41 +340,41 @@ def _contenu_v2(root, etat_quiz):
         "release": {"state": "available"}})
 
 
-def test_content_v2_publication_verrouille_et_bascule():
+def test_content_v2_publication_locks_and_switches():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     dest = tempfile.mkdtemp(prefix="ctester-published-")
     try:
-        _contenu_v2(root, {"state": "scheduled", "available_from": "2099-01-01T00:00:00-05:00"})
+        _content_v2(root, {"state": "scheduled", "available_from": "2099-01-01T00:00:00-05:00"})
         model = content_catalogue.discover(root)
         revision = publish_content.publish(model, dest)
         release = publish_content.current(dest)
         assert release == os.path.join(dest, revision), release
-        publie = {}
-        for dossier, _, noms in os.walk(release):
-            for nom in noms:
-                chemin = os.path.join(dossier, nom)
-                publie[os.path.relpath(chemin, release).replace(os.sep, "/")] = lire(chemin)
-        assert sorted(publie) == ["catalog.json", "exercises/surface.json",
+        published = {}
+        for directory, _, names in os.walk(release):
+            for name in names:
+                path = os.path.join(directory, name)
+                published[os.path.relpath(path, release).replace(os.sep, "/")] = read_file(path)
+        assert sorted(published) == ["catalog.json", "exercises/surface.json",
                                   "manifest.json", "staff/exercises/nombres.json",
-                                  "staff/quiz/nombres.json"], sorted(publie)
-        assert "answer" not in "".join(publie.values()), publie
-        assert "00010111" not in "".join(publie.values()), publie
-        catalogue_publie = json.loads(publie["catalog.json"])
-        etats = {e["id"]: e["access"] for e in catalogue_publie["exercises"]}
-        assert etats == {"surface": "available", "nombres": "scheduled"}, etats
+                                  "staff/quiz/nombres.json"], sorted(published)
+        assert "answer" not in "".join(published.values()), published
+        assert "00010111" not in "".join(published.values()), published
+        published_catalogue = json.loads(published["catalog.json"])
+        states = {e["id"]: e["access"] for e in published_catalogue["exercises"]}
+        assert states == {"surface": "available", "nombres": "scheduled"}, states
 
         assert publish_content.publish(model, dest) == revision
         _write_json(os.path.join(root, "exercises", "surface", "exercise.json"), {
             "schema_version": 1, "id": "surface", "title": "Surface v2",
             "release": {"state": "available"}})
-        suivante = publish_content.publish(content_catalogue.discover(root), dest)
-        assert suivante != revision, suivante
-        assert publish_content.current(dest) == os.path.join(dest, suivante)
+        following = publish_content.publish(content_catalogue.discover(root), dest)
+        assert following != revision, following
+        assert publish_content.current(dest) == os.path.join(dest, following)
         assert os.path.isdir(os.path.join(dest, revision)), "rollback impossible"
 
-        _contenu_v2(root, {"state": "available"})
-        ouvert = publish_content.publish(content_catalogue.discover(root), dest)
-        quiz = json.loads(lire(os.path.join(dest, ouvert, "quiz", "nombres.json")))
+        _content_v2(root, {"state": "available"})
+        opened = publish_content.publish(content_catalogue.discover(root), dest)
+        quiz = json.loads(read_file(os.path.join(dest, opened, "quiz", "nombres.json")))
         assert quiz["questions"][0]["label"] == "23" and "answer" not in str(quiz), quiz
     finally:
         shutil.rmtree(root)
@@ -411,24 +411,24 @@ def test_prune_keeps_only_the_latest_releases():
             model = content_catalogue.discover(root)
             revisions.append(publish_content.publish(model, dest, keep=3))
             for name in os.listdir(dest):
-                chemin = os.path.join(dest, name)
-                if os.path.isdir(chemin):
-                    os.utime(chemin, (1_000_000, 1_000_000))
+                path = os.path.join(dest, name)
+                if os.path.isdir(path):
+                    os.utime(path, (1_000_000, 1_000_000))
         assert len(set(revisions)) == 5, revisions
         remaining = {name for name in os.listdir(dest)
                     if os.path.isdir(os.path.join(dest, name))}
         assert len(remaining) == 3, remaining
         assert remaining == set(revisions[-3:]), (remaining, revisions)
         assert publish_content.current(dest) == os.path.join(dest, revisions[-1])
-        orpheline = os.path.join(dest, "0" * 16)
-        os.makedirs(orpheline)
-        os.utime(orpheline, (1_000_000, 1_000_000))
+        orphan = os.path.join(dest, "0" * 16)
+        os.makedirs(orphan)
+        os.utime(orphan, (1_000_000, 1_000_000))
         _minimal_valid_content(root)
         _write_json(os.path.join(root, "exercises", "ex1", "exercise.json"), {
             "schema_version": 1, "id": "ex1", "title": "Exercise 9",
             "release": {"state": "available"}})
         publish_content.publish(content_catalogue.discover(root), dest, keep=3)
-        assert not os.path.isdir(orpheline), "une revision sans manifest survit"
+        assert not os.path.isdir(orphan), "a revision without a manifest survives"
     finally:
         shutil.rmtree(root)
         shutil.rmtree(dest)
@@ -459,21 +459,21 @@ def test_publish_content_main_publishes_and_rejects_invalid_content():
         shutil.rmtree(dest)
 
 
-def test_publication_refuse_un_worker_sans_contenu():
-    for contenu, publie in (("", ""), ("/tmp/x", ""), ("", "/tmp/y")):
+def test_publication_refuses_a_worker_without_content():
+    for content, published in (("", ""), ("/tmp/x", ""), ("", "/tmp/y")):
         try:
-            publish_content.publish_catalogue(contenu, publie)
+            publish_content.publish_catalogue(content, published)
         except RuntimeError as exc:
             assert "CTESTER_CONTENT" in str(exc), exc
         else:
-            raise AssertionError("publication silencieuse : %r %r" % (contenu, publie))
+            raise AssertionError("silent publication: %r %r" % (content, published))
 
 
 def test_publish_catalogue_really_publishes_and_says_so_in_preview():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     dest = tempfile.mkdtemp(prefix="ctester-published-")
     try:
-        _contenu_v2(root, {"state": "scheduled",
+        _content_v2(root, {"state": "scheduled",
                           "available_from": "2099-01-01T00:00:00-05:00"})
         exercises = publish_content.publish_catalogue(root, dest)
         assert {e["id"] for e in exercises} == {"surface", "nombres"}
@@ -492,8 +492,8 @@ def test_publish_catalogue_really_publishes_and_says_so_in_preview():
         shutil.rmtree(dest)
 
 
-def test_content_v2_projection_refuse_une_cle_privee():
-    modele = {"schema_version": 1, "skills": [], "collections": {},
+def test_content_v2_projection_refuses_a_private_key():
+    model = {"schema_version": 1, "skills": [], "collections": {},
               "exercises": {"x": {"id": "x", "title": "X", "release": {"state": "available"},
                                   "skills": [], "mode": "io", "summary": "",
                                   "difficulty": None, "contexts": [],
@@ -501,21 +501,21 @@ def test_content_v2_projection_refuse_une_cle_privee():
     original = content_catalogue.public_detail
     content_catalogue.public_detail = lambda *a, **k: {"statement": "", "answer": "42"}
     try:
-        publish_content.projection(modele)
+        publish_content.projection(model)
     except content_catalogue.ContentValidationError as exc:
         assert "answer" in str(exc), exc
     else:
-        raise AssertionError("projection publiée avec une clé privée")
+        raise AssertionError("projection published with a private key")
     finally:
         content_catalogue.public_detail = original
 
 
-def _contenu_typst(root, statement=None, ouvert=True):
+def _typst_content(root, statement=None, released=True):
     _write_json(os.path.join(root, "catalog.json"), {"schema_version": 1, "skills": []})
     exercise = os.path.join(root, "exercises", "demo")
     _write_json(os.path.join(exercise, "exercise.json"), {
         "schema_version": 1, "id": "demo", "title": "Démo",
-        "release": {"state": "available"} if ouvert else
+        "release": {"state": "available"} if released else
                    {"state": "scheduled", "available_from": "2099-01-01T00:00:00-05:00"}})
     _write_json(os.path.join(exercise, "assessment", "io.json"),
                 {"cases": [{"stdin": "1\n", "expect": [1]}]})
@@ -526,7 +526,7 @@ def _contenu_typst(root, statement=None, ouvert=True):
     return exercise
 
 
-def _typst_dispo():
+def _typst_available():
     try:
         typst_build._version()
         return True
@@ -534,21 +534,21 @@ def _typst_dispo():
         return False
 
 
-def test_typst_un_seul_format_de_statement_a_la_fois():
+def test_typst_one_statement_format_at_a_time():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
-        exercise = _contenu_typst(root)
-        modele = content_catalogue.discover(root)
-        assert modele["exercises"]["demo"]["statement_format"] == "typ"
-        assert modele["exercises"]["demo"]["statement"] == "", modele["exercises"]["demo"]
+        exercise = _typst_content(root)
+        model = content_catalogue.discover(root)
+        assert model["exercises"]["demo"]["statement_format"] == "typ"
+        assert model["exercises"]["demo"]["statement"] == "", model["exercises"]["demo"]
 
         os.remove(os.path.join(exercise, "statement.typ"))
         with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
             fh.write("Consigne.")
-        modele = content_catalogue.discover(root)
-        assert modele["exercises"]["demo"]["statement_format"] == "md"
-        assert modele["exercises"]["demo"]["statement"] == "Consigne."
-        assert content_catalogue.public_detail(modele, "demo") == {
+        model = content_catalogue.discover(root)
+        assert model["exercises"]["demo"]["statement_format"] == "md"
+        assert model["exercises"]["demo"]["statement"] == "Consigne."
+        assert content_catalogue.public_detail(model, "demo") == {
             "statement": "Consigne.",
             "files": [{"name": "submission.c", "template": ""}]}, "le Markdown a bougé"
 
@@ -559,7 +559,7 @@ def test_typst_un_seul_format_de_statement_a_la_fois():
         except content_catalogue.ContentValidationError as exc:
             assert "statement.md ET statement.typ" in str(exc), exc
         else:
-            raise AssertionError("les deux formats ont été acceptés")
+            raise AssertionError("both formats were accepted")
 
         os.remove(os.path.join(exercise, "statement.md"))
         os.remove(os.path.join(exercise, "statement.typ"))
@@ -568,279 +568,279 @@ def test_typst_un_seul_format_de_statement_a_la_fois():
         except content_catalogue.ContentValidationError as exc:
             assert "il manque statement.md ou statement.typ" in str(exc), exc
         else:
-            raise AssertionError("un exercice sans consigne a été accepté")
+            raise AssertionError("an exercise without a statement was accepted")
     finally:
         shutil.rmtree(root)
 
 
-def test_typst_le_detail_public_porte_un_compte_et_aucun_chemin():
+def test_typst_the_public_detail_carries_a_count_and_no_path():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
-        _contenu_typst(root)
-        modele = content_catalogue.discover(root)
-        detail = content_catalogue.public_detail(modele, "demo", pages=3)
+        _typst_content(root)
+        model = content_catalogue.discover(root)
+        detail = content_catalogue.public_detail(model, "demo", pages=3)
         assert detail["statement"] == "", detail
         assert detail["statement_format"] == "typst", detail
         assert detail["statement_pages"] == 3, detail
         blob = json.dumps(detail)
-        for interdit in ("statements/", ".svg", "/", "typ\""):
-            assert interdit not in blob.replace("\"statement_format\"", ""), (interdit, blob)
+        for forbidden in ("statements/", ".svg", "/", "typ\""):
+            assert forbidden not in blob.replace("\"statement_format\"", ""), (forbidden, blob)
     finally:
         shutil.rmtree(root)
 
 
-def test_typst_la_projection_refuse_une_source_et_un_actif_inattendu():
-    modele = {"schema_version": 1, "skills": [], "collections": {}, "assignments": {},
+def test_typst_the_projection_refuses_an_unexpected_source_or_asset():
+    model = {"schema_version": 1, "skills": [], "collections": {}, "assignments": {},
               "exercises": {"x": {"id": "x", "title": "X", "release": {"state": "available"},
                                   "skills": [], "mode": "io", "summary": "",
                                   "difficulty": None, "contexts": [], "statement": "",
                                   "statement_format": "md", "files": [], "config": {}}}}
     original = content_catalogue.public_detail
     try:
-        for faux, attendu in (
+        for wrong, expected in (
                 ({"x/statement.typ": {"a": 1}}, "Typst source reached"),
                 ({"statements/x/dark-99.svg": b"<svg/>"}, "unexpected binary artefact"),
                 ({"autre/chose.bin": b"\0\0"}, "unexpected binary artefact"),
                 ({"staff/statements/x/dark-1.svg": b"<svg/>"}, None),
                 ({"statements/x/light-16.svg": b"<svg/>"}, None)):
             content_catalogue.public_detail = lambda *a, **k: {"statement": ""}
-            fichiers = publish_content.projection(modele)
-            fichiers.update(faux)
-            mauvais = [c for c, v in fichiers.items()
+            files = publish_content.projection(model)
+            files.update(wrong)
+            bad = [c for c, v in files.items()
                        if c.endswith(".typ")
                        or (isinstance(v, bytes) and not publish_content.ACTIF_RE.match(c))]
-            if attendu is None:
-                assert not mauvais, (faux, mauvais)
+            if expected is None:
+                assert not bad, (wrong, bad)
             else:
-                assert mauvais == list(faux), (faux, mauvais)
+                assert bad == list(wrong), (wrong, bad)
     finally:
         content_catalogue.public_detail = original
 
 
-def test_typst_la_revision_bouge_quand_un_rendu_bouge():
+def test_typst_the_revision_moves_when_a_render_moves():
     base = {"catalog.json": {"schema_version": 1},
             "statements/x/dark-1.svg": b"<svg>A</svg>"}
-    autre = dict(base, **{"statements/x/dark-1.svg": b"<svg>B</svg>"})
-    assert publish_content.revision(base) != publish_content.revision(autre)
+    other = dict(base, **{"statements/x/dark-1.svg": b"<svg>B</svg>"})
+    assert publish_content.revision(base) != publish_content.revision(other)
     assert publish_content.revision(base) == publish_content.revision(dict(base))
 
 
-def test_typst_la_cle_de_cache_porte_tout_ce_dont_le_rendu_depend():
+def test_typst_the_cache_key_covers_everything_the_render_depends_on():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
-        exercise = _contenu_typst(root)
-        depart = typst_build.fingerprint(exercise, version="0.15.1")
-        assert depart == typst_build.fingerprint(exercise, version="0.15.1")
-        assert typst_build.fingerprint(exercise, version="0.99.0") != depart
+        exercise = _typst_content(root)
+        initial = typst_build.fingerprint(exercise, version="0.15.1")
+        assert initial == typst_build.fingerprint(exercise, version="0.15.1")
+        assert typst_build.fingerprint(exercise, version="0.99.0") != initial
         with open(os.path.join(exercise, "statement.typ"), "a", encoding="utf-8") as fh:
             fh.write("Une ligne de plus.\n")
-        apres_texte = typst_build.fingerprint(exercise, version="0.15.1")
-        assert apres_texte != depart
+        after_text = typst_build.fingerprint(exercise, version="0.15.1")
+        assert after_text != initial
         os.makedirs(os.path.join(exercise, "images"), exist_ok=True)
         with open(os.path.join(exercise, "images", "x.svg"), "w", encoding="utf-8") as fh:
             fh.write("<svg/>")
-        apres_image = typst_build.fingerprint(exercise, version="0.15.1")
-        assert apres_image != apres_texte
+        after_image = typst_build.fingerprint(exercise, version="0.15.1")
+        assert after_image != after_text
         _write_json(os.path.join(exercise, "assessment", "io.json"),
                     {"cases": [{"stdin": "9\n", "expect": [9]}]})
-        assert typst_build.fingerprint(exercise, version="0.15.1") == apres_image
+        assert typst_build.fingerprint(exercise, version="0.15.1") == after_image
         theme = os.path.join(typst_build.LIB, "themes", "ctester-dark.tmTheme")
-        garde = lire(theme)
+        saved = read_file(theme)
         try:
             with open(theme, "a", encoding="utf-8", newline="") as fh:
                 fh.write("\n<!-- x -->\n")
-            assert typst_build.fingerprint(exercise, version="0.15.1") != apres_image
+            assert typst_build.fingerprint(exercise, version="0.15.1") != after_image
         finally:
             with open(theme, "w", encoding="utf-8", newline="") as fh:
-                fh.write(garde)
-        assert typst_build.fingerprint(exercise, version="0.15.1") == apres_image
+                fh.write(saved)
+        assert typst_build.fingerprint(exercise, version="0.15.1") == after_image
     finally:
         shutil.rmtree(root)
 
 
-def test_typst_le_cache_ne_vit_jamais_sous_published():
-    garde = dict(os.environ)
+def test_typst_the_cache_never_lives_under_published():
+    saved = dict(os.environ)
     try:
         os.environ.pop("CTESTER_TYPST_CACHE", None)
         os.environ["CTESTER_PUBLISHED"] = "/opt/ctester/published"
-        chemin = typst_build.cache_dir()
-        assert not chemin.startswith("/opt/ctester/published/"), chemin
-        assert chemin == "/opt/ctester/typst-cache", chemin
+        path = typst_build.cache_dir()
+        assert not path.startswith("/opt/ctester/published/"), path
+        assert path == "/opt/ctester/typst-cache", path
         os.environ["CTESTER_TYPST_CACHE"] = "/ailleurs"
         assert typst_build.cache_dir() == "/ailleurs"
     finally:
         os.environ.clear()
-        os.environ.update(garde)
+        os.environ.update(saved)
 
 
-def test_typst_mermaid_n_a_qu_une_seule_porte():
-    porte = os.path.join(typst_build.LIB, "mermaid.typ")
-    assert '@preview/merman:0.3.0' in lire(porte), porte
-    for racine, _, fichiers in os.walk(typst_build.LIB):
-        for nom in fichiers:
-            chemin = os.path.join(racine, nom)
-            if chemin == porte or not nom.endswith(".typ"):
+def test_typst_mermaid_has_a_single_gate():
+    gate = os.path.join(typst_build.LIB, "mermaid.typ")
+    assert '@preview/merman:0.3.0' in read_file(gate), gate
+    for root, _, files in os.walk(typst_build.LIB):
+        for name in files:
+            path = os.path.join(root, name)
+            if path == gate or not name.endswith(".typ"):
                 continue
-            assert "merman" not in lire(chemin), chemin
-    manifeste = os.path.join(typst_build.PACKAGES, "preview", "merman", "0.3.0",
+            assert "merman" not in read_file(path), path
+    manifest = os.path.join(typst_build.PACKAGES, "preview", "merman", "0.3.0",
                              "typst.toml")
-    assert 'version = "0.3.0"' in lire(manifeste), manifeste
+    assert 'version = "0.3.0"' in read_file(manifest), manifest
 
 
-def test_le_theme_typst_porte_les_couleurs_de_la_page():
-    css = lire(os.path.join(ROOT, "frontend", "src", "app.css"))
-    classes = ("comment", "string", "pre", "key", "num", "fn", "const")
-    for theme, bloc in (("dark", css.split(":root {")[1].split("}")[0]),
+def test_the_typst_theme_carries_the_page_colors():
+    css = read_file(os.path.join(ROOT, "frontend", "src", "app.css"))
+    css_classes = ("comment", "string", "pre", "key", "num", "fn", "const")
+    for theme, block in (("dark", css.split(":root {")[1].split("}")[0]),
                         ("light", css.split(':root[data-theme="light"] {')[1].split("}")[0])):
-        attendues = {}
-        for classe in classes:
-            trouve = re.search(r"--syn-%s:\s*(#[0-9a-fA-F]{6})" % classe, bloc)
-            assert trouve, (theme, classe)
-            attendues[classe] = trouve.group(1).lower()
-        tm = lire(os.path.join(typst_build.LIB, "themes", "ctester-%s.tmTheme" % theme))
-        for classe, couleur in attendues.items():
-            assert couleur in tm.lower(), \
-                "--syn-%s (%s theme, %s) missing from the .tmTheme" % (classe, theme, couleur)
+        expected_colors = {}
+        for css_class in css_classes:
+            found = re.search(r"--syn-%s:\s*(#[0-9a-fA-F]{6})" % css_class, block)
+            assert found, (theme, css_class)
+            expected_colors[css_class] = found.group(1).lower()
+        tm = read_file(os.path.join(typst_build.LIB, "themes", "ctester-%s.tmTheme" % theme))
+        for css_class, color in expected_colors.items():
+            assert color in tm.lower(), \
+                "--syn-%s (%s theme, %s) missing from the .tmTheme" % (css_class, theme, color)
         for variable in ("--fg", "--panel"):
-            trouve = re.search(r"%s:\s*(#[0-9a-fA-F]{3,6})" % variable, bloc)
-            assert trouve and trouve.group(1).lower() in tm.lower(), (theme, variable)
+            found = re.search(r"%s:\s*(#[0-9a-fA-F]{3,6})" % variable, block)
+            assert found and found.group(1).lower() in tm.lower(), (theme, variable)
 
 
-def test_typst_root_refuse_de_sortir_du_repertoire_de_l_exercice():
-    if not _typst_dispo():
-        print("     (sauté : ni CTESTER_TYPST_BIN ni Docker)")
+def test_typst_root_refuses_to_leave_the_exercise_directory():
+    if not _typst_available():
+        print("     (skipped: neither CTESTER_TYPST_BIN nor Docker)")
         return
     root = tempfile.mkdtemp(prefix="ctester-content-")
     cache = tempfile.mkdtemp(prefix="ctester-typst-cache-")
-    garde = os.environ.get("CTESTER_TYPST_CACHE")
+    saved = os.environ.get("CTESTER_TYPST_CACHE")
     try:
         os.environ["CTESTER_TYPST_CACHE"] = cache
         with open(os.path.join(root, "secret.txt"), "w", encoding="utf-8") as fh:
             fh.write("SECRET-DU-BUILD")
-        exercise = _contenu_typst(root)
-        for attaque in ('#read("../../secret.txt")',
+        exercise = _typst_content(root)
+        for attack in ('#read("../../secret.txt")',
                         '#read("/etc/passwd")',
                         '#read("assessment/io.json")',
                         '#include "../../secret.txt"',
                         '#image("../../../etc/hostname")'):
             with open(os.path.join(exercise, "statement.typ"), "w", encoding="utf-8") as fh:
-                fh.write(attaque + "\n")
+                fh.write(attack + "\n")
             try:
                 typst_build.render(exercise, "demo")
             except typst_build.TypstError as exc:
-                assert "SECRET-DU-BUILD" not in str(exc), (attaque, exc)
+                assert "SECRET-DU-BUILD" not in str(exc), (attack, exc)
             else:
-                raise AssertionError("une lecture hors de l'exercice a réussi : "
-                                     + attaque)
+                raise AssertionError("a read outside the exercise succeeded: "
+                                     + attack)
     finally:
-        if garde is None:
+        if saved is None:
             os.environ.pop("CTESTER_TYPST_CACHE", None)
         else:
-            os.environ["CTESTER_TYPST_CACHE"] = garde
+            os.environ["CTESTER_TYPST_CACHE"] = saved
         shutil.rmtree(root)
         shutil.rmtree(cache)
 
 
-def test_typst_la_fixture_compile_vraiment_dans_les_deux_themes():
-    if not _typst_dispo():
-        print("     (sauté : ni CTESTER_TYPST_BIN ni Docker)")
+def test_typst_the_fixture_really_compiles_in_both_themes():
+    if not _typst_available():
+        print("     (skipped: neither CTESTER_TYPST_BIN nor Docker)")
         return
     cache = tempfile.mkdtemp(prefix="ctester-typst-cache-")
-    garde = os.environ.get("CTESTER_TYPST_CACHE")
+    saved = os.environ.get("CTESTER_TYPST_CACHE")
     try:
         os.environ["CTESTER_TYPST_CACHE"] = cache
         fixture = os.path.join(ROOT, "typst", "fixture")
-        rendu, du_cache = typst_build.render(fixture, "fixture-typst")
-        assert du_cache is False, "un cache frais ne peut pas déjà servir"
-        assert sorted(rendu) == ["dark", "html", "light"], sorted(rendu)
-        html = rendu["html"]
+        rendered, cached = typst_build.render(fixture, "fixture-typst")
+        assert cached is False, "a fresh cache cannot already serve"
+        assert sorted(rendered) == ["dark", "html", "light"], sorted(rendered)
+        html = rendered["html"]
         assert b"<h2>" in html and b"plus_grand" in html, html[:200]
         assert b"#import" not in html
-        assert len(rendu["dark"]) >= 2, "le #pagebreak() n'a pas produit deux pages"
-        assert len(rendu["dark"]) == len(rendu["light"]), "les deux thèmes divergent"
+        assert len(rendered["dark"]) >= 2, "#pagebreak() did not produce two pages"
+        assert len(rendered["dark"]) == len(rendered["light"]), "the two themes diverge"
         for theme in typst_build.THEMES:
-            pages = rendu[theme]
-            for numero, octets in enumerate(pages, 1):
-                assert octets.startswith(b"<svg"), (theme, numero, octets[:40])
-                assert b"plus_grand" not in octets, (theme, numero)
-                assert b"#import" not in octets, (theme, numero)
-        assert rendu["dark"][0] != rendu["light"][0]
-        encore, du_cache = typst_build.render(fixture, "fixture-typst")
-        assert du_cache is True and encore == rendu
+            pages = rendered[theme]
+            for number, data in enumerate(pages, 1):
+                assert data.startswith(b"<svg"), (theme, number, data[:40])
+                assert b"plus_grand" not in data, (theme, number)
+                assert b"#import" not in data, (theme, number)
+        assert rendered["dark"][0] != rendered["light"][0]
+        again, cached = typst_build.render(fixture, "fixture-typst")
+        assert cached is True and again == rendered
     finally:
-        if garde is None:
+        if saved is None:
             os.environ.pop("CTESTER_TYPST_CACHE", None)
         else:
-            os.environ["CTESTER_TYPST_CACHE"] = garde
+            os.environ["CTESTER_TYPST_CACHE"] = saved
         shutil.rmtree(cache)
 
 
-def test_typst_une_erreur_nomme_l_exercice_le_fichier_et_la_ligne():
-    if not _typst_dispo():
-        print("     (sauté : ni CTESTER_TYPST_BIN ni Docker)")
+def test_typst_an_error_names_the_exercise_the_file_and_the_line():
+    if not _typst_available():
+        print("     (skipped: neither CTESTER_TYPST_BIN nor Docker)")
         return
     root = tempfile.mkdtemp(prefix="ctester-content-")
     cache = tempfile.mkdtemp(prefix="ctester-typst-cache-")
-    garde = os.environ.get("CTESTER_TYPST_CACHE")
+    saved = os.environ.get("CTESTER_TYPST_CACHE")
     try:
         os.environ["CTESTER_TYPST_CACHE"] = cache
-        _contenu_typst(root, "= Titre\n\n#une-fonction-qui-n-existe-pas()\n")
-        modele = content_catalogue.discover(root)
+        _typst_content(root, "= Titre\n\n#une-fonction-qui-n-existe-pas()\n")
+        model = content_catalogue.discover(root)
         try:
-            typst_build.render_all(modele)
+            typst_build.render_all(model)
         except typst_build.TypstError as exc:
             message = str(exc)
             assert "demo" in message, message
             assert "statement.typ" in message, message
             assert ":3:" in message, ("pas de ligne dans le message", message)
         else:
-            raise AssertionError("un statement.typ cassé a été rendu")
+            raise AssertionError("a broken statement.typ was rendered")
     finally:
-        if garde is None:
+        if saved is None:
             os.environ.pop("CTESTER_TYPST_CACHE", None)
         else:
-            os.environ["CTESTER_TYPST_CACHE"] = garde
+            os.environ["CTESTER_TYPST_CACHE"] = saved
         shutil.rmtree(root)
         shutil.rmtree(cache)
 
 
-def test_typst_la_publication_ecrit_les_pages_et_respecte_le_cadenas():
-    if not _typst_dispo():
-        print("     (sauté : ni CTESTER_TYPST_BIN ni Docker)")
+def test_typst_publication_writes_the_pages_and_respects_the_lock():
+    if not _typst_available():
+        print("     (skipped: neither CTESTER_TYPST_BIN nor Docker)")
         return
     root = tempfile.mkdtemp(prefix="ctester-content-")
     dest = tempfile.mkdtemp(prefix="ctester-published-")
     cache = tempfile.mkdtemp(prefix="ctester-typst-cache-")
-    garde = os.environ.get("CTESTER_TYPST_CACHE")
+    saved = os.environ.get("CTESTER_TYPST_CACHE")
     try:
         os.environ["CTESTER_TYPST_CACHE"] = cache
-        for ouvert, prefixe in ((True, ""), (False, "staff/")):
-            _contenu_typst(root, ouvert=ouvert)
-            modele = content_catalogue.discover(root)
-            rendus, (total, _) = typst_build.render_all(modele)
+        for released, prefix in ((True, ""), (False, "staff/")):
+            _typst_content(root, released=released)
+            model = content_catalogue.discover(root)
+            renders, (total, _) = typst_build.render_all(model)
             assert total == 1, total
-            revision = publish_content.publish(modele, dest, renders=rendus)
+            revision = publish_content.publish(model, dest, renders=renders)
             release = os.path.join(dest, revision)
-            publie = sorted(
+            published = sorted(
                 os.path.relpath(os.path.join(d, n), release).replace(os.sep, "/")
-                for d, _, noms in os.walk(release) for n in noms)
-            attendus = [prefixe + "statements/demo/%s-1.svg" % t
+                for d, _, names in os.walk(release) for n in names)
+            expected_paths = [prefix + "statements/demo/%s-1.svg" % t
                         for t in ("dark", "light")]
-            for chemin in attendus:
-                assert chemin in publie, (chemin, publie)
-            assert not any(c.endswith(".typ") for c in publie), publie
-            detail = json.loads(lire(os.path.join(
-                release, prefixe + "exercises/demo.json")))
+            for path in expected_paths:
+                assert path in published, (path, published)
+            assert not any(c.endswith(".typ") for c in published), published
+            detail = json.loads(read_file(os.path.join(
+                release, prefix + "exercises/demo.json")))
             assert detail["statement_format"] == "typst", detail
             assert detail["statement_pages"] == 1, detail
             assert detail["statement"] == "", detail
     finally:
-        if garde is None:
+        if saved is None:
             os.environ.pop("CTESTER_TYPST_CACHE", None)
         else:
-            os.environ["CTESTER_TYPST_CACHE"] = garde
-        for chemin in (root, dest, cache):
-            shutil.rmtree(chemin)
+            os.environ["CTESTER_TYPST_CACHE"] = saved
+        for path in (root, dest, cache):
+            shutil.rmtree(path)
 
 
 def test_public_catalogue_omits_malformed_contexts():
@@ -1172,7 +1172,7 @@ def test_load_exercise_is_the_worker_s_gate():
             "release": {"state": "scheduled",
                         "available_from": "2099-01-01T00:00:00-05:00"}})
         assert content_catalogue.load_exercise(root, "ex1") is None
-        opened = content_catalogue.load_exercise(root, "ex1", tout=True)
+        opened = content_catalogue.load_exercise(root, "ex1", unreleased=True)
         assert opened is not None and opened["mode"] == "io"
 
         _minimal_valid_content(root)
@@ -1183,7 +1183,7 @@ def test_load_exercise_is_the_worker_s_gate():
         shutil.rmtree(root)
 
 
-def test_presence_compteur():
+def test_presence_counter():
     p = quotas.Presence()
     assert p.touch("a", 1000) == 1
     assert p.touch("b", 1000) == 2
@@ -1207,49 +1207,49 @@ def test_public_quiz_hides_answers():
         del QUIZ["questions"][0]["commentaire_prof"]
 
 
-def test_politique_est_declarative():
-    assert politique.VERSION
-    seuils = politique.POLICY["levels"]
-    assert seuils[0] == 0 and seuils == sorted(seuils) == list(dict.fromkeys(seuils))
+def test_policy_is_declarative():
+    assert policy.VERSION
+    thresholds = policy.POLICY["levels"]
+    assert thresholds[0] == 0 and thresholds == sorted(thresholds) == list(dict.fromkeys(thresholds))
     ids = set()
-    for succes in politique.POLICY["achievements"]:
-        assert succes["title"] and succes["description"]
-        assert succes["on"] and succes["threshold"] >= 1
-        assert succes["id"] not in ids
-        ids.add(succes["id"])
-    assert set(politique.ACHIEVEMENTS) == ids
-    bandes = politique.POLICY["mastery"]["bands"]
-    for bande in bandes:
-        assert bande["title"] and bande["description"]
-    assert set(politique.BANDS) == {b["id"] for b in bandes} == set(
-        politique.mastery_band(r, t, n)
+    for achievement in policy.POLICY["achievements"]:
+        assert achievement["title"] and achievement["description"]
+        assert achievement["on"] and achievement["threshold"] >= 1
+        assert achievement["id"] not in ids
+        ids.add(achievement["id"])
+    assert set(policy.ACHIEVEMENTS) == ids
+    bands = policy.POLICY["mastery"]["bands"]
+    for band in bands:
+        assert band["title"] and band["description"]
+    assert set(policy.BANDS) == {b["id"] for b in bands} == set(
+        policy.mastery_band(r, t, n)
         for n in range(0, 4) for t in range(0, n + 1) for r in range(0, t + 1))
-    progression = lire(os.path.join(ROOT, "app", "services", "progress.py"))
-    for montant in set(politique.POLICY["xp"].values()):
-        assert not re.search(r"%d" % montant, progression), montant
-    assert not re.search(r"%d" % politique.daily_cap(), progression)
+    progress = read_file(os.path.join(ROOT, "app", "services", "progress.py"))
+    for amount in set(policy.POLICY["xp"].values()):
+        assert not re.search(r"%d" % amount, progress), amount
+    assert not re.search(r"%d" % policy.daily_cap(), progress)
 
 
-def test_niveau_derive_du_solde():
-    seuils = politique.POLICY["levels"]
-    assert politique.level(0)["rank"] == 1
-    assert politique.level(-5)["rank"] == 1
-    assert politique.level(seuils[1])["rank"] == 2
-    assert politique.level(seuils[1] - 1)["rank"] == 1
-    au_bout = politique.level(seuils[-1] + 1000)
-    assert au_bout["rank"] == len(seuils) and au_bout["next"] is None
-    assert politique.level(seuils[1] - 4)["remaining"] == 4
+def test_level_derives_from_the_balance():
+    thresholds = policy.POLICY["levels"]
+    assert policy.level(0)["rank"] == 1
+    assert policy.level(-5)["rank"] == 1
+    assert policy.level(thresholds[1])["rank"] == 2
+    assert policy.level(thresholds[1] - 1)["rank"] == 1
+    at_the_top = policy.level(thresholds[-1] + 1000)
+    assert at_the_top["rank"] == len(thresholds) and at_the_top["next"] is None
+    assert policy.level(thresholds[1] - 4)["remaining"] == 4
 
 
-def test_succes_derives_de_faits():
-    assert politique.achievements_reached({}) == []
-    assert politique.achievements_reached({"solved": 1}) == ["premiere-reussite"]
-    beaucoup = politique.achievements_reached({"solved": 10, "skills": 3,
+def test_achievements_derive_from_facts():
+    assert policy.achievements_reached({}) == []
+    assert policy.achievements_reached({"solved": 1}) == ["premiere-reussite"]
+    many = policy.achievements_reached({"solved": 10, "skills": 3,
                                                "verifications": 1})
-    assert set(beaucoup) == set(politique.ACHIEVEMENTS)
-    assert "premiere-verification" not in politique.achievements_reached(
+    assert set(many) == set(policy.ACHIEVEMENTS)
+    assert "premiere-verification" not in policy.achievements_reached(
         {"solved": 10, "skills": 3})
-    assert politique.achievements_reached({"inconnu": 99}) == []
+    assert policy.achievements_reached({"inconnu": 99}) == []
 
 
 CATALOGUE_DEMO = [
@@ -1261,255 +1261,255 @@ CATALOGUE_DEMO = [
 ]
 
 
-CATALOGUE_VERIF = CATALOGUE_DEMO + [
+CATALOGUE_VERIFICATION = CATALOGUE_DEMO + [
     {"id": "verif-a", "skills": ["variables", "arithmetic-operators"],
      "verification": True},
     {"id": "verif-b", "skills": ["variables"], "verification": True},
 ]
 
 
-def evidence(exercice, reussi):
-    return {"exercise_id": exercice, "payload": {"job": "j", "passed": reussi}}
+def evidence(exercise, solved):
+    return {"exercise_id": exercise, "payload": {"job": "j", "passed": solved}}
 
 
-def test_projection_des_competences():
-    etats = [{"exercise_id": "tp2-ex0", "status": "solved"},
+def test_skills_projection():
+    states = [{"exercise_id": "tp2-ex0", "status": "solved"},
              {"exercise_id": "tp2-ex3", "status": "attempted"}]
-    pratique = [{"exercise_id": "tp7-ex1", "attempts": 2, "successes": 0}]
-    touches, reussis = progression.exercise_facts(etats, pratique)
-    assert touches == {"tp2-ex0", "tp2-ex3", "tp7-ex1"}
-    assert reussis == {"tp2-ex0"}
-    degraded = progression.exercise_facts(
-        etats + [{"exercise_id": "", "status": "solved"}, {"status": "solved"}],
-        pratique + [{"exercise_id": None}, {}])
-    assert degraded == (touches, reussis)
-    vue = progression.skills_view(CATALOGUE_DEMO, touches, reussis)
-    assert [c["id"] for c in vue] == ["variables", "arithmetic-operators", "arrays-1d"]
-    assert vue[0] == {"id": "variables", "total": 2, "practiced": 2, "solved": 1}
-    assert vue[2] == {"id": "arrays-1d", "total": 1, "practiced": 1, "solved": 0}
+    practice = [{"exercise_id": "tp7-ex1", "attempts": 2, "successes": 0}]
+    touched, solved = progress.exercise_facts(states, practice)
+    assert touched == {"tp2-ex0", "tp2-ex3", "tp7-ex1"}
+    assert solved == {"tp2-ex0"}
+    degraded = progress.exercise_facts(
+        states + [{"exercise_id": "", "status": "solved"}, {"status": "solved"}],
+        practice + [{"exercise_id": None}, {}])
+    assert degraded == (touched, solved)
+    view = progress.skills_view(CATALOGUE_DEMO, touched, solved)
+    assert [c["id"] for c in view] == ["variables", "arithmetic-operators", "arrays-1d"]
+    assert view[0] == {"id": "variables", "total": 2, "practiced": 2, "solved": 1}
+    assert view[2] == {"id": "arrays-1d", "total": 1, "practiced": 1, "solved": 0}
 
 
-def test_recommandation_deterministe():
-    etats = [{"exercise_id": "tp2-ex0", "status": "solved"}]
-    touches, reussis = progression.exercise_facts(etats, [])
-    assert progression.recommend(CATALOGUE_DEMO, touches, reussis) == {
+def test_deterministic_recommendation():
+    states = [{"exercise_id": "tp2-ex0", "status": "solved"}]
+    touched, solved = progress.exercise_facts(states, [])
+    assert progress.recommend(CATALOGUE_DEMO, touched, solved) == {
         "exercise_id": "tp2-ex3", "skill": "variables"}
-    assert progression.recommend(CATALOGUE_DEMO, set(), set()) == {
+    assert progress.recommend(CATALOGUE_DEMO, set(), set()) == {
         "exercise_id": "tp2-ex0", "skill": None}
-    tout = {e["id"] for e in CATALOGUE_DEMO}
-    assert progression.recommend(CATALOGUE_DEMO, tout, tout) is None
-    assert progression.recommend([], set(), set()) is None
+    all_ids = {e["id"] for e in CATALOGUE_DEMO}
+    assert progress.recommend(CATALOGUE_DEMO, all_ids, all_ids) is None
+    assert progress.recommend([], set(), set()) is None
 
 
-def test_progression_ne_publie_rien_de_secret():
-    faits = {"xp": 25, "achievements": [{"id": "premiere-reussite",
+def test_progress_publishes_nothing_secret():
+    facts = {"xp": 25, "achievements": [{"id": "premiere-reussite",
                                    "unlocked_at": "2026-09-03", "policy": "x"},
                                   {"id": "disparu", "unlocked_at": "2026-09-03",
                                    "policy": "x"}],
              "transactions": [{"exercise_id": "tp2-ex0", "amount": 10,
                                "reason": "premiere reussite",
                                "granted_at": "2026-09-03"}]}
-    charge = progression.progress_payload(
-        CATALOGUE_DEMO, faits,
+    payload = progress.progress_payload(
+        CATALOGUE_DEMO, facts,
         [{"exercise_id": "tp2-ex0", "status": "solved"}], [], [])
-    assert charge["policy"] == politique.VERSION
-    assert charge["xp"] == 25 and charge["level"]["rank"] >= 1
-    assert charge["exercises"] == {"total": 4, "practiced": 1, "solved": 1}
-    assert [s["id"] for s in charge["achievements"]] == ["premiere-reussite"]
-    assert charge["achievements"][0]["title"] and charge["achievements"][0]["description"]
-    assert [b["id"] for b in charge["mastery"]["bands"]] == list(politique.BANDS)
-    assert charge["mastery"]["skills"] == []
-    texte = json.dumps(charge, ensure_ascii=False)
-    for interdit in ("path", "answer", "statement", "sources", "template"):
-        assert interdit not in texte, interdit
+    assert payload["policy"] == policy.VERSION
+    assert payload["xp"] == 25 and payload["level"]["rank"] >= 1
+    assert payload["exercises"] == {"total": 4, "practiced": 1, "solved": 1}
+    assert [s["id"] for s in payload["achievements"]] == ["premiere-reussite"]
+    assert payload["achievements"][0]["title"] and payload["achievements"][0]["description"]
+    assert [b["id"] for b in payload["mastery"]["bands"]] == list(policy.BANDS)
+    assert payload["mastery"]["skills"] == []
+    text = json.dumps(payload, ensure_ascii=False)
+    for forbidden in ("path", "answer", "statement", "sources", "template"):
+        assert forbidden not in text, forbidden
 
 
-def test_bandes_de_maitrise_par_couverture():
-    vide = progression.mastery_view(CATALOGUE_VERIF, [])
-    assert [c["id"] for c in vide] == ["variables", "arithmetic-operators"]
-    assert vide[0] == {"id": "variables", "total": 2, "attempted": 0,
+def test_mastery_bands_by_coverage():
+    empty = progress.mastery_view(CATALOGUE_VERIFICATION, [])
+    assert [c["id"] for c in empty] == ["variables", "arithmetic-operators"]
+    assert empty[0] == {"id": "variables", "total": 2, "attempted": 0,
                        "passed": 0, "band": "non-verifie"}
 
-    une = progression.mastery_view(CATALOGUE_VERIF, [evidence("verif-a", True)])
-    par_id = {c["id"]: c for c in une}
-    assert par_id["variables"]["band"] == "en-progression"
-    assert par_id["arithmetic-operators"]["band"] == "verifie"
+    one = progress.mastery_view(CATALOGUE_VERIFICATION, [evidence("verif-a", True)])
+    by_id = {c["id"]: c for c in one}
+    assert by_id["variables"]["band"] == "en-progression"
+    assert by_id["arithmetic-operators"]["band"] == "verifie"
 
-    deux = progression.mastery_view(
-        CATALOGUE_VERIF, [evidence("verif-b", True), evidence("verif-a", True)])
-    assert {c["id"]: c["band"] for c in deux} == {
+    two = progress.mastery_view(
+        CATALOGUE_VERIFICATION, [evidence("verif-b", True), evidence("verif-a", True)])
+    assert {c["id"]: c["band"] for c in two} == {
         "variables": "verifie", "arithmetic-operators": "verifie"}
 
-    rate = progression.mastery_view(CATALOGUE_VERIF, [evidence("verif-a", False)])
+    rate = progress.mastery_view(CATALOGUE_VERIFICATION, [evidence("verif-a", False)])
     assert {c["id"]: c["band"] for c in rate} == {
         "variables": "a-consolider", "arithmetic-operators": "a-consolider"}
-    assert par_id["variables"]["attempted"] == 1
+    assert by_id["variables"]["attempted"] == 1
 
 
-def test_maitrise_retient_la_derniere_tentative():
+def test_mastery_keeps_the_last_attempt():
     journal = [evidence("verif-a", False), evidence("verif-a", True)]
-    assert progression.latest_attempts(journal) == {"verif-a": False}
-    vue = {c["id"]: c for c in progression.mastery_view(CATALOGUE_VERIF, journal)}
-    assert vue["arithmetic-operators"]["band"] == "a-consolider"
-    assert progression.solved_verifications(journal) == {"verif-a"}
+    assert progress.latest_attempts(journal) == {"verif-a": False}
+    view = {c["id"]: c for c in progress.mastery_view(CATALOGUE_VERIFICATION, journal)}
+    assert view["arithmetic-operators"]["band"] == "a-consolider"
+    assert progress.solved_verifications(journal) == {"verif-a"}
 
 
-def test_une_pratique_ne_fait_bouger_aucune_bande():
-    tout_reussi = [{"exercise_id": e["id"], "status": "solved"}
+def test_a_practice_moves_no_band():
+    all_solved = [{"exercise_id": e["id"], "status": "solved"}
                    for e in CATALOGUE_DEMO]
-    faits = {"xp": 75, "achievements": [], "transactions": []}
-    charge = progression.progress_payload(CATALOGUE_VERIF, faits, tout_reussi,
+    facts = {"xp": 75, "achievements": [], "transactions": []}
+    payload = progress.progress_payload(CATALOGUE_VERIFICATION, facts, all_solved,
                                           [], [])
-    assert charge["exercises"]["solved"] == 4
+    assert payload["exercises"]["solved"] == 4
     assert all(c["band"] == "non-verifie"
-               for c in charge["mastery"]["skills"])
+               for c in payload["mastery"]["skills"])
 
 
-def test_une_verification_ne_compte_pas_comme_une_pratique():
-    charge = progression.progress_payload(
-        CATALOGUE_VERIF, {"xp": 0, "achievements": [], "transactions": []}, [], [], [])
-    assert charge["exercises"]["total"] == len(CATALOGUE_DEMO)
-    assert charge["next"]["exercise_id"] == "tp2-ex0"
-    par_id = {c["id"]: c for c in charge["skills"]}
-    assert par_id["variables"]["total"] == 2
-    assert "arrays-1d" in par_id
-    tout = {e["id"] for e in CATALOGUE_DEMO}
-    assert progression.recommend(
-        progression.practice_exercises(CATALOGUE_VERIF), tout, tout) is None
+def test_a_verification_does_not_count_as_a_practice():
+    payload = progress.progress_payload(
+        CATALOGUE_VERIFICATION, {"xp": 0, "achievements": [], "transactions": []}, [], [], [])
+    assert payload["exercises"]["total"] == len(CATALOGUE_DEMO)
+    assert payload["next"]["exercise_id"] == "tp2-ex0"
+    by_id = {c["id"]: c for c in payload["skills"]}
+    assert by_id["variables"]["total"] == 2
+    assert "arrays-1d" in by_id
+    all_ids = {e["id"] for e in CATALOGUE_DEMO}
+    assert progress.recommend(
+        progress.practice_exercises(CATALOGUE_VERIFICATION), all_ids, all_ids) is None
 
 
-def test_aucun_index_ne_precede_la_colonne_qu_il_indexe():
-    schema = lire(os.path.join(ROOT, "app", "schema.sql"))
+def test_no_index_precedes_the_column_it_indexes():
+    schema = read_file(os.path.join(ROOT, "app", "schema.sql"))
     instructions = re.sub(r"--[^\n]*", "", schema)
-    ajouts = re.findall(
+    additions = re.findall(
         r"ALTER TABLE\s+(\w+)\s+ADD COLUMN IF NOT EXISTS\s+(\w+)", instructions)
-    assert ajouts, "aucun ALTER ... ADD COLUMN : ce controle ne prouve plus rien"
-    premier_alter = min(
+    assert additions, "no ALTER ... ADD COLUMN: this check no longer proves anything"
+    first_alter = min(
         instructions.index(m.group(0))
         for m in re.finditer(r"ALTER TABLE\s+\w+\s+ADD COLUMN IF NOT EXISTS",
                              instructions))
-    par_table = {}
-    for table, colonne in ajouts:
-        par_table.setdefault(table, set()).add(colonne)
+    by_table = {}
+    for table, column in additions:
+        by_table.setdefault(table, set()).add(column)
 
-    fautes = []
+    faults = []
     for index in re.finditer(
             r"CREATE (?:UNIQUE )?INDEX IF NOT EXISTS\s+(\w+)"
             r"\s+ON\s+(\w+)\s*\(([^)]*)\)", instructions):
-        if index.start() > premier_alter:
+        if index.start() > first_alter:
             continue
-        colonnes = {c.strip().split()[0] for c in index.group(3).split(",")
+        columns = {c.strip().split()[0] for c in index.group(3).split(",")
                     if c.strip()}
-        tardives = colonnes & par_table.get(index.group(2), set())
-        if tardives:
-            fautes.append("%s indexe %s, que l'ALTER ajoute plus bas"
-                          % (index.group(1), ", ".join(sorted(tardives))))
-    assert not fautes, "indexes declared before their column: " + " ; ".join(fautes)
+        late = columns & by_table.get(index.group(2), set())
+        if late:
+            faults.append("%s indexe %s, que l'ALTER ajoute plus bas"
+                          % (index.group(1), ", ".join(sorted(late))))
+    assert not faults, "indexes declared before their column: " + " ; ".join(faults)
 
 
-def test_chaque_table_a_ses_droits():
-    schema = lire(os.path.join(ROOT, "app", "schema.sql"))
+def test_every_table_has_its_grants():
+    schema = read_file(os.path.join(ROOT, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
     instructions = re.sub(r"--[^\n]*", "", schema)
-    bloc = instructions[instructions.index("DO $$"):]
-    bloc = re.sub(r"'\s*\n\s*'", " ", bloc)
-    accordees = set()
-    for cible in re.findall(r"\bON\s+(.+?)\s+TO ctester_app", bloc):
-        cible = re.sub(r"\([^)]*\)", "", cible)
-        accordees |= {nom.strip() for nom in cible.split(",") if nom.strip()}
-    manquantes = tables - accordees
-    assert not manquantes, "tables missing from every GRANT: " + ", ".join(sorted(manquantes))
-    assert not accordees - tables, sorted(accordees - tables)
+    block = instructions[instructions.index("DO $$"):]
+    block = re.sub(r"'\s*\n\s*'", " ", block)
+    granted = set()
+    for target in re.findall(r"\bON\s+(.+?)\s+TO ctester_app", block):
+        target = re.sub(r"\([^)]*\)", "", target)
+        granted |= {name.strip() for name in target.split(",") if name.strip()}
+    missing = tables - granted
+    assert not missing, "tables missing from every GRANT: " + ", ".join(sorted(missing))
+    assert not granted - tables, sorted(granted - tables)
     assert "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ctester_app')" \
-        in bloc
+        in block
     assert "CREATE ROLE" not in instructions, \
-        "le mot de passe du role vient du vault : il ne descend pas ici"
+        "the role's password comes from the vault: it does not belong here"
     assert "ALL TABLES IN SCHEMA" not in instructions, instructions
 
 
-def test_le_journal_ne_consomme_que_des_lignes_entieres():
-    entier = json.dumps({"job_id": "a" * 32, "exercise_id": "tp1", "status": "ok",
+def test_the_journal_consumes_only_whole_lines():
+    whole = json.dumps({"job_id": "a" * 32, "exercise_id": "tp1", "status": "ok",
                          "kind": "io", "duration_s": 1.5, "queue_wait_s": 0.25,
                          "worker_id": "2", "cache_hit": False, "reprises": 0,
                          "finished_at": 1_700_000_000}).encode()
-    tronque = b'{"job_id": "b", "status": "ok"'
-    lignes, mange = journal.parse_journal(entier + b"\n" + tronque)
-    assert mange == len(entier) + 1, "la ligne tronquee a ete consommee"
-    assert [ligne["job_id"] for ligne in lignes] == ["a" * 32]
-    assert lignes[0]["duration_s"] == 1.5 and lignes[0]["reprises"] == 0
-    # Le reste se relit depuis l'offset, une fois la ligne enfin complete.
-    reste = tronque + b"}\n"
-    lignes, mange = journal.parse_journal(reste)
-    assert mange == len(reste)
-    assert [ligne["job_id"] for ligne in lignes] == ["b"]
+    truncated = b'{"job_id": "b", "status": "ok"'
+    lines, consumed = journal.parse_journal(whole + b"\n" + truncated)
+    assert consumed == len(whole) + 1, "the truncated line was consumed"
+    assert [line["job_id"] for line in lines] == ["a" * 32]
+    assert lines[0]["duration_s"] == 1.5 and lines[0]["reprises"] == 0
+    # The rest is read again from the offset once the line is complete.
+    rest = truncated + b"}\n"
+    lines, consumed = journal.parse_journal(rest)
+    assert consumed == len(rest)
+    assert [line["job_id"] for line in lines] == ["b"]
 
 
-def test_le_journal_saute_une_ligne_illisible_sans_bloquer_le_curseur():
-    bon = json.dumps({"job_id": "c"}).encode()
-    blob = b"pas du json\n" + b'{"job_id": 7}\n' + b"[]\n" + bon + b"\n"
-    lignes, mange = journal.parse_journal(blob)
-    assert mange == len(blob), "une ligne illisible bloquerait le journal"
-    assert [ligne["job_id"] for ligne in lignes] == ["c"]
+def test_the_journal_skips_an_unreadable_line_without_blocking_the_cursor():
+    good = json.dumps({"job_id": "c"}).encode()
+    blob = b"pas du json\n" + b'{"job_id": 7}\n' + b"[]\n" + good + b"\n"
+    lines, consumed = journal.parse_journal(blob)
+    assert consumed == len(blob), "an unreadable line would block the journal"
+    assert [line["job_id"] for line in lines] == ["c"]
 
 
-def test_le_journal_s_arrete_a_sa_borne():
+def test_the_journal_stops_at_its_limit():
     blob = b"".join(json.dumps({"job_id": str(n)}).encode() + b"\n" for n in range(10))
-    lignes, mange = journal.parse_journal(blob, limit=4)
-    assert len(lignes) == 4
-    assert mange < len(blob), "la borne doit laisser le reste pour le prochain passage"
-    suite, _ = journal.parse_journal(blob[mange:], limit=100)
-    assert [ligne["job_id"] for ligne in suite] == [str(n) for n in range(4, 10)]
+    lines, consumed = journal.parse_journal(blob, limit=4)
+    assert len(lines) == 4
+    assert consumed < len(blob), "the limit must leave the rest for the next pass"
+    rest, _ = journal.parse_journal(blob[consumed:], limit=100)
+    assert [line["job_id"] for line in rest] == [str(n) for n in range(4, 10)]
 
 
-def test_le_journal_du_juge_et_son_lecteur_parlent_des_memes_champs():
-    """Le juge ecrit la ligne en Rust, l'admin la relit en Python : un champ renomme
-    d'un cote seulement passerait inapercu jusqu'en production."""
-    rust = lire(os.path.join(ROOT, "judge", "src", "results.rs"))
-    bloc = rust[rust.index("let record = json!({"):]
-    bloc = bloc[:bloc.index("});")]
-    ecrits = re.findall(r'"(\w+)":', bloc)
-    assert ecrits == list(journal.FIELDS), (ecrits, list(journal.FIELDS))
-    # state.py stocke exactement ces champs, dans cet ordre.
-    assert tuple(ecrits) == state.RUN_COLUMNS, (ecrits, state.RUN_COLUMNS)
+def test_the_judge_journal_and_its_reader_share_the_same_fields():
+    """The judge writes the line in Rust and the admin reads it in Python: a field renamed
+    on one side only would go unnoticed until production."""
+    rust = read_file(os.path.join(ROOT, "judge", "src", "results.rs"))
+    block = rust[rust.index("let record = json!({"):]
+    block = block[:block.index("});")]
+    written = re.findall(r'"(\w+)":', block)
+    assert written == list(journal.FIELDS), (written, list(journal.FIELDS))
+    # state.py stores exactly these fields, in this order.
+    assert tuple(written) == state.RUN_COLUMNS, (written, state.RUN_COLUMNS)
 
 
-def test_le_nom_du_journal_est_le_meme_des_deux_cotes():
-    rust = lire(os.path.join(ROOT, "judge", "src", "results.rs"))
-    assert 'format!("runs-{}.jsonl"' in rust, "le juge a renomme le journal"
-    lecteur = lire(os.path.join(ROOT, "admin", "drain.py"))
-    assert 'PATTERN = "runs-*.jsonl"' in lecteur, "l'admin cherche un autre nom"
+def test_the_journal_name_is_the_same_on_both_sides():
+    rust = read_file(os.path.join(ROOT, "judge", "src", "results.rs"))
+    assert 'format!("runs-{}.jsonl"' in rust, "the judge renamed the journal"
+    reader = read_file(os.path.join(ROOT, "admin", "drain.py"))
+    assert 'PATTERN = "runs-*.jsonl"' in reader, "the admin looks for another name"
 
 
-def test_le_journal_n_est_que_de_la_bibliotheque_standard():
-    texte = lire(os.path.join(ROOT, "admin", "journal.py"))
-    importes = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", texte, re.M))
-    assert importes <= {"json"}, sorted(importes)
+def test_the_journal_is_standard_library_only():
+    text = read_file(os.path.join(ROOT, "admin", "journal.py"))
+    imported = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", text, re.M))
+    assert imported <= {"json"}, sorted(imported)
 
 
-def test_suppression_couvre_toutes_les_tables():
-    schema = lire(os.path.join(ROOT, "app", "schema.sql"))
+def test_forget_covers_every_table():
+    schema = read_file(os.path.join(ROOT, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
     assert len(tables) == 21, tables
-    blocs = dict(re.findall(
+    blocks = dict(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)\s*\((.*?)\n\);",
         schema, re.S))
-    assert set(blocs) == tables, sorted(set(blocs) ^ tables)
+    assert set(blocks) == tables, sorted(set(blocks) ^ tables)
     # judge_journal_cursor carries no account: it tracks files, not people.
     # judge_run does carry one, so forget() must clear it like any other.
-    avec_compte = {nom for nom, corps in blocs.items()
-                   if re.search(r"^\s*account\s+TEXT", corps, re.M)}
-    assert avec_compte == tables - {"team", "team_document", "team_submission",
+    with_account = {name for name, body in blocks.items()
+                   if re.search(r"^\s*account\s+TEXT", body, re.M)}
+    assert with_account == tables - {"team", "team_document", "team_submission",
                                     "judge_journal_cursor"}, \
-        sorted(avec_compte)
-    efface = lire(os.path.join(ROOT, "app", "state.py"))
-    efface = efface[efface.index("def forget(user):"):]
-    assert set(re.findall(r"DELETE FROM (\w+)", efface)) == avec_compte
-    assert efface.count("_query(") == 1
+        sorted(with_account)
+    state_py = read_file(os.path.join(ROOT, "app", "state.py"))
+    state_py = state_py[state_py.index("def forget(user):"):]
+    assert set(re.findall(r"DELETE FROM (\w+)", state_py)) == with_account
+    assert state_py.count("_query(") == 1
 
 
-def test_progression_degradee_sans_base():
+def test_progress_degrades_without_a_database():
     assert not state.enabled()
     assert state.grant_first_solve("u", "tp", "e", 10, "m", "v", {}, 100) is None
     assert state.unlock("u", ["premiere-reussite"], "e", "v") is False
@@ -1521,8 +1521,8 @@ def test_progression_degradee_sans_base():
     assert state.write_theme("u", "light") is False
     assert state.write_theme("u", "neon") is False
     assert state.forget("u") is False
-    assert progression.progression_facts("u") is None
-    assert progression.cards_to_grant("u") == []
+    assert progress.progression_facts("u") is None
+    assert progress.cards_to_grant("u") == []
 
 
 def test_every_persistence_function_degrades_without_a_database():
@@ -1580,7 +1580,7 @@ def test_close_is_idempotent_and_absorbs_a_failed_shutdown():
         state._conn = guard
 
 
-def test_forum_moderer_and_profils_refuse_without_touching_the_database():
+def test_forum_moderate_and_profiles_refuse_without_touching_the_database():
     assert state.forum_moderate("a", "m", "u", "bogus") == []
     assert state.forum_profiles([]) == {}
     assert state.forum_profiles([None, ""]) == {}
@@ -1618,15 +1618,15 @@ class _PartialOutage:
         raise AssertionError("unlock() must never be called without the facts")
 
 
-def test_recompenser_and_verification_survive_an_outage_between_write_and_reread():
-    guard = progression.state
+def test_reward_and_verification_survive_an_outage_between_write_and_reread():
+    guard = progress.state
     try:
-        progression.state = _PartialOutage()
+        progress.state = _PartialOutage()
         entry = {"id": "tp2-ex0", "difficulty": "foundation"}
-        progression.reward("u", entry, "job1")
-        progression.record_verification("u", entry, "job2", True)
+        progress.reward("u", entry, "job1")
+        progress.record_verification("u", entry, "job2", True)
     finally:
-        progression.state = guard
+        progress.state = guard
 
 
 def test_scan_jobs_survives_a_missing_spool_and_a_directory_still_being_written():
@@ -1643,7 +1643,7 @@ def test_scan_jobs_survives_a_missing_spool_and_a_directory_still_being_written(
         config.SPOOL = guard
 
 
-def test_durees_moyennes_ignores_a_file_that_is_not_an_object():
+def test_average_durations_ignores_a_file_that_is_not_an_object():
     guard = config.RESULTS
     try:
         config.RESULTS = tempfile.mkdtemp(prefix="ctester-results-")
@@ -1655,20 +1655,20 @@ def test_durees_moyennes_ignores_a_file_that_is_not_an_object():
         config.RESULTS = guard
 
 
-def test_l_api_ne_peut_ni_ecrire_ni_preparer_un_verdict():
+def test_the_api_can_neither_write_nor_prepare_a_verdict():
     # The judge alone creates results/<id>: a web tier that could pre-create it would be back to
     # handing root a tree it controls.
-    compose = lire(os.path.join(ROOT, "deploy", "compose.yml"))
+    compose = read_file(os.path.join(ROOT, "deploy", "compose.yml"))
     web = compose.split("\n  web:\n", 1)[1].split("\n\n", 1)[0]
     assert "- ../../results:/results:ro" in web, "results must be mounted read-only into web"
     assert "CTESTER_RESULTS: /results" in web
-    for chemin in ("routers/submission.py", "services/spool.py", "services/scratch.py"):
-        source = lire(os.path.join(ROOT, "app", chemin))
-        for ecriture in re.findall(r"open\(os\.path\.join\(config\.RESULTS[^)]*\)[^)]*\)", source):
-            assert '"w' not in ecriture and '"a' not in ecriture, (chemin, ecriture)
+    for path in ("routers/submission.py", "services/spool.py", "services/scratch.py"):
+        source = read_file(os.path.join(ROOT, "app", path))
+        for write_call in re.findall(r"open\(os\.path\.join\(config\.RESULTS[^)]*\)[^)]*\)", source):
+            assert '"w' not in write_call and '"a' not in write_call, (path, write_call)
 
 
-def test_eta_secondes_returns_zero_for_an_already_finished_or_unknown_job():
+def test_eta_seconds_returns_zero_for_an_already_finished_or_unknown_job():
     jobs = [("aaa", 100.0, False), ("bbb", 101.0, True)]
     assert spool.eta_seconds(jobs, "bbb") == 0
     assert spool.eta_seconds(jobs, "unknown") == 0
@@ -1764,21 +1764,21 @@ def test_client_id():
 
 
 def test_client_id_prefers_the_authenticated_account_over_any_ip():
-    garde = security.current_user
+    saved = security.current_user
     try:
-        security.current_user = lambda entetes: "sub-" + "x" * 100
-        identifiant = security.client_id({"CF-Connecting-IP": "1.2.3.4"}, "10.0.0.1")
-        assert identifiant.startswith("u:") and len(identifiant) == 2 + 62
+        security.current_user = lambda headers: "sub-" + "x" * 100
+        identifier = security.client_id({"CF-Connecting-IP": "1.2.3.4"}, "10.0.0.1")
+        assert identifier.startswith("u:") and len(identifier) == 2 + 62
     finally:
-        security.current_user = garde
+        security.current_user = saved
 
 
 def test_client_id_station_suffix_and_the_two_truncation_bounds():
     assert security.client_id({}, "10.0.0.1", station="poste-3") == "10.0.0.1/poste-3"
-    identifiant = security.client_id({}, "x" * 200, station="poste-3")
-    assert len(identifiant) == 128
-    identifiant = security.client_id({"CF-Connecting-IP": "y" * 200}, "10.0.0.1")
-    assert identifiant == "y" * 64
+    identifier = security.client_id({}, "x" * 200, station="poste-3")
+    assert len(identifier) == 128
+    identifier = security.client_id({"CF-Connecting-IP": "y" * 200}, "10.0.0.1")
+    assert identifier == "y" * 64
 
 
 def test_no_redirect_refuses_to_hand_a_bearer_token_to_a_redirect_target():
@@ -1787,7 +1787,7 @@ def test_no_redirect_refuses_to_hand_a_bearer_token_to_a_redirect_target():
 
 
 def test_oidc_enabled_requires_all_three_conditions_independently():
-    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state)
+    saved = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         config.OIDC_CLIENT_ID = "ctester"
@@ -1805,76 +1805,76 @@ def test_oidc_enabled_requires_all_three_conditions_independently():
         security.state = type("Base", (), {"enabled": staticmethod(lambda: False)})
         assert not security.oidc_enabled()
     finally:
-        config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state = garde
+        config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state = saved
 
 
 def test_userinfo_url_refuses_an_endpoint_outside_the_issuer():
-    garde_issuer = config.OIDC_ISSUER
-    garde_json = security._get_json
-    garde_disc = dict(security._discovery)
+    saved_issuer = config.OIDC_ISSUER
+    saved_get_json = security._get_json
+    saved_discovery = dict(security._discovery)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         security._discovery.update(until=0.0, userinfo="")
         security._get_json = lambda url, headers=None: {
             "userinfo_endpoint": "https://evil.exemple/steal"}
         assert security.userinfo_url() == ""
-        def interdit(url, headers=None):
+        def forbidden(url, headers=None):
             raise AssertionError("must not be called under the negative cache")
-        security._get_json = interdit
+        security._get_json = forbidden
         assert security.userinfo_url() == ""
     finally:
-        config.OIDC_ISSUER = garde_issuer
-        security._get_json = garde_json
+        config.OIDC_ISSUER = saved_issuer
+        security._get_json = saved_get_json
         security._discovery.clear()
-        security._discovery.update(garde_disc)
+        security._discovery.update(saved_discovery)
 
 
 def test_userinfo_url_accepts_an_endpoint_under_the_issuer_and_caches_it():
-    garde_issuer = config.OIDC_ISSUER
-    garde_json = security._get_json
-    garde_disc = dict(security._discovery)
+    saved_issuer = config.OIDC_ISSUER
+    saved_get_json = security._get_json
+    saved_discovery = dict(security._discovery)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         security._discovery.update(until=0.0, userinfo="")
-        appels = []
+        calls = []
 
-        def repond(url, headers=None):
-            appels.append(url)
+        def answer(url, headers=None):
+            calls.append(url)
             return {"userinfo_endpoint": "https://auth.exemple/userinfo"}
-        security._get_json = repond
+        security._get_json = answer
         assert security.userinfo_url() == "https://auth.exemple/userinfo"
         assert security.userinfo_url() == "https://auth.exemple/userinfo"
-        assert len(appels) == 1
+        assert len(calls) == 1
     finally:
-        config.OIDC_ISSUER = garde_issuer
-        security._get_json = garde_json
+        config.OIDC_ISSUER = saved_issuer
+        security._get_json = saved_get_json
         security._discovery.clear()
-        security._discovery.update(garde_disc)
+        security._discovery.update(saved_discovery)
 
 
 def test_userinfo_url_survives_a_broken_discovery_document():
-    garde_issuer = config.OIDC_ISSUER
-    garde_json = security._get_json
-    garde_disc = dict(security._discovery)
+    saved_issuer = config.OIDC_ISSUER
+    saved_get_json = security._get_json
+    saved_discovery = dict(security._discovery)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         security._discovery.update(until=0.0, userinfo="")
 
-        def echoue(url, headers=None):
+        def fail(url, headers=None):
             raise OSError("network failure")
-        security._get_json = echoue
+        security._get_json = fail
         assert security.userinfo_url() == ""
     finally:
-        config.OIDC_ISSUER = garde_issuer
-        security._get_json = garde_json
+        config.OIDC_ISSUER = saved_issuer
+        security._get_json = saved_get_json
         security._discovery.clear()
-        security._discovery.update(garde_disc)
+        security._discovery.update(saved_discovery)
 
 
 def test_ask_userinfo_bounds_the_sub_and_sanitizes_the_suggested_name():
-    garde_issuer = config.OIDC_ISSUER
-    garde_json = security._get_json
-    garde_disc = dict(security._discovery)
+    saved_issuer = config.OIDC_ISSUER
+    saved_get_json = security._get_json
+    saved_discovery = dict(security._discovery)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         security._discovery.update(
@@ -1882,8 +1882,8 @@ def test_ask_userinfo_bounds_the_sub_and_sanitizes_the_suggested_name():
 
         security._get_json = lambda url, headers=None: {
             "sub": "abc123", "preferred_username": "Léa"}
-        sub, nom = security._ask_userinfo("tok")
-        assert sub == "abc123" and nom
+        sub, name = security._ask_userinfo("tok")
+        assert sub == "abc123" and name
 
         security._get_json = lambda url, headers=None: {"sub": "a" * 128}
         assert security._ask_userinfo("tok")[0] == "a" * 128
@@ -1899,16 +1899,16 @@ def test_ask_userinfo_bounds_the_sub_and_sanitizes_the_suggested_name():
         config.OIDC_ISSUER = ""
         assert security._ask_userinfo("tok") == (None, "")
     finally:
-        config.OIDC_ISSUER = garde_issuer
-        security._get_json = garde_json
+        config.OIDC_ISSUER = saved_issuer
+        security._get_json = saved_get_json
         security._discovery.clear()
-        security._discovery.update(garde_disc)
+        security._discovery.update(saved_discovery)
 
 
 def test_current_user_bounds_the_bearer_token_and_caches_the_lookup():
-    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json)
-    garde_tokens = dict(security._tokens)
-    garde_disc = dict(security._discovery)
+    saved = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json)
+    saved_tokens = dict(security._tokens)
+    saved_discovery = dict(security._discovery)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         config.OIDC_CLIENT_ID = "ctester"
@@ -1920,33 +1920,33 @@ def test_current_user_bounds_the_bearer_token_and_caches_the_lookup():
         assert security.current_user({}) is None
         assert security.current_user({"Authorization": "Basic xx"}) is None
         assert security.current_user({"Authorization": "Bearer "}) is None
-        trop_long = "Bearer " + "x" * 4097
-        assert security.current_user({"Authorization": trop_long}) is None
+        too_long = "Bearer " + "x" * 4097
+        assert security.current_user({"Authorization": too_long}) is None
 
-        appels = []
+        calls = []
 
-        def repond(url, headers=None):
-            appels.append(1)
+        def answer(url, headers=None):
+            calls.append(1)
             return {"sub": "etu-1"}
-        security._get_json = repond
-        pile = "Bearer " + "x" * 4096
-        assert security.current_user({"Authorization": pile}) == "etu-1"
-        assert len(appels) == 1
-        assert security.current_user({"Authorization": pile}) == "etu-1"
-        assert len(appels) == 1
+        security._get_json = answer
+        exact = "Bearer " + "x" * 4096
+        assert security.current_user({"Authorization": exact}) == "etu-1"
+        assert len(calls) == 1
+        assert security.current_user({"Authorization": exact}) == "etu-1"
+        assert len(calls) == 1
     finally:
         (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state,
-         security._get_json) = garde
+         security._get_json) = saved
         security._tokens.clear()
-        security._tokens.update(garde_tokens)
+        security._tokens.update(saved_tokens)
         security._discovery.clear()
-        security._discovery.update(garde_disc)
+        security._discovery.update(saved_discovery)
 
 
 def test_token_cache_flushes_fully_once_it_reaches_its_cap():
-    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json)
-    garde_tokens = dict(security._tokens)
-    garde_disc = dict(security._discovery)
+    saved = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json)
+    saved_tokens = dict(security._tokens)
+    saved_discovery = dict(security._discovery)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         config.OIDC_CLIENT_ID = "ctester"
@@ -1967,36 +1967,36 @@ def test_token_cache_flushes_fully_once_it_reaches_its_cap():
         assert len(security._tokens) == 1
     finally:
         (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state,
-         security._get_json) = garde
+         security._get_json) = saved
         security._tokens.clear()
-        security._tokens.update(garde_tokens)
+        security._tokens.update(saved_tokens)
         security._discovery.clear()
-        security._discovery.update(garde_disc)
+        security._discovery.update(saved_discovery)
 
 
 def test_current_name_only_reads_the_cache_it_never_calls_out():
-    garde_tokens = dict(security._tokens)
+    saved_tokens = dict(security._tokens)
     try:
         security._tokens.clear()
-        jeton = "abc"
-        empreinte = hashlib.sha256(jeton.encode()).hexdigest()
-        assert security.current_name({"Authorization": "Bearer " + jeton}) == ""
+        token = "abc"
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        assert security.current_name({"Authorization": "Bearer " + token}) == ""
         assert security.current_name({}) == ""
 
-        security._tokens[empreinte] = ("sub-1", "Lea", time.time() + 60)
-        assert security.current_name({"Authorization": "Bearer " + jeton}) == "Lea"
+        security._tokens[digest] = ("sub-1", "Lea", time.time() + 60)
+        assert security.current_name({"Authorization": "Bearer " + token}) == "Lea"
 
-        security._tokens[empreinte] = ("sub-1", "Lea", time.time() - 1)
-        assert security.current_name({"Authorization": "Bearer " + jeton}) == ""
+        security._tokens[digest] = ("sub-1", "Lea", time.time() - 1)
+        assert security.current_name({"Authorization": "Bearer " + token}) == ""
     finally:
         security._tokens.clear()
-        security._tokens.update(garde_tokens)
+        security._tokens.update(saved_tokens)
 
 
 def test_ask_userinfo_swallows_a_broken_lookup():
-    garde_issuer = config.OIDC_ISSUER
-    garde_json = security._get_json
-    garde_disc = dict(security._discovery)
+    saved_issuer = config.OIDC_ISSUER
+    saved_get_json = security._get_json
+    saved_discovery = dict(security._discovery)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         security._discovery.update(
@@ -2005,10 +2005,10 @@ def test_ask_userinfo_swallows_a_broken_lookup():
             OSError("network failure"))
         assert security._ask_userinfo("tok") == (None, "")
     finally:
-        config.OIDC_ISSUER = garde_issuer
-        security._get_json = garde_json
+        config.OIDC_ISSUER = saved_issuer
+        security._get_json = saved_get_json
         security._discovery.clear()
-        security._discovery.update(garde_disc)
+        security._discovery.update(saved_discovery)
 
 
 def test_get_json_reads_a_bounded_response_and_never_follows_a_redirect():
@@ -2021,22 +2021,22 @@ def test_get_json_reads_a_bounded_response_and_never_follows_a_redirect():
 
         def do_GET(self):
             if self.path == "/ok":
-                corps = b'{"hello": "world"}'
+                body = b'{"hello": "world"}'
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(corps)))
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(corps)
+                self.wfile.write(body)
             else:
                 self.send_response(302)
                 self.send_header("Location", "http://exemple-interdit.invalid/vole")
                 self.end_headers()
 
-    serveur = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-    fil = threading.Thread(target=serveur.serve_forever, daemon=True)
-    fil.start()
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
     try:
-        port = serveur.server_port
+        port = server.server_port
         assert security._get_json(f"http://127.0.0.1:{port}/ok") == {"hello": "world"}
         try:
             security._get_json(f"http://127.0.0.1:{port}/redirige")
@@ -2044,12 +2044,12 @@ def test_get_json_reads_a_bounded_response_and_never_follows_a_redirect():
         except Exception:
             pass
     finally:
-        serveur.shutdown()
-        fil.join(timeout=2)
+        server.shutdown()
+        server_thread.join(timeout=2)
 
 
-def test_forum_eteint_par_defaut():
-    garde = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS, security.state)
+def test_forum_is_off_by_default():
+    saved = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS, security.state)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         config.OIDC_CLIENT_ID = "ctester"
@@ -2064,10 +2064,10 @@ def test_forum_eteint_par_defaut():
         assert not forum.forum_enabled()
     finally:
         (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS,
-         security.state) = garde
+         security.state) = saved
 
 
-def test_forum_texte_borne_et_stocke_la_source():
+def test_forum_text_is_bounded_and_stores_the_source():
     assert forum.forum_text("  Pourquoi mon while ne s'arrete pas ?  ") == (
         "Pourquoi mon while ne s'arrete pas ?", None)
     assert forum.forum_text("")[0] is None
@@ -2084,33 +2084,33 @@ def test_forum_texte_borne_et_stocke_la_source():
     assert forum.forum_text("ligne 1\r\nligne 2")[0] == "ligne 1\nligne 2"
 
 
-def test_forum_bibliotheques_epinglees():
-    manifeste = json.loads(lire(os.path.join(ROOT, "package.json")))
-    epingles = manifeste.get("dependencies") or {}
-    charge_par = {
+def test_forum_libraries_are_pinned():
+    manifest = json.loads(read_file(os.path.join(ROOT, "package.json")))
+    pinned = manifest.get("dependencies") or {}
+    loaded_by = {
         "marked": {"frontend/src/lib/domain/markdown.ts"},
         "dompurify": {"frontend/src/lib/domain/markdown.ts"},
         "yjs": {"frontend/src/lib/collab/document.ts",
                 "frontend/src/lib/collab/room.svelte.ts"},
     }
-    assert set(epingles) == set(charge_par), epingles
-    for paquet, modules in charge_par.items():
-        version = epingles[paquet]
-        assert re.fullmatch(r"\d+\.\d+\.\d+", version), (paquet, version)
+    assert set(pinned) == set(loaded_by), pinned
+    for package, modules in loaded_by.items():
+        version = pinned[package]
+        assert re.fullmatch(r"\d+\.\d+\.\d+", version), (package, version)
         for module in modules:
-            assert '"' + paquet + '"' in lire(
-                os.path.join(ROOT, *module.split("/"))), (paquet, module)
-    for racine, _, fichiers in os.walk(os.path.join(ROOT, "frontend", "src")):
-        for nom in fichiers:
-            if not nom.endswith((".ts", ".svelte")):
+            assert '"' + package + '"' in read_file(
+                os.path.join(ROOT, *module.split("/"))), (package, module)
+    for root, _, files in os.walk(os.path.join(ROOT, "frontend", "src")):
+        for name in files:
+            if not name.endswith((".ts", ".svelte")):
                 continue
-            chemin = os.path.join(racine, nom)
-            relatif = os.path.relpath(chemin, ROOT).replace(os.sep, "/")
-            source = lire(chemin)
-            for paquet, modules in charge_par.items():
-                if relatif in modules:
+            path = os.path.join(root, name)
+            relative = os.path.relpath(path, ROOT).replace(os.sep, "/")
+            source = read_file(path)
+            for package, modules in loaded_by.items():
+                if relative in modules:
                     continue
-                assert 'from "' + paquet + '"' not in source, (relatif, paquet)
+                assert 'from "' + package + '"' not in source, (relative, package)
 
 
 def test_csp_without_an_issuer_omits_the_extra_connect_src_origin():
@@ -2131,53 +2131,53 @@ def test_csp_without_an_issuer_omits_the_extra_connect_src_origin():
             assert a[key] == b[key], key
 
 
-def test_csp_du_document():
-    pages = [lire(os.path.join(ROOT, "frontend", "index.html")).encode()]
-    construit = os.path.join(ROOT, "frontend", "dist", "index.html")
-    if os.path.exists(construit):
-        pages.append(lire(construit).encode())
+def test_document_csp():
+    pages = [read_file(os.path.join(ROOT, "frontend", "index.html")).encode()]
+    built = os.path.join(ROOT, "frontend", "dist", "index.html")
+    if os.path.exists(built):
+        pages.append(read_file(built).encode())
     for page in pages:
         assert b"<script" in page and not csp._INLINE_SCRIPT_RE.findall(page), page
     page = pages[0]
-    politique = csp.csp(page, "https://auth.exemple/auth/v1")
-    assert "default-src 'none'" in politique
-    assert "sha256-" not in politique, politique
-    assert "script-src 'self';" in politique, politique
+    policy = csp.csp(page, "https://auth.exemple/auth/v1")
+    assert "default-src 'none'" in policy
+    assert "sha256-" not in policy, policy
+    assert "script-src 'self';" in policy, policy
     assert b"<script" in page and not csp._INLINE_SCRIPT_RE.findall(page), page
     for inline in (b"<script>var t=1;</script>", b"<SCRIPT>var t=1;</SCRIPT>"):
         try:
             csp.csp(inline)
-            raise AssertionError("un <script> inline est passe sans rien dire")
+            raise AssertionError("an inline <script> slipped through silently")
         except ValueError:
             pass
-    assert "https://auth.exemple" in politique.split("connect-src")[1]
-    assert "/auth/v1" not in politique, politique
-    assert config.API_ORIGIN in politique.split("connect-src")[1]
-    for interdit in ("frame-ancestors 'none'", "base-uri 'none'",
+    assert "https://auth.exemple" in policy.split("connect-src")[1]
+    assert "/auth/v1" not in policy, policy
+    assert config.API_ORIGIN in policy.split("connect-src")[1]
+    for forbidden in ("frame-ancestors 'none'", "base-uri 'none'",
                      "form-action 'none'", "img-src 'self'"):
-        assert interdit in politique, interdit
-    assert "style-src 'self' 'unsafe-inline'" in politique
-    assert "unsafe-inline" not in politique.split("style-src")[0], politique
-    assert "unsafe-eval" not in politique
+        assert forbidden in policy, forbidden
+    assert "style-src 'self' 'unsafe-inline'" in policy
+    assert "unsafe-inline" not in policy.split("style-src")[0], policy
+    assert "unsafe-eval" not in policy
 
     meta = re.search(
         rb'<meta http-equiv="Content-Security-Policy" content="([^"]+)">', page)
-    assert meta, "le <meta> CSP a disparu de index.html"
-    du_meta = {d.split()[0]: " ".join(d.split()[1:])
+    assert meta, "the CSP <meta> is gone from index.html"
+    from_meta = {d.split()[0]: " ".join(d.split()[1:])
                for d in meta.group(1).decode().split("; ")}
-    du_serveur = {d.split()[0]: " ".join(d.split()[1:])
+    from_server = {d.split()[0]: " ".join(d.split()[1:])
                   for d in csp.csp(page, config.OIDC_ISSUER or
                                    "https://auth.thevhome.com/auth/v1").split("; ")}
-    assert "frame-ancestors" not in du_meta, du_meta
-    assert du_serveur.pop("frame-ancestors") == "'none'"
-    assert du_meta == du_serveur, (du_meta, du_serveur)
+    assert "frame-ancestors" not in from_meta, from_meta
+    assert from_server.pop("frame-ancestors") == "'none'"
+    assert from_meta == from_server, (from_meta, from_server)
 
 
-def test_forum_vue_ne_laisse_sortir_aucun_sub():
-    garde = config.FORUM_MODERATORS
+def test_forum_view_leaks_no_sub():
+    saved = config.FORUM_MODERATORS
     try:
         config.FORUM_MODERATORS = frozenset({"sub-mod"})
-        fil = [{"id": "a" * 32, "account": "sub-alice", "text": "moi",
+        thread = [{"id": "a" * 32, "account": "sub-alice", "text": "moi",
                 "hidden": False, "created_at": "2026-09-03 10:00"},
                {"id": "b" * 32, "account": "sub-bob", "text": "lui",
                 "hidden": False, "created_at": "2026-09-03 10:01"},
@@ -2185,219 +2185,219 @@ def test_forum_vue_ne_laisse_sortir_aucun_sub():
                 "hidden": False, "created_at": "2026-09-03 10:02"},
                {"id": "d" * 32, "account": "sub-bob", "text": "cache",
                 "hidden": True, "created_at": "2026-09-03 10:03"}]
-        vu = forum.forum_view(fil, "sub-alice", False)
-        assert [m["author"] for m in vu] == [
-            "Vous", "Participant", "Enseignant"], vu
-        assert [m["mine"] for m in vu] == [True, False, False]
-        assert len(vu) == 3
-        texte = json.dumps(vu, ensure_ascii=False)
-        for interdit in ("sub-alice", "sub-bob", "sub-mod", "account"):
-            assert interdit not in texte, interdit
-        vu_mod = forum.forum_view(fil, "sub-mod", True)
-        assert len(vu_mod) == 4 and vu_mod[3]["hidden"] is True
-        assert vu_mod[2]["author"] == "Vous"
-        assert "sub-bob" not in json.dumps(vu_mod, ensure_ascii=False)
+        seen = forum.forum_view(thread, "sub-alice", False)
+        assert [m["author"] for m in seen] == [
+            "Vous", "Participant", "Enseignant"], seen
+        assert [m["mine"] for m in seen] == [True, False, False]
+        assert len(seen) == 3
+        text = json.dumps(seen, ensure_ascii=False)
+        for forbidden in ("sub-alice", "sub-bob", "sub-mod", "account"):
+            assert forbidden not in text, forbidden
+        seen_by_moderator = forum.forum_view(thread, "sub-mod", True)
+        assert len(seen_by_moderator) == 4 and seen_by_moderator[3]["hidden"] is True
+        assert seen_by_moderator[2]["author"] == "Vous"
+        assert "sub-bob" not in json.dumps(seen_by_moderator, ensure_ascii=False)
     finally:
-        config.FORUM_MODERATORS = garde
+        config.FORUM_MODERATORS = saved
 
 
-def test_forum_identite_bornes_et_visibilite():
+def test_forum_identity_bounds_and_visibility():
     assert forum.forum_display_name(None) == (None, None)
     assert forum.forum_display_name(42) == (None, "nom invalide")
     assert forum.forum_display_name("   ") == (None, None)
     assert forum.forum_display_name("  Lea   B ") == ("Lea B", None)
     assert forum.forum_display_name("Lea" + chr(10) + "B")[0] == "Lea B"
-    for reserve in ("Vous", "participant", "Enseignant", "Équipe du cours",
+    for reserved in ("Vous", "participant", "Enseignant", "Équipe du cours",
                     "Anonyme"):
-        assert forum.forum_display_name(reserve)[0] is None, reserve
+        assert forum.forum_display_name(reserved)[0] is None, reserved
     assert forum.forum_display_name("x" * (config.FORUM_PSEUDO_MAX + 1))[0] is None
-    garde_g = config.FORUM_GROUPS
+    saved_groups = config.FORUM_GROUPS
     try:
         config.FORUM_GROUPS = (4, 6)
         assert forum.forum_group("04") == (4, None)
-        for mauvais in (0, 100, -1, "sept", True, 7):
-            assert forum.forum_group(mauvais)[0] is None, mauvais
+        for bad in (0, 100, -1, "sept", True, 7):
+            assert forum.forum_group(bad)[0] is None, bad
         config.FORUM_GROUPS = ()
         assert forum.forum_group("07") == (7, None)
-        for mauvais in (0, 100, -1, "sept", True):
-            assert forum.forum_group(mauvais)[0] is None, mauvais
+        for bad in (0, 100, -1, "sept", True):
+            assert forum.forum_group(bad)[0] is None, bad
     finally:
-        config.FORUM_GROUPS = garde_g
+        config.FORUM_GROUPS = saved_groups
 
-    garde = config.FORUM_MODERATORS
+    saved = config.FORUM_MODERATORS
     try:
         config.FORUM_MODERATORS = frozenset({"sub-mod"})
-        fil = [{"id": "a" * 32, "account": "sub-bob", "text": "x",
+        thread = [{"id": "a" * 32, "account": "sub-bob", "text": "x",
                 "hidden": False, "created_at": "2026-09-03T10:00Z"}]
         cache = {"sub-bob": {"display_name": "Bob", "group_number": 7,
                              "display_name_public": False, "group_number_public": False}}
-        vu = forum.forum_view(fil, "sub-alice", False, cache)[0]
-        assert vu["author"] == "Participant" and vu["group"] is None
-        assert vu["reportable_name"] is False
-        vu_mod = forum.forum_view(fil, "sub-mod", True, cache)[0]
-        assert vu_mod["author"] == "Participant" and vu_mod["group"] == 7
-        montre = {"sub-bob": dict(cache["sub-bob"], display_name_public=True)}
-        vu2 = forum.forum_view(fil, "sub-alice", False, montre)[0]
-        assert vu2["author"] == "Bob" and vu2["reportable_name"] is True
-        a_moi = forum.forum_view(fil, "sub-bob", False, montre)[0]
-        assert a_moi["author"] == "Vous" and a_moi["reportable_name"] is False
+        seen = forum.forum_view(thread, "sub-alice", False, cache)[0]
+        assert seen["author"] == "Participant" and seen["group"] is None
+        assert seen["reportable_name"] is False
+        seen_by_moderator = forum.forum_view(thread, "sub-mod", True, cache)[0]
+        assert seen_by_moderator["author"] == "Participant" and seen_by_moderator["group"] == 7
+        shown = {"sub-bob": dict(cache["sub-bob"], display_name_public=True)}
+        seen2 = forum.forum_view(thread, "sub-alice", False, shown)[0]
+        assert seen2["author"] == "Bob" and seen2["reportable_name"] is True
+        mine = forum.forum_view(thread, "sub-bob", False, shown)[0]
+        assert mine["author"] == "Vous" and mine["reportable_name"] is False
         assert "sub-bob" not in json.dumps(
-            [vu, vu_mod, vu2, a_moi], ensure_ascii=False)
+            [seen, seen_by_moderator, seen2, mine], ensure_ascii=False)
     finally:
-        config.FORUM_MODERATORS = garde
+        config.FORUM_MODERATORS = saved
 
 
-def test_le_controle_de_l_hote_ne_depend_d_aucun_tiers():
-    tiers = {"starlette", "fastapi", "pydantic", "pydantic_core", "uvicorn",
+def test_the_host_check_depends_on_no_third_party():
+    third_party = {"starlette", "fastapi", "pydantic", "pydantic_core", "uvicorn",
              "httpx", "httpx2", "anyio", "h11"}
-    charges = sorted(tiers & {m.split(".")[0] for m in sys.modules})
-    assert not charges, "host-side imports pulled third-party packages: " + ", ".join(charges)
+    loaded = sorted(third_party & {m.split(".")[0] for m in sys.modules})
+    assert not loaded, "host-side imports pulled third-party packages: " + ", ".join(loaded)
 
 
-def test_les_deux_sondes_de_verrou_ouvrent_en_LECTURE_SEULE():
-    source = lire(os.path.join(ROOT, "app", "services", "scratch.py"))
-    corps = source[source.index("def _lock_held("):]
-    corps = corps[:corps.index("os.close(fd)")]
-    assert "os.O_RDONLY" in corps and "os.O_RDWR" not in corps, "_lock_held must probe read-only"
+def test_both_lock_probes_open_READ_ONLY():
+    source = read_file(os.path.join(ROOT, "app", "services", "scratch.py"))
+    body = source[source.index("def _lock_held("):]
+    body = body[:body.index("os.close(fd)")]
+    assert "os.O_RDONLY" in body and "os.O_RDWR" not in body, "_lock_held must probe read-only"
     # The judge only reads the API's spool, locks included: nothing there is opened to write.
-    source = lire(os.path.join(ROOT, "judge", "src", "spool.rs"))
+    source = read_file(os.path.join(ROOT, "judge", "src", "spool.rs"))
     assert "OFlags::RDONLY" in source
-    for ecriture in ("RDWR", "WRONLY", "CREATE", "APPEND", "TRUNC"):
-        assert ecriture not in source, "spool.rs opens the spool with " + ecriture
+    for write_call in ("RDWR", "WRONLY", "CREATE", "APPEND", "TRUNC"):
+        assert write_call not in source, "spool.rs opens the spool with " + write_call
 
 
-def test_chaque_raison_de_console_a_un_message():
-    juge = "".join(lire(os.path.join(ROOT, "judge", "src", nom)) for nom in ("console.rs", "main.rs"))
-    page = lire(os.path.join(ROOT, "frontend", "src", "features", "scratch",
+def test_every_console_reason_has_a_message():
+    judge = "".join(read_file(os.path.join(ROOT, "judge", "src", name)) for name in ("console.rs", "main.rs"))
+    page = read_file(os.path.join(ROOT, "frontend", "src", "features", "scratch",
                              "session.svelte.ts"))
-    bloc = page.split("const REASONS: Record<string, string> = {")[1].split("};")[0]
-    connues = set(re.findall("^\\s*(\\w+):", bloc, re.M)) | {"exited"}
-    motif = r'(?:break |exited\([^)]*, |(?:== 12|else) \{\s*|"reason": )"([a-z_]+)"'
-    emises = set(re.findall(motif, juge))
-    assert len(emises) >= 9, emises
-    orphelines = sorted(emises - connues)
-    assert not orphelines, "console reasons with no message: " + ", ".join(orphelines)
+    block = page.split("const REASONS: Record<string, string> = {")[1].split("};")[0]
+    known = set(re.findall("^\\s*(\\w+):", block, re.M)) | {"exited"}
+    pattern = r'(?:break |exited\([^)]*, |(?:== 12|else) \{\s*|"reason": )"([a-z_]+)"'
+    emitted = set(re.findall(pattern, judge))
+    assert len(emitted) >= 9, emitted
+    orphans = sorted(emitted - known)
+    assert not orphans, "console reasons with no message: " + ", ".join(orphans)
 
 
-def test_les_websockets_ont_une_implementation_epinglee():
-    besoin = lire(os.path.join(ROOT, "requirements.txt"))
-    lignes = [l.split("#")[0].strip() for l in besoin.splitlines()]
-    paquets = {l.split("==")[0].strip().lower() for l in lignes if "==" in l}
-    assert paquets & {"wsproto", "websockets"}, "requirements.txt pins no WebSocket implementation"
+def test_websockets_have_a_pinned_implementation():
+    requirements = read_file(os.path.join(ROOT, "requirements.txt"))
+    lines = [l.split("#")[0].strip() for l in requirements.splitlines()]
+    packages = {l.split("==")[0].strip().lower() for l in lines if "==" in l}
+    assert packages & {"wsproto", "websockets"}, "requirements.txt pins no WebSocket implementation"
 
 
-def test_le_conteneur_web_n_importe_que_ce_qu_il_monte():
-    racine = {nom[:-3] for nom in os.listdir(os.path.join(ROOT, "worker"))
-              if nom.endswith(".py")}
-    dans_app = {nom[:-3] for nom in os.listdir(os.path.join(ROOT, "app"))
-                if nom.endswith(".py")}
-    interdits = racine - dans_app
-    assert "content_catalog" in interdits, interdits
-    motif = re.compile(r"^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)",
+def test_the_web_container_imports_only_what_it_mounts():
+    root = {name[:-3] for name in os.listdir(os.path.join(ROOT, "worker"))
+              if name.endswith(".py")}
+    in_app = {name[:-3] for name in os.listdir(os.path.join(ROOT, "app"))
+                if name.endswith(".py")}
+    forbidden = root - in_app
+    assert "content_catalog" in forbidden, forbidden
+    pattern = re.compile(r"^\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)",
                        re.M)
-    fautes = []
-    for dossier, _sous, fichiers in os.walk(os.path.join(ROOT, "app")):
-        if "__pycache__" in dossier:
+    faults = []
+    for directory, _dirs, files in os.walk(os.path.join(ROOT, "app")):
+        if "__pycache__" in directory:
             continue
-        for nom in sorted(fichiers):
-            if not nom.endswith(".py"):
+        for name in sorted(files):
+            if not name.endswith(".py"):
                 continue
-            chemin = os.path.join(dossier, nom)
-            for module in motif.findall(lire(chemin)):
-                if module in interdits:
-                    fautes.append(os.path.relpath(chemin, ROOT) + " -> " + module)
-    assert not fautes, (
+            path = os.path.join(directory, name)
+            for module in pattern.findall(read_file(path)):
+                if module in forbidden:
+                    faults.append(os.path.relpath(path, ROOT) + " -> " + module)
+    assert not faults, (
         "ces modules de la racine ne sont pas montés dans le conteneur web : "
-        + ", ".join(fautes))
+        + ", ".join(faults))
 
 
-def _cas_canoniques():
-    chemin = os.path.join(ROOT, "frontend", "tests", "fixtures", "source.json")
-    with open(chemin, encoding="utf-8") as fh:
+def _canonical_cases():
+    path = os.path.join(ROOT, "frontend", "tests", "fixtures", "source.json")
+    with open(path, encoding="utf-8") as fh:
         return json.load(fh)
 
 
-def test_le_fixture_de_la_forme_canonique_est_bien_la():
-    cas = _cas_canoniques()
-    assert len(cas["encodage"]) >= 6, cas
-    assert len(cas["espaces_morts"]) >= 5, cas
-    assert len(cas["silences"]) >= 7, cas
+def test_the_canonical_form_fixture_is_there():
+    cases = _canonical_cases()
+    assert len(cases["encodage"]) >= 6, cases
+    assert len(cases["espaces_morts"]) >= 5, cases
+    assert len(cases["silences"]) >= 7, cases
 
 
-def test_la_forme_canonique_retire_ce_qui_ne_se_voit_pas():
-    cas = _cas_canoniques()
-    for groupe in ("encodage", "espaces_morts"):
-        for c in cas[groupe]:
-            assert source.canonicalize(c["in"]) == c["out"], (groupe, c["why"])
+def test_the_canonical_form_removes_what_cannot_be_seen():
+    cases = _canonical_cases()
+    for group in ("encodage", "espaces_morts"):
+        for c in cases[group]:
+            assert source.canonicalize(c["in"]) == c["out"], (group, c["why"])
 
 
-def test_la_forme_canonique_se_tait_sur_tout_le_reste():
-    cas = _cas_canoniques()
-    for c in cas["silences"]:
+def test_the_canonical_form_leaves_everything_else_alone():
+    cases = _canonical_cases()
+    for c in cases["silences"]:
         assert c["out"] == c["in"], ("ce cas doit être un point fixe", c["why"])
         assert source.canonicalize(c["in"]) == c["in"], c["why"]
 
 
-def test_la_forme_canonique_epargne_un_raccord_de_lignes():
+def test_the_canonical_form_spares_a_line_continuation():
     assert source.canonicalize("#define F(a) \\   \n") == "#define F(a) \\   \n"
     assert source.canonicalize("#define F(a)     \n") == "#define F(a)\n"
 
 
-def test_la_forme_canonique_ne_change_jamais_le_nombre_de_lignes():
-    cas = _cas_canoniques()
-    tous = cas["encodage"] + cas["espaces_morts"] + cas["silences"]
-    for c in tous + [{"in": x, "why": x} for x in
+def test_the_canonical_form_never_changes_the_line_count():
+    cases = _canonical_cases()
+    everything = cases["encodage"] + cases["espaces_morts"] + cases["silences"]
+    for c in everything + [{"in": x, "why": x} for x in
                      ("", "x", "x\n", "x\n\n\n", "\n\n", "   ", "a\n   ")]:
-        avant = c["in"]
-        apres = source.canonicalize(avant)
-        if "\r" not in avant:
-            assert apres.count("\n") == avant.count("\n"), c["why"]
-        assert len(apres) <= len(avant), c["why"]
-        assert source.canonicalize(apres) == apres, c["why"]
+        before = c["in"]
+        after = source.canonicalize(before)
+        if "\r" not in before:
+            assert after.count("\n") == before.count("\n"), c["why"]
+        assert len(after) <= len(before), c["why"]
+        assert source.canonicalize(after) == after, c["why"]
 
 
-def test_la_liste_blanche_rend_une_forme_canonique():
-    entree = {"id": "tp2-ex3", "files": [{"name": "submission.c"}]}
-    fichiers, message, code = catalogue.validate_files(
-        entree, {"submission.c": "\ufeffint main(void){\r\n    return 0;   \r\n}\r\n"})
+def test_the_allowlist_returns_a_canonical_form():
+    entry = {"id": "tp2-ex3", "files": [{"name": "submission.c"}]}
+    files, message, code = catalogue.validate_files(
+        entry, {"submission.c": "\ufeffint main(void){\r\n    return 0;   \r\n}\r\n"})
     assert message is None, message
-    assert fichiers == {"submission.c": "int main(void){\n    return 0;\n}\n"}, fichiers
-    enveloppe = len(json.dumps({"submission.c": ""}).encode())
-    pile = "a" * (config.MAX_CODE - enveloppe - 4) + "\n" + "   "
-    fichiers, message, code = catalogue.validate_files(entree, {"submission.c": pile})
+    assert files == {"submission.c": "int main(void){\n    return 0;\n}\n"}, files
+    envelope = len(json.dumps({"submission.c": ""}).encode())
+    exact = "a" * (config.MAX_CODE - envelope - 4) + "\n" + "   "
+    files, message, code = catalogue.validate_files(entry, {"submission.c": exact})
     assert message is None, (message, code)
-    assert len(json.dumps(fichiers).encode()) <= config.MAX_CODE
+    assert len(json.dumps(files).encode()) <= config.MAX_CODE
 
 
-def test_la_console_canonise_par_la_meme_porte():
-    code, message, statut = scratch.validate_scratch("int x;   \r\n")
-    assert (code, message, statut) == ("int x;\n", None, 200)
-    _, message, statut = scratch.validate_scratch("x" * (config.MAX_CODE + 1))
-    assert statut == 413 and message, (statut, message)
+def test_the_console_canonicalizes_through_the_same_gate():
+    code, message, status = scratch.validate_scratch("int x;   \r\n")
+    assert (code, message, status) == ("int x;\n", None, 200)
+    _, message, status = scratch.validate_scratch("x" * (config.MAX_CODE + 1))
+    assert status == 413 and message, (status, message)
     code, message, _ = scratch.validate_scratch("x" * config.MAX_CODE + "   ")
     assert message is None and len(code) == config.MAX_CODE, message
 
 
-def test_l_en_tete_de_la_console_suit_la_regle_des_noms_de_fichier():
+def test_the_console_header_follows_the_file_name_rule():
     assert scratch.validate_header("", "") == ("", "", None, 200)
     assert scratch.validate_header("pile_2.h", "#define N 3  \r\n") \
         == ("pile_2.h", "#define N 3\n", None, 200)
     assert scratch.validate_header("a" * 32 + ".h", "")[2] is None
-    for nom in ("a" * 33 + ".h", ".h", "pile.c", "pile.H", "../pile.h", "a/b.h",
+    for name in ("a" * 33 + ".h", ".h", "pile.c", "pile.H", "../pile.h", "a/b.h",
                 "pile.h\n", "pi le.h", "é.h", None, 3):
-        _, _, message, statut = scratch.validate_header(nom, "")
-        assert statut == 400 and message, nom
-    _, _, message, statut = scratch.validate_header("", "int x;")
-    assert statut == 400 and message
-    _, _, message, statut = scratch.validate_header("pile.h", "x" * (config.MAX_CODE + 1))
-    assert statut == 413 and message
-    _, _, message, statut = scratch.validate_header("pile.h", None)
-    assert statut == 400 and message
+        _, _, message, status = scratch.validate_header(name, "")
+        assert status == 400 and message, name
+    _, _, message, status = scratch.validate_header("", "int x;")
+    assert status == 400 and message
+    _, _, message, status = scratch.validate_header("pile.h", "x" * (config.MAX_CODE + 1))
+    assert status == 413 and message
+    _, _, message, status = scratch.validate_header("pile.h", None)
+    assert status == 400 and message
 
 
-def test_le_forum_ne_canonise_rien():
-    texte = "regarde ici  \net puis là  \n"
-    assert source.canonicalize(texte) != texte, "le cas ne prouverait rien"
+def test_the_forum_canonicalizes_nothing():
+    text = "regarde ici  \net puis là  \n"
+    assert source.canonicalize(text) != text, "the case would prove nothing"
     with open(os.path.join(ROOT, "app", "services", "forum.py"),
               encoding="utf-8") as fh:
         assert "canonicalize" not in fh.read()
@@ -2474,7 +2474,7 @@ def test_the_leaderboard_never_names_the_last_one():
     assert view["gap"] == {"rank": 7, "solved": 1}
     assert "u7" not in json.dumps(view), view
 
-    small = rows[:politique.minimum_cohort() - 1]
+    small = rows[:policy.minimum_cohort() - 1]
     view = leaderboard.leaderboard_view(small, small[0]["account"], 4)
     assert view["rows"] == [] and view["me"]["rank"] == 1
     assert view["cohort"] < view["minimum"]
@@ -2493,7 +2493,7 @@ def test_the_leaderboard_never_names_the_last_one():
 
 
 def test_the_alias_is_drawn_from_a_closed_list_and_avoids_taken_ones():
-    every_alias = politique.possible_aliases()
+    every_alias = policy.possible_aliases()
     assert len(every_alias) > 100 and len(set(every_alias)) == len(every_alias)
     assert leaderboard.draw_alias(set(), 0) == every_alias[0]
     assert leaderboard.draw_alias({every_alias[0]}, 0) == every_alias[1]
@@ -2501,9 +2501,9 @@ def test_the_alias_is_drawn_from_a_closed_list_and_avoids_taken_ones():
 
 
 def test_divisions_only_go_up_never_down():
-    assert politique.division(0)["id"] == "atelier"
-    assert politique.division(8)["id"] == "machiniste"
-    assert politique.division(1000)["id"] == "ingenierie"
+    assert policy.division(0)["id"] == "atelier"
+    assert policy.division(8)["id"] == "machiniste"
+    assert policy.division(1000)["id"] == "ingenierie"
     rows = [{"account": "u1", "alias": "A", "recent": 0, "lifetime": 25}]
     assert leaderboard.leaderboard_view(rows, "u1", 4)["division"]["id"] == "ingenierie"
     view = leaderboard.divisions_view(rows)
@@ -2511,139 +2511,139 @@ def test_divisions_only_go_up_never_down():
 
 
 def test_a_card_drops_on_a_whole_family_and_its_rarity_is_measured():
-    assert politique.cards_earned({"tp2-ex0", "tp2-ex1"}) == []
-    assert politique.cards_earned({"tp2-ex3"}) == ["card:E-01"]
-    complete = {"tp2-ex0", "tp2-ex1", "tp2-ex2", "tp2-ex3", "tp2-ex4"}
-    assert set(politique.cards_earned(complete)) == {"card:E-01", "card:M-04"}
+    assert policy.cards_earned({"tp2-ex0", "tp2-ex1"}) == []
+    assert policy.cards_earned({"tp2-ex3"}) == ["card:E-01"]
+    complete_set = {"tp2-ex0", "tp2-ex1", "tp2-ex2", "tp2-ex3", "tp2-ex4"}
+    assert set(policy.cards_earned(complete_set)) == {"card:E-01", "card:M-04"}
 
-    for card in politique.POLICY["cards"]:
+    for card in policy.POLICY["cards"]:
         assert card["name"] and card["condition"] and card["exercises"]
-    assert not set(politique.CARDS) & set(politique.ACHIEVEMENTS)
+    assert not set(policy.CARDS) & set(policy.ACHIEVEMENTS)
 
-    views = {c["id"]: c for c in progression.collection_view(
+    views = {c["id"]: c for c in progress.collection_view(
         [{"id": "card:E-01"}], {"card:E-01": 6}, 10)}
     assert views["E-01"]["held"] and views["E-01"]["rarity"] == 60
     assert views["M-04"]["held"] is False
     assert views["M-04"]["condition"]
-    muted = progression.collection_view([], {"card:E-01": 1}, 2)
+    muted = progress.collection_view([], {"card:E-01": 1}, 2)
     assert all(c["rarity"] is None for c in muted), muted
 
 
-def _contenu_devoir(root, team=True, handin=True, items=None, deadline=None):
+def _assignment_content(root, team=True, handin=True, items=None, deadline=None):
     _write_json(os.path.join(root, "catalog.json"),
                 {"schema_version": 1, "skills": []})
-    for identifiant, fichiers in (("dev-a", ["main.c"]),
+    for identifier, files in (("dev-a", ["main.c"]),
                                   ("dev-b", ["lib.h", "lib.c"]),
                                   ("solo", ["submission.c"])):
-        exercise = os.path.join(root, "exercises", identifiant)
+        exercise = os.path.join(root, "exercises", identifier)
         _write_json(os.path.join(exercise, "exercise.json"), {
-            "schema_version": 1, "id": identifiant, "title": identifiant.upper(),
+            "schema_version": 1, "id": identifier, "title": identifier.upper(),
             "release": {"state": "available"}})
         with open(os.path.join(exercise, "statement.md"), "w", encoding="utf-8") as fh:
             fh.write("Consigne.")
         _write_json(os.path.join(exercise, "assessment", "io.json"),
                     {"cases": [{"stdin": "1\n", "expect": [1]}]})
         _write_json(os.path.join(exercise, "public", "files.json"),
-                    {"files": [{"name": nom, "template": ""} for nom in fichiers]})
-    devoir = {"schema_version": 1, "id": "devoir", "title": "Le devoir",
+                    {"files": [{"name": name, "template": ""} for name in files]})
+    assignment = {"schema_version": 1, "id": "devoir", "title": "Le devoir",
               "items": items if items is not None else ["dev-a", "dev-b"],
               "release": {"state": "available"}}
     if team:
-        devoir["team"] = {"min": 3, "max": 4, "count": 6}
+        assignment["team"] = {"min": 3, "max": 4, "count": 6}
     if deadline:
-        devoir["deadline"] = deadline
+        assignment["deadline"] = deadline
     if handin:
-        devoir["handin"] = {"root": "Devoir", "files": [
+        assignment["handin"] = {"root": "Devoir", "files": [
             {"name": "main.c", "exercise_id": "dev-a", "file": "main.c"},
             {"name": "lib.c", "exercise_id": "dev-b", "file": "lib.c"}]}
-    _write_json(os.path.join(root, "assignments", "devoir.json"), devoir)
+    _write_json(os.path.join(root, "assignments", "devoir.json"), assignment)
     return root
 
 
-def test_un_devoir_est_valide_projete_et_marque_ses_exercices():
-    root = tempfile.mkdtemp(prefix="ctester-devoir-")
+def test_an_assignment_is_validated_projected_and_marks_its_exercises():
+    root = tempfile.mkdtemp(prefix="ctester-assignment-")
     try:
-        _contenu_devoir(root, deadline="2026-12-05T23:59:00-05:00")
+        _assignment_content(root, deadline="2026-12-05T23:59:00-05:00")
         model = content_catalogue.discover(root)
         assert set(model["assignments"]) == {"devoir"}
-        devoir = model["assignments"]["devoir"]
-        assert devoir["team"] == {"min": 3, "max": 4, "count": 6}
-        assert devoir["items"] == ["dev-a", "dev-b"]
-        assert devoir["handin"]["root"] == "Devoir"
+        assignment = model["assignments"]["devoir"]
+        assert assignment["team"] == {"min": 3, "max": 4, "count": 6}
+        assert assignment["items"] == ["dev-a", "dev-b"]
+        assert assignment["handin"]["root"] == "Devoir"
         public = content_catalogue.public_catalogue(model)
-        marques = {e["id"]: e.get("assignment") for e in public["exercises"]}
-        assert marques == {"dev-a": "devoir", "dev-b": "devoir", "solo": None}
+        marks = {e["id"]: e.get("assignment") for e in public["exercises"]}
+        assert marks == {"dev-a": "devoir", "dev-b": "devoir", "solo": None}
         solo = [e for e in public["exercises"] if e["id"] == "solo"][0]
         assert "assignment" not in solo
-        [projete] = public["assignments"]
-        assert projete["deadline"] == "2026-12-05T23:59:00-05:00"
-        assert projete["access"] == "available"
-        fichiers = publish_content.projection(model)
-        assert "catalog.json" in fichiers
+        [projected] = public["assignments"]
+        assert projected["deadline"] == "2026-12-05T23:59:00-05:00"
+        assert projected["access"] == "available"
+        files = publish_content.projection(model)
+        assert "catalog.json" in files
     finally:
         shutil.rmtree(root)
 
 
-def test_discover_refuse_chaque_defaut_d_un_devoir():
-    def devoir(r):
+def test_discover_rejects_each_assignment_defect():
+    def assignment_path(r):
         return os.path.join(r, "assignments", "devoir.json")
 
     base = {"schema_version": 1, "id": "devoir", "title": "D",
             "items": ["dev-a"], "release": {"state": "available"}}
 
-    def avec(**extra):
+    def with_fields(**extra):
         d = dict(base)
         d.update(extra)
         return d
 
-    cas = [
-        (lambda r: _write_json(devoir(r), avec(schema_version=2)),
+    cases = [
+        (lambda r: _write_json(assignment_path(r), with_fields(schema_version=2)),
          "expected schema_version"),
-        (lambda r: _write_json(devoir(r), avec(id="Pas Bon!")), "invalid id"),
-        (lambda r: _write_json(devoir(r), avec(id="autre")), "must be named after the id"),
-        (lambda r: _write_json(devoir(r), avec(title="  ")), "missing title"),
-        (lambda r: _write_json(devoir(r), avec(items=[])), "non-empty list"),
-        (lambda r: _write_json(devoir(r), avec(items=["inconnu"])), "unknown exercise"),
-        (lambda r: _write_json(devoir(r), avec(deadline="pas une date")),
+        (lambda r: _write_json(assignment_path(r), with_fields(id="Pas Bon!")), "invalid id"),
+        (lambda r: _write_json(assignment_path(r), with_fields(id="autre")), "must be named after the id"),
+        (lambda r: _write_json(assignment_path(r), with_fields(title="  ")), "missing title"),
+        (lambda r: _write_json(assignment_path(r), with_fields(items=[])), "non-empty list"),
+        (lambda r: _write_json(assignment_path(r), with_fields(items=["inconnu"])), "unknown exercise"),
+        (lambda r: _write_json(assignment_path(r), with_fields(deadline="pas une date")),
          "deadline must be an ISO date"),
-        (lambda r: _write_json(devoir(r), avec(deadline="2026-12-05T23:59:00")),
+        (lambda r: _write_json(assignment_path(r), with_fields(deadline="2026-12-05T23:59:00")),
          "deadline must be an ISO date"),
-        (lambda r: _write_json(devoir(r), avec(team={"min": 4, "max": 3, "count": 6})),
+        (lambda r: _write_json(assignment_path(r), with_fields(team={"min": 4, "max": 3, "count": 6})),
          "team sizes must satisfy"),
-        (lambda r: _write_json(devoir(r), avec(team={"min": 1, "max": 99, "count": 6})),
+        (lambda r: _write_json(assignment_path(r), with_fields(team={"min": 1, "max": 99, "count": 6})),
          "team sizes must satisfy"),
-        (lambda r: _write_json(devoir(r), avec(team={"min": "trois", "max": 4, "count": 6})),
+        (lambda r: _write_json(assignment_path(r), with_fields(team={"min": "trois", "max": 4, "count": 6})),
          "team.min must be an integer"),
-        (lambda r: _write_json(devoir(r), avec(team={"min": 3, "max": 4})),
+        (lambda r: _write_json(assignment_path(r), with_fields(team={"min": 3, "max": 4})),
          "team.count must be an integer"),
-        (lambda r: _write_json(devoir(r), avec(team={"min": 3, "max": 4, "count": 0})),
+        (lambda r: _write_json(assignment_path(r), with_fields(team={"min": 3, "max": 4, "count": 0})),
          "team.count must satisfy"),
-        (lambda r: _write_json(devoir(r), avec(handin={"root": "../etc", "files": []})),
+        (lambda r: _write_json(assignment_path(r), with_fields(handin={"root": "../etc", "files": []})),
          "handin.root must be a plain directory name"),
-        (lambda r: _write_json(devoir(r), avec(
+        (lambda r: _write_json(assignment_path(r), with_fields(
             handin={"root": "D", "files": [
                 {"name": "main.c", "exercise_id": "solo", "file": "submission.c"}]})),
          "names an exercise outside this assignment"),
-        (lambda r: _write_json(devoir(r), avec(
+        (lambda r: _write_json(assignment_path(r), with_fields(
             handin={"root": "D", "files": [
                 {"name": "main.c", "exercise_id": "dev-a", "file": "secret.c"}]})),
          "does not declare"),
     ]
-    for muter, attendu in cas:
-        root = tempfile.mkdtemp(prefix="ctester-devoir-")
+    for mutate, expected in cases:
+        root = tempfile.mkdtemp(prefix="ctester-assignment-")
         try:
-            _contenu_devoir(root)
-            muter(root)
+            _assignment_content(root)
+            mutate(root)
             message = _discover_error(root)
-            assert attendu in message, (attendu, message)
+            assert expected in message, (expected, message)
         finally:
             shutil.rmtree(root)
 
 
-def test_un_exercice_n_appartient_qu_a_un_seul_devoir():
-    root = tempfile.mkdtemp(prefix="ctester-devoir-")
+def test_an_exercise_belongs_to_a_single_assignment():
+    root = tempfile.mkdtemp(prefix="ctester-assignment-")
     try:
-        _contenu_devoir(root)
+        _assignment_content(root)
         _write_json(os.path.join(root, "assignments", "autre.json"),
                     {"schema_version": 1, "id": "autre", "title": "A",
                      "items": ["dev-a"], "release": {"state": "available"}})
@@ -2652,129 +2652,129 @@ def test_un_exercice_n_appartient_qu_a_un_seul_devoir():
         shutil.rmtree(root)
 
 
-def test_un_devoir_sans_bloc_team_reste_individuel():
-    root = tempfile.mkdtemp(prefix="ctester-devoir-")
+def test_an_assignment_without_a_team_block_stays_individual():
+    root = tempfile.mkdtemp(prefix="ctester-assignment-")
     try:
-        _contenu_devoir(root, team=False)
+        _assignment_content(root, team=False)
         model = content_catalogue.discover(root)
         assert model["assignments"]["devoir"]["team"] is None
         public = content_catalogue.public_catalogue(model)
-        [projete] = public["assignments"]
-        assert "team" not in projete
-        assert teams.is_team_assignment(projete) is False
+        [projected] = public["assignments"]
+        assert "team" not in projected
+        assert teams.is_team_assignment(projected) is False
     finally:
         shutil.rmtree(root)
 
 
-class _BaseEquipe:
-    def __init__(self, membres):
-        self.membres = membres
+class _TeamStore:
+    def __init__(self, members):
+        self.members = members
 
     def team_of(self, user, assignment_id):
-        team_id = self.membres.get((assignment_id, user))
+        team_id = self.members.get((assignment_id, user))
         if team_id is None:
             return None
         return {"team_id": team_id, "assignment_id": assignment_id,
                 "group_number": 4, "number": 1, "label": "Équipe 1"}
 
 
-def _publier_devoir(root, dest):
+def _publish_assignment(root, dest):
     publish_content.publish(content_catalogue.discover(root), dest)
 
 
-def test_la_porte_d_un_devoir_distingue_trois_refus():
-    root = tempfile.mkdtemp(prefix="ctester-devoir-")
-    dest = tempfile.mkdtemp(prefix="ctester-publie-")
-    ancien = config.PUBLISHED
+def test_the_assignment_gate_distinguishes_three_refusals():
+    root = tempfile.mkdtemp(prefix="ctester-assignment-")
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    previous = config.PUBLISHED
     try:
-        _contenu_devoir(root)
-        _publier_devoir(root, dest)
+        _assignment_content(root)
+        _publish_assignment(root, dest)
         config.PUBLISHED = dest
-        base = _BaseEquipe({("devoir", "sub-alice"): "e1"})
-        _, _, refus = teams.workspace(base, "sub-alice", "inconnu")
-        assert refus[0] == 404
-        _, equipe, refus = teams.workspace(base, "sub-alice", "devoir")
-        assert refus is None and equipe["team_id"] == "e1"
-        _, equipe, refus = teams.workspace(base, "sub-bob", "devoir")
-        assert equipe is None and refus[0] == 403
-        assert "figées" in refus[1] and "enseignant" in refus[1], refus
-        devoir, _, _ = teams.workspace(base, "sub-alice", "devoir")
-        assert teams.exercise_in(devoir, "dev-a") is True
-        assert teams.exercise_in(devoir, "solo") is False
-        assert teams.exercise_in(devoir, "../catalog") is False
+        base = _TeamStore({("devoir", "sub-alice"): "e1"})
+        _, _, refusal = teams.workspace(base, "sub-alice", "inconnu")
+        assert refusal[0] == 404
+        _, team, refusal = teams.workspace(base, "sub-alice", "devoir")
+        assert refusal is None and team["team_id"] == "e1"
+        _, team, refusal = teams.workspace(base, "sub-bob", "devoir")
+        assert team is None and refusal[0] == 403
+        assert "figées" in refusal[1] and "enseignant" in refusal[1], refusal
+        assignment, _, _ = teams.workspace(base, "sub-alice", "devoir")
+        assert teams.exercise_in(assignment, "dev-a") is True
+        assert teams.exercise_in(assignment, "solo") is False
+        assert teams.exercise_in(assignment, "../catalog") is False
     finally:
-        config.PUBLISHED = ancien
+        config.PUBLISHED = previous
         shutil.rmtree(root)
         shutil.rmtree(dest)
 
 
-def test_un_devoir_sans_equipe_est_refuse_en_le_disant():
-    root = tempfile.mkdtemp(prefix="ctester-devoir-")
-    dest = tempfile.mkdtemp(prefix="ctester-publie-")
-    ancien = config.PUBLISHED
+def test_an_assignment_without_a_team_is_refused_with_a_reason():
+    root = tempfile.mkdtemp(prefix="ctester-assignment-")
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    previous = config.PUBLISHED
     try:
-        _contenu_devoir(root, team=False)
-        _publier_devoir(root, dest)
+        _assignment_content(root, team=False)
+        _publish_assignment(root, dest)
         config.PUBLISHED = dest
-        _, equipe, refus = teams.workspace(_BaseEquipe({}), "sub-alice", "devoir")
-        assert equipe is None and refus[0] == 400
-        assert "équipe" in refus[1]
+        _, team, refusal = teams.workspace(_TeamStore({}), "sub-alice", "devoir")
+        assert team is None and refusal[0] == 400
+        assert "équipe" in refusal[1]
     finally:
-        config.PUBLISHED = ancien
+        config.PUBLISHED = previous
         shutil.rmtree(root)
         shutil.rmtree(dest)
 
 
-def test_la_vue_d_une_equipe_ne_laisse_sortir_aucun_sub():
+def test_the_team_view_leaks_no_sub():
     roster = ["sub-alice", "sub-bob", "sub-cleo"]
-    profils = {"sub-bob": {"display_name": "Bob B", "display_name_public": True},
+    profiles = {"sub-bob": {"display_name": "Bob B", "display_name_public": True},
                "sub-cleo": {"display_name": "Cleo", "display_name_public": False}}
-    vue = teams.members_view(roster, "sub-alice", profils)
-    charge = json.dumps(vue, ensure_ascii=False)
-    assert "sub-" not in charge, charge
-    assert [m["id"] for m in vue] == ["m1", "m2", "m3"]
-    assert [m["you"] for m in vue] == [True, False, False]
-    assert vue[1]["name"] == "Bob B"
-    assert vue[2]["name"] == "Coéquipier 3"
-    assert len({m["color"] for m in vue}) == 3
+    view = teams.members_view(roster, "sub-alice", profiles)
+    payload = json.dumps(view, ensure_ascii=False)
+    assert "sub-" not in payload, payload
+    assert [m["id"] for m in view] == ["m1", "m2", "m3"]
+    assert [m["you"] for m in view] == [True, False, False]
+    assert view[1]["name"] == "Bob B"
+    assert view[2]["name"] == "Coéquipier 3"
+    assert len({m["color"] for m in view}) == 3
     assert teams.member_handle(roster, "sub-cleo") == "m3"
     assert teams.member_handle(roster, "sub-etranger") == ""
 
 
-def test_l_historique_nomme_une_position_et_ne_chiffre_aucune_contribution():
+def test_the_history_names_a_position_and_quantifies_no_contribution():
     roster = ["sub-alice", "sub-bob"]
-    lignes = [{"revision_id": "r2", "account": "sub-bob",
+    lines = [{"revision_id": "r2", "account": "sub-bob",
                "created_at": "2026-09-07T14:32Z", "bytes": 812},
               {"revision_id": "r1", "account": "sub-alice",
                "created_at": "2026-09-07T14:02Z", "bytes": 640},
               {"revision_id": "r0", "account": "sub-parti",
                "created_at": "2026-09-06T10:00Z", "bytes": 12}]
-    vue = teams.revisions_view(lignes, roster)
-    charge = json.dumps(vue)
-    assert "sub-" not in charge, charge
-    assert "%" not in charge and "percent" not in charge
-    assert [r["author"] for r in vue] == ["m2", "m1", ""]
-    assert vue[0]["id"] == "r2" and vue[0]["bytes"] == 812
+    view = teams.revisions_view(lines, roster)
+    payload = json.dumps(view)
+    assert "sub-" not in payload, payload
+    assert "%" not in payload and "percent" not in payload
+    assert [r["author"] for r in view] == ["m2", "m1", ""]
+    assert view[0]["id"] == "r2" and view[0]["bytes"] == 812
 
 
-class _BaseDocuments:
-    def __init__(self, documents, panne=False):
+class _DocumentStore:
+    def __init__(self, documents, outage=False):
         self.documents = documents
-        self.panne = panne
+        self.outage = outage
 
     def read_team_document(self, team_id, exercise_id):
-        if self.panne:
+        if self.outage:
             return None
         return self.documents.get((team_id, exercise_id), {})
 
 
-def _entree(exercise_id):
-    fichiers = {"dev-a": ["main.c"], "dev-b": ["lib.h", "lib.c"]}
+def _entry(exercise_id):
+    files = {"dev-a": ["main.c"], "dev-b": ["lib.h", "lib.c"]}
     return {"id": exercise_id,
-            "files": [{"name": n} for n in fichiers[exercise_id]]}
+            "files": [{"name": n} for n in files[exercise_id]]}
 
 
-DEVOIR_PUBLIC = {
+PUBLIC_ASSIGNMENT = {
     "id": "devoir", "title": "Le devoir", "items": ["dev-a", "dev-b"],
     "team": {"min": 3, "max": 4}, "release": {"state": "available"},
     "handin": {"root": "Devoir", "files": [
@@ -2782,61 +2782,61 @@ DEVOIR_PUBLIC = {
         {"name": "matrac_lib.c", "exercise_id": "dev-b", "file": "lib.c"}]}}
 
 
-def test_l_archive_est_pilotee_par_le_devoir_et_signale_ce_qui_manque():
-    base = _BaseDocuments({("e1", "dev-a"): {"main.c": "int main(void){}\n"},
+def test_the_archive_follows_the_assignment_and_reports_what_is_missing():
+    base = _DocumentStore({("e1", "dev-a"): {"main.c": "int main(void){}\n"},
                            ("e1", "dev-b"): {"lib.h": "#pragma once\n",
                                              "lib.c": "int f(void){return 1;}\n"}})
-    fichiers, manquants = teams.handin_files(base, DEVOIR_PUBLIC, "e1", _entree)
-    assert manquants == []
-    assert sorted(fichiers) == ["Devoir/main.c", "Devoir/matrac_lib.c"]
-    assert fichiers["Devoir/matrac_lib.c"] == "int f(void){return 1;}\n"
-    assert not any(nom.endswith("lib.h") for nom in fichiers)
+    files, missing = teams.handin_files(base, PUBLIC_ASSIGNMENT, "e1", _entry)
+    assert missing == []
+    assert sorted(files) == ["Devoir/main.c", "Devoir/matrac_lib.c"]
+    assert files["Devoir/matrac_lib.c"] == "int f(void){return 1;}\n"
+    assert not any(name.endswith("lib.h") for name in files)
 
-    vide = _BaseDocuments({("e1", "dev-a"): {"main.c": "   \n"}})
-    fichiers, manquants = teams.handin_files(vide, DEVOIR_PUBLIC, "e1", _entree)
-    assert [m["name"] for m in manquants] == ["main.c", "matrac_lib.c"]
-    assert fichiers == {}
+    empty = _DocumentStore({("e1", "dev-a"): {"main.c": "   \n"}})
+    files, missing = teams.handin_files(empty, PUBLIC_ASSIGNMENT, "e1", _entry)
+    assert [m["name"] for m in missing] == ["main.c", "matrac_lib.c"]
+    assert files == {}
 
-    assert teams.handin_files(_BaseDocuments({}, panne=True),
-                              DEVOIR_PUBLIC, "e1", _entree) == (None, [])
+    assert teams.handin_files(_DocumentStore({}, outage=True),
+                              PUBLIC_ASSIGNMENT, "e1", _entry) == (None, [])
 
 
-def test_l_archive_est_deterministe_et_relisible():
+def test_the_archive_is_deterministic_and_readable():
     import io as _io
     import zipfile as _zipfile
 
-    fichiers = {"Devoir/main.c": "int main(void){return 0;}\n",
+    files = {"Devoir/main.c": "int main(void){return 0;}\n",
                 "Devoir/matrac_lib.c": "double f(void){return 1.0;}\n"}
-    premier = teams.build_zip(fichiers)
-    second = teams.build_zip(dict(reversed(list(fichiers.items()))))
-    assert premier == second
-    with _zipfile.ZipFile(_io.BytesIO(premier)) as archive:
+    first = teams.build_zip(files)
+    second = teams.build_zip(dict(reversed(list(files.items()))))
+    assert first == second
+    with _zipfile.ZipFile(_io.BytesIO(first)) as archive:
         assert archive.namelist() == ["Devoir/main.c", "Devoir/matrac_lib.c"]
-        assert archive.read("Devoir/main.c").decode() == fichiers["Devoir/main.c"]
+        assert archive.read("Devoir/main.c").decode() == files["Devoir/main.c"]
         for info in archive.infolist():
             assert info.date_time == teams.ARCHIVE_EPOCH, info.date_time
             assert info.create_system == 0
-    exotique = {"Devoir/main.c": "/* accentué : é\r\n*/\nint main(){}\n"}
-    with _zipfile.ZipFile(_io.BytesIO(teams.build_zip(exotique))) as archive:
+    exotic = {"Devoir/main.c": "/* accentué : é\r\n*/\nint main(){}\n"}
+    with _zipfile.ZipFile(_io.BytesIO(teams.build_zip(exotic))) as archive:
         assert archive.read("Devoir/main.c").decode("utf-8") \
-            == exotique["Devoir/main.c"]
+            == exotic["Devoir/main.c"]
 
 
-def test_la_date_de_remise_est_une_donnee_pas_une_tache():
-    passe = dict(DEVOIR_PUBLIC, deadline="2020-01-01T00:00:00-05:00")
-    futur = dict(DEVOIR_PUBLIC, deadline="2099-01-01T00:00:00-05:00")
-    assert teams.deadline_passed(passe) is True
-    assert teams.deadline_passed(futur) is False
-    assert teams.deadline_passed(DEVOIR_PUBLIC) is False
-    assert teams.deadline_passed(dict(DEVOIR_PUBLIC, deadline="demain")) is False
+def test_the_deadline_is_data_not_a_task():
+    past = dict(PUBLIC_ASSIGNMENT, deadline="2020-01-01T00:00:00-05:00")
+    future = dict(PUBLIC_ASSIGNMENT, deadline="2099-01-01T00:00:00-05:00")
+    assert teams.deadline_passed(past) is True
+    assert teams.deadline_passed(future) is False
+    assert teams.deadline_passed(PUBLIC_ASSIGNMENT) is False
+    assert teams.deadline_passed(dict(PUBLIC_ASSIGNMENT, deadline="demain")) is False
 
 
-class _SocketFactice:
+class _FakeSocket:
     def __init__(self):
-        self.envois = []
+        self.sent = []
 
-    async def send_text(self, texte):
-        self.envois.append(json.loads(texte))
+    async def send_text(self, text):
+        self.sent.append(json.loads(text))
 
 
 def _sync(coro):
@@ -2844,85 +2844,85 @@ def _sync(coro):
     return asyncio.run(coro)
 
 
-def test_deux_equipes_sur_le_meme_exercice_sont_deux_salles():
+def test_two_teams_on_the_same_exercise_are_two_rooms():
     collab.reset()
     try:
-        a1 = collab.Connection(_SocketFactice(),
+        a1 = collab.Connection(_FakeSocket(),
                                collab.room_key("e1", "dev-a"), "m1", "sub-a")
-        a2 = collab.Connection(_SocketFactice(),
+        a2 = collab.Connection(_FakeSocket(),
                                collab.room_key("e1", "dev-a"), "m2", "sub-b")
-        b1 = collab.Connection(_SocketFactice(),
+        b1 = collab.Connection(_FakeSocket(),
                                collab.room_key("e2", "dev-a"), "m1", "sub-c")
         assert a1.key != b1.key
-        epoque, pairs = collab.join(a1)
-        assert pairs == 0 and epoque
+        epoch, pairs = collab.join(a1)
+        assert pairs == 0 and epoch
         assert collab.join(a2)[1] == 1
-        epoque_b, pairs_b = collab.join(b1)
-        assert pairs_b == 0 and epoque_b != epoque
+        epoch_b, pairs_b = collab.join(b1)
+        assert pairs_b == 0 and epoch_b != epoch
 
         _sync(collab.broadcast(a1, {"t": "update", "d": "xx"}))
-        assert a2.socket.envois == [{"t": "update", "d": "xx"}]
-        assert a1.socket.envois == []
-        assert b1.socket.envois == []
+        assert a2.socket.sent == [{"t": "update", "d": "xx"}]
+        assert a1.socket.sent == []
+        assert b1.socket.sent == []
 
         _sync(collab.announce(a1.key))
-        assert a2.socket.envois[-1] == {"t": "presence", "online": ["m1", "m2"]}
-        assert b1.socket.envois == []
+        assert a2.socket.sent[-1] == {"t": "presence", "online": ["m1", "m2"]}
+        assert b1.socket.sent == []
     finally:
         collab.reset()
 
 
-def test_une_salle_videe_change_d_epoque_et_le_client_repart_du_serveur():
+def test_an_emptied_room_changes_epoch_and_the_client_restarts_from_the_server():
     collab.reset()
     try:
-        cle = collab.room_key("e1", "dev-a")
-        un = collab.Connection(_SocketFactice(), cle, "m1", "sub-a")
-        epoque, _ = collab.join(un)
-        collab.leave(un)
-        assert collab.members(cle) == []
-        deux = collab.Connection(_SocketFactice(), cle, "m2", "sub-b")
-        nouvelle, pairs = collab.join(deux)
-        assert pairs == 0, "la salle videe doit etre reconstruite"
-        assert nouvelle != epoque, "et le client doit pouvoir le voir"
+        room = collab.room_key("e1", "dev-a")
+        one = collab.Connection(_FakeSocket(), room, "m1", "sub-a")
+        epoch, _ = collab.join(one)
+        collab.leave(one)
+        assert collab.members(room) == []
+        two = collab.Connection(_FakeSocket(), room, "m2", "sub-b")
+        fresh, pairs = collab.join(two)
+        assert pairs == 0, "the emptied room must be rebuilt"
+        assert fresh != epoch, "and the client must be able to see it"
     finally:
         collab.reset()
 
 
-def test_une_salle_deduplique_les_onglets_et_se_borne():
+def test_a_room_deduplicates_tabs_and_is_bounded():
     collab.reset()
-    ancien = config.TEAM_LIVE_MAX
+    previous = config.TEAM_LIVE_MAX
     try:
-        cle = collab.room_key("e1", "dev-a")
+        room = collab.room_key("e1", "dev-a")
         for _ in range(2):
-            collab.join(collab.Connection(_SocketFactice(), cle, "m1", "sub-a"))
-        collab.join(collab.Connection(_SocketFactice(), cle, "m2", "sub-b"))
-        assert collab.members(cle) == ["m1", "m2"]
+            collab.join(collab.Connection(_FakeSocket(), room, "m1", "sub-a"))
+        collab.join(collab.Connection(_FakeSocket(), room, "m2", "sub-b"))
+        assert collab.members(room) == ["m1", "m2"]
         config.TEAM_LIVE_MAX = 3
-        assert collab.full(cle) is True
+        assert collab.full(room) is True
         config.TEAM_LIVE_MAX = 4
-        assert collab.full(cle) is False
+        assert collab.full(room) is False
     finally:
-        config.TEAM_LIVE_MAX = ancien
+        config.TEAM_LIVE_MAX = previous
         collab.reset()
 
 
-def test_un_exercice_de_devoir_ne_compte_dans_aucune_pratique():
-    entrees = [{"id": "solo", "skills": ["variables"]},
+def test_an_assignment_exercise_counts_in_no_practice():
+    entries = [{"id": "solo", "skills": ["variables"]},
                {"id": "dev-a", "skills": ["variables"], "assignment": "devoir"},
                {"id": "verif", "skills": ["variables"], "verification": True}]
-    assert [e["id"] for e in progression.practice_exercises(entrees)] == ["solo"]
-    source = lire(os.path.join(ROOT, "app", "routers", "submission.py"))
+    assert [e["id"] for e in progress.practice_exercises(entries)] == ["solo"]
+    source = read_file(os.path.join(ROOT, "app", "routers", "submission.py"))
     assert 'entry.get("assignment")' in source
-    page = lire(os.path.join(ROOT, "frontend", "src", "lib", "domain",
+    page = read_file(os.path.join(ROOT, "frontend", "src", "lib", "domain",
                              "catalog.ts"))
     assert "!t.assignment" in page
 
 
-def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
+def test_the_roster_refuses_before_writing_anything():
     import importlib.util
 
-    chemin = os.path.join(ROOT, "scripts", "import_teams.py")
-    spec = importlib.util.spec_from_file_location("import_teams", chemin)
+    path = os.path.join(ROOT, "scripts", "import_teams.py")
+    spec = importlib.util.spec_from_file_location("import_teams", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
@@ -2930,68 +2930,68 @@ def test_le_listage_refuse_avant_d_ecrire_quoi_que_ce_soit():
     assert module.team_handle(6, 1) == teams.team_handle(6, 1) == "g06-e01"
     assert module.TEAM_NAME % 7 == teams.TEAM_NAME % 7 == "Équipe 7"
 
-    entete = "group_number,number,account\n"
-    dossier = tempfile.mkdtemp(prefix="ctester-listage-")
+    header = "group_number,number,account\n"
+    directory = tempfile.mkdtemp(prefix="ctester-roster-")
     try:
-        def ecrire(texte):
-            chemin_csv = os.path.join(dossier, "r.csv")
-            with open(chemin_csv, "w", encoding="utf-8") as fh:
-                fh.write(texte)
-            return chemin_csv
+        def write(text):
+            csv_path = os.path.join(directory, "r.csv")
+            with open(csv_path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            return csv_path
 
-        bon = ecrire(entete + "4,1,sub-alice\n4,1,sub-bob\n6,3,sub-cleo\n")
-        lignes = module.read_roster(bon)
-        assert lignes == [(4, 1, "sub-alice"), (4, 1, "sub-bob"),
-                          (6, 3, "sub-cleo")], lignes
-        assert module.sizes(lignes) == {"g04-e01": 2, "g06-e03": 1}
+        good = write(header + "4,1,sub-alice\n4,1,sub-bob\n6,3,sub-cleo\n")
+        lines = module.read_roster(good)
+        assert lines == [(4, 1, "sub-alice"), (4, 1, "sub-bob"),
+                          (6, 3, "sub-cleo")], lines
+        assert module.sizes(lines) == {"g04-e01": 2, "g06-e03": 1}
 
-        for texte, attendu in (
-                (entete + ",1,sub-a\n", "group_number must be 1..99"),
-                (entete + "4,,sub-a\n", "number must be 1..99"),
-                (entete + "0,1,sub-a\n", "group_number must be 1..99"),
-                (entete + "4,100,sub-a\n", "number must be 1..99"),
-                (entete + "4,1,\n", "account is required"),
-                (entete, "empty"),
-                (entete + "4,1,sub-a\n6,2,sub-a\n", "two teams")):
+        for text, expected in (
+                (header + ",1,sub-a\n", "group_number must be 1..99"),
+                (header + "4,,sub-a\n", "number must be 1..99"),
+                (header + "0,1,sub-a\n", "group_number must be 1..99"),
+                (header + "4,100,sub-a\n", "number must be 1..99"),
+                (header + "4,1,\n", "account is required"),
+                (header, "empty"),
+                (header + "4,1,sub-a\n6,2,sub-a\n", "two teams")):
             try:
-                module.read_roster(ecrire(texte))
+                module.read_roster(write(text))
             except SystemExit as exc:
-                assert attendu in str(exc), (attendu, str(exc))
+                assert expected in str(exc), (expected, str(exc))
             else:
-                raise AssertionError("listage invalide accepte : " + repr(texte))
+                raise AssertionError("invalid roster accepted: " + repr(text))
 
-        script = module.to_sql(lignes, "devoir")
+        script = module.to_sql(lines, "devoir")
         assert script.startswith("BEGIN;") and script.rstrip().endswith("COMMIT;")
         assert "'g04-e01'" in script and "'g06-e03'" in script, script
-        assert len(module.statements(lignes, "devoir")) == script.count(";") - 2
-        hostile = module.read_roster(ecrire(entete + "4,1,sub-o'brien\n"))
+        assert len(module.statements(lines, "devoir")) == script.count(";") - 2
+        hostile = module.read_roster(write(header + "4,1,sub-o'brien\n"))
         assert "'sub-o''brien'" in module.to_sql(hostile, "devoir")
         try:
-            module.to_sql(module.read_roster(ecrire(entete + "4,0,sub-a\n")),
+            module.to_sql(module.read_roster(write(header + "4,0,sub-a\n")),
                           "devoir")
         except SystemExit as exc:
             assert "number must be" in str(exc)
         else:
-            raise AssertionError("un listage refuse a quand meme produit du SQL")
+            raise AssertionError("a refused roster still produced SQL")
     finally:
-        shutil.rmtree(dossier)
+        shutil.rmtree(directory)
 
 
-def test_console_le_job_ne_porte_aucune_identite():
+def test_console_the_job_carries_no_identity():
     if fcntl is None:
-        print("  (saute : pas de flock hors POSIX)")
+        print("  (skipped: no flock outside POSIX)")
         return
 
-    dossier = tempfile.mkdtemp()
-    garde = config.SPOOL
+    directory = tempfile.mkdtemp()
+    saved = config.SPOOL
     try:
-        config.SPOOL = dossier
+        config.SPOOL = directory
         session = scratch.open_session("int main(void){return 0;}")
-        job = json.loads(lire(os.path.join(session.path, "job.json")))
+        job = json.loads(read_file(os.path.join(session.path, "job.json")))
         assert job == {"kind": "console"}, job
-        for interdit in ("owner", "sub", "account", "exercise_id", "utilisateur"):
-            assert interdit not in job
-        assert lire(os.path.join(session.path, "src", "main.c")) \
+        for forbidden in ("owner", "sub", "account", "exercise_id", "utilisateur"):
+            assert forbidden not in job
+        assert read_file(os.path.join(session.path, "src", "main.c")) \
             == "int main(void){return 0;}"
         assert os.listdir(os.path.join(session.path, "src")) == ["main.c"]
         assert session.worker_alive() is False
@@ -2999,39 +2999,39 @@ def test_console_le_job_ne_porte_aucune_identite():
         session.close()
         assert scratch._lock_held(os.path.join(session.path, "alive")) is False
 
-        avec = scratch.open_session('#include "pile.h"\n', "pile.h", "#define N 3\n")
-        job = json.loads(lire(os.path.join(avec.path, "job.json")))
+        with_header = scratch.open_session('#include "pile.h"\n', "pile.h", "#define N 3\n")
+        job = json.loads(read_file(os.path.join(with_header.path, "job.json")))
         assert job == {"kind": "console", "header": "pile.h"}, job
-        assert sorted(os.listdir(os.path.join(avec.path, "src"))) == ["main.c", "pile.h"]
-        assert lire(os.path.join(avec.path, "src", "pile.h")) == "#define N 3\n"
-        avec.close()
+        assert sorted(os.listdir(os.path.join(with_header.path, "src"))) == ["main.c", "pile.h"]
+        assert read_file(os.path.join(with_header.path, "src", "pile.h")) == "#define N 3\n"
+        with_header.close()
     finally:
-        config.SPOOL = garde
-        shutil.rmtree(dossier)
+        config.SPOOL = saved
+        shutil.rmtree(directory)
 
 
-def test_console_n_a_pas_de_liste_d_includes():
-    source = lire(os.path.join(ROOT, "judge", "src", "console.rs"))
+def test_console_has_no_include_list():
+    source = read_file(os.path.join(ROOT, "judge", "src", "console.rs"))
     assert "read_allowed" not in source
     assert "forbidden_includes" not in source
 
 
-def test_le_bot_du_pont_tourne_sans_aucun_tiers_et_saute_ses_propres_messages():
-    chemin = os.path.join(ROOT, "bot", "bridge.py")
-    assert os.path.exists(chemin), chemin
-    sortie = subprocess.run([sys.executable, chemin, "--autotest"],
+def test_the_bridge_bot_runs_without_third_parties_and_skips_its_own_messages():
+    path = os.path.join(ROOT, "bot", "bridge.py")
+    assert os.path.exists(path), path
+    output = subprocess.run([sys.executable, path, "--autotest"],
                             capture_output=True, text=True)
-    assert sortie.returncode == 0, sortie.stdout + sortie.stderr
-    assert "autotest ok" in sortie.stdout, sortie.stdout
+    assert output.returncode == 0, output.stdout + output.stderr
+    assert "autotest ok" in output.stdout, output.stdout
 
 
-def test_le_pont_discord_ne_laisse_sortir_que_le_chat_public():
-    garde = (config.DISCORD_WEBHOOK, config.DISCORD_TIMEOUT)
-    partis = []
-    vrai_poster = discord._post
+def test_the_discord_bridge_only_lets_out_the_public_chat():
+    saved = (config.DISCORD_WEBHOOK, config.DISCORD_TIMEOUT)
+    sent = []
+    real_post = discord._post
     try:
         config.DISCORD_WEBHOOK = "https://discord.invalide/webhook"
-        discord._post = partis.append
+        discord._post = sent.append
 
         config.DISCORD_WEBHOOK = ""
         assert discord.enabled() is False
@@ -3041,39 +3041,39 @@ def test_le_pont_discord_ne_laisse_sortir_que_le_chat_public():
         assert discord.announce("@chat:general", "sub-a", "Arbre", "salut") is True
         assert discord.announce("@chat:tp2-ex3", "sub-a", "Arbre", "salut") is True
 
-        for fil in ("tp2-ex3", "tp1", "", None):
-            assert discord.announce(fil, "sub-a", "Arbre", "salut") is False, fil
+        for thread in ("tp2-ex3", "tp1", "", None):
+            assert discord.announce(thread, "sub-a", "Arbre", "salut") is False, thread
 
         assert discord.announce("@chat:general", "@discord:4711",
                                 "Vianney", "salut") is False
         assert discord.announce("@chat:general", "sub-a", "Arbre", "   ") is False
 
-        corps = discord.payload("Arbre", "@everyone @here salut", "# ex.3")
-        assert corps["allowed_mentions"] == {"parse": []}, corps
-        assert corps["content"] == "@everyone @here salut"
-        assert corps["username"] == "Arbre — # ex.3"
+        body = discord.payload("Arbre", "@everyone @here salut", "# ex.3")
+        assert body["allowed_mentions"] == {"parse": []}, body
+        assert body["content"] == "@everyone @here salut"
+        assert body["username"] == "Arbre — # ex.3"
         long = discord.payload("n" * 400, "t" * 5000, "")
         assert len(long["username"]) <= 80 and len(long["content"]) <= 1900
 
-        corps = discord.payload("Arbre hélicoïdal", "ma question", "# ex.3")
-        assert "sub-" not in json.dumps(corps), corps
+        body = discord.payload("Arbre hélicoïdal", "ma question", "# ex.3")
+        assert "sub-" not in json.dumps(body), body
     finally:
-        discord._post = vrai_poster
-        config.DISCORD_WEBHOOK, config.DISCORD_TIMEOUT = garde
+        discord._post = real_post
+        config.DISCORD_WEBHOOK, config.DISCORD_TIMEOUT = saved
 
 
-def test_le_chat_force_le_public_et_le_prefixe_est_toute_la_distinction():
-    salon = forum.CHAT_GENERAL
-    assert forum.is_chat(salon) and forum.is_chat("@chat:tp2-ex3")
+def test_the_chat_forces_public_and_the_prefix_is_the_whole_distinction():
+    channel = forum.CHAT_GENERAL
+    assert forum.is_chat(channel) and forum.is_chat("@chat:tp2-ex3")
     assert not forum.is_chat("tp2-ex3")
     assert not forum.is_chat("") and not forum.is_chat(None)
 
-    assert forum.forum_visibility(None, False, salon) == ("thread", None)
-    assert forum.forum_visibility("", True, salon) == ("thread", None)
-    assert forum.forum_visibility("thread", True, salon) == ("thread", None)
-    for interdit in ("private", "group"):
-        valeur, message = forum.forum_visibility(interdit, True, salon)
-        assert valeur is None and "publics" in message, interdit
+    assert forum.forum_visibility(None, False, channel) == ("thread", None)
+    assert forum.forum_visibility("", True, channel) == ("thread", None)
+    assert forum.forum_visibility("thread", True, channel) == ("thread", None)
+    for forbidden in ("private", "group"):
+        value, message = forum.forum_visibility(forbidden, True, channel)
+        assert value is None and "publics" in message, forbidden
 
     assert forum.forum_visibility(None, True) == ("private", None)
     assert forum.forum_visibility(None, False) == ("thread", None)
@@ -3082,61 +3082,61 @@ def test_le_chat_force_le_public_et_le_prefixe_est_toute_la_distinction():
     assert "@" in forum.CHAT_PREFIX
 
 
-def test_un_auteur_masque_reste_suivable():
-    garde = config.FORUM_MODERATORS
+def test_a_hidden_author_stays_followable():
+    saved = config.FORUM_MODERATORS
     try:
         config.FORUM_MODERATORS = frozenset({"sub-mod"})
-        fil = [{"id": "a" * 32, "account": "sub-bob", "text": "x",
+        thread = [{"id": "a" * 32, "account": "sub-bob", "text": "x",
                 "hidden": False, "created_at": "2026-09-03T10:00Z"},
                {"id": "b" * 32, "account": "sub-carl", "text": "y",
                 "hidden": False, "created_at": "2026-09-03T10:01Z"},
                {"id": "c" * 32, "account": "sub-mod", "text": "z",
                 "hidden": False, "created_at": "2026-09-03T10:02Z"}]
-        profils = {"sub-bob": {"alias": "Rotor cuivré"},
+        profiles = {"sub-bob": {"alias": "Rotor cuivré"},
                    "sub-carl": {"alias": "Piston lisse"},
                    "sub-mod": {"alias": "Came trempée"}}
-        vus = forum.forum_view(fil, "sub-alice", False, profils)
-        noms = [v["author"] for v in vus]
-        assert noms[0] == "Rotor cuivré" and noms[1] == "Piston lisse"
-        assert noms[0] != noms[1]
-        assert noms[2] == "Enseignant"
-        assert all(v["reportable_name"] is False for v in vus)
+        views = forum.forum_view(thread, "sub-alice", False, profiles)
+        names = [v["author"] for v in views]
+        assert names[0] == "Rotor cuivré" and names[1] == "Piston lisse"
+        assert names[0] != names[1]
+        assert names[2] == "Enseignant"
+        assert all(v["reportable_name"] is False for v in views)
 
-        choisi = dict(profils, **{"sub-bob": {"alias": "Rotor cuivré",
+        chosen = dict(profiles, **{"sub-bob": {"alias": "Rotor cuivré",
                                               "display_name": "Bob",
                                               "display_name_public": True}})
-        vu = forum.forum_view(fil, "sub-alice", False, choisi)[0]
-        assert vu["author"] == "Bob" and vu["reportable_name"] is True
+        seen = forum.forum_view(thread, "sub-alice", False, chosen)[0]
+        assert seen["author"] == "Bob" and seen["reportable_name"] is True
 
-        moi = forum.forum_view(fil, "sub-bob", False, profils)[0]
-        assert moi["author"] == "Vous (Rotor cuivré)"
+        mine = forum.forum_view(thread, "sub-bob", False, profiles)[0]
+        assert mine["author"] == "Vous (Rotor cuivré)"
 
-        assert forum.forum_view(fil, "sub-alice", False, {})[0]["author"] == "Participant"
+        assert forum.forum_view(thread, "sub-alice", False, {})[0]["author"] == "Participant"
 
-        assert "sub-bob" not in json.dumps(vus + [vu, moi], ensure_ascii=False)
+        assert "sub-bob" not in json.dumps(views + [seen, mine], ensure_ascii=False)
     finally:
-        config.FORUM_MODERATORS = garde
+        config.FORUM_MODERATORS = saved
 
 
-def test_une_reponse_voyage_avec_son_lien_et_ses_deux_compteurs():
-    fil = [{"id": "a" * 32, "account": "sub-bob", "text": "q", "hidden": False,
+def test_a_reply_travels_with_its_link_and_both_counters():
+    thread = [{"id": "a" * 32, "account": "sub-bob", "text": "q", "hidden": False,
             "created_at": "2026-09-03T10:00Z", "reply_to": None,
             "upvotes": 3, "downvotes": 0, "my_vote": 1},
            {"id": "b" * 32, "account": "sub-carl", "text": "r", "hidden": False,
             "created_at": "2026-09-03T10:01Z", "reply_to": "a" * 32,
             "upvotes": 1, "downvotes": 2, "my_vote": -1}]
-    vus = forum.forum_view(fil, "sub-alice", False, {})
-    assert vus[0]["reply_to"] is None and vus[1]["reply_to"] == "a" * 32
-    assert vus[0]["upvotes"] == 3 and vus[0]["my_vote"] == 1
-    assert vus[1]["downvotes"] == 2 and vus[1]["my_vote"] == -1
+    views = forum.forum_view(thread, "sub-alice", False, {})
+    assert views[0]["reply_to"] is None and views[1]["reply_to"] == "a" * 32
+    assert views[0]["upvotes"] == 3 and views[0]["my_vote"] == 1
+    assert views[1]["downvotes"] == 2 and views[1]["my_vote"] == -1
 
 
-def test_la_porte_python_lit_les_dates_comme_la_porte_rust():
+def test_the_python_gate_reads_dates_like_the_rust_gate():
     # judge/src/gate.rs replays the same file: the two gates must not diverge.
-    vecteurs = json.loads(lire(os.path.join(ROOT, "tests", "vectors", "release_access.json")))
-    for v in vecteurs:
-        maintenant = dt.datetime.fromisoformat(v["now"].replace("Z", "+00:00"))
-        assert content_catalogue.access(v["release"], maintenant) == v["access"], v
+    vectors = json.loads(read_file(os.path.join(ROOT, "tests", "vectors", "release_access.json")))
+    for v in vectors:
+        now = dt.datetime.fromisoformat(v["now"].replace("Z", "+00:00"))
+        assert content_catalogue.access(v["release"], now) == v["access"], v
 
 
 if __name__ == "__main__":
@@ -3144,4 +3144,4 @@ if __name__ == "__main__":
     for fn in tests:
         fn()
         print("ok   " + fn.__name__)
-    print("\n%d vérifications passées." % len(tests))
+    print("\n%d checks passed." % len(tests))

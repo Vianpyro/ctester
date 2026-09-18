@@ -7,7 +7,7 @@
      doivent dire la même chose, sinon l'étudiant lit un `int` bleu dans son
      éditeur et vert dans sa consigne.
 
-     GÉNÉRÉ, PUIS COMMITÉ : `test_le_theme_typst_porte_les_couleurs_de_la_page`
+     GÉNÉRÉ, PUIS COMMITÉ : `test_the_typst_theme_carries_the_page_colors`
      relit `app.css` et ce fichier et refuse qu'ils divergent. Éditer l'un sans
      l'autre fait échouer la suite.
 
