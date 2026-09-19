@@ -8,6 +8,9 @@
   import { isGroupExportable } from "../lib/domain/catalog";
   import { decodeImported } from "../lib/domain/source";
   import { exportGroup } from "../lib/state/export";
+  import { session } from "../lib/auth/session.svelte";
+
+  let { openConsole }: { openConsole: () => void } = $props();
 
   const here = $derived(catalog.selected);
   const isQuiz = $derived(here?.mode === "quiz");
@@ -87,6 +90,16 @@
     Réunir le TP dans un seul main.c
   </button>
   <span class="grow"></span>
+  <button
+    type="button"
+    id="toconsole"
+    class="nav"
+    hidden={isQuiz || !session.signedIn || !session.scratchOffered}
+    title="Lance ton code avec tes propres valeurs"
+    onclick={openConsole}
+  >
+    Essayer dans la Console
+  </button>
   <button
     id="go"
     class={(isQuiz ? "secondary" : "") + (submission.busy ? " busy" : "")}

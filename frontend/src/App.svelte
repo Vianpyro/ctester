@@ -12,6 +12,7 @@
   import { view } from "./lib/state/view.svelte";
   import { runTest } from "./lib/state/run";
   import { drafts } from "./lib/state/drafts.svelte";
+  import { editor } from "./lib/state/editor.svelte";
   import { matchShortcut } from "./lib/domain/shortcuts";
   import { fetchDeployment } from "./lib/api/public";
   import { RETURN_KEY } from "./lib/auth/keys";
@@ -80,6 +81,12 @@
       ConsoleView = mod.default as Component;
     }
     view.show(name);
+  }
+
+  async function tryInConsole() {
+    const mod = await bring("la console", () => import("./features/scratch/session.svelte"));
+    if (mod && catalog.selected && (await mod.scratch.adopt(catalog.selected.files, editor.sources)))
+      await openDestination("scratch");
   }
 
   async function bringChat(): Promise<boolean> {
@@ -309,7 +316,7 @@
         <CodeEditor />
       {/if}
 
-      <ActionBar />
+      <ActionBar openConsole={tryInConsole} />
       <VerdictPanel />
     </div>
 

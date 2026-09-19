@@ -1,5 +1,11 @@
 import { fetchScratchDraft, saveScratchDraft } from "../../lib/api/scratch";
-import { HEADER_NAME_HINT, headerTemplate, validHeaderName } from "../../lib/domain/scratchHeader";
+import {
+  HEADER_NAME_HINT,
+  consoleFiles,
+  headerTemplate,
+  validHeaderName,
+} from "../../lib/domain/scratchHeader";
+import { system } from "../../lib/state/system.svelte";
 import { socketUrl } from "../../lib/config";
 import { ensureValid, renew, session, whenSignedOut } from "../../lib/auth/session.svelte";
 import type { ScratchFrame } from "../../lib/api/types";
@@ -118,6 +124,42 @@ class Scratch {
     this.scheduleSave();
   }
 
+  // Loads first: the Console only loads its draft when nothing is loaded yet, so a later load
+  // would overwrite the copied code.
+  async adopt(files: { name: string }[], sources: Record<string, string>): Promise<boolean> {
+    const moved = consoleFiles(files, sources);
+    if (typeof moved === "string") {
+      system.say(moved, true);
+      return false;
+    }
+    if (!this.loaded) await this.load();
+    const held = (this.code.trim() && this.code !== TEMPLATE) || this.header.trim();
+    const same =
+      this.code === moved.code &&
+      this.headerName === moved.headerName &&
+      this.header === moved.header;
+    if (
+      held &&
+      !same &&
+      typeof confirm === "function" &&
+      !confirm(
+        "Remplacer le programme de la Console par le code de cet exercice ? " +
+        "Ce qui y est écrit sera perdu.",
+      )
+    ) {
+      return false;
+    }
+    this.stop();
+    this.code = moved.code;
+    this.headerName = moved.headerName;
+    this.header = moved.header;
+    this.active = "main";
+    this.output = [];
+    this.say("Code de l'exercice copié : mets tes propres valeurs, puis Lancer.");
+    this.scheduleSave();
+    return true;
+  }
+
   #draft(): { code: string; header_name: string; header: string } {
     return { code: this.code, header_name: this.headerName, header: this.header };
   }
@@ -177,8 +219,8 @@ class Scratch {
         this.say(
           frame.position
             ? "Dans la file : " +
-                frame.position +
-                (frame.eta ? " — environ " + Math.ceil((frame.eta / 60) * 10) / 10 + " min" : "")
+            frame.position +
+            (frame.eta ? " — environ " + Math.ceil((frame.eta / 60) * 10) / 10 + " min" : "")
             : "En attente…",
         );
       } else if (frame.t === "ready") {

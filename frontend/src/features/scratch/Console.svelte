@@ -5,6 +5,7 @@
 
   let title: HTMLHeadingElement | undefined = $state();
   let terminal: HTMLPreElement | undefined = $state();
+  let prompt: HTMLInputElement | undefined = $state();
   let typed = $state("");
   // "add" and "rename" ask for a name; "remove" asks to confirm, since the text is lost.
   let asking = $state<"" | "add" | "rename" | "remove">("");
@@ -24,9 +25,23 @@
     if (terminal) terminal.scrollTop = terminal.scrollHeight;
   });
 
-  function submitInput() {
-    scratch.send(typed);
-    typed = "";
+  $effect(() => {
+    if (scratch.running) prompt?.focus();
+  });
+
+  function onPromptKeydown(event: KeyboardEvent) {
+    if (event.key === "Enter") {
+      scratch.send(typed);
+      typed = "";
+    } else if (event.ctrlKey && event.key.toLowerCase() === "d") {
+      event.preventDefault();
+      if (typed) scratch.send(typed);
+      typed = "";
+      scratch.endInput();
+    } else if (event.ctrlKey && event.key.toLowerCase() === "c" && !getSelection()?.toString()) {
+      event.preventDefault();
+      scratch.stop();
+    }
   }
 
   function ask(what: "add" | "rename" | "remove") {
@@ -153,44 +168,49 @@
   {/key}
 </div>
 
-<div class="scratchbar">
-  <button type="button" id="scratchgo" disabled={scratch.running} onclick={() => scratch.start()}>
-    {scratch.running ? "En cours…" : "Lancer"}
-  </button>
-  {#if scratch.running}
-    <button type="button" id="scratchstop" class="nav" onclick={() => scratch.stop()}>
-      Arrêter
-    </button>
-  {/if}
-  <span id="scratchstate" class={"scratchstate" + (scratch.noteFailed ? " failed" : "")}>
-    {scratch.note}
-  </span>
-</div>
-
 <div class="plan scratchpan">
-  <div class="phead">Sortie</div>
-  <pre bind:this={terminal} id="scratchout" class="scratchterm">{#each scratch.output as chunk, i (i)}<span
-        class={chunk.kind}>{chunk.text}</span
-      >{/each}</pre>
-  <div class="scratchinputbar">
-    <label class="offscreen" for="scratchinput">Entrée pour ton programme</label>
-    <input
-      id="scratchinput"
-      type="text"
-      bind:value={typed}
-      disabled={!scratch.running}
-      placeholder="Réponds à ton programme, puis Entrée"
-      onkeydown={(e) => {
-        if (e.key === "Enter") submitInput();
-      }}
-    />
-    <button
-      type="button"
-      id="scratchsend"
-      class="nav"
-      disabled={!scratch.running}
-      onclick={submitInput}>Envoyer</button
-    >
+  <div class="phead">
+    <span>Terminal</span>
+    <button type="button" id="scratchgo" disabled={scratch.running} onclick={() => scratch.start()}>
+      {scratch.running ? "En cours…" : "Lancer"}
+    </button>
+    {#if scratch.running}
+      <button type="button" id="scratchstop" class="nav" onclick={() => scratch.stop()}>
+        Arrêter
+      </button>
+    {/if}
+    <span class="grow"></span>
+    <span id="scratchstate" class={"scratchstate" + (scratch.noteFailed ? " failed" : "")}>
+      {scratch.note}
+    </span>
+  </div>
+  <!-- The prompt sits right after the output, where the program asked its question. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+  <pre
+    bind:this={terminal}
+    id="scratchout"
+    class="scratchterm"
+    role="log"
+    aria-label="Terminal de ton programme"
+    onclick={() => {
+      if (!getSelection()?.toString()) prompt?.focus();
+    }}>{#each scratch.output as chunk, i (i)}<span class={chunk.kind}>{chunk.text}</span
+      >{/each}{#if scratch.running}<label class="offscreen" for="scratchinput"
+        >Entrée pour ton programme</label
+      ><input
+        bind:this={prompt}
+        id="scratchinput"
+        class="scratchprompt"
+        type="text"
+        bind:value={typed}
+        autocomplete="off"
+        spellcheck="false"
+        onkeydown={onPromptKeydown}
+      />{:else if !scratch.output.length}<span class="scratchecho"
+        >Appuie sur Lancer pour exécuter ton programme.</span
+      >{/if}</pre>
+  <div class="scratchhint">
+    <span>Entrée envoie la ligne · Ctrl+D termine l'entrée · Ctrl+C arrête le programme</span>
     <button
       type="button"
       id="scratcheof"

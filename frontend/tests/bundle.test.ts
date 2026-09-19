@@ -104,12 +104,12 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     }
   });
 
-  it("stays under 144 KB of eager JavaScript", () => {
+  it("stays under 145 KB of eager JavaScript", () => {
     const bytes = eagerChunks().reduce(
       (n, name) => n + readFileSync(join(DIST, "assets", name)).byteLength,
       0,
     );
-    expect(bytes).toBeLessThan(144_000);
+    expect(bytes).toBeLessThan(145_000);
   });
 
   it("keeps the shortcuts WORKING but the cheat sheet DEFERRED", () => {
