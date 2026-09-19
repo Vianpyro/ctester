@@ -96,11 +96,16 @@ async function json(url) {
 }
 
 let refreshTimer = null;
+let pullTimer = null;
 
 function loginScreen(reason) {
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
+  }
+  if (pullTimer) {
+    clearInterval(pullTimer);
+    pullTimer = null;
   }
   stopLive();
   document.body.classList.add("loggedout");
@@ -168,16 +173,31 @@ function fillVitals(target, data) {
         : "aucune release",
       { mono: true }));
     if (r.pulled_at) {
-      // ponytail: 300 s mirrors OnUnitActiveSec in ctester-content.timer; keep them in step.
-      const left = Math.round(r.pulled_at + 300 - Date.now() / 1000);
-      target.append(vital("Dernier pull",
-        new Date(r.pulled_at * 1000).toTimeString().slice(0, 8),
-        left >= 0
-          ? "prochain dans " + Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0")
-          : "en retard de " + seconds(-left),
-        { mono: true, alarm: left < -120 }));
+      lastPulledAt = r.pulled_at;
+      const node = vital("Dernier pull",
+        new Date(r.pulled_at * 1000).toTimeString().slice(0, 8), " ", { mono: true });
+      node.querySelector(".note").id = "pull-countdown";
+      target.append(node);
+      fillPullCountdown();
+    } else {
+      lastPulledAt = null;
     }
   }
+}
+
+// Ticks every second so the countdown looks live between two API responses; each response
+// re-syncs lastPulledAt above, so drift never accumulates beyond one refresh interval.
+let lastPulledAt = null;
+
+function fillPullCountdown() {
+  const note = document.getElementById("pull-countdown");
+  if (!note || lastPulledAt === null) return;
+  // ponytail: 300 s mirrors OnUnitActiveSec in ctester-content.timer; keep them in step.
+  const left = Math.round(lastPulledAt + 300 - Date.now() / 1000);
+  note.textContent = left >= 0
+    ? "prochain dans " + Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0")
+    : "en retard de " + seconds(-left);
+  note.parentElement.querySelector(".value").classList.toggle("alarm", left < -120);
 }
 
 /* ---- verdict distribution ---------------------------------------------- */
@@ -880,5 +900,6 @@ start().then((bearer) => {
   document.body.classList.remove("loggedout");
   tick();
   refreshTimer = setInterval(tick, REFRESH);
+  pullTimer = setInterval(fillPullCountdown, 1000);
   startLive();
 }, (err) => loginScreen(err.message));
