@@ -118,16 +118,20 @@ function vital(key, value, note, options = {}) {
   return node;
 }
 
+// The run counters follow the selected period, filled by statistics(); the queue, the
+// windows and the release are always now, whatever the period.
+let lastStats = null;
+
 function vitals(data) {
   const target = $("vitals");
-  render(target, [data.queue, data.stats, data.release, data.windows],
+  render(target, [data.queue, lastStats, data.release, data.windows],
          () => fillVitals(target, data));
 }
 
 function fillVitals(target, data) {
   target.textContent = "";
   const q = data.queue;
-  const s = data.stats;
+  const s = lastStats;
   const r = data.release;
 
   if (q) {
@@ -146,7 +150,7 @@ function fillVitals(target, data) {
   if (s) {
     const notes = s.graded === undefined ? s.total : s.graded;
     const markFailed = notes ? Math.round((s.cache_hits / notes) * 100) : 0;
-    target.append(vital("Runs 24 h", s.total,
+    target.append(vital("Runs " + periodLabel(), s.total,
       s.total ? s.ok + " réussis" : "aucun run"));
     target.append(vital("Cache", markFailed + " %",
       s.cache_hits + " sans compiler, sur " + notes + " notés"));
@@ -287,7 +291,7 @@ function usage(data, days) {
 }
 
 function fillUsage(target, data, days) {
-  $("usage-note").textContent = days === 1 ? "24 h" : days + " jours";
+  $("usage-note").textContent = periodLabel();
   if (!data.usage) {
     showEmpty(target, "Base de données injoignable.");
     return;
@@ -336,7 +340,7 @@ function exercises(rows, days) {
 }
 
 function fillExercises(rows, days) {
-  $("exercises-note").textContent = days === 1 ? "24 h" : days + " jours";
+  $("exercises-note").textContent = periodLabel();
   fillTable($("exercises"),
     [{ title: "exercice" }, { title: "runs", cls: "n", width: "3.2rem" },
      { title: "échecs", cls: "n", width: "3.8rem" },
@@ -376,7 +380,7 @@ function channels(rows, days) {
 }
 
 function fillChannels(rows, days) {
-  $("channels-note").textContent = days === 1 ? "24 h" : days + " jours";
+  $("channels-note").textContent = periodLabel();
   fillTable($("channels"),
     [{ title: "canal" }, { title: "msg", cls: "n", width: "3.2rem" },
      { title: "24 h", cls: "n", width: "3.2rem" },
@@ -664,6 +668,12 @@ function period() {
   return Number(active ? active.dataset.days : 7);
 }
 
+// The button's own wording, so "Session" stays "session" rather than "120 jours".
+function periodLabel() {
+  const active = document.querySelector('.period button[aria-pressed="true"]');
+  return (active ? active.textContent : "7 jours").toLowerCase();
+}
+
 // One request per batch at a time. The cost of /api/stats grows with the period, and
 // on the longest one a request can outlast the tick: the dashboard then slows to the
 // database's real speed instead of piling up requests.
@@ -706,6 +716,8 @@ async function statistics() {
   const days = period();
   try {
     const data = await json("/api/stats?days=" + days);
+    lastStats = data.stats;
+    if (lastOverview) vitals(lastOverview);
     distribution(data.statuses);
     exercises(data.exercises, days);
     channels(data.channels, days);

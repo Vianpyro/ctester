@@ -132,7 +132,6 @@ def create_app():
             "workers": overview.workers(),
             "windows": overview.windows(),
             "ingestion": dict(drain.health),
-            "stats": state.read_run_stats(1),
         })
 
     @app.get("/api/live")
