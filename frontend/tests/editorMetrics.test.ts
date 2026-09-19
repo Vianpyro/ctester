@@ -5,7 +5,8 @@ import { join } from "node:path";
 const CSS = readFileSync(join(import.meta.dirname, "..", "src", "app.css"), "utf8");
 
 function body(selector: string): string {
-  const start = CSS.indexOf(selector + " {");
+  const pattern = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/,\s*/g, ",\\s*");
+  const start = CSS.search(new RegExp("(?:^|\\n)" + pattern + "\\s*\\{"));
   expect(start, "règle introuvable dans app.css : " + selector).toBeGreaterThan(-1);
   const open = CSS.indexOf("{", start);
   const close = CSS.indexOf("}", open);
