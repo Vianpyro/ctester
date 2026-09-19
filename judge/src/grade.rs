@@ -254,6 +254,17 @@ pub fn check_answer(kind: &str, given: &str, expected: &str) -> (bool, &'static 
             }
             (false, "")
         }
+        // A binary field written short: trailing zeros carry no value (an IEEE 754 mantissa).
+        "bin" => {
+            let Some(got) = norm_bin(given) else {
+                return (false, "ce n'est pas une suite de 0 et de 1");
+            };
+            let trim = |s: &str| s.trim_end_matches('0').to_string();
+            (
+                norm_bin(expected).as_deref().map(trim) == Some(trim(&got)),
+                "",
+            )
+        }
         "hex8" => match norm_hex(given) {
             None => (false, "ce n'est pas un nombre hexadécimal"),
             Some(got) => (norm_hex(expected) == Some(got), ""),
@@ -649,6 +660,34 @@ pub fn forbidden_includes(code: &str, allowed: Option<&BTreeSet<String>>) -> Vec
         .collect()
 }
 
+/// A course rule, not a verdict: an over-long solution still passes, with a note beside the
+/// gcc warnings. Counted without blanks, so indentation and comments cost almost nothing.
+pub fn note_long_source(mut result: Value, conf: &Value, code: &str) -> Value {
+    let Some(limit) = conf.get("max_source_chars").and_then(Value::as_u64) else {
+        return result;
+    };
+    let size = code.chars().filter(|c| !c.is_whitespace()).count() as u64;
+    if size <= limit || result.get("status").and_then(Value::as_str) == Some("compile_error") {
+        return result;
+    }
+    let note = format!(
+        "Ta solution compte {size} caractères (les espaces ne comptent pas), alors que          l'exercice s'écrit en moins de {limit} : ça marche, mais ce n'est pas ce qui est          demandé. Relis l'énoncé et cherche l'écriture courte."
+    );
+    if let Some(map) = result.as_object_mut() {
+        let before = map.get("warnings").and_then(Value::as_str).unwrap_or("");
+        let joined = if before.is_empty() {
+            note
+        } else {
+            format!(
+                "{before}
+{note}"
+            )
+        };
+        map.insert("warnings".into(), json!(joined));
+    }
+    result
+}
+
 /// What follows the sandbox: warnings block out, verdict, warnings back in.
 pub fn judge_output(
     mode: &str,
@@ -786,6 +825,13 @@ mod tests {
         assert!(!right && hint.contains("8 bits"));
         assert_eq!(check_answer("bin8", "00010110", "00010111"), (false, ""));
         assert!(!check_answer("bin8", "quarante-deux", "00010111").0);
+
+        for given in ["01", "0100", "01000000000000000000000", "0b01_0000"] {
+            assert!(check_answer("bin", given, "01").0, "{given}");
+        }
+        assert!(check_answer("bin", "0", "00000000000000000000000").0);
+        assert_eq!(check_answer("bin", "011", "01"), (false, ""));
+        assert!(!check_answer("bin", "deux", "01").0);
 
         for given in ["A7", "a7", "0xa7", "0XA7", "00a7", "a7h"] {
             assert!(check_answer("hex8", given, "A7").0, "{given}");
@@ -1061,6 +1107,36 @@ mod tests {
         let got = verdict_io(0, &crash, &cases[..2], "n", DEFAULT_TOLERANCE).unwrap();
         let reason = got["cases"][0]["reason"].as_str().unwrap();
         assert!(reason.contains("anormalement") && reason.contains("code 139"));
+    }
+
+    #[test]
+    fn an_over_long_solution_passes_with_a_note() {
+        let conf = json!({"max_source_chars": 50});
+        let short = note_long_source(json!({"status": "ok"}), &conf, "int main(void){}");
+        assert!(short.get("warnings").is_none());
+
+        let long = "int main(void) { /* the very long way round */ return 0; }".repeat(3);
+        let noted = note_long_source(
+            json!({"status": "ok", "warnings": "gcc a parlé"}),
+            &conf,
+            &long,
+        );
+        let text = noted["warnings"].as_str().unwrap();
+        assert!(
+            text.starts_with(
+                "gcc a parlé
+"
+            ) && text.contains("caractères"),
+            "{text}"
+        );
+
+        let broken = note_long_source(json!({"status": "compile_error"}), &conf, &long);
+        assert!(broken.get("warnings").is_none());
+        assert!(
+            note_long_source(json!({"status": "ok"}), &json!({}), &long)
+                .get("warnings")
+                .is_none()
+        );
     }
 
     #[test]

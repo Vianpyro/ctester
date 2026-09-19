@@ -511,7 +511,9 @@ mod runner {
                 &nonce,
             );
             let (rc, out) = sandbox::run(&self.config, &argv, &name)?;
-            grade::judge_output(exercise.mode.as_str(), rc, &out, &nonce, &cases, tolerance)
+            let result =
+                grade::judge_output(exercise.mode.as_str(), rc, &out, &nonce, &cases, tolerance)?;
+            Ok(grade::note_long_source(result, conf, &code))
         }
     }
 
