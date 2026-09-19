@@ -90,16 +90,17 @@
     Réunir le TP dans un seul main.c
   </button>
   <span class="grow"></span>
-  <button
-    type="button"
-    id="toconsole"
-    class="nav"
-    hidden={isQuiz || !session.signedIn || !session.scratchOffered}
-    title="Lance ton code avec tes propres valeurs"
-    onclick={openConsole}
-  >
-    Essayer dans la Console
-  </button>
+  {#if !isQuiz && session.signedIn && session.scratchOffered}
+    <button
+      type="button"
+      id="toconsole"
+      class="nav"
+      title="Lance ton code avec tes propres valeurs"
+      onclick={openConsole}
+    >
+      Essayer dans la Console
+    </button>
+  {/if}
   <button
     id="go"
     class={(isQuiz ? "secondary" : "") + (submission.busy ? " busy" : "")}
