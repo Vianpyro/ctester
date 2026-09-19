@@ -168,11 +168,50 @@ describe("the queue", () => {
     const done = submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     await vi.advanceTimersByTimeAsync(0);
     expect(submission.phase).toEqual({ kind: "queued", position: 4, eta: 45 });
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(250);
     expect(submission.phase.kind).toBe("running");
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(250);
     await done;
     expect(submission.phase.kind).toBe("done");
+    vi.useRealTimers();
+  });
+
+  it("shows a FAST job's verdict a quarter second later, not two", async () => {
+    vi.useFakeTimers();
+    queue("p", { status: 200, body: { state: "running" } }, { status: 200, body: OK });
+    const done = submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(submission.phase.kind).toBe("running");
+    await vi.advanceTimersByTimeAsync(250);
+    await done;
+    expect(submission.phase.kind).toBe("done");
+    vi.useRealTimers();
+  });
+
+  it("slows down to one poll every 2 s for a LONG job", async () => {
+    vi.useFakeTimers();
+    const running = { status: 200, body: { state: "running" } };
+    queue("q", ...Array.from({ length: 40 }, () => running));
+    void submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
+    await vi.advanceTimersByTimeAsync(10_000);
+    // One at once, five in the first 2.5 s, then one every 2 s.
+    expect(calls.filter((c) => c.url.startsWith("r/")).length).toBe(1 + 5 + 3);
+    submission.reset();
+    vi.useRealTimers();
+  });
+
+  it("still calls a job LOST when the server forgets it mid-way", async () => {
+    vi.useFakeTimers();
+    queue(
+      "s",
+      { status: 200, body: { state: "running" } },
+      { status: 200, body: { state: "running" } },
+      { status: 404, body: { state: "gone" } },
+    );
+    const done = submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
+    await vi.advanceTimersByTimeAsync(500);
+    await done;
+    expect(submission.phase.kind).toBe("lost");
     vi.useRealTimers();
   });
 

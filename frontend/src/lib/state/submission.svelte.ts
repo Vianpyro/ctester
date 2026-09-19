@@ -15,8 +15,11 @@ export type Phase =
   | { kind: "cooldown"; seconds: number }
   | { kind: "lost" };
 
+// Most jobs finish in well under a second: a fixed 2 s step showed their verdict ~2 s late.
+// The judge only writes a file, so there is no event to wait on; polling fast early is cheap.
+const POLL_STEPS = [250, 250, 500, 500, 1000];
 const POLL_EVERY = 2000;
-const POLL_TRIES = 150;
+const POLL_TRIES = 150 + POLL_STEPS.length;
 
 function stationId(): string {
   const held = localGet("ctester.station");
@@ -113,12 +116,12 @@ class SubmissionState {
       this.idle();
       return;
     }
-    await this.#poll(answer.body.id, POLL_TRIES, scope, token, exercise.id, after);
+    await this.#poll(answer.body.id, 0, scope, token, exercise.id, after);
   }
 
   async #poll(
     jobId: string,
-    tries: number,
+    attempt: number,
     scope: Scope | null,
     token: number,
     exercise: string,
@@ -147,7 +150,7 @@ class SubmissionState {
       }
       return;
     }
-    if (answer.status === 404 || tries <= 0) {
+    if (answer.status === 404 || attempt >= POLL_TRIES) {
       system.say(
         "Le résultat de ce test s'est perdu. Ton code est enregistré — relance " +
           "simplement le test.",
@@ -162,8 +165,8 @@ class SubmissionState {
         : { kind: "queued", position: body.state === "queued" ? body.position : 1,
             eta: body.state === "queued" ? body.eta : undefined };
     setTimeout(() => {
-      void this.#poll(jobId, tries - 1, scope, token, exercise, after);
-    }, POLL_EVERY);
+      void this.#poll(jobId, attempt + 1, scope, token, exercise, after);
+    }, POLL_STEPS[attempt] ?? POLL_EVERY);
   }
 
   startCooldown(seconds: number): void {
