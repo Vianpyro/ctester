@@ -27,9 +27,18 @@ class Presence {
   }
 
   start(): () => void {
-    void this.beat();
-    const timer = setInterval(() => void this.beat(), BEAT);
-    return () => clearInterval(timer);
+    // A hidden tab stops beating and drops out of the count once the server's TTL passes.
+    const visible = () => document.visibilityState === "visible";
+    const tick = () => {
+      if (visible()) void this.beat();
+    };
+    tick();
+    const timer = setInterval(tick, BEAT);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
   }
 }
 
