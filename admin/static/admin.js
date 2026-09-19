@@ -527,7 +527,7 @@ function fillRuns(target, rows) {
      { title: "attente", cls: "n", width: "4.4rem" },
      { title: "worker", cls: "n", width: "4rem" },
      ...(revealed() ? [{ title: "auteur" }] : []),
-     { title: "code", width: "3.5rem" },
+     { title: "code", width: "4rem" },
      { title: "job", cls: "mono" }],
     rows,
     (r) => {
