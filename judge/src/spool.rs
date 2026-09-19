@@ -246,6 +246,26 @@ pub mod tests {
         }
     }
 
+    /// A script written by a child process: a write descriptor held here would leak into a
+    /// concurrent test's fork and make running the script fail with ETXTBSY.
+    pub fn executable(path: &Path, body: &str) {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("sh")
+            .args(["-c", "cat > \"$0\" && chmod 755 \"$0\""])
+            .arg(path)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(body.as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+    }
+
     /// A spool plus `cible`, a directory outside it that every attack aims at.
     fn hostile() -> (Scratch, Spool, PathBuf) {
         let scratch = Scratch::new("hostile");

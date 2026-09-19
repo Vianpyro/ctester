@@ -520,7 +520,7 @@ mod runner {
         use super::*;
         use crate::spool::tests::Scratch;
         use rustix::fs::{FlockOperation, Mode, OFlags};
-        use std::os::unix::fs::{PermissionsExt, symlink};
+        use std::os::unix::fs::symlink;
         use std::path::{Path, PathBuf};
 
         struct World {
@@ -562,15 +562,10 @@ mod runner {
                 for script in ["build-io.sh", "build-unity.sh", "build-scratch.sh"] {
                     write(&root.join(script), "#!/bin/bash\n");
                 }
-                write(
+                crate::spool::tests::executable(
                     &root.join("docker"),
                     include_str!("../tests/fake_docker.sh"),
                 );
-                std::fs::set_permissions(
-                    root.join("docker"),
-                    std::fs::Permissions::from_mode(0o755),
-                )
-                .unwrap();
                 let p = |name: &str| root.join(name).display().to_string();
                 let pairs = [
                     ("CTESTER_SPOOL", p("spool")),

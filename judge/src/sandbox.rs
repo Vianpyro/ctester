@@ -394,16 +394,13 @@ mod tests {
         let scratch = crate::spool::tests::Scratch::new("sandbox");
         let log = scratch.0.join("calls");
         let fake = scratch.0.join("docker");
-        std::fs::write(
+        crate::spool::tests::executable(
             &fake,
-            format!(
+            &format!(
                 "#!/bin/sh\necho \"$@\" >> {}\n[ \"$1\" = run ] && exec sleep 30\nexit 0\n",
                 log.display()
             ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-            .unwrap();
+        );
         let config = config(&[
             ("CTESTER_DOCKER", fake.to_str().unwrap()),
             ("CTESTER_JOB_TIMEOUT", "1"),
@@ -433,13 +430,10 @@ mod tests {
     fn output_is_decoded_with_plain_newlines() {
         let scratch = crate::spool::tests::Scratch::new("sandbox");
         let fake = scratch.0.join("docker");
-        std::fs::write(
+        crate::spool::tests::executable(
             &fake,
             "#!/bin/sh\nprintf 'a\\r\\nb\\rc /in/src/x.c \\377\\n'\nexit 3\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755))
-            .unwrap();
+        );
         let config = config(&[("CTESTER_DOCKER", fake.to_str().unwrap())]);
         let argv = vec![fake.display().to_string()];
         assert_eq!(
