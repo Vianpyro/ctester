@@ -163,6 +163,16 @@ function fillVitals(target, data) {
           + (r.exercises ? ", " + r.exercises + " exercises" : "")
         : "aucune release",
       { mono: true }));
+    if (r.pulled_at) {
+      // ponytail: 300 s mirrors OnUnitActiveSec in ctester-content.timer; keep them in step.
+      const left = Math.round(r.pulled_at + 300 - Date.now() / 1000);
+      target.append(vital("Dernier pull",
+        new Date(r.pulled_at * 1000).toLocaleTimeString("fr-CA"),
+        left >= 0
+          ? "prochain dans " + Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0")
+          : "en retard de " + seconds(-left),
+        { mono: true, alarm: left < -120 }));
+    }
   }
 }
 

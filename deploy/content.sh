@@ -41,6 +41,8 @@ for root in $roots; do
 '
 done
 IFS=$old_ifs
+# Read by the admin dashboard for the last-pull time; touched only after every fetch succeeded.
+touch "$published/.pulled"
 
 if [ -n "$any_repo" ]; then
     head="$head$(date +%F)"

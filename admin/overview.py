@@ -65,13 +65,18 @@ def release():
     """The published catalogue the API is serving, straight from current.json."""
     pointer = os.path.join(config.PUBLISHED, "current.json")
     try:
+        pulled = os.path.getmtime(os.path.join(config.PUBLISHED, ".pulled"))
+    except OSError:
+        pulled = None
+    try:
         with open(pointer, encoding="utf-8") as fh:
             data = json.load(fh)
         stamp = os.path.getmtime(pointer)
     except (OSError, ValueError):
-        return {"revision": None, "published_at": None, "exercises": None}
+        return {"revision": None, "published_at": None, "exercises": None,
+                "pulled_at": pulled}
     revision = data.get("revision") if isinstance(data, dict) else None
-    return {"revision": revision, "published_at": stamp,
+    return {"revision": revision, "published_at": stamp, "pulled_at": pulled,
             "exercises": _count(revision)}
 
 
