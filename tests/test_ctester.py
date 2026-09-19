@@ -2291,7 +2291,7 @@ def test_every_console_reason_has_a_message():
                              "session.svelte.ts"))
     block = page.split("const REASONS: Record<string, string> = {")[1].split("};")[0]
     known = set(re.findall("^\\s*(\\w+):", block, re.M)) | {"exited"}
-    pattern = r'(?:break |exited\([^)]*, |(?:== 12|else) \{\s*|"reason": )"([a-z_]+)"'
+    pattern = r'(?:break |exited\([^)]*, |(?:== crate::grade::COMPILE_TIMEOUT|else) \{\s*|"reason": )"([a-z_]+)"'
     emitted = set(re.findall(pattern, judge))
     assert len(emitted) >= 9, emitted
     orphans = sorted(emitted - known)

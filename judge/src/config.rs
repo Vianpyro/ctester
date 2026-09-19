@@ -64,10 +64,10 @@ impl Config {
                 .parse()
                 .map_err(|_| format!("{key}={raw:?} is not an integer"))
         };
-        let seconds = |key: &str, default: &str| -> Result<u64, String> {
+        let unsigned = |key: &str, default: &str| -> Result<u64, String> {
             u64::try_from(number(key, default)?).map_err(|_| format!("{key} must not be negative"))
         };
-        let job_timeout = seconds("CTESTER_JOB_TIMEOUT", "60")?;
+        let job_timeout = unsigned("CTESTER_JOB_TIMEOUT", "60")?;
         let config = Config {
             spool: text("CTESTER_SPOOL", "/opt/ctester/spool").into(),
             results: text("CTESTER_RESULTS", "/opt/ctester/results").into(),
@@ -91,17 +91,17 @@ impl Config {
             memory: text("CTESTER_MEMORY", "256m"),
             pids: text("CTESTER_PIDS", "64"),
             cpus: text("CTESTER_CPUS", "1"),
-            sweep_after: seconds("CTESTER_SWEEP_AFTER", "600")?,
+            sweep_after: unsigned("CTESTER_SWEEP_AFTER", "600")?,
             console_memory: text("CTESTER_CONSOLE_MEMORY", "192m"),
             console_pids: text("CTESTER_CONSOLE_PIDS", "64"),
             console_cpus: text("CTESTER_CONSOLE_CPUS", "0.5"),
             console_shares: text("CTESTER_CONSOLE_SHARES", "512"),
-            console_session_max: seconds("CTESTER_CONSOLE_SESSION_MAX", "180")?,
-            console_idle_max: seconds("CTESTER_CONSOLE_IDLE_MAX", "90")?,
-            console_out_max: seconds("CTESTER_CONSOLE_OUT_MAX", "1048576")?,
-            console_in_max: seconds("CTESTER_CONSOLE_IN_MAX", "65536")?,
-            lock_stale: seconds("CTESTER_LOCK_STALE", &(3 * job_timeout).to_string())?,
-            lock_retries: seconds("CTESTER_LOCK_RETRIES", "1")?,
+            console_session_max: unsigned("CTESTER_CONSOLE_SESSION_MAX", "180")?,
+            console_idle_max: unsigned("CTESTER_CONSOLE_IDLE_MAX", "90")?,
+            console_out_max: unsigned("CTESTER_CONSOLE_OUT_MAX", "1048576")?,
+            console_in_max: unsigned("CTESTER_CONSOLE_IN_MAX", "65536")?,
+            lock_stale: unsigned("CTESTER_LOCK_STALE", &(3 * job_timeout).to_string())?,
+            lock_retries: unsigned("CTESTER_LOCK_RETRIES", "1")?,
             preview: !matches!(text("CTESTER_PREVIEW", "").as_str(), "" | "0"),
             moderators: text("CTESTER_FORUM_MODERATORS", "")
                 .split(|c: char| c == ',' || c.is_whitespace())
@@ -113,7 +113,7 @@ impl Config {
                 .filter_map(|key| lookup(key).map(|value| (key.to_string(), value)))
                 .collect(),
             cache_max: number("CTESTER_CACHE_MAX", "20000")?,
-            cache_prune_every: seconds("CTESTER_CACHE_PRUNE_EVERY", "500")?,
+            cache_prune_every: unsigned("CTESTER_CACHE_PRUNE_EVERY", "500")?,
             // A shared .env would give every instance the same name, so an unusable value
             // falls back to something unique rather than to a constant.
             worker_id: match text("CTESTER_WORKER_ID", "") {
@@ -168,9 +168,10 @@ impl Config {
         if !stricter {
             broken.push("the console limits must stay stricter than the grading limits");
         }
-        match broken.is_empty() {
-            true => Ok(()),
-            false => Err(broken.join("; ")),
+        if broken.is_empty() {
+            Ok(())
+        } else {
+            Err(broken.join("; "))
         }
     }
 

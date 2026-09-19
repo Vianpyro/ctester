@@ -109,17 +109,15 @@ pub fn judge_argv(
     push_env(&mut argv, config, nonce);
     // In io mode the tests are never mounted: inputs were extracted on the host.
     let mounts = match mode {
-        Mode::Io => [
+        Mode::Io => vec![
             format!("{}/cases:/in/cases:ro", text(stage)),
             format!("{}:/in/build.sh:ro", text(&config.build_io)),
-        ]
-        .to_vec(),
-        _ => [
+        ],
+        _ => vec![
             format!("{}:/in/tests:ro", text(tp_dir)),
             format!("{}:/in/unity:ro", text(&config.unity_dir())),
             format!("{}:/in/build.sh:ro", text(&config.build_unity)),
-        ]
-        .to_vec(),
+        ],
     };
     for mount in mounts {
         argv.extend(["-v".to_string(), mount]);
@@ -200,7 +198,7 @@ pub fn run(config: &Config, argv: &[String], name: &str) -> Result<(i64, String)
         remove_container(config, name);
         let _ = child.wait();
         let _ = reader.join();
-        return Ok((137, String::new()));
+        return Ok((crate::grade::KILLED, String::new()));
     };
     let bytes = reader.join().unwrap_or_default();
     let out = String::from_utf8_lossy(&bytes)

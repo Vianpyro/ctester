@@ -296,7 +296,7 @@ pub fn run_console(
 
     let code = status.map_or(-1, sandbox::exit_code);
     if reason == "exited" && !counter.compiled.load(Ordering::Relaxed) {
-        reason = if code == 12 {
+        reason = if code == crate::grade::COMPILE_TIMEOUT {
             "compile_timeout"
         } else {
             "compile_error"

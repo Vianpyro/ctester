@@ -44,7 +44,7 @@ pub struct Spool {
     fd: OwnedFd,
 }
 
-fn other(message: String) -> io::Error {
+fn denied(message: String) -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, message)
 }
 
@@ -52,7 +52,7 @@ fn other(message: String) -> io::Error {
 fn plain(fd: OwnedFd, what: &str) -> io::Result<File> {
     let stat = rustix::fs::fstat(&fd)?;
     if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile || stat.st_nlink != 1 {
-        return Err(other(format!("{what}: not a plain file")));
+        return Err(denied(format!("{what}: not a plain file")));
     }
     Ok(File::from(fd))
 }
@@ -134,7 +134,7 @@ impl Spool {
             .take(limit as u64 + 1)
             .read_to_end(&mut data)?;
         if data.len() > limit {
-            return Err(other(format!("{rel}: larger than {limit} bytes")));
+            return Err(denied(format!("{rel}: larger than {limit} bytes")));
         }
         Ok(data)
     }

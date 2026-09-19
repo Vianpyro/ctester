@@ -15,6 +15,12 @@ const MAX_CASE_OUTPUT: usize = 600;
 const MAX_STDERR: usize = 2000;
 const MAX_GIVEN: usize = 64;
 const MAX_NUMBERS: usize = 20;
+// Exit codes of `worker/build-*.sh`, beside timeout(1)'s and SIGKILL's.
+pub const COMPILE_FAILED: i64 = 10;
+pub const LINK_FAILED: i64 = 11;
+pub const COMPILE_TIMEOUT: i64 = 12;
+pub const TIMED_OUT: i64 = 124;
+pub const KILLED: i64 = 137;
 /// Outside Unity's range: Unity exits with its number of failed tests.
 pub const ASAN_EXIT: i64 = 86;
 pub const DEFAULT_TOLERANCE: f64 = 0.005;
@@ -37,8 +43,6 @@ static NUMBER_RE: LazyLock<Regex> =
     LazyLock::new(|| re(r"[-+]?[0-9]+(?:[.,][0-9]+)?(?:[eE][-+]?[0-9]+)?"));
 // Letters and non-decimal numerics: in "inférieur" or "nan²" no nan stands on its own.
 static LETTER_RE: LazyLock<Regex> = LazyLock::new(|| re(r"^[\p{L}\p{Nl}\p{No}]$"));
-
-// ---- text ---------------------------------------------------------------------------------
 
 /// Unicode White_Space plus the four information separators, which student output can carry.
 fn is_space(c: char) -> bool {
@@ -102,9 +106,12 @@ pub fn format_g(f: f64) -> String {
     let sci = format!("{:.5e}", f);
     let (mantissa, exp) = sci.split_once('e').expect("{:e} has an exponent");
     let exp: i32 = exp.parse().expect("{:e} exponent");
-    let trim = |s: &str| match s.contains('.') {
-        true => s.trim_end_matches('0').trim_end_matches('.').to_string(),
-        false => s.to_string(),
+    let trim = |s: &str| {
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            s.to_string()
+        }
     };
     if !(-4..6).contains(&exp) {
         let sign = if exp < 0 { '-' } else { '+' };
@@ -167,11 +174,13 @@ pub fn tolerance(conf: &Value) -> Result<f64> {
 
 /// `int(value)`: truncates floats, parses text.
 fn py_int(v: &Value, what: &str) -> Result<i64> {
+    if let Some(i) = v.as_i64() {
+        return Ok(i);
+    }
     match v {
         Value::String(s) => strip(s)
             .parse()
             .map_err(|_| format!("{what} is not an integer")),
-        Value::Number(n) if n.is_i64() => Ok(n.as_i64().unwrap_or_default()),
         other => {
             let f = as_number(other, what)?;
             if f.is_finite() {
@@ -182,8 +191,6 @@ fn py_int(v: &Value, what: &str) -> Result<i64> {
         }
     }
 }
-
-// ---- quiz ---------------------------------------------------------------------------------
 
 fn without_separators(text: &str) -> String {
     text.chars()
@@ -295,8 +302,6 @@ pub fn grade_quiz(quiz: &Value, answers: &Value) -> Result<Value> {
         "wrong": wrong,
     }))
 }
-
-// ---- io -----------------------------------------------------------------------------------
 
 pub fn extract_numbers(text: &str) -> Vec<f64> {
     NUMBER_RE
@@ -513,7 +518,10 @@ pub fn with_warnings(mut result: Value, warnings: &str) -> Value {
 }
 
 pub fn verdict_io(rc: i64, output: &str, cases: &[Value], nonce: &str, tol: f64) -> Result<Value> {
-    if matches!(rc, 10 | 11 | 12 | 124 | 137) {
+    if matches!(
+        rc,
+        COMPILE_FAILED | LINK_FAILED | COMPILE_TIMEOUT | TIMED_OUT | KILLED
+    ) {
         return Ok(verdict(rc, output));
     }
     let runs = split_runs(output, nonce);
@@ -528,9 +536,11 @@ pub fn verdict_io(rc: i64, output: &str, cases: &[Value], nonce: &str, tol: f64)
             continue;
         };
         let reason = match *code {
-            124 | 137 => "le programme a été interrompu : boucle infinie, ou il attend plus de \
+            TIMED_OUT | KILLED => {
+                "le programme a été interrompu : boucle infinie, ou il attend plus de \
                           valeurs qu'il n'en reçoit"
-                .to_string(),
+                    .to_string()
+            }
             ASAN_EXIT => "le programme a débordé de la mémoire qu'il a réservée (voir le rapport \
                           ci-dessous : il nomme la ligne)"
                 .to_string(),
@@ -561,8 +571,6 @@ pub fn verdict_io(rc: i64, output: &str, cases: &[Value], nonce: &str, tol: f64)
     }))
 }
 
-// ---- unity --------------------------------------------------------------------------------
-
 /// Untrusted: student code shares the process and could print a fake summary.
 pub fn parse_unity(out: &str) -> Option<Map<String, Value>> {
     let caps = SUMMARY_RE.captures_iter(out).last()?;
@@ -585,18 +593,18 @@ pub fn parse_unity(out: &str) -> Option<Map<String, Value>> {
 
 pub fn verdict(rc: i64, out: &str) -> Value {
     match rc {
-        10 => json!({
+        COMPILE_FAILED => json!({
             "status": "compile_error",
             "message": "Ton fichier ne compile pas.",
             "gcc": head(out, MAX_GCC_CHARS),
         }),
-        11 => json!({
+        LINK_FAILED => json!({
             "status": "link_error",
             "message": "Ton code compile, mais l'édition de liens avec les tests a échoué. \
                         Vérifie que les fonctions demandées ont exactement le nom et la signature \
                         de l'énoncé, et que tu ne définis pas de fonction main().",
         }),
-        12 => json!({
+        COMPILE_TIMEOUT => json!({
             "status": "compile_timeout",
             "message": "La compilation a été trop longue et a été abandonnée.",
         }),
@@ -607,7 +615,7 @@ pub fn verdict(rc: i64, out: &str) -> Value {
                         pointeur qui ne pointe plus sur rien. Revois tes conditions de boucle (< \
                         et non <=) et la taille que tu réserves.",
         }),
-        124 | 137 => json!({
+        TIMED_OUT | KILLED => json!({
             "status": "timeout",
             "message": "Le programme a été interrompu : boucle infinie, attente d'une entrée, ou \
                         trop de processus créés.",

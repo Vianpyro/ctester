@@ -123,18 +123,12 @@ impl Results {
     }
 
     pub fn retries(&self, job: &Job) -> u64 {
-        let n = std::fs::read(self.dir(job).join("reprises.json"))
+        // Only `reclaim` writes this file, always as `{"n": <u64>}`.
+        std::fs::read(self.dir(job).join("reprises.json"))
             .ok()
             .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v| v.get("n").cloned());
-        match n {
-            Some(Value::Number(n)) => n
-                .as_u64()
-                .or_else(|| n.as_f64().map(|f| f.max(0.0) as u64))
-                .unwrap_or(0),
-            Some(Value::String(s)) => s.trim().parse().unwrap_or(0),
-            _ => 0,
-        }
+            .and_then(|v| v["n"].as_u64())
+            .unwrap_or(0)
     }
 
     pub fn write_json(&self, job: Option<&Job>, name: &str, value: &Value) -> io::Result<()> {
@@ -174,10 +168,7 @@ impl Results {
             "passed": verdict.get("passed").and_then(Value::as_i64),
             "total": verdict.get("total").and_then(Value::as_i64),
             // The verdict only names the mode when it graded successfully.
-            "kind": match run.kind.is_empty() {
-                true => field("kind"),
-                false => run.kind,
-            },
+            "kind": if run.kind.is_empty() { field("kind") } else { run.kind },
             "duration_s": run.duration_s,
             "queue_wait_s": run.queue_wait_s,
             "worker_id": self.worker_id,

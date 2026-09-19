@@ -118,7 +118,7 @@ mod runner {
     use crate::sandbox::{self, Stage};
     use crate::spool::{self, Job, Spool};
 
-    const CONSOLE_DURATION: &str = ":console";
+    const CONSOLE_EXERCISE: &str = ":console";
 
     struct Context {
         exercise: Exercise,
@@ -193,9 +193,9 @@ mod runner {
             loop {
                 // Known verdicts first, then a single compilation per pass.
                 let mut worked = self.serve_known() > 0;
+                let stale = Duration::from_secs(self.config.console_session_max + 60);
                 for job in self.pending() {
                     let console = self.spool.job_field(&job, "kind") == "console";
-                    let stale = Duration::from_secs(self.config.console_session_max + 60);
                     if console && !self.results.console_lock(stale) {
                         continue;
                     }
@@ -218,12 +218,8 @@ mod runner {
                 let after = Duration::from_secs(self.config.sweep_after);
                 self.spool.sweep(SystemTime::now(), after);
                 self.results.sweep(SystemTime::now(), after);
-                let work = Spool::open(&self.config.work.join("jobs"));
-                if let Ok(work) = work {
-                    work.sweep(
-                        SystemTime::now(),
-                        Duration::from_secs(self.config.sweep_after),
-                    );
+                if let Ok(work) = Spool::open(&self.config.work.join("jobs")) {
+                    work.sweep(SystemTime::now(), after);
                 }
                 if once {
                     return ExitCode::SUCCESS;
@@ -237,13 +233,17 @@ mod runner {
         /// A job must never take the worker down, a panic included.
         fn process(&mut self, job: &Job, console: bool) {
             let start = Instant::now();
-            let outcome = catch_unwind(AssertUnwindSafe(|| match console {
-                true => console::run_console(&self.config, &self.spool, &self.results, job),
-                false => self.run_job(job),
+            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                if console {
+                    console::run_console(&self.config, &self.spool, &self.results, job)
+                } else {
+                    self.run_job(job)
+                }
             }));
-            let key = match console {
-                true => CONSOLE_DURATION.to_string(),
-                false => self.spool.job_field(job, "exercise_id"),
+            let key = if console {
+                CONSOLE_EXERCISE.to_string()
+            } else {
+                self.spool.job_field(job, "exercise_id")
             };
             let elapsed = || start.elapsed().as_secs_f64();
             let failure = match outcome {
@@ -291,7 +291,7 @@ mod runner {
                 .content
                 .iter()
                 .find_map(|root| gate::load(root, exercise_id, true, gate::now()))
-                .map_or("", |exercise| exercise.mode.name());
+                .map_or("", |exercise| exercise.mode.as_str());
             Run {
                 exercise_id,
                 account: self.spool.job_field(job, "owner"),
@@ -521,7 +521,7 @@ mod runner {
         use crate::spool::tests::Scratch;
         use rustix::fs::{FlockOperation, Mode, OFlags};
         use std::os::unix::fs::{PermissionsExt, symlink};
-        use std::path::Path;
+        use std::path::{Path, PathBuf};
 
         struct World {
             scratch: Scratch,
@@ -631,8 +631,6 @@ mod runner {
                 calls.lines().filter(|l| l.starts_with("run")).count()
             }
         }
-
-        use std::path::PathBuf;
 
         fn files(source: &str) -> String {
             json!({"submission.c": source}).to_string()

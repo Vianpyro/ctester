@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 use crate::config::Config;
+use crate::grade;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -21,15 +22,6 @@ impl Mode {
     const ALL: [Mode; 3] = [Mode::Quiz, Mode::Io, Mode::Unity];
 
     pub fn as_str(self) -> &'static str {
-        match self {
-            Mode::Quiz => "quiz",
-            Mode::Io => "io",
-            Mode::Unity => "unity",
-        }
-    }
-
-    /// What the run journal records, so a failed run still says what it was.
-    pub fn name(self) -> &'static str {
         match self {
             Mode::Quiz => "quiz",
             Mode::Io => "io",
@@ -257,35 +249,33 @@ pub fn valid_header_name(name: &str) -> bool {
 
 /// The file names a submission consists of: the config's, else the published ones.
 pub fn declared_files(conf: &Value, tp_dir: &Path) -> Vec<String> {
-    let truthy = |v: &&Value| match v {
-        Value::Array(a) => !a.is_empty(),
-        Value::Object(o) => !o.is_empty(),
-        Value::String(s) => !s.is_empty(),
-        _ => false,
-    };
     let published = || {
         let path = tp_dir.join("..").join("public").join("files.json");
         read_object(&path).and_then(|v| v.get("files").cloned())
     };
-    let files = conf.get("files").filter(truthy).cloned().or_else(published);
+    let files = conf
+        .get("files")
+        .filter(|v| grade::truthy(v))
+        .cloned()
+        .or_else(published);
     let names: Vec<String> = match files {
         Some(Value::Array(items)) => items
             .iter()
             .filter_map(|item| match item {
-                Value::Object(map) => map
-                    .get("name")
-                    .map(|n| n.as_str().map_or_else(|| n.to_string(), str::to_string)),
-                Value::String(s) => Some(s.clone()),
+                Value::Object(map) => map.get("name").and_then(Value::as_str),
+                Value::String(s) => Some(s.as_str()),
                 _ => None,
             })
             .filter(|name| valid_file_name(name))
+            .map(str::to_string)
             .collect(),
         Some(Value::Object(map)) => map.keys().filter(|k| valid_file_name(k)).cloned().collect(),
         _ => Vec::new(),
     };
-    match names.is_empty() {
-        true => vec!["submission.c".to_string()],
-        false => names,
+    if names.is_empty() {
+        vec!["submission.c".to_string()]
+    } else {
+        names
     }
 }
 
@@ -404,8 +394,8 @@ mod tests {
 
     #[test]
     fn the_gate_reopens_nothing_the_content_closed() {
-        let root = std::env::temp_dir().join(format!("ctester-gate-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let scratch = crate::spool::tests::Scratch::new("gate");
+        let root = scratch.0.clone();
         exercise(
             &root,
             "surface",
@@ -449,7 +439,6 @@ mod tests {
         ] {
             assert!(load(&root, hostile, true, now).is_none(), "{hostile}");
         }
-        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
