@@ -151,10 +151,14 @@
                           {@const Widget = widgetFor(q)}
                           {@const mark = marks[q.id]}
                           <!-- The widgets name themselves from this span, so a cell reads
-                               as its row and column without any of them knowing. -->
-                          <span id={"qlabel-" + q.id} class="offscreen">
-                            {row.label} — {table.cols[c]}
-                          </span>
+                               as its row and column without any of them knowing. When the
+                               table unfolds it becomes the cell's visible caption, minus
+                               the row half, which the heading above already carries. -->
+                          <span id={"qlabel-" + q.id} class="qcell"
+                            ><span class="qcell-row">{row.label} —</span>{" "}{table.cols[
+                              c
+                            ]}</span
+                          >
                           <Widget {q} onchange={onInput} />
                           {#if mark}
                             <p class="qmark {mark.state}">

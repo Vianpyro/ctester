@@ -843,10 +843,12 @@ main {
   min-height: 0;
   overflow-y: auto;
   padding: .9rem;
+  container-type: inline-size;
+  container-name: quiz;
 }
 
 #quiz {
-  --qlabel: 12rem;
+  --qlabel: min(12rem, 100%);
   /* Padding and border of an input, since everything here is border-box. */
   --qbox: 1.4rem;
 }
@@ -858,7 +860,7 @@ main {
   display: grid;
   grid-template-columns: repeat(
     auto-fill,
-    calc(var(--qlabel) + var(--slots, 12) * 1ch + var(--qbox) + 1.5rem)
+    minmax(min(100%, calc(var(--qlabel) + var(--slots, 12) * 1ch + var(--qbox) + 1.5rem)), 1fr)
   );
   justify-content: start;
   gap: 0 2rem;
@@ -1471,6 +1473,24 @@ pre {
 #quiz .qtable tbody th {
   font-weight: 400;
   padding-right: 1.2rem;
+}
+
+@container quiz (min-width: 34rem) {
+  #quiz .qtable tbody th {
+    white-space: nowrap;
+  }
+}
+
+/* A cell names itself for the screen reader; below the fold it also names itself for the
+   eye. `display: block` on a table strips its roles in most browsers, so this label is
+   what keeps a stacked cell meaningful -- hence clip, never `display: none`. */
+#quiz .qcell {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  clip-path: inset(50%);
+  overflow: hidden;
   white-space: nowrap;
 }
 
@@ -1520,6 +1540,7 @@ pre {
 #quiz .qrow > span {
   flex: 0 0 var(--qlabel);
   max-width: 100%;
+  min-width: 0;
 }
 
 /* The field is shaped like the answer it wants: eight bits look like eight bits. `--slots`
@@ -1562,7 +1583,8 @@ pre {
 
 #quiz .qchoices {
   display: flex;
-  flex: 1 1 20rem;
+  flex: 1 1 min(100%, 20rem);
+  min-width: 0;
   flex-wrap: wrap;
   gap: .4rem 1.2rem;
 }
@@ -1572,7 +1594,6 @@ pre {
   align-items: center;
   gap: .4rem;
   font-size: var(--fs-ui);
-  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1598,7 +1619,8 @@ pre {
 
 #quiz .qmatch,
 #quiz .qorder {
-  flex: 1 1 20rem;
+  flex: 1 1 min(100%, 20rem);
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: .35rem;
@@ -1642,6 +1664,8 @@ pre {
 
 #quiz .qcloze {
   flex: 1 1 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
   font-family: var(--mono);
   font-size: var(--fs-ui);
@@ -1691,8 +1715,9 @@ pre {
   color: var(--ok);
 }
 
-/* Narrow: one column, and the label takes its own line above the field. */
-@media (max-width: 900px) {
+/* Narrow: one column, the label on its own line, and the table unfolded. Keyed to the
+   panel, not the window. Nothing here may scroll sideways. */
+@container quiz (max-width: 34rem) {
   #quiz {
     --qlabel: 100%;
   }
@@ -1705,9 +1730,60 @@ pre {
     padding-left: 0;
   }
 
-  #quiz .qtable {
+  #quiz .qtable thead {
+    display: none;
+  }
+
+  #quiz .qtable,
+  #quiz .qtable tbody,
+  #quiz .qtable tr,
+  #quiz .qtable :is(th, td) {
     display: block;
-    overflow-x: auto;
+  }
+
+  #quiz .qtable tr + tr {
+    margin-top: .9rem;
+  }
+
+  #quiz .qtable tbody th {
+    font-weight: 700;
+    padding: 0 0 .25rem;
+  }
+
+  #quiz .qtable td {
+    padding: 0 0 .4rem;
+  }
+
+  #quiz .qtable td:empty {
+    display: none;
+  }
+
+  /* The cell's label comes out of hiding and becomes its caption. Its row half stays
+     clipped: the row already reads as the heading just above. */
+  #quiz .qcell {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    clip-path: none;
+    overflow: visible;
+    white-space: normal;
+    display: block;
+    font-size: var(--fs-label);
+    color: var(--muted);
+  }
+
+  #quiz .qcell-row {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+  }
+
+  #quiz .qtable .qmark {
+    max-width: none;
   }
 }
 
