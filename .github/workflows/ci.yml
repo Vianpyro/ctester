@@ -69,9 +69,6 @@ jobs:
     env:
       CTESTER_KEY: dev      # a throwaway local value, unrelated to the deployed key
       CTESTER_PAGE: frontend/dist
-      CTESTER_PUBLISHED: ${{ runner.temp }}/demo/published
-      CTESTER_SPOOL: ${{ runner.temp }}/demo/spool
-      CTESTER_RESULTS: ${{ runner.temp }}/demo/results
     steps:
       - uses: actions/checkout@v7
         with:
@@ -87,6 +84,10 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python3 scripts/demo_content.py --out "$RUNNER_TEMP/demo"
       - name: Serve the page and its API from one origin
+        env:
+          CTESTER_PUBLISHED: ${{ runner.temp }}/demo/published
+          CTESTER_SPOOL: ${{ runner.temp }}/demo/spool
+          CTESTER_RESULTS: ${{ runner.temp }}/demo/results
         run: |
           set -euo pipefail
           python3 app/main.py > "$RUNNER_TEMP/server.log" 2>&1 &
