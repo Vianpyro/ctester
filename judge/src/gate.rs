@@ -43,9 +43,14 @@ pub struct Exercise {
     pub mode: Mode,
 }
 
+/// Whether closed exercises open for this owner: preview, or a moderator.
+pub fn unlocked(config: &Config, owner: &str) -> bool {
+    config.preview || (!owner.is_empty() && config.moderators.contains(owner))
+}
+
 /// Closed exercises open only in preview or for a moderator, recomputed from the owner here.
 pub fn find(config: &Config, id: &str, owner: &str, now: i128) -> Option<Exercise> {
-    let all = config.preview || (!owner.is_empty() && config.moderators.contains(owner));
+    let all = unlocked(config, owner);
     // Ids are unique across roots, so the first match is the only one.
     config
         .content

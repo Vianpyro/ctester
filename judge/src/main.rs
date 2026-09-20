@@ -237,6 +237,7 @@ mod runner {
             let outcome = catch_unwind(AssertUnwindSafe(|| {
                 if console {
                     console::run_console(&self.config, &self.spool, &self.results, job)
+                        .map(|verdict| (verdict, false))
                 } else {
                     self.run_job(job)
                 }
@@ -248,11 +249,15 @@ mod runner {
             };
             let elapsed = || start.elapsed().as_secs_f64();
             let failure = match outcome {
-                Ok(Ok(verdict)) => {
-                    let run = self.record(job, &key, Some(elapsed()), false);
+                // A verdict taken from the cache is journaled like the queue pass serves one:
+                // no duration, so it weighs on neither the worker's average nor the ETA.
+                Ok(Ok((verdict, cached))) => {
+                    let run = self.record(job, &key, (!cached).then(&elapsed), cached);
                     match self.results.write_result(job, verdict, &run) {
                         Ok(()) => {
-                            self.results.record_duration(&key, elapsed());
+                            if !cached {
+                                self.results.record_duration(&key, elapsed());
+                            }
                             return;
                         }
                         Err(e) => e.to_string(),
@@ -347,8 +352,8 @@ mod runner {
             true
         }
 
-        fn context(&self, exercise_id: &str) -> Option<Context> {
-            let exercise = gate::find(&self.config, exercise_id, "", gate::now())?;
+        fn context(&self, exercise_id: &str, owner: &str) -> Option<Context> {
+            let exercise = gate::find(&self.config, exercise_id, owner, gate::now())?;
             if exercise.mode == Mode::Quiz {
                 return None;
             }
@@ -380,17 +385,21 @@ mod runner {
 
         /// Serves every already-known verdict before compiling anything.
         fn serve_known(&mut self) -> usize {
-            let mut contexts: HashMap<String, Option<Context>> = HashMap::new();
+            // Keyed by the gate's answer as well: a context built for a moderator must never
+            // serve the cache to a student's job on the same closed exercise.
+            let mut contexts: HashMap<(bool, String), Option<Context>> = HashMap::new();
             let mut alive = HashSet::new();
             let mut served = 0;
             for job in self.pending() {
                 alive.insert(job.clone());
                 let exercise_id = self.spool.job_field(&job, "exercise_id");
-                if !contexts.contains_key(&exercise_id) {
-                    let ctx = self.context(&exercise_id);
-                    contexts.insert(exercise_id.clone(), ctx);
+                let owner = self.spool.job_field(&job, "owner");
+                let key = (gate::unlocked(&self.config, &owner), exercise_id.clone());
+                if !contexts.contains_key(&key) {
+                    let ctx = self.context(&exercise_id, &owner);
+                    contexts.insert(key.clone(), ctx);
                 }
-                let Some(ctx) = &contexts[&exercise_id] else {
+                let Some(ctx) = &contexts[&key] else {
                     continue;
                 };
                 let Some(sig) = self.signature_of(&job, ctx) else {
@@ -412,11 +421,15 @@ mod runner {
             served
         }
 
-        fn run_job(&mut self, job: &Job) -> Result<Value, String> {
+        /// The verdict, and whether it was taken from the cache rather than graded.
+        fn run_job(&mut self, job: &Job) -> Result<(Value, bool), String> {
             let exercise_id = self.spool.job_field(job, "exercise_id");
             let owner = self.spool.job_field(job, "owner");
             let Some(exercise) = gate::find(&self.config, &exercise_id, &owner, gate::now()) else {
-                return Ok(json!({"status": "error", "message": "Exercice inconnu."}));
+                return Ok((
+                    json!({"status": "error", "message": "Exercice inconnu."}),
+                    false,
+                ));
             };
             let read = |name: &str| {
                 self.spool
@@ -425,7 +438,7 @@ mod runner {
             };
             let conf = gate::load_config(&exercise)?;
             if exercise.mode == Mode::Quiz {
-                return grade::grade_quiz(&conf, &read("answers.json")?);
+                return grade::grade_quiz(&conf, &read("answers.json")?).map(|v| (v, false));
             }
             let sent = read("files.json")?;
             if !sent.is_object() {
@@ -438,7 +451,7 @@ mod runner {
                     "ctester: cache served {exercise_id} {} [dequeued]",
                     &sig[..12]
                 );
-                return Ok(known);
+                return Ok((known, true));
             }
             let mut verdict = self.judge(job, &exercise, &conf, &sent)?;
             if cache::cachable(&conf, &verdict) {
@@ -447,7 +460,7 @@ mod runner {
             } else if let Some(map) = verdict.as_object_mut() {
                 map.insert("rerun".into(), json!(true));
             }
-            Ok(verdict)
+            Ok((verdict, false))
         }
 
         fn judge(
@@ -623,6 +636,23 @@ mod runner {
                 serde_json::from_slice(&bytes).unwrap()
             }
 
+            /// The journal line of one run, from the day's `runs-*.jsonl`.
+            fn journal(&self, job: &Job) -> Value {
+                let dir = self.scratch.0.join("results");
+                let name = std::fs::read_dir(&dir)
+                    .unwrap()
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .find(|name| name.starts_with("runs-"))
+                    .expect("no run journal");
+                std::fs::read_to_string(dir.join(name))
+                    .unwrap()
+                    .lines()
+                    .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                    .find(|run| run["job_id"] == job.as_str())
+                    .expect("job missing from the journal")
+            }
+
             fn runs(&self) -> usize {
                 let calls =
                     std::fs::read_to_string(self.scratch.0.join("calls")).unwrap_or_default();
@@ -710,6 +740,21 @@ mod runner {
             let moderated = w.submit(owner, &[("files.json", &files("x"))]);
             w.runner.run(true);
             assert_eq!(w.result(&moderated)["status"], "ok");
+
+            // A closed exercise caches like any other. Both twins are served in the same
+            // pass, which only the queue pass can do, and the journal declares the cache.
+            let compiled = w.runs();
+            let twins: Vec<Job> = (0..2)
+                .map(|_| w.submit(owner, &[("files.json", &files("x"))]))
+                .collect();
+            w.runner.run(true);
+            assert_eq!(w.runs(), compiled, "a closed exercise was compiled twice");
+            for twin in &twins {
+                assert_eq!(w.result(twin)["status"], "ok");
+                let line = w.journal(twin);
+                assert_eq!(line["cache_hit"], true, "{line}");
+                assert!(line["duration_s"].is_null(), "{line}");
+            }
         }
 
         #[test]
