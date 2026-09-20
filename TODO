@@ -4,3 +4,4 @@
 - WASM corrector for quizes with requests to the main server so it logs in the admin interface anyway?
 - Display Database size in Admin interface
 - Reduce pull frequency during the night?
+- Code with blanks to fill in
