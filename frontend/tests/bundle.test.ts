@@ -55,7 +55,9 @@ describe.skipIf(!built)("the built document", () => {
   });
 
   it("references its assets from the ROOT, which is what the custom domain serves", () => {
-    for (const path of document_().match(/(?:src|href)="[^"]+"/g) ?? []) {
+    // preconnect and dns-prefetch name an origin to warm, not an asset to load.
+    const loaded = document_().replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/g, "");
+    for (const path of loaded.match(/(?:src|href)="[^"]+"/g) ?? []) {
       expect(path).toMatch(/="\/(assets\/|favicon\.svg|theme\.js)/);
     }
   });
@@ -110,6 +112,13 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
       0,
     );
     expect(bytes).toBeLessThan(146_000);
+  });
+
+  it("keeps the QUIZ widgets out: most exercises are not a quiz", () => {
+    expect(eagerSource(), "the quiz nav is only for a quiz").not.toContain("‹ Précédent");
+    const panel = allChunks().find((name) => name.startsWith("QuizPanel"));
+    expect(panel, "the quiz panel must exist as its own chunk").toBeTruthy();
+    expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("‹ Précédent");
   });
 
   it("keeps the shortcuts WORKING but the cheat sheet DEFERRED", () => {

@@ -13,6 +13,8 @@ SERVED = {
     "index.html": "text/html; charset=utf-8",
     "favicon.svg": "image/svg+xml",
     "theme.js": JS,
+    # Must be served from the root, or its scope cannot cover the page.
+    "sw.js": JS,
 }
 
 ASSET_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.(js|css|map|svg|woff2)\Z")
@@ -38,8 +40,9 @@ def asset(name: str, request: Request):
     path = os.path.join(config.PAGE, "assets", name)
     if not os.path.isfile(path):
         return headers.error(404, "inconnu")
+    # The build puts the content hash in the name, so these bytes never change under it.
     return _serve(request, os.path.join("assets", name),
-                  ASSET_TYPES[name.rsplit(".", 1)[1]])
+                  ASSET_TYPES[name.rsplit(".", 1)[1]], cache=headers.IMMUTABLE)
 
 
 @router.api_route("/{name:path}", methods=["GET", "HEAD"])
@@ -49,6 +52,6 @@ def static_file(name: str, request: Request):
     return _serve(request, name, SERVED[name])
 
 
-def _serve(request, name, mime_type):
+def _serve(request, name, mime_type, cache="no-cache"):
     return headers.file_from_disk(request, config.PAGE, name, mime_type,
-                                  config.OIDC_ISSUER)
+                                  config.OIDC_ISSUER, cache=cache)

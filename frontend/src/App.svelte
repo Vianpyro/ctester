@@ -24,7 +24,6 @@
   import CodeEditor from "./components/CodeEditor.svelte";
   import ConsentPanel from "./components/ConsentPanel.svelte";
   import LabStrip from "./components/LabStrip.svelte";
-  import QuizPanel from "./components/QuizPanel.svelte";
   import Statement from "./components/Statement.svelte";
   import TopBar from "./components/TopBar.svelte";
   import VerdictPanel from "./components/VerdictPanel.svelte";
@@ -43,6 +42,7 @@
   let IdentityPanel = $state<Component | null>(null);
   let TeamBand = $state<Component | null>(null);
   let ShortcutsPanel = $state<Component<{ open: boolean; onClose: () => void }> | null>(null);
+  let QuizPanel = $state<Component | null>(null);
 
   async function bring<T>(what: string, load: () => Promise<T>): Promise<T | null> {
     try {
@@ -62,9 +62,14 @@
       return;
     }
     if (name === "progress") {
-      const mod = await bring("« Mes progrès »", () => import("./features/progress/Progress.svelte"));
-      if (!mod) return;
-      const { projection } = await import("./features/progress/projection.svelte");
+      const parts = await bring("« Mes progrès »", () =>
+        Promise.all([
+          import("./features/progress/Progress.svelte"),
+          import("./features/progress/projection.svelte"),
+        ]),
+      );
+      if (!parts) return;
+      const [mod, { projection }] = parts;
       await projection.load();
       Progress = mod.default as Component;
     } else if (name === "leaderboard") {
@@ -140,12 +145,13 @@
   });
 
   async function start(deepLink: string, authCode: string | null, authState: string | null) {
+    const deploymentSoon = fetchDeployment();
     const toOpen = await catalog.load(deepLink, lastExercise());
     if (catalog.spotlighted) menuOpen = true;
     if (toOpen) await exercise.open(toOpen);
     else if (catalog.collections.length) menuOpen = true;
 
-    const deployment = await fetchDeployment();
+    const deployment = await deploymentSoon;
     if (!deployment || !deployment.issuer || !deployment.client_id) return;
     session.deployment = deployment;
     if (!session.token && !authCode) return;
@@ -164,8 +170,7 @@
     if (!session.token) return;
     await ensureValid();
     if (!session.token) return;
-    await theme.loadFromAccount();
-    await statuses.load();
+    await Promise.all([theme.loadFromAccount(), statuses.load()]);
     if (catalog.selectedId) await exercise.open(catalog.selectedId);
     if (!deployment.forum) return;
     void import("./lib/state/unread.svelte").then(({ unread }) => unread.start());
@@ -261,6 +266,13 @@
   const isQuiz = $derived(here?.mode === "quiz");
   const showWorkbench = $derived(view.current === "");
   const showTeamBand = $derived(!!here?.assignment && session.signedIn);
+
+  $effect(() => {
+    if (!isQuiz || QuizPanel) return;
+    void bring("le questionnaire", () => import("./components/QuizPanel.svelte")).then((mod) => {
+      if (mod) QuizPanel = mod.default as Component;
+    });
+  });
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -311,7 +323,7 @@
       <LabStrip openMenu={(search) => openMenu(search)} />
 
       {#if isQuiz}
-        <QuizPanel />
+        {#if QuizPanel}<QuizPanel />{/if}
       {:else}
         <CodeEditor />
       {/if}

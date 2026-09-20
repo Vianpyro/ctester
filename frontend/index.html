@@ -2,9 +2,13 @@
 <html lang="fr">
 <head>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<!-- The API is a different origin from the page: warm it while the HTML is still parsing,
+     instead of paying the handshake at the first fetch on a slow link. -->
+<link rel="preconnect" href="https://tch099.thevhome.com" crossorigin>
+<link rel="dns-prefetch" href="https://auth.thevhome.com">
 <meta charset="utf-8">
 <!-- Must follow <meta charset> and match app/csp.py; frame-ancestors is header-only. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://tch099.thevhome.com blob:; connect-src 'self' https://tch099.thevhome.com wss://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://tch099.thevhome.com blob:; connect-src 'self' https://tch099.thevhome.com wss://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>TCH009 — Tester mon code</title>

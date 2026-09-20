@@ -39,8 +39,7 @@ class Statuses {
 
   async load(): Promise<void> {
     if (!session.signedIn) return;
-    await this.loadStates();
-    await this.loadPractice();
+    await Promise.all([this.loadStates(), this.loadPractice()]);
   }
 
   forget(): void {

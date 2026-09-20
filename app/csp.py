@@ -22,6 +22,9 @@ def csp(body, issuer=""):
     return "; ".join([
         "default-src 'none'",
         "script-src 'self'",
+        # Without it the service worker falls back through child-src to script-src, which
+        # not every browser does. app/routers/page.py serves sw.js from the root.
+        "worker-src 'self'",
         "style-src 'self' 'unsafe-inline'",
         " ".join(["img-src 'self'"] + ([config.API_ORIGIN] if config.API_ORIGIN else [])
                  + ["blob:"]),
