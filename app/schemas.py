@@ -18,6 +18,9 @@ class SubmissionIn(_WithExercise):
     key: str = ""
     files: dict | None = None
     answers: dict | None = None
+    # A page may hold several quiz exercises. They travel together so the batch costs one
+    # cooldown slot; the per-item shape is checked in the router, with the other bounds.
+    items: list | None = None
 
 
 class DraftIn(_WithExercise):

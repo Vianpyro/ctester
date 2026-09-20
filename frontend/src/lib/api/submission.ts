@@ -4,6 +4,7 @@ import type { PollResult, SubmissionBody } from "./types";
 
 export interface Accepted {
   id?: string;
+  ids?: string[];
   error?: string;
   retry_after?: number;
 }

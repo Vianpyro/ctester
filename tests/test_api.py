@@ -32,6 +32,7 @@ import policy as policy  # noqa: E402
 from services import collab  # noqa: E402
 from services import forum_live  # noqa: E402
 from services import quotas  # noqa: E402
+from services import spool  # noqa: E402
 
 KNOWN_ORIGIN = "https://tch009.thevhome.com"
 UNKNOWN_ORIGIN = "https://mechant.example"
@@ -1033,6 +1034,76 @@ def test_an_entirely_blank_submission_is_refused():
                                     "files": {"submission.c": "   \n\t  "}})
         assert r.status_code == 400, (r.status_code, r.text)
         assert r.json()["error"] == "soumission vide", r.json()
+
+
+def test_a_batch_writes_one_job_per_exercise_for_one_quota_slot():
+    with context() as (c, _, _tmp):
+        # The whole point of the batch: a page holding two exercises must not cost the
+        # student two cooldowns, nor two of the hourly budget.
+        deps.quota = quotas.Quota(cooldown=0, hourly=1)
+        r = c.post("/submit", json={
+            "key": "cle-de-session",
+            "items": [{"exercise_id": "quiz1", "answers": {"q1": "42"}},
+                      {"exercise_id": "verif-tp2", "answers": {"q1": "7"}}]})
+        assert r.status_code == 200, (r.status_code, r.text)
+        ids = r.json()["ids"]
+        assert len(ids) == 2 and len(set(ids)) == 2, r.json()
+        assert "id" not in r.json(), r.json()
+        for job in ids:
+            assert os.path.exists(os.path.join(config.SPOOL, job, "answers.json")), job
+        assert c.post("/submit", json={"key": "cle-de-session",
+                                       "exercise_id": "quiz1",
+                                       "answers": {"q1": "1"}}).status_code == 429
+
+
+def test_a_batch_is_accepted_whole_or_refused_whole():
+    with context() as (c, _, _tmp):
+        before = len(spool.scan_jobs())
+        r = c.post("/submit", json={
+            "key": "cle-de-session",
+            "items": [{"exercise_id": "quiz1", "answers": {"q1": "42"}},
+                      {"exercise_id": "nexiste-pas", "answers": {"q1": "7"}}]})
+        assert r.status_code == 400 and r.json()["error"] == "TP inconnu", r.text
+        # Nothing written, and no quota slot burned for a page that was refused.
+        assert len(spool.scan_jobs()) == before, spool.scan_jobs()
+
+        r = c.post("/submit", json={
+            "key": "cle-de-session",
+            "items": [{"exercise_id": "quiz1", "answers": {"q1": "42"}},
+                      {"exercise_id": "verif-tp2", "answers": {"q1": "   "}}]})
+        assert r.status_code == 400, (r.status_code, r.text)
+        assert r.json()["error"] == "aucune réponse saisie", r.json()
+        assert len(spool.scan_jobs()) == before, spool.scan_jobs()
+
+
+def test_a_batch_is_bounded_in_count_and_in_total_size():
+    with context() as (c, _, _tmp):
+        one = {"exercise_id": "quiz1", "answers": {"q1": "42"}}
+        r = c.post("/submit", json={"key": "cle-de-session", "items": [one] * 9})
+        assert r.status_code == 400 and r.json()["error"] == "requête malformée", r.text
+
+        for broken in ([], ["quiz1"], [None]):
+            r = c.post("/submit", json={"key": "cle-de-session", "items": broken})
+            assert r.status_code == 400, (broken, r.status_code, r.text)
+
+        # Each part passes the per-exercise cap; together they blow the batch one, and the
+        # whole body still fits under the request-body limit, so 413 comes from us.
+        heavy = {"q%d" % i: ["x" * 20] * 40 for i in range(16)}
+        r = c.post("/submit", json={
+            "key": "cle-de-session",
+            "items": [{"exercise_id": "quiz1", "answers": heavy},
+                      {"exercise_id": "verif-tp2", "answers": heavy},
+                      {"exercise_id": "quiz1", "answers": heavy}]})
+        assert r.status_code == 413, (r.status_code, r.text)
+        assert r.json()["error"] == "réponses trop longues", r.json()
+
+
+def test_the_single_form_still_answers_with_one_id():
+    with context() as (c, _, _tmp):
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
+                                    "answers": {"q1": "42"}})
+        assert r.status_code == 200, r.text
+        assert "ids" not in r.json() and r.json()["id"], r.json()
 
 
 def test_quiz_bounds_the_number_and_length_of_answers():

@@ -5,6 +5,8 @@
   import { exercise } from "../lib/state/exercise.svelte";
   import { submission } from "../lib/state/submission.svelte";
   import { runTest } from "../lib/state/run";
+  import { quiz } from "../lib/state/quiz.svelte";
+  import { testLabel } from "../lib/domain/labels";
   import { isGroupExportable } from "../lib/domain/catalog";
   import { decodeImported } from "../lib/domain/source";
   import { exportGroup } from "../lib/state/export";
@@ -16,10 +18,13 @@
   const isQuiz = $derived(here?.mode === "quiz");
   const exportable = $derived(!!here && isGroupExportable(catalog.catalog, here.group));
 
-  const goLabel = $derived(isQuiz ? "Tester tout le quiz" : "Tester");
+  const goLabel = "Tester";
+  // A quiz page tests the exercises it shows, so the button names them: "Tester
+  // l'exercice" would be a half-truth on a page holding two.
+  const quizLabel = $derived(testLabel(quiz.shown.map((one) => one.title)));
   const busyLabel = $derived(
-    submission.phase.kind === "cooldown"
-      ? "Nouveau test dans " + submission.phase.seconds + " s"
+    submission.cooldown
+      ? "Nouveau test dans " + submission.cooldown + " s"
       : "Test en cours…",
   );
 
@@ -103,12 +108,13 @@
   {/if}
   <button
     id="go"
-    class={(isQuiz ? "secondary" : "") + (submission.busy ? " busy" : "")}
+    hidden={isQuiz}
+    class={submission.busy ? "busy" : ""}
     aria-busy={working ? "true" : "false"}
-    onclick={() => runTest(false)}
+    onclick={() => runTest()}
   >
     {submission.busy ? busyLabel : goLabel}
-    {#if !submission.busy && !isQuiz}<span class="shortcut">Ctrl+↵</span>{/if}
+    {#if !submission.busy}<span class="shortcut">Ctrl+↵</span>{/if}
   </button>
   <button
     type="button"
@@ -116,9 +122,9 @@
     hidden={!isQuiz}
     class={submission.busy ? "busy" : ""}
     aria-busy={working ? "true" : "false"}
-    onclick={() => runTest(true)}
+    onclick={() => runTest()}
   >
-    {submission.busy ? busyLabel : "Tester l'exercice"}
+    {submission.busy ? busyLabel : quizLabel}
     {#if !submission.busy}<span class="shortcut">Ctrl+↵</span>{/if}
   </button>
 </div>

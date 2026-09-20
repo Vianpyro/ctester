@@ -5,10 +5,10 @@
 
   // A native <select> per prompt, not drag-and-drop: complete at the keyboard and correct
   // to a screen reader for free, where dragging would need a keyboard fallback anyway.
-  const pairs = $derived((quiz.answers[q.id] ?? {}) as Record<string, string>);
+  const pairs = $derived((quiz.answers[q.key] ?? {}) as Record<string, string>);
 
   function pick(prompt: string, chosen: string) {
-    quiz.answers[q.id] = { ...pairs, [prompt]: chosen };
+    quiz.answers[q.key] = { ...pairs, [prompt]: chosen };
     onchange();
   }
 </script>
@@ -16,9 +16,9 @@
 <div class="qmatch">
   {#each q.prompts as prompt, i (prompt)}
     <div class="qpair">
-      <label for={"m-" + q.id + "-" + i}>{prompt}</label>
+      <label for={"m-" + q.key + "-" + i}>{prompt}</label>
       <select
-        id={"m-" + q.id + "-" + i}
+        id={"m-" + q.key + "-" + i}
         value={pairs[prompt] ?? ""}
         onchange={(event) => pick(prompt, event.currentTarget.value)}
       >

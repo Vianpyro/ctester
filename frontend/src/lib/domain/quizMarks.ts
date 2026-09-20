@@ -1,5 +1,5 @@
 import type { Verdict } from "../api/types";
-import { type Answer, answered, pack } from "./answer";
+import { type Answer, answered, keyOf, pack } from "./answer";
 
 export type MarkState = "right" | "wrong" | "unknown";
 
@@ -18,14 +18,17 @@ export function marksFor(
   verdict: Verdict | null | undefined,
   submitted: Record<string, string>,
   answers: Record<string, Answer>,
+  exercise: string,
 ): Record<string, Mark> {
   if (!verdict || verdict.kind !== "quiz" || verdict.status !== "ok") return {};
-  const wrong = new Map((verdict.wrong ?? []).map((w) => [w.id, w]));
+  // The judge answers in question ids; the page keys answers by exercise and question,
+  // because two quizzes may both call a question "q1".
+  const wrong = new Map((verdict.wrong ?? []).map((w) => [keyOf(exercise, w.id), w]));
   const marks: Record<string, Mark> = {};
-  for (const [id, sent] of Object.entries(submitted)) {
-    if (pack(answers[id]) !== sent) continue;
-    const bad = wrong.get(id);
-    marks[id] = bad ? { state: "wrong", hint: bad.hint } : { state: "right" };
+  for (const [key, sent] of Object.entries(submitted)) {
+    if (!key.startsWith(exercise + "/") || pack(answers[key]) !== sent) continue;
+    const bad = wrong.get(key);
+    marks[key] = bad ? { state: "wrong", hint: bad.hint } : { state: "right" };
   }
   return marks;
 }
@@ -57,12 +60,6 @@ export function pageStatus(
       ? "right"
       : "unknown";
   return { answered: filled, total: ids.length, state };
-}
-
-/** A section tile is narrow: keep the heading's stem, drop the description after it. */
-export function sectionLabel(title: string): string {
-  const stem = title.split(/\s[:—–-]\s/)[0]?.trim() || title.trim();
-  return stem.length > 22 ? stem.slice(0, 21) + "…" : stem;
 }
 
 /** The two fields that place a question in a cell; the publisher sets both or neither. */
@@ -104,23 +101,21 @@ export function tableFor<T extends Celled>(questions: T[]): QuizTable<T> | null 
 }
 
 /**
- * Consecutive sections packed into sheets that fit the height on screen. Sections keep the
- * author's order, and one taller than the screen gets a sheet of its own and scrolls: a
- * sheet always holds at least one section, or navigation would have nowhere to go.
+ * How many of the page's exercises fit, found the way a person would: put the first one
+ * down, then try adding the next. `attempt(n)` renders the first n and answers whether
+ * they still fit; it may leave n on screen, so the caller sets the final count itself.
+ * The first exercise always stays, fit or not -- a page with nothing on it is worse than
+ * one that scrolls.
  */
-export function packSheets(heights: number[], available: number): number[][] {
-  const sheets: number[][] = [];
-  let used = Infinity;
-  heights.forEach((height, index) => {
-    if (sheets.length && used + height <= available) {
-      sheets[sheets.length - 1]!.push(index);
-      used += height;
-    } else {
-      sheets.push([index]);
-      used = height;
-    }
-  });
-  return sheets;
+export async function fillPage(
+  count: number,
+  attempt: (n: number) => Promise<boolean>,
+): Promise<number> {
+  if (count <= 0) return 0;
+  let kept = 1;
+  await attempt(1);
+  while (kept < count && (await attempt(kept + 1))) kept++;
+  return kept;
 }
 
 /** Types that draw their own controls instead of a scalar field; mirrors the widget map. */

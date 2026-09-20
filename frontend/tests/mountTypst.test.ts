@@ -78,7 +78,7 @@ async function render() {
 describe("a Typst statement, all the way to the page", () => {
   it("draws the pages as images instead of rendered Markdown", async () => {
     await render();
-    const panel = document.getElementById("statementtext")!;
+    const panel = document.querySelector(".statementtext")!;
     expect(panel.classList.contains("md")).toBe(false);
     const images = [...panel.querySelectorAll("img")];
     expect(images).toHaveLength(2);

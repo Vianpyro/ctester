@@ -4,7 +4,7 @@
   const { q, onchange }: { q: QuizQuestion; onchange: () => void } = $props();
 
   // Buttons rather than drag-and-drop, for the same reason as the matching widget.
-  const items = $derived((quiz.answers[q.id] ?? []) as string[]);
+  const items = $derived((quiz.answers[q.key] ?? []) as string[]);
   let said = $state("");
 
   function move(from: number, by: number) {
@@ -12,7 +12,7 @@
     if (to < 0 || to >= items.length) return;
     const next = [...items];
     [next[from], next[to]] = [next[to]!, next[from]!];
-    quiz.answers[q.id] = next;
+    quiz.answers[q.key] = next;
     said = "« " + items[from] + " » déplacé en position " + (to + 1) + " sur " + items.length;
     onchange();
   }

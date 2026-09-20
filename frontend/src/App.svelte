@@ -211,7 +211,7 @@
       event.preventDefault();
       // On a quiz the blue button tests the page you are on; the shortcut must agree with
       // it, or Ctrl+Enter quietly grades the whole quiz instead.
-      void runTest(isQuiz);
+      void runTest();
       return;
     }
     if (id === "save") {

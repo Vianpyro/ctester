@@ -165,7 +165,7 @@ describe("the anonymous page", () => {
     await render();
     const zone = document.getElementById("code") as HTMLTextAreaElement;
     expect(zone.value).toBe("// écris ici");
-    expect(document.getElementById("statementtext")!.textContent).toBe("Convertis des degrés.");
+    expect(document.querySelector(".statementtext")!.textContent).toBe("Convertis des degrés.");
     expect(document.getElementById("now")!.textContent).toContain("TP2 : ex.1 conversion");
   });
 

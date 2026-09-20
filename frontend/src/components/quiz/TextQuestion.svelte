@@ -25,7 +25,7 @@
   placeholder={slots}
   data-qid={q.id}
   data-qtype={q.type}
-  aria-labelledby={"qlabel-" + q.id}
-  bind:value={quiz.answers[q.id]}
+  aria-labelledby={"qlabel-" + q.key}
+  bind:value={quiz.answers[q.key]}
   oninput={onchange}
 />

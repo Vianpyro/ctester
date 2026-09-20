@@ -24,6 +24,11 @@ MAX_KEY = 64
 MAX_VALUE = 256
 MAX_ITEMS = 40
 MAX_ANSWERS_BYTES = 20000
+# A page shows a handful of exercises at most and they share one cooldown slot, so the
+# batch needs its own bounds: per exercise above, and in total here. Kept under the
+# request-body cap (config.MAX_CODE + 4096) so it is a bound that can actually be reached.
+MAX_BATCH = 8
+MAX_BATCH_BYTES = 40000
 
 
 def _one(value):
@@ -47,35 +52,68 @@ def _filled(value):
 router = APIRouter(tags=["submission"])
 
 
+def _payload(entry, answers, files):
+    """What one exercise contributes to the spool: (name, blob) or (None, refusal)."""
+    if entry.get("mode") == "quiz":
+        if not isinstance(answers, dict):
+            return None, headers.error(400, "réponses manquantes")
+        trimmed = {str(k)[:MAX_KEY]: _one(v)
+                   for k, v in list(answers.items())[:MAX_ANSWERS]}
+        if not any(_filled(v) for v in trimmed.values()):
+            return None, headers.error(400, "aucune réponse saisie")
+        blob = json.dumps(trimmed).encode()
+        if len(blob) > MAX_ANSWERS_BYTES:
+            return None, headers.error(413, "réponses trop longues")
+        return ("answers.json", blob), None
+    found, message, code = validate_files(entry, files)
+    if message:
+        return None, headers.error(code, message)
+    if not any(v.strip() for v in found.values()):
+        return None, headers.error(400, "soumission vide")
+    return ("files.json", json.dumps(found).encode()), None
+
+
+def _asked(body):
+    """The exercises this request covers, batch or not. None means a malformed batch."""
+    if body.items is None:
+        return [(body.exercise_id, body.answers, body.files)]
+    if not body.items or len(body.items) > MAX_BATCH:
+        return None
+    asked = []
+    for item in body.items:
+        if not isinstance(item, dict):
+            return None
+        asked.append((str(item.get("exercise_id", "")),
+                      item.get("answers"), item.get("files")))
+    return asked
+
+
 @router.post("/submit")
 def submit(body: SubmissionIn, request: Request):
     # First and in constant time: nothing else may be observable without the key.
     if not config.KEY or not hmac.compare_digest(body.key, config.KEY):
         return headers.error(403, "clé de session invalide ou expirée")
 
-    sub = security.current_user(request.headers)
-    entry = find_exercise(body.exercise_id, security.is_moderator(sub))
-    if entry is None:
-        return headers.error(400, "TP inconnu")
+    asked = _asked(body)
+    if asked is None:
+        return headers.error(400, "requête malformée")
 
-    if entry.get("mode") == "quiz":
-        if not isinstance(body.answers, dict):
-            return headers.error(400, "réponses manquantes")
-        trimmed = {str(k)[:MAX_KEY]: _one(v)
-                   for k, v in list(body.answers.items())[:MAX_ANSWERS]}
-        if not any(_filled(v) for v in trimmed.values()):
-            return headers.error(400, "aucune réponse saisie")
-        blob = json.dumps(trimmed).encode()
-        if len(blob) > MAX_ANSWERS_BYTES:
-            return headers.error(413, "réponses trop longues")
-        name = "answers.json"
-    else:
-        files, message, code = validate_files(entry, body.files)
-        if message:
-            return headers.error(code, message)
-        if not any(v.strip() for v in files.values()):
-            return headers.error(400, "soumission vide")
-        name, blob = "files.json", json.dumps(files).encode()
+    # Everything is resolved and bounded before the quota is touched: a batch is accepted
+    # whole or refused whole, so a student never pays a slot for a half-written page.
+    sub = security.current_user(request.headers)
+    moderator = security.is_moderator(sub)
+    ready, total = [], 0
+    for exercise_id, answers, files in asked:
+        entry = find_exercise(exercise_id, moderator)
+        if entry is None:
+            return headers.error(400, "TP inconnu")
+        payload, refusal = _payload(entry, answers, files)
+        if refusal is not None:
+            return refusal
+        total += len(payload[1])
+        ready.append((entry, payload[0], payload[1]))
+    if total > MAX_BATCH_BYTES:
+        return headers.error(413, "réponses trop longues")
 
     station = request.query_params.get("station", "")[:64]
     who = security.client_id(request.headers, deps.tcp_peer(request), station=station)
@@ -87,11 +125,12 @@ def submit(body: SubmissionIn, request: Request):
                 retry_after=wait)
         # Counting and writing under the same lock, or concurrent requests overrun QUEUE_MAX.
         pending = sum(1 for _, _, finished in spool.scan_jobs() if not finished)
-        if pending >= config.QUEUE_MAX:
+        if pending + len(ready) > config.QUEUE_MAX:
             return headers.error(503, "file pleine -- réessaie dans une minute")
-        job_id = spool.write_job(entry["id"], name, blob, sub,
-                                 station=None if sub else security.station_tag(station))
-    return {"id": job_id}
+        tag = None if sub else security.station_tag(station)
+        ids = [spool.write_job(entry["id"], name, blob, sub, station=tag)
+               for entry, name, blob in ready]
+    return {"ids": ids} if body.items is not None else {"id": ids[0]}
 
 
 @router.get("/r/{job_id}")

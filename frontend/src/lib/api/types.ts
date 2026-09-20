@@ -85,11 +85,19 @@ export interface QuizPayload {
   questions: PublishedQuestion[];
 }
 
-export interface SubmissionBody {
-  key: string;
+export interface SubmissionItem {
   exercise_id: string;
   files?: Record<string, string>;
   answers?: Record<string, string | string[] | Record<string, string>>;
+}
+
+export interface SubmissionBody {
+  key: string;
+  exercise_id?: string;
+  files?: Record<string, string>;
+  answers?: Record<string, string | string[] | Record<string, string>>;
+  /** A page may hold several exercises; they travel together for one cooldown slot. */
+  items?: SubmissionItem[];
 }
 
 export type VerdictStatus =

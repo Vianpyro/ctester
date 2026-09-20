@@ -25,3 +25,16 @@ export const packAll = (
   return flat;
 };
 
+/**
+ * A page can hold several exercises, and question ids are only unique inside one quiz, so
+ * every answer on the page is keyed by both. The judge never sees this key: it reads the
+ * question id alone. The separator is "/" so the key is also usable as a DOM id: neither
+ * an exercise id nor a question id may contain one.
+ */
+export const keyOf = (exercise: string, question: string): string =>
+  exercise + "/" + question;
+
+export function splitKey(key: string): [string, string] {
+  const cut = key.indexOf("/");
+  return cut < 0 ? ["", key] : [key.slice(0, cut), key.slice(cut + 1)];
+}

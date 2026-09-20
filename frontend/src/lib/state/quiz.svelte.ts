@@ -2,12 +2,16 @@ import { fetchQuiz } from "../api/public";
 import { catalog } from "./catalog.svelte";
 import { drafts } from "./drafts.svelte";
 import type { Scope } from "../domain/verdict";
-import { type Answer, answered, packAll } from "../domain/answer";
+import { type Answer, answered, keyOf, pack, splitKey } from "../domain/answer";
 
-export { answered, packAll, type Answer };
+export { answered, keyOf, type Answer };
 
 export interface QuizQuestion {
+  /** Unique within its quiz, and what the judge reads back in `wrong[].id`. */
   id: string;
+  /** Unique across the page: question ids only have to be unique inside one quiz. */
+  key: string;
+  exercise: string;
   label: string;
   group: string;
   row: string;
@@ -20,12 +24,19 @@ export interface QuizQuestion {
   gaps: string[][];
 }
 
-/** One `group` of the quiz. Several may share a sheet when they fit the screen together. */
+/** One `group` of a quiz: a heading and a counter, nothing more. */
 export interface QuizSection {
   /** Unique even when two runs of questions carry the same group, which `{#each}` keys on. */
   key: string;
   title: string;
   questions: QuizQuestion[];
+}
+
+/** One exercise on the page. A page holds as many as it can show without scrolling. */
+export interface LoadedQuiz {
+  exerciseId: string;
+  title: string;
+  sections: QuizSection[];
 }
 
 /** An untouched answer of the shape its question expects. */
@@ -54,39 +65,38 @@ function unpack(raw: string | undefined, blank: Answer): Answer {
 }
 
 class QuizState {
-  sections = $state<QuizSection[]>([]);
-  /** Sections per sheet, in order. One sheet holding everything until the page measures. */
-  sheets = $state<number[][]>([]);
-  sheet = $state(0);
+  /** The exercises the page shows, in the collection's order. */
+  shown = $state<LoadedQuiz[]>([]);
+  /** Every answer on the page, keyed across exercises. */
   answers = $state<Record<string, Answer>>({});
-  exerciseId = $state("");
-  loading = $state(false);
-  groupOf = $state<Record<string, string>>({});
   /** The answers as they were last sent, so a mark is dropped the moment a field is retyped. */
   submitted = $state<Record<string, string>>({});
+  loading = $state(false);
 
-  async load(id: string): Promise<void> {
-    // Reloading the same quiz (boot does, once the token arrives) keeps the questions on
-    // screen until the new ones land, so the panel never collapses to nothing.
-    const same = this.exerciseId === id && this.sections.length > 0;
+  #groups = new Map<string, string>();
+
+  /** The group a question belongs to, for the verdict to name where an answer went wrong. */
+  groupOf(exercise: string, question: string): string {
+    return this.#groups.get(keyOf(exercise, question)) ?? "";
+  }
+
+  /**
+   * One exercise's questions, with its drafts restored. Loading does not put it on the
+   * page: the panel decides that once it has measured what fits.
+   */
+  async fetch(exerciseId: string, title: string): Promise<LoadedQuiz | null> {
     this.loading = true;
-    this.exerciseId = id;
-    if (!same) {
-      this.sections = [];
-      this.sheets = [];
-      this.sheet = 0;
-      this.submitted = {};
-    }
-    const data = await fetchQuiz(id, catalog.staff);
+    const data = await fetchQuiz(exerciseId, catalog.staff);
     this.loading = false;
-    if (!data || !Array.isArray(data.questions)) return;
-    const held = drafts.get(id) ?? {};
+    if (!data || !Array.isArray(data.questions)) return null;
+    const held = drafts.get(exerciseId) ?? {};
     const sections: QuizSection[] = [];
-    const groups: Record<string, string> = {};
-    const answers: Record<string, Answer> = {};
+    const answers = { ...this.answers };
     for (const wire of data.questions) {
       const q: QuizQuestion = {
         id: wire.id,
+        key: keyOf(exerciseId, wire.id),
+        exercise: exerciseId,
         label: wire.label,
         group: wire.group,
         row: wire.row ?? "",
@@ -98,63 +108,74 @@ class QuizState {
         template: wire.template ?? "",
         gaps: wire.gaps ?? [],
       };
-      groups[q.id] = q.group;
-      answers[q.id] = unpack(held[q.id], blankFor(q));
+      this.#groups.set(q.key, q.group);
+      answers[q.key] = unpack(held[q.id], blankFor(q));
       const last = sections[sections.length - 1];
       if (!last || last.title !== q.group) {
         sections.push({
-          key: q.group + "\u0000" + sections.length,
+          key: exerciseId + "\u0000" + sections.length,
           title: q.group,
           questions: [q],
         });
       } else last.questions.push(q);
     }
-    this.groupOf = groups;
     this.answers = answers;
-    this.sections = sections;
-    // Everything on one sheet until the panel has measured: a quiz reads fine
-    // unpaginated, and guessing here would show as a flash of the wrong split.
-    this.sheets = sections.length ? [sections.map((_, i) => i)] : [];
-    this.sheet = 0;
+    return { exerciseId, title, sections };
   }
 
-  /** The sections the current sheet shows, in order. */
-  get shown(): number[] {
-    return this.sheets[this.sheet] ?? [];
+  setPage(loaded: LoadedQuiz[]): void {
+    this.shown = loaded;
   }
 
-  /** Show the sheet that holds this section; sheet 0 until the panel has packed them. */
-  showSection(i: number): void {
-    if (!this.sections.length) return;
-    const wanted = Math.min(Math.max(i, 0), this.sections.length - 1);
-    this.sheet = Math.max(
-      this.sheets.findIndex((sheet) => sheet.includes(wanted)),
-      0,
-    );
+  /** What one exercise sends: its own answers, under the ids the judge reads. */
+  answersFor(loaded: LoadedQuiz): Record<string, Answer> {
+    const found: Record<string, Answer> = {};
+    for (const section of loaded.sections) {
+      for (const q of section.questions) found[q.id] = this.answers[q.key] ?? "";
+    }
+    return found;
   }
 
-  save(): void {
-    drafts.putLocal(this.exerciseId, packAll(this.answers));
-  }
-
-  /** What "Tester l'exercice" covers: every question of every section on screen. */
-  currentScope(): Scope | null {
-    const here = this.shown.map((i) => this.sections[i]).filter((s) => !!s);
-    if (!here.length) return null;
+  scopeOf(loaded: LoadedQuiz): Scope {
     return {
-      title: here.map((s) => s.title).join(" · "),
-      ids: here.flatMap((s) => s.questions.map((q) => q.id)),
+      title: loaded.title,
+      ids: loaded.sections.flatMap((s) => s.questions.map((q) => q.id)),
     };
   }
 
+  /**
+   * Remember the answers of the exercises being sent, and only those: an exercise left out
+   * of a run must not wear marks from an older verdict.
+   */
+  snapshot(loaded: LoadedQuiz[]): void {
+    const sent: Record<string, string> = {};
+    for (const one of loaded) {
+      for (const section of one.sections) {
+        for (const q of section.questions) sent[q.key] = pack(this.answers[q.key]);
+      }
+    }
+    this.submitted = sent;
+  }
+
+  /** Drafts stay per exercise: that is the key the server and the export both use. */
+  save(): void {
+    const byExercise = new Map<string, Record<string, string>>();
+    for (const [key, value] of Object.entries(this.answers)) {
+      const [exercise, question] = splitKey(key);
+      if (!byExercise.has(exercise)) byExercise.set(exercise, {});
+      byExercise.get(exercise)![question] = pack(value);
+    }
+    for (const loaded of this.shown) {
+      const flat = byExercise.get(loaded.exerciseId);
+      if (flat) drafts.putLocal(loaded.exerciseId, flat);
+    }
+  }
+
   clear(): void {
-    this.sections = [];
-    this.sheets = [];
+    this.shown = [];
     this.answers = {};
-    this.groupOf = {};
     this.submitted = {};
-    this.exerciseId = "";
-    this.sheet = 0;
+    this.#groups.clear();
   }
 }
 

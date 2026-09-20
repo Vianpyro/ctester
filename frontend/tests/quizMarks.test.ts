@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { answered, packAll } from "../src/lib/domain/answer";
+import { answered, keyOf, packAll } from "../src/lib/domain/answer";
 import {
+  fillPage,
   marksFor,
-  packSheets,
   pageStatus,
   slotsOnScreen,
-  sectionLabel,
   tableFor,
 } from "../src/lib/domain/quizMarks";
 import type { Verdict } from "../src/lib/api/types";
@@ -20,56 +19,73 @@ const graded = (wrong: { id: string; label: string; hint?: string }[]): Verdict 
 });
 
 describe("the mark a question carries", () => {
+  // A page keys answers by exercise and question; the judge answers in question ids alone.
+  const k = (id: string) => keyOf("ex", id);
+
   it("marks a graded question right when it is absent from the wrong list", () => {
-    const answers = { a: "00010111", b: "42" };
-    const marks = marksFor(graded([]), packAll(answers), answers);
-    expect(marks.a).toEqual({ state: "right" });
-    expect(marks.b).toEqual({ state: "right" });
+    const answers = { [k("a")]: "00010111", [k("b")]: "42" };
+    const marks = marksFor(graded([]), packAll(answers), answers, "ex");
+    expect(marks[k("a")]).toEqual({ state: "right" });
+    expect(marks[k("b")]).toEqual({ state: "right" });
   });
 
   it("carries the judge's hint on a wrong answer, never the expected value", () => {
-    const answers = { a: "10111" };
+    const answers = { [k("a")]: "10111" };
     const marks = marksFor(
       graded([{ id: "a", label: "23", hint: "bonne valeur, mais l'énoncé demande 8 bits" }]),
       packAll(answers),
       answers,
+      "ex",
     );
-    expect(marks.a).toEqual({
+    expect(marks[k("a")]).toEqual({
       state: "wrong",
       hint: "bonne valeur, mais l'énoncé demande 8 bits",
     });
   });
 
   it("drops the mark as soon as the field no longer holds what was graded", () => {
-    const sent = packAll({ a: "10111" });
-    const marks = marksFor(graded([{ id: "a", label: "23" }]), sent, { a: "00010111" });
-    expect(marks.a).toBeUndefined();
+    const sent = packAll({ [k("a")]: "10111" });
+    const marks = marksFor(graded([{ id: "a", label: "23" }]), sent, { [k("a")]: "00010111" }, "ex");
+    expect(marks[k("a")]).toBeUndefined();
   });
 
   it("leaves a question that was never submitted unmarked", () => {
-    const marks = marksFor(graded([]), packAll({ a: "1" }), { a: "1", b: "" });
-    expect(marks.b).toBeUndefined();
+    const marks = marksFor(
+      graded([]),
+      packAll({ [k("a")]: "1" }),
+      { [k("a")]: "1", [k("b")]: "" },
+      "ex",
+    );
+    expect(marks[k("b")]).toBeUndefined();
   });
 
   it("marks questions from every section, since the server grades the whole quiz", () => {
-    const answers = { p1: "1", p2: "2" };
-    const marks = marksFor(graded([{ id: "p2", label: "b" }]), packAll(answers), answers);
-    expect(marks.p1!.state).toBe("right");
-    expect(marks.p2!.state).toBe("wrong");
+    const answers = { [k("p1")]: "1", [k("p2")]: "2" };
+    const marks = marksFor(graded([{ id: "p2", label: "b" }]), packAll(answers), answers, "ex");
+    expect(marks[k("p1")]!.state).toBe("right");
+    expect(marks[k("p2")]!.state).toBe("wrong");
+  });
+
+  it("never marks a question of another exercise sharing the page", () => {
+    // Two quizzes may both call a question "q1": the mark must not cross over.
+    const answers = { "ex/q1": "1", "autre/q1": "1" };
+    const marks = marksFor(graded([{ id: "q1", label: "a" }]), packAll(answers), answers, "ex");
+    expect(marks["ex/q1"]!.state).toBe("wrong");
+    expect(marks["autre/q1"]).toBeUndefined();
   });
 
   it("marks nothing when the run did not grade -- a compile error is not a quiz result", () => {
-    const answers = { a: "1" };
+    const answers = { [k("a")]: "1" };
     const broken: Verdict = { state: "done", status: "error", kind: "quiz", message: "juge" };
-    expect(marksFor(broken, packAll(answers), answers)).toEqual({});
-    expect(marksFor(null, packAll(answers), answers)).toEqual({});
+    expect(marksFor(broken, packAll(answers), answers, "ex")).toEqual({});
+    expect(marksFor(null, packAll(answers), answers, "ex")).toEqual({});
   });
 
   it("compares structured answers on their packed form", () => {
-    const answers = { m: { x: "1" } };
+    const answers = { [k("m")]: { x: "1" } };
     const sent = packAll(answers);
-    expect(marksFor(graded([]), sent, answers).m).toEqual({ state: "right" });
-    expect(marksFor(graded([]), sent, { m: { x: "2" } }).m).toBeUndefined();
+    expect(marksFor(graded([]), sent, answers, "ex")[k("m")]).toEqual({ state: "right" });
+    expect(marksFor(graded([]), sent, { [k("m")]: { x: "2" } }, "ex")[k("m")]).toBeUndefined();
   });
 });
 
@@ -97,18 +113,6 @@ describe("what a section tile shows", () => {
 
   it("holds an empty section to unknown rather than declaring it right", () => {
     expect(pageStatus([], answers, {}).state).toBe("unknown");
-  });
-});
-
-describe("the tile's short label", () => {
-  it("keeps the stem of a heading and drops its description", () => {
-    expect(sectionLabel("Exercice 1 : décimal vers binaire (8 bits)")).toBe("Exercice 1");
-    expect(sectionLabel("Exercice 2 — masques sur 8 bits")).toBe("Exercice 2");
-  });
-
-  it("truncates a heading that has no stem to cut", () => {
-    expect(sectionLabel("Conversions et masques binaires")).toBe("Conversions et masque…");
-    expect(sectionLabel("Les types")).toBe("Les types");
   });
 });
 
@@ -170,31 +174,42 @@ describe("the table a section draws", () => {
   });
 });
 
-describe("packing sections into sheets", () => {
-  it("keeps sections together while they fit the height on screen", () => {
-    expect(packSheets([190, 90], 660)).toEqual([[0, 1]]);
-    expect(packSheets([190, 90, 300, 200], 660)).toEqual([[0, 1, 2], [3]]);
+describe("filling a page one exercise at a time", () => {
+  /** A fake DOM: the page fits while the first `room` exercises are on it. */
+  const upTo = (room: number) => {
+    const asked: number[] = [];
+    return {
+      asked,
+      attempt: async (n: number) => {
+        asked.push(n);
+        return n <= room;
+      },
+    };
+  };
+
+  it("keeps adding while they fit, and stops at the first that does not", async () => {
+    const dom = upTo(2);
+    expect(await fillPage(5, dom.attempt)).toBe(2);
+    // It asks for one more than it keeps: that is how it learns where to stop.
+    expect(dom.asked).toEqual([1, 2, 3]);
   });
 
-  it("splits only at the point where the next section would overflow", () => {
-    expect(packSheets([400, 400], 660)).toEqual([[0], [1]]);
-    expect(packSheets([400, 260], 660)).toEqual([[0, 1]]);
-    expect(packSheets([400, 261], 660)).toEqual([[0], [1]]);
+  it("keeps the first exercise even when it does not fit on its own", async () => {
+    const dom = upTo(0);
+    expect(await fillPage(3, dom.attempt)).toBe(1);
+    expect(dom.asked).toEqual([1, 2]);
   });
 
-  it("gives a section taller than the screen a sheet of its own rather than none", () => {
-    expect(packSheets([900], 660)).toEqual([[0]]);
-    expect(packSheets([100, 900, 100], 660)).toEqual([[0], [1], [2]]);
+  it("stops at the end of the list without asking for one that is not there", async () => {
+    const dom = upTo(10);
+    expect(await fillPage(3, dom.attempt)).toBe(3);
+    expect(dom.asked).toEqual([1, 2, 3]);
   });
 
-  it("keeps the author's order and loses no section", () => {
-    const heights = [120, 80, 700, 40, 40, 40];
-    const sheets = packSheets(heights, 300);
-    expect(sheets.flat()).toEqual([0, 1, 2, 3, 4, 5]);
-  });
-
-  it("has nothing to pack when there are no sections", () => {
-    expect(packSheets([], 660)).toEqual([]);
+  it("has nothing to fill a page with when the collection offers nothing", async () => {
+    const dom = upTo(10);
+    expect(await fillPage(0, dom.attempt)).toBe(0);
+    expect(dom.asked).toEqual([]);
   });
 });
 
