@@ -2,6 +2,7 @@ import datetime as dt
 import json
 import os
 import re
+import unicodedata
 
 import typst_build
 
@@ -13,6 +14,13 @@ ASSIGNMENT_RE = EXERCISE_RE
 SKILL_RE = re.compile(r"\A[a-z][a-z0-9-]{0,47}\Z")
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 MODES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
+# The judge reads an unknown type as "int" and says so to the student, so the only
+# place a typo can still be caught is here, before anything is published.
+QUIZ_TYPES = frozenset(("int", "bin", "bin8", "hex8", "choice", "multi", "bool",
+                        "text", "number", "match", "order", "cloze"))
+QUESTION_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
+GAP_RE = re.compile(r"_{3,}")
+MATCH_MIN, ORDER_MIN = 2, 3
 DIFFICULTIES = frozenset(("intro", "foundation", "intermediate", "advanced"))
 RELEASE_STATES = frozenset(("available", "scheduled", "archived"))
 TEAM_MAX = 8
@@ -208,8 +216,8 @@ def _exercise(root, dirname, known_skills, errors, prefix=""):
         errors.append("%s: unity requires at least one test_*.c" % where)
     if mode == "io" and not isinstance(config.get("cases"), list):
         errors.append("%s: io requires cases" % where)
-    if mode == "quiz" and not isinstance(config.get("questions"), list):
-        errors.append("%s: quiz requires questions" % where)
+    if mode == "quiz":
+        _quiz(config, where, errors)
     skills = data.get("skills", [])
     if (not isinstance(skills, list)
             or any(not isinstance(skill, str) for skill in skills)
@@ -314,6 +322,161 @@ def _handin(value, where, items, exercises, errors):
         seen.add(name)
         out.append({"name": name, "exercise_id": exercise_id, "file": source})
     return {"root": root, "files": out} if out else None
+
+
+def _fold(text):
+    """Case and accents dropped, the way the judge compares a lenient answer."""
+    return "".join(c for c in unicodedata.normalize("NFKD", str(text).lower())
+                   if not unicodedata.combining(c))
+
+
+def _spellings(answer, where, label, errors):
+    """An accepted-spelling spec: one text, or {"accept": [...]}. [] when it is unusable."""
+    if isinstance(answer, str):
+        accepted = [answer]
+    elif isinstance(answer, dict):
+        accepted = answer.get("accept")
+        if not isinstance(accepted, list) or not accepted:
+            errors.append("%s %s: expects an answer or a non-empty accept list" % (where, label))
+            return []
+        if "strict" in answer and not isinstance(answer["strict"], bool):
+            errors.append("%s %s: strict must be a boolean" % (where, label))
+    else:
+        errors.append("%s %s: expects an answer or a non-empty accept list" % (where, label))
+        return []
+    if any(not isinstance(one, str) or not one.strip() for one in accepted):
+        errors.append("%s %s: every accepted spelling must be text" % (where, label))
+        return []
+    strict = bool(answer.get("strict")) if isinstance(answer, dict) else False
+    if not strict:
+        folded = [_fold(one) for one in accepted]
+        if len(folded) != len(set(folded)):
+            errors.append("%s %s: two accepted spellings are the same once case and "
+                          "accents are dropped" % (where, label))
+    return accepted
+
+
+def _texts(value):
+    return (value if isinstance(value, list)
+            and all(isinstance(one, str) and one.strip() for one in value) else None)
+
+
+def _question(question, index, seen, where, errors):
+    if not isinstance(question, dict):
+        errors.append("%s: question %d is not an object" % (where, index))
+        return
+    ident = question.get("id")
+    if not isinstance(ident, str) or not QUESTION_ID_RE.match(ident):
+        errors.append("%s: question %d has an invalid id" % (where, index))
+        return
+    label = "question %r" % ident
+    if ident in seen:
+        errors.append("%s: duplicate %s" % (where, label))
+    seen.add(ident)
+    for field in ("group", "label"):
+        if not isinstance(question.get(field, ""), str):
+            errors.append("%s %s: group and label must be text" % (where, label))
+            break
+    kind = question.get("type", "int")
+    if kind not in QUIZ_TYPES:
+        errors.append("%s %s: unknown question type %r" % (where, label, kind))
+        return
+    if "answer" not in question:
+        errors.append("%s %s: no answer" % (where, label))
+        return
+    answer = question["answer"]
+    options = question.get("options")
+
+    if kind in ("choice", "multi"):
+        chosen = _texts(options)
+        if chosen is None or len(set(chosen)) < 2:
+            errors.append("%s %s: %s needs at least two distinct options"
+                          % (where, label, kind))
+            return
+        if kind == "choice":
+            if answer not in chosen:
+                errors.append("%s %s: the answer is not one of the options" % (where, label))
+        else:
+            right = _texts(answer)
+            if not right or len(set(right)) != len(right) or not set(right) <= set(chosen):
+                errors.append("%s %s: multi needs at least one answer, each one an option"
+                              % (where, label))
+            elif len(set(right)) == len(set(chosen)):
+                errors.append("%s %s: multi with every option correct" % (where, label))
+        return
+
+    if options is not None and kind != "match":
+        errors.append("%s %s: options are ignored for this type" % (where, label))
+
+    if kind == "bool":
+        if not isinstance(answer, bool):
+            errors.append("%s %s: bool expects true or false" % (where, label))
+    elif kind == "text":
+        _spellings(answer, where, label, errors)
+    elif kind == "number":
+        value = answer.get("value") if isinstance(answer, dict) else answer
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            errors.append("%s %s: number expects a value" % (where, label))
+        margin = answer.get("margin", 0) if isinstance(answer, dict) else 0
+        if isinstance(margin, bool) or not isinstance(margin, (int, float)) or margin < 0:
+            errors.append("%s %s: margin must be a number, zero or more" % (where, label))
+    elif kind == "match":
+        pairs = (answer if isinstance(answer, dict) else {})
+        if len(pairs) < MATCH_MIN or not all(
+                isinstance(k, str) and k.strip() and isinstance(v, str) and v.strip()
+                for k, v in pairs.items()):
+            errors.append("%s %s: match needs at least %d pairs of text"
+                          % (where, label, MATCH_MIN))
+        # Distractors: extra right-hand entries with no prompt of their own.
+        if options is not None:
+            extra = _texts(options)
+            if extra is None or len(set(extra)) != len(extra):
+                errors.append("%s %s: the distractors must be distinct text"
+                              % (where, label))
+    elif kind == "order":
+        items = _texts(answer)
+        if not items or len(set(items)) != len(items) or len(items) < ORDER_MIN:
+            errors.append("%s %s: order needs at least %d distinct items"
+                          % (where, label, ORDER_MIN))
+        elif items == sorted(items):
+            # public_quiz publishes sorted(answer) so the file order cannot leak. When the
+            # correct order IS the sorted one, that projection hands over the answer.
+            errors.append("%s %s: the correct order is the alphabetical order, which is the "
+                          "order the page shows -- reword an item" % (where, label))
+    elif kind == "cloze":
+        template = question.get("template")
+        holes = len(GAP_RE.findall(template)) if isinstance(template, str) else 0
+        if not holes:
+            errors.append("%s %s: cloze needs a template with at least one ___ gap"
+                          % (where, label))
+            return
+        gaps = answer if isinstance(answer, list) else []
+        if len(gaps) != holes:
+            errors.append("%s %s: the template has %d gap(s) and the answer has %d"
+                          % (where, label, holes, len(gaps)))
+            return
+        for number, gap in enumerate(gaps, 1):
+            accepted = _spellings(gap, where, "%s gap %d" % (label, number), errors)
+            choices = gap.get("choices") if isinstance(gap, dict) else None
+            if choices is None:
+                continue
+            listed = _texts(choices)
+            if not listed or len(set(listed)) < 2:
+                errors.append("%s %s gap %d: a dropdown needs at least two distinct choices"
+                              % (where, label, number))
+            elif not set(accepted) <= set(listed):
+                errors.append("%s %s gap %d: accepts something that is not one of its choices"
+                              % (where, label, number))
+
+
+def _quiz(config, where, errors):
+    questions = config.get("questions")
+    if not isinstance(questions, list):
+        errors.append("%s: quiz requires questions" % where)
+        return
+    seen = set()
+    for index, question in enumerate(questions, 1):
+        _question(question, index, seen, where, errors)
 
 
 def _named_file(data, filename, pattern, where, errors):

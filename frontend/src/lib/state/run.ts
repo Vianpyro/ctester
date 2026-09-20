@@ -1,6 +1,6 @@
 import { catalog } from "./catalog.svelte";
 import { editor } from "./editor.svelte";
-import { quiz } from "./quiz.svelte";
+import { answered, quiz } from "./quiz.svelte";
 import { statuses } from "./statuses.svelte";
 import { submission } from "./submission.svelte";
 import { system } from "./system.svelte";
@@ -25,7 +25,7 @@ export async function runTest(scoped: boolean): Promise<void> {
   }
   if (here.mode === "quiz") {
     const answers = { ...quiz.answers };
-    if (!Object.values(answers).some((v) => v.trim())) {
+    if (!Object.values(answers).some(answered)) {
       system.say("Saisis au moins une réponse avant de tester.");
       return;
     }

@@ -131,8 +131,13 @@ def main():
         ident, mode = entry["id"], entry["mode"]
         if mode == "quiz":
             quiz = entry["config"]
-            correct = {q["id"]: q["answer"] for q in quiz["questions"]}
-            note = judge.grade_quiz(quiz, correct)
+            # Derived by the grader itself: the key of a text, number or cloze question is
+            # not a submission, so only the judge knows how a student would send it.
+            try:
+                note = judge.grade_quiz(quiz, judge.quiz_key(quiz))
+            except (ValueError, KeyError, TypeError) as exc:
+                broken.append((ident, "the quiz cannot be graded: %s" % exc))
+                continue
             if note["passed"] != note["total"]:
                 broken.append((ident, "the reference solution does not validate itself: "
                                       + str(note["wrong"][:3])))

@@ -39,3 +39,8 @@ def check_case(case, output, tolerance=DEFAULT_TOLERANCE):
 
 def grade_quiz(quiz, answers):
     return _call({"op": "grade_quiz", "quiz": quiz, "answers": answers})
+
+
+def quiz_key(quiz):
+    """The reference answers as a student would send them, derived by the grader itself."""
+    return _call({"op": "quiz_key", "quiz": quiz})

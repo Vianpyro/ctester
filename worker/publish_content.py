@@ -15,8 +15,48 @@ import typst_build
 POINTER = "current.json"
 
 
+def _published_options(question):
+    """The pool a widget shows. Sorted wherever the author's own order would be the key."""
+    kind = str(question.get("type", "int"))
+    answer = question.get("answer")
+    if kind == "bool":
+        # Synthesised, never read from the file: the key has no published image at all.
+        return ["Vrai", "Faux"]
+    if kind == "order":
+        # Every permutation of the same items projects to the same list, so the published
+        # release carries no information about the correct order.
+        return sorted(str(item) for item in answer or [])
+    if kind == "match":
+        pool = {str(item) for item in question.get("options") or []}
+        if isinstance(answer, dict):
+            pool |= {str(partner) for partner in answer.values()}
+        # Sorted, so no habit of the author can correlate the two columns.
+        return sorted(pool)
+    return [str(option) for option in question.get("options") or []]
+
+
+def _prompts(question):
+    """The left column of a matching question, in the order the author wrote it: a
+    prompt's position says nothing about its partner."""
+    answer = question.get("answer")
+    if str(question.get("type", "int")) != "match" or not isinstance(answer, dict):
+        return []
+    return [str(prompt) for prompt in answer]
+
+
+def _gaps(question):
+    """One entry per gap, in template order. Empty means the gap is typed, not chosen."""
+    answer = question.get("answer")
+    if str(question.get("type", "int")) != "cloze" or not isinstance(answer, list):
+        return []
+    return [sorted({str(choice)
+                    for choice in (gap.get("choices") if isinstance(gap, dict) else None) or []})
+            for gap in answer]
+
+
 def public_quiz(quiz):
-    """Rebuilt field by field, so an answer key can never leak into the release."""
+    """Rebuilt field by field, so an answer key can never leak into the release. Every
+    question carries the same eight keys whatever its type: the shape must say nothing."""
     return {
         "label": quiz.get("label", ""),
         "questions": [
@@ -25,7 +65,10 @@ def public_quiz(quiz):
                 "group": str(q.get("group", "")),
                 "label": str(q.get("label", "")),
                 "type": str(q.get("type", "int")),
-                "options": [str(option) for option in q.get("options") or []],
+                "options": _published_options(q),
+                "prompts": _prompts(q),
+                "template": str(q.get("template", "")),
+                "gaps": _gaps(q),
             }
             for q in quiz.get("questions", [])
         ],
@@ -33,8 +76,8 @@ def public_quiz(quiz):
 
 # Checked on the projection itself, so a field added later cannot leak an answer key.
 FORBIDDEN = frozenset((
-    "answer", "answers", "expect", "expected", "stdin", "cases", "tolerance",
-    "note", "notes", "path", "paths", "seed", "solution", "solutions",
+    "answer", "answers", "accept", "margin", "expect", "expected", "stdin", "cases",
+    "tolerance", "note", "notes", "path", "paths", "seed", "solution", "solutions",
     "allowed_includes", "config",
 ))
 

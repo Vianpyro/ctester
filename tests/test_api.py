@@ -1038,7 +1038,9 @@ def test_an_entirely_blank_submission_is_refused():
 def test_quiz_bounds_the_number_and_length_of_answers():
     with context() as (c, _, tmp):
         answers = {"q%d" % i: "x" for i in range(600)}
-        answers["k" * 100] = "v" * 100
+        answers["k" * 100] = "v" * 400
+        answers["liste"] = ["item " * 100] * 60
+        answers["paires"] = {"p%d" % i: "long " * 100 for i in range(60)}
         r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
                                     "answers": answers})
         assert r.status_code == 200, (r.status_code, r.text)
@@ -1047,7 +1049,43 @@ def test_quiz_bounds_the_number_and_length_of_answers():
                   encoding="utf-8") as fh:
             written = json.load(fh)
         assert len(written) <= 500, len(written)
-        assert all(len(k) <= 64 and len(v) <= 64 for k, v in written.items())
+        for key, value in written.items():
+            assert len(key) <= 64, key
+            if isinstance(value, list):
+                assert len(value) <= 40 and all(len(one) <= 256 for one in value)
+            elif isinstance(value, dict):
+                assert len(value) <= 40
+                assert all(len(k) <= 256 and len(v) <= 256 for k, v in value.items())
+            else:
+                assert len(value) <= 256, value
+
+
+def test_quiz_keeps_a_structured_answer_whole_but_flattens_anything_deeper():
+    with context() as (c, _, tmp):
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
+                                    "answers": {"ordre": ["b", "a"],
+                                                "paires": {"malloc": "réserve"},
+                                                "trous": ["0", "<"],
+                                                "profond": [{"x": 1}]}})
+        assert r.status_code == 200, r.text
+        with open(os.path.join(config.SPOOL, r.json()["id"], "answers.json"),
+                  encoding="utf-8") as fh:
+            written = json.load(fh)
+        assert written["ordre"] == ["b", "a"]
+        assert written["paires"] == {"malloc": "réserve"}
+        assert written["trous"] == ["0", "<"]
+        # One level only: the worker is never handed a shape it has not been told to expect.
+        assert written["profond"] == ["{'x': 1}"]
+
+
+def test_quiz_refuses_a_payload_too_long_to_be_a_quiz():
+    with context() as (c, _, _tmp):
+        # Big enough to pass the answers cap, small enough to pass the request-body one.
+        flood = {"q%d" % i: ["x" * 20] * 40 for i in range(30)}
+        r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
+                                    "answers": flood})
+        assert r.status_code == 413, (r.status_code, r.text)
+        assert "trop longues" in r.json()["error"]
 
 
 def test_quiz_with_no_answer_entered():

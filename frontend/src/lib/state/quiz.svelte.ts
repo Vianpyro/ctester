@@ -3,22 +3,66 @@ import { catalog } from "./catalog.svelte";
 import { drafts } from "./drafts.svelte";
 import type { Scope } from "../domain/verdict";
 
+/** What a student sends for one question: a text, a list, or a map of prompt to choice. */
+export type Answer = string | string[] | Record<string, string>;
+
 export interface QuizQuestion {
   id: string;
   label: string;
   group: string;
-  options?: string[];
+  type: string;
+  options: string[];
+  prompts: string[];
+  template: string;
+  gaps: string[][];
 }
 
 export interface QuizPage {
+  /** Unique even when two runs of questions carry the same group, which `{#each}` keys on. */
+  key: string;
   title: string;
   questions: QuizQuestion[];
+}
+
+/** An untouched answer of the shape its question expects. */
+function blankFor(q: QuizQuestion): Answer {
+  if (q.type === "multi") return [];
+  // An ordering starts from the order the page shows, so the student rearranges it.
+  if (q.type === "order") return [...q.options];
+  if (q.type === "cloze") return q.gaps.map(() => "");
+  if (q.type === "match") return {};
+  return "";
+}
+
+// Drafts are stored as text. A structured answer travels as JSON and is only restored when
+// it still has the shape its question expects: a question whose type changed must not
+// poison a widget with a value it cannot render.
+const pack = (value: Answer): string =>
+  typeof value === "string" ? value : JSON.stringify(value);
+
+function unpack(raw: string | undefined, blank: Answer): Answer {
+  if (raw === undefined) return blank;
+  if (typeof blank === "string") return raw;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return blank;
+    return Array.isArray(parsed) === Array.isArray(blank) ? (parsed as Answer) : blank;
+  } catch {
+    return blank;
+  }
+}
+
+/** Shape-aware emptiness, mirroring what the server calls a blank answer. */
+export function answered(value: Answer): boolean {
+  if (typeof value === "string") return !!value.trim();
+  const entries = Array.isArray(value) ? value : Object.values(value);
+  return entries.some((one) => !!one.trim());
 }
 
 class QuizState {
   pages = $state<QuizPage[]>([]);
   page = $state(0);
-  answers = $state<Record<string, string>>({});
+  answers = $state<Record<string, Answer>>({});
   exerciseId = $state("");
   loading = $state(false);
   groupOf = $state<Record<string, string>>({});
@@ -34,13 +78,24 @@ class QuizState {
     const held = drafts.get(id) ?? {};
     const pages: QuizPage[] = [];
     const groups: Record<string, string> = {};
-    const answers: Record<string, string> = {};
-    for (const q of data.questions) {
+    const answers: Record<string, Answer> = {};
+    for (const wire of data.questions) {
+      const q: QuizQuestion = {
+        id: wire.id,
+        label: wire.label,
+        group: wire.group,
+        type: wire.type ?? "int",
+        options: wire.options ?? [],
+        prompts: wire.prompts ?? [],
+        template: wire.template ?? "",
+        gaps: wire.gaps ?? [],
+      };
       groups[q.id] = q.group;
-      answers[q.id] = held[q.id] ?? "";
+      answers[q.id] = unpack(held[q.id], blankFor(q));
       const last = pages[pages.length - 1];
-      if (!last || last.title !== q.group) pages.push({ title: q.group, questions: [q] });
-      else last.questions.push(q);
+      if (!last || last.title !== q.group) {
+        pages.push({ key: q.group + "\u0000" + pages.length, title: q.group, questions: [q] });
+      } else last.questions.push(q);
     }
     this.groupOf = groups;
     this.answers = answers;
@@ -53,7 +108,9 @@ class QuizState {
   }
 
   save(): void {
-    drafts.putLocal(this.exerciseId, this.answers);
+    const flat: Record<string, string> = {};
+    for (const [id, value] of Object.entries(this.answers)) flat[id] = pack(value);
+    drafts.putLocal(this.exerciseId, flat);
   }
 
   currentScope(): Scope | null {

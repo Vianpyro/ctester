@@ -13,7 +13,8 @@ pub const MAX_GCC_CHARS: usize = 8000;
 const MAX_FAILED_NAMES: usize = 50;
 const MAX_CASE_OUTPUT: usize = 600;
 const MAX_STDERR: usize = 2000;
-const MAX_GIVEN: usize = 64;
+// The student's own answer, echoed back: an ordering of option texts needs the room.
+const MAX_GIVEN: usize = 160;
 const MAX_NUMBERS: usize = 20;
 // Exit codes of `worker/build-*.sh`, beside timeout(1)'s and SIGKILL's.
 pub const COMPILE_FAILED: i64 = 10;
@@ -239,6 +240,87 @@ fn norm_int(text: &str) -> Option<(bool, String)> {
     parse_int(&without_separators(text).replace('−', "-"), 10)
 }
 
+/// The texts of a JSON list; anything else has none.
+fn texts(v: &Value) -> Vec<String> {
+    match v {
+        Value::Array(items) => items.iter().map(as_text).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Runs of whitespace become one space, so a doubled space is still the same answer.
+fn squeeze(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut spaced = false;
+    for c in s.chars() {
+        if is_space(c) {
+            spaced = !out.is_empty();
+        } else {
+            if spaced {
+                out.push(' ');
+            }
+            out.push(c);
+            spaced = false;
+        }
+    }
+    out
+}
+
+/// An accepted spelling: one text, or every entry of `accept`.
+fn variants(spec: &Value) -> Vec<String> {
+    match spec {
+        Value::String(s) => vec![s.clone()],
+        _ => spec.get("accept").map_or_else(Vec::new, texts),
+    }
+}
+
+/// Lenient by default: case and accents are the author's presentation, not the answer.
+fn accepts(spec: &Value, given: &str, strict: bool) -> bool {
+    let norm = |s: &str| {
+        let t = squeeze(strip(s));
+        if strict { t } else { fold(&t) }
+    };
+    let got = norm(given);
+    variants(spec).iter().any(|v| norm(v) == got)
+}
+
+fn is_strict(spec: &Value) -> bool {
+    spec.get("strict") == Some(&Value::Bool(true))
+}
+
+fn as_bool(v: &Value) -> Option<bool> {
+    if let Value::Bool(b) = v {
+        return Some(*b);
+    }
+    match fold(strip(&as_text(v))).as_str() {
+        "vrai" | "v" | "true" | "oui" | "1" => Some(true),
+        "faux" | "f" | "false" | "non" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+/// Nothing filled in: an empty text, an empty list or map, or only blank entries.
+fn is_blank(v: &Value) -> bool {
+    match v {
+        Value::Array(items) => items.iter().all(is_blank),
+        Value::Object(map) => map.values().all(is_blank),
+        other => strip(&as_text(other)).is_empty(),
+    }
+}
+
+/// The student's own answer, echoed back. Never the key, so there is nothing to leak.
+fn shown_answer(given: &Value) -> String {
+    match given {
+        Value::Array(items) => items.iter().map(as_text).collect::<Vec<_>>().join(", "),
+        Value::Object(map) => map
+            .iter()
+            .map(|(prompt, chosen)| format!("{prompt} : {}", as_text(chosen)))
+            .collect::<Vec<_>>()
+            .join(", "),
+        other => as_text(other),
+    }
+}
+
 pub fn check_answer(kind: &str, given: &str, expected: &str) -> (bool, &'static str) {
     match kind {
         "bin8" => {
@@ -272,10 +354,132 @@ pub fn check_answer(kind: &str, given: &str, expected: &str) -> (bool, &'static 
         // The only kind compared verbatim: the answer is one of the question's own options,
         // so accents and case are part of it and no normalisation may soften them.
         "choice" => (given == expected, ""),
-        _ => match norm_int(given) {
+        "int" => match norm_int(given) {
             None => (false, "ce n'est pas un nombre entier"),
             Some(got) => (norm_int(expected) == Some(got), ""),
         },
+        // A missing type already reads as "int" in grade_quiz, so this is a name nobody
+        // knows. Loud rather than fatal: one staff typo must not break a whole exercise.
+        _ => (false, "type de question inconnu -- préviens ton enseignant"),
+    }
+}
+
+/// One question's verdict. The scalar kinds go through `check_answer`; the rest need the
+/// JSON shape, which a single string cannot carry.
+pub fn check_question(kind: &str, given: &Value, expected: &Value) -> (bool, &'static str) {
+    match kind {
+        "multi" => {
+            let got: BTreeSet<String> = texts(given)
+                .into_iter()
+                .filter(|s| !strip(s).is_empty())
+                .collect();
+            let want: BTreeSet<String> = texts(expected).into_iter().collect();
+            if got == want {
+                return (true, "");
+            }
+            if got.is_subset(&want) {
+                return (false, "il manque au moins une bonne réponse");
+            }
+            if want.is_subset(&got) {
+                return (false, "une des cases cochées est de trop");
+            }
+            (false, "")
+        }
+        "bool" => match as_bool(given) {
+            None => (false, "réponds par vrai ou faux"),
+            Some(got) => (as_bool(expected) == Some(got), ""),
+        },
+        "text" => {
+            let typed = as_text(given);
+            if accepts(expected, &typed, is_strict(expected)) {
+                (true, "")
+            } else if is_strict(expected) && accepts(expected, &typed, false) {
+                (
+                    false,
+                    "l'orthographe exacte compte ici (majuscules et accents)",
+                )
+            } else {
+                (false, "")
+            }
+        }
+        "number" => {
+            let numbers = extract_numbers(&as_text(given));
+            let got = match numbers.len() {
+                0 => return (false, "ce n'est pas un nombre"),
+                1 => numbers[0],
+                _ => return (false, "donne un seul nombre"),
+            };
+            let (value, margin) = match expected {
+                Value::Object(_) => (
+                    expected.get("value").and_then(Value::as_f64),
+                    expected
+                        .get("margin")
+                        .and_then(Value::as_f64)
+                        .unwrap_or(0.0),
+                ),
+                other => (other.as_f64(), 0.0),
+            };
+            match value {
+                None => (false, ""),
+                // A bare epsilon would mean nothing next to 6.02e23.
+                Some(want) => ((got - want).abs() <= margin.abs() + want.abs() * 1e-12, ""),
+            }
+        }
+        "match" => {
+            let Value::Object(want) = expected else {
+                return (false, "");
+            };
+            let mut blank = false;
+            let mut missed = false;
+            for (prompt, partner) in want {
+                let chosen = given.get(prompt).map_or_else(String::new, as_text);
+                if strip(&chosen).is_empty() {
+                    blank = true;
+                } else if chosen != as_text(partner) {
+                    missed = true;
+                }
+            }
+            match (blank, missed) {
+                (true, _) => (false, "il reste une association vide"),
+                (false, true) => (false, "au moins une association n'est pas la bonne"),
+                (false, false) => (true, ""),
+            }
+        }
+        "order" => {
+            let (got, want) = (texts(given), texts(expected));
+            if got == want {
+                return (true, "");
+            }
+            let same = got.len() == want.len()
+                && got.iter().collect::<BTreeSet<_>>() == want.iter().collect::<BTreeSet<_>>();
+            if same {
+                return (false, "les bons éléments, mais pas dans le bon ordre");
+            }
+            (false, "place tous les éléments, chacun une seule fois")
+        }
+        "cloze" => {
+            let gaps: &[Value] = match expected {
+                Value::Array(items) => items,
+                _ => &[],
+            };
+            let filled = texts(given);
+            let mut blank = false;
+            let mut missed = false;
+            for (i, gap) in gaps.iter().enumerate() {
+                let chosen = filled.get(i).map_or("", String::as_str);
+                if strip(chosen).is_empty() {
+                    blank = true;
+                } else if !accepts(gap, chosen, is_strict(gap)) {
+                    missed = true;
+                }
+            }
+            match (blank, missed) {
+                (true, _) => (false, "il reste un trou à remplir"),
+                (false, true) => (false, ""),
+                (false, false) => (true, ""),
+            }
+        }
+        _ => check_answer(kind, &as_text(given), &as_text(expected)),
     }
 }
 
@@ -290,21 +494,22 @@ pub fn grade_quiz(quiz: &Value, answers: &Value) -> Result<Value> {
     let mut wrong = Vec::new();
     for question in questions {
         let qid = as_text(get(question, "id")?.unwrap_or(&blank));
-        let given = as_text(get(answers, &qid)?.unwrap_or(&blank));
+        let given = get(answers, &qid)?.unwrap_or(&blank);
         let kind = get(question, "type")?
             .and_then(Value::as_str)
             .unwrap_or("int");
-        let expected = as_text(get(question, "answer")?.unwrap_or(&blank));
-        let (ok, hint) = check_answer(kind, &given, &expected);
+        let expected = get(question, "answer")?.unwrap_or(&blank);
+        let (ok, hint) = check_question(kind, given, expected);
         if !ok {
             let label = get(question, "label")?.map_or_else(|| qid.clone(), as_text);
-            let hint = if strip(&given).is_empty() {
+            let shown = shown_answer(given);
+            let hint = if is_blank(given) {
                 "non répondu"
             } else {
                 hint
             };
             wrong.push(
-                json!({"id": qid, "label": label, "given": head(&given, MAX_GIVEN), "hint": hint}),
+                json!({"id": qid, "label": label, "given": head(&shown, MAX_GIVEN), "hint": hint}),
             );
         }
     }
@@ -315,6 +520,64 @@ pub fn grade_quiz(quiz: &Value, answers: &Value) -> Result<Value> {
         "passed": questions.len() - wrong.len(),
         "wrong": wrong,
     }))
+}
+
+/// The key rendered the way a student would submit it, so the reference answers can be fed
+/// back through the real grader. `text`, `number` and `cloze` keys are not submissions
+/// themselves, which is why this lives here rather than in the content tools.
+pub fn quiz_key(quiz: &Value) -> Result<Value> {
+    let empty = Vec::new();
+    let questions = match get(quiz, "questions")? {
+        None => &empty,
+        Some(Value::Array(questions)) => questions,
+        Some(_) => return Err("questions must be a list".into()),
+    };
+    let mut key = Map::new();
+    for question in questions {
+        let Some(answer) = get(question, "answer")? else {
+            // No answer at all: left out, so the question grades as "non répondu" instead
+            // of making the whole check explode.
+            continue;
+        };
+        let kind = get(question, "type")?
+            .and_then(Value::as_str)
+            .unwrap_or("int");
+        let submitted = match kind {
+            "bool" => match as_bool(answer) {
+                Some(true) => json!("vrai"),
+                Some(false) => json!("faux"),
+                None => answer.clone(),
+            },
+            "text" => json!(variants(answer).first().cloned().unwrap_or_default()),
+            "number" => match answer {
+                Value::Object(_) => answer.get("value").cloned().unwrap_or(Value::Null),
+                other => other.clone(),
+            },
+            "cloze" => Value::Array(
+                texts_of_gaps(answer)
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
+            ),
+            _ => answer.clone(),
+        };
+        key.insert(
+            as_text(get(question, "id")?.unwrap_or(&Value::Null)),
+            submitted,
+        );
+    }
+    Ok(Value::Object(key))
+}
+
+/// One accepted spelling per gap, in template order.
+fn texts_of_gaps(answer: &Value) -> Vec<String> {
+    match answer {
+        Value::Array(gaps) => gaps
+            .iter()
+            .map(|gap| variants(gap).first().cloned().unwrap_or_default())
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 pub fn extract_numbers(text: &str) -> Vec<f64> {
@@ -886,12 +1149,199 @@ mod tests {
         assert_eq!(wrong[1]["label"], "10110001 en complément à 2");
         assert!(!partial.to_string().contains("-79"));
 
-        let long = grade_quiz(&quiz, &json!({"q1": "é".repeat(70)})).unwrap();
+        let long = grade_quiz(&quiz, &json!({"q1": "é".repeat(200)})).unwrap();
         assert_eq!(
             long["wrong"][0]["given"].as_str().unwrap().chars().count(),
-            64
+            160
         );
         assert!(grade_quiz(&quiz, &json!(["pas", "un", "objet"])).is_err());
+    }
+
+    #[test]
+    fn a_structured_answer_is_graded_as_a_whole() {
+        let q = |kind, given, expected| check_question(kind, &given, &expected);
+
+        // multi: a set, so the order the page sent them in does not matter.
+        let options = json!(["int a;", "char b[4];", "float d;"]);
+        assert!(
+            q(
+                "multi",
+                json!(["float d;", "int a;", "char b[4];"]),
+                options.clone()
+            )
+            .0
+        );
+        let (ok, hint) = q("multi", json!(["int a;"]), options.clone());
+        assert!(!ok && hint.contains("manque"));
+        let (ok, hint) = q(
+            "multi",
+            json!(["int a;", "char b[4];", "float d;", "x"]),
+            options,
+        );
+        assert!(!ok && hint.contains("de trop"));
+
+        // bool: the page sends French words, the file holds a JSON boolean.
+        assert!(q("bool", json!("vrai"), json!(true)).0);
+        assert!(q("bool", json!("Faux"), json!(false)).0);
+        assert!(!q("bool", json!("vrai"), json!(false)).0);
+        let (ok, hint) = q("bool", json!("peut-être"), json!(true));
+        assert!(!ok && hint.contains("vrai ou faux"));
+
+        // text: case and accents are forgiven unless the author asks otherwise.
+        let free = json!({"accept": ["free", "free()"]});
+        assert!(q("text", json!("  FREE  "), free.clone()).0);
+        assert!(q("text", json!("free()"), free.clone()).0);
+        assert!(!q("text", json!("malloc"), free).0);
+        assert!(q("text", json!("Réservé"), json!("reserve")).0);
+        let exact = json!({"accept": ["Réservé"], "strict": true});
+        let (ok, hint) = q("text", json!("reserve"), exact.clone());
+        assert!(!ok && hint.contains("orthographe"));
+        assert!(q("text", json!("Réservé"), exact).0);
+
+        // number: a margin, and a unit typed beside the value does not spoil it.
+        let value = json!({"value": 12.625, "margin": 0.001});
+        assert!(q("number", json!("12,625"), value.clone()).0);
+        assert!(q("number", json!("12.6255"), value.clone()).0);
+        assert!(!q("number", json!("12.7"), value.clone()).0);
+        let (ok, hint) = q("number", json!("beaucoup"), value.clone());
+        assert!(!ok && hint.contains("pas un nombre"));
+        let (ok, hint) = q("number", json!("1/2"), value);
+        assert!(!ok && hint.contains("un seul nombre"));
+        assert!(q("number", json!("4"), json!(4)).0);
+
+        // match: every prompt of the key must be answered, and answered right.
+        let pairs = json!({"malloc": "réserve", "free": "rend"});
+        assert!(
+            q(
+                "match",
+                json!({"malloc": "réserve", "free": "rend"}),
+                pairs.clone()
+            )
+            .0
+        );
+        let (ok, hint) = q("match", json!({"malloc": "réserve"}), pairs.clone());
+        assert!(!ok && hint.contains("vide"));
+        let (ok, hint) = q("match", json!({"malloc": "rend", "free": "réserve"}), pairs);
+        assert!(!ok && hint.contains("pas la bonne"));
+
+        // order: same items in the wrong order is told apart from a broken list.
+        let steps = json!(["déclarer", "allouer", "vérifier", "libérer"]);
+        assert!(q("order", steps.clone(), steps.clone()).0);
+        let (ok, hint) = q(
+            "order",
+            json!(["allouer", "déclarer", "vérifier", "libérer"]),
+            steps.clone(),
+        );
+        assert!(!ok && hint.contains("pas dans le bon ordre"));
+        let (ok, hint) = q("order", json!(["déclarer", "allouer"]), steps);
+        assert!(!ok && hint.contains("chacun une seule fois"));
+
+        // cloze: one entry per gap, by index.
+        let gaps = json!([{"accept": ["0"]}, {"accept": ["<"]}, {"accept": ["+=", "= somme +"]}]);
+        assert!(q("cloze", json!(["0", "<", "+="]), gaps.clone()).0);
+        assert!(q("cloze", json!(["0", "<", "= somme +"]), gaps.clone()).0);
+        let (ok, hint) = q("cloze", json!(["0", "<", ""]), gaps.clone());
+        assert!(!ok && hint.contains("trou"));
+        assert!(!q("cloze", json!(["1", "<", "+="]), gaps).0);
+
+        // An unknown type is loud instead of being read as an integer.
+        let (ok, hint) = q("essai", json!("un texte"), json!("autre"));
+        assert!(!ok && hint.contains("inconnu"));
+    }
+
+    #[test]
+    fn a_structured_quiz_never_reveals_its_key() {
+        let quiz = json!({"label": "TP", "questions": [
+            {"id": "m", "label": "Quatre octets ?", "type": "multi",
+             "options": ["int a;", "double c;"], "answer": ["int a;"]},
+            {"id": "b", "label": "free(NULL) est sans effet", "type": "bool", "answer": true},
+            {"id": "t", "label": "Qui libère ?", "type": "text",
+             "answer": {"accept": ["free", "la fonction free"]}},
+            {"id": "n", "label": "Valeur", "type": "number",
+             "answer": {"value": 12.625, "margin": 0.001}},
+            {"id": "p", "label": "Associe", "type": "match",
+             "answer": {"malloc": "réserve", "free": "rend"}},
+            {"id": "o", "label": "Ordonne", "type": "order",
+             "answer": ["déclarer", "allouer", "libérer"]},
+            {"id": "c", "label": "Complète", "type": "cloze", "template": "i = ___;",
+             "answer": [{"accept": ["0"]}]},
+        ]});
+
+        let key = json!({
+            "m": ["int a;"], "b": "vrai", "t": "free", "n": "12,625",
+            "p": {"malloc": "réserve", "free": "rend"},
+            "o": ["déclarer", "allouer", "libérer"], "c": ["0"],
+        });
+        let perfect = grade_quiz(&quiz, &key).unwrap();
+        assert_eq!(perfect["passed"], json!(7), "{perfect}");
+        assert_eq!(perfect["wrong"], json!([]));
+
+        // Every answer wrong: the verdict may echo what the student sent and nothing else.
+        let wrong = grade_quiz(
+            &quiz,
+            &json!({
+                "m": ["double c;"], "b": "faux", "t": "malloc", "n": "99",
+                "p": {"malloc": "rend", "free": "réserve"},
+                "o": ["libérer", "allouer", "déclarer"], "c": ["9"],
+            }),
+        )
+        .unwrap();
+        assert_eq!(wrong["passed"], json!(0), "{wrong}");
+        let blob = wrong.to_string();
+        for secret in ["int a;", "la fonction free", "12.625", "0.001"] {
+            assert!(!blob.contains(secret), "{secret} leaked into {blob}");
+        }
+        // The one thing an ordering cannot hide is its items, but not their order.
+        assert_ne!(
+            wrong["wrong"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|w| w["id"] == "o")
+                .unwrap()["given"],
+            json!("déclarer, allouer, libérer")
+        );
+
+        // Nothing filled in reads as "non répondu", whatever shape the answer has.
+        let empty = grade_quiz(&quiz, &json!({"m": [], "p": {}, "o": [], "c": [""]})).unwrap();
+        for entry in empty["wrong"].as_array().unwrap() {
+            assert_eq!(entry["hint"], "non répondu", "{entry}");
+        }
+    }
+
+    #[test]
+    fn the_derived_key_grades_itself_perfectly() {
+        // What verify_content.py does: feed each question's own answer back through the
+        // grader. The key of a text, number or cloze question is not a submission, so the
+        // rendering has to come from here.
+        let quiz = json!({"questions": [
+            {"id": "s", "type": "bin8", "answer": "00010111"},
+            {"id": "m", "type": "multi", "answer": ["a", "b"]},
+            {"id": "b", "type": "bool", "answer": false},
+            {"id": "t", "type": "text", "answer": {"accept": ["free", "free()"]}},
+            {"id": "u", "type": "text", "answer": "malloc"},
+            {"id": "n", "type": "number", "answer": {"value": 12.625, "margin": 0.001}},
+            {"id": "e", "type": "number", "answer": 4},
+            {"id": "p", "type": "match", "answer": {"malloc": "réserve"}},
+            {"id": "o", "type": "order", "answer": ["un", "deux", "trois"]},
+            {"id": "c", "type": "cloze", "answer": [{"accept": ["0"]}, {"accept": ["<"]}]},
+        ]});
+        let key = quiz_key(&quiz).unwrap();
+        assert_eq!(key["b"], json!("faux"));
+        assert_eq!(key["t"], json!("free"));
+        assert_eq!(key["n"], json!(12.625));
+        assert_eq!(key["c"], json!(["0", "<"]));
+        let note = grade_quiz(&quiz, &key).unwrap();
+        assert_eq!(
+            (note["passed"].clone(), note["total"].clone()),
+            (json!(10), json!(10)),
+            "{note}"
+        );
+
+        // A question with no answer is left out rather than crashing the check.
+        let hollow = json!({"questions": [{"id": "x", "type": "int"}]});
+        assert_eq!(quiz_key(&hollow).unwrap(), json!({}));
+        assert!(quiz_key(&json!({"questions": "pas une liste"})).is_err());
     }
 
     #[test]

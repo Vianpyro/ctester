@@ -17,6 +17,33 @@ from services.catalog import find_exercise, validate_files
 
 JOB_RE = re.compile(r"\A[0-9a-f]{32}\Z")
 
+# Request-shape bounds, not settings: a matching or ordering answer is a list or a map of
+# option texts, so one level of nesting is admitted and nothing deeper.
+MAX_ANSWERS = 500
+MAX_KEY = 64
+MAX_VALUE = 256
+MAX_ITEMS = 40
+MAX_ANSWERS_BYTES = 20000
+
+
+def _one(value):
+    """One submitted answer: text, a list of texts, or a map of text to text. Anything
+    deeper is flattened by str(), which is the boundary the worker is allowed to trust."""
+    if isinstance(value, list):
+        return [str(item)[:MAX_VALUE] for item in value[:MAX_ITEMS]]
+    if isinstance(value, dict):
+        return {str(k)[:MAX_VALUE]: str(v)[:MAX_VALUE]
+                for k, v in list(value.items())[:MAX_ITEMS]}
+    return str(value)[:MAX_VALUE]
+
+
+def _filled(value):
+    if isinstance(value, list):
+        return any(str(item).strip() for item in value)
+    if isinstance(value, dict):
+        return any(str(chosen).strip() for chosen in value.values())
+    return value.strip()
+
 router = APIRouter(tags=["submission"])
 
 
@@ -34,11 +61,14 @@ def submit(body: SubmissionIn, request: Request):
     if entry.get("mode") == "quiz":
         if not isinstance(body.answers, dict):
             return headers.error(400, "réponses manquantes")
-        trimmed = {str(k)[:64]: str(v)[:64]
-                   for k, v in list(body.answers.items())[:500]}
-        if not any(v.strip() for v in trimmed.values()):
+        trimmed = {str(k)[:MAX_KEY]: _one(v)
+                   for k, v in list(body.answers.items())[:MAX_ANSWERS]}
+        if not any(_filled(v) for v in trimmed.values()):
             return headers.error(400, "aucune réponse saisie")
-        name, blob = "answers.json", json.dumps(trimmed).encode()
+        blob = json.dumps(trimmed).encode()
+        if len(blob) > MAX_ANSWERS_BYTES:
+            return headers.error(413, "réponses trop longues")
+        name = "answers.json"
     else:
         files, message, code = validate_files(entry, body.files)
         if message:

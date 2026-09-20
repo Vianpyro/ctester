@@ -323,7 +323,8 @@
       <LabStrip openMenu={(search) => openMenu(search)} />
 
       {#if isQuiz}
-        {#if QuizPanel}<QuizPanel />{/if}
+        <!-- The placeholder holds the same flex slot, so the chunk arriving shifts nothing. -->
+        {#if QuizPanel}<QuizPanel />{:else}<div id="quizwrap" aria-hidden="true"></div>{/if}
       {:else}
         <CodeEditor />
       {/if}

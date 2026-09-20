@@ -65,15 +65,26 @@ export interface ExerciseDetail {
   offline?: boolean;
 }
 
+export interface PublishedQuestion {
+  id: string;
+  label: string;
+  group: string;
+  type?: string;
+  options?: string[];
+  prompts?: string[];
+  template?: string;
+  gaps?: string[][];
+}
+
 export interface QuizPayload {
-  questions: { id: string; label: string; group: string; options?: string[] }[];
+  questions: PublishedQuestion[];
 }
 
 export interface SubmissionBody {
   key: string;
   exercise_id: string;
   files?: Record<string, string>;
-  answers?: Record<string, string>;
+  answers?: Record<string, string | string[] | Record<string, string>>;
 }
 
 export type VerdictStatus =

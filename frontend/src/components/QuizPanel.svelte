@@ -1,5 +1,26 @@
 <script lang="ts">
-  import { quiz } from "../lib/state/quiz.svelte";
+  import type { Component } from "svelte";
+  import { quiz, type QuizQuestion } from "../lib/state/quiz.svelte";
+  import ChoiceQuestion from "./quiz/ChoiceQuestion.svelte";
+  import ClozeQuestion from "./quiz/ClozeQuestion.svelte";
+  import MatchQuestion from "./quiz/MatchQuestion.svelte";
+  import MultiQuestion from "./quiz/MultiQuestion.svelte";
+  import OrderQuestion from "./quiz/OrderQuestion.svelte";
+  import TextQuestion from "./quiz/TextQuestion.svelte";
+
+  type Widget = Component<{ q: QuizQuestion; onchange: () => void }>;
+
+  // Dispatch on the type, not on whether options happen to be there. The fallback mirrors
+  // the judge's own `unwrap_or("int")`, so a page and a verdict never disagree.
+  const WIDGETS: Record<string, Widget> = {
+    choice: ChoiceQuestion,
+    bool: ChoiceQuestion,
+    multi: MultiQuestion,
+    match: MatchQuestion,
+    order: OrderQuestion,
+    cloze: ClozeQuestion,
+  };
+  const widgetFor = (q: QuizQuestion): Widget => WIDGETS[q.type] ?? TextQuestion;
 
   let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -14,38 +35,14 @@
     {#if quiz.loading}
       <p>Chargement…</p>
     {:else}
-      {#each quiz.pages as page, n (page.title)}
+      {#each quiz.pages as page, n (page.key)}
         <div hidden={n !== quiz.page}>
           <div class="qgroup">{page.title}</div>
           {#each page.questions as q (q.id)}
+            {@const Widget = widgetFor(q)}
             <div class="qrow">
               <span id={"qlabel-" + q.id}>{q.label}</span>
-              {#if q.options?.length}
-                <div class="qchoices" role="radiogroup" aria-labelledby={"qlabel-" + q.id}>
-                  {#each q.options as option (option)}
-                    <label class="qchoice">
-                      <input
-                        type="radio"
-                        name={"q-" + q.id}
-                        value={option}
-                        bind:group={quiz.answers[q.id]}
-                        onchange={onInput}
-                      />
-                      {option}
-                    </label>
-                  {/each}
-                </div>
-              {:else}
-                <input
-                  type="text"
-                  spellcheck="false"
-                  autocomplete="off"
-                  data-qid={q.id}
-                  aria-labelledby={"qlabel-" + q.id}
-                  bind:value={quiz.answers[q.id]}
-                  oninput={onInput}
-                />
-              {/if}
+              <Widget {q} onchange={onInput} />
             </div>
           {/each}
         </div>

@@ -95,6 +95,7 @@ fn grade_request() -> Result<Value, String> {
             let field = |key| request.get(key).ok_or(format!("{key} is required"));
             grade::grade_quiz(field("quiz")?, field("answers")?)
         }
+        "quiz_key" => grade::quiz_key(request.get("quiz").ok_or("quiz is required")?),
         other => Err(format!("unknown op {other:?}")),
     }
 }

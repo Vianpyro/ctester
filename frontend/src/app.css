@@ -1447,6 +1447,81 @@ pre {
   margin: 0;
 }
 
+#quiz .qmulti {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+#quiz .qlegend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+#quiz .qmatch,
+#quiz .qorder {
+  flex: 1 1 20rem;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+
+#quiz .qpair {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: var(--fs-ui);
+}
+
+#quiz .qpair label {
+  flex: 1 1 8rem;
+}
+
+#quiz .qorder ol {
+  margin: 0;
+  padding-left: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+#quiz .qorder li {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: var(--fs-ui);
+}
+
+#quiz .qorder .qitem {
+  flex: 1 1 auto;
+}
+
+#quiz .qsaid {
+  margin: .3rem 0 0;
+  font-size: .85rem;
+  color: var(--muted);
+}
+
+#quiz .qcloze {
+  flex: 1 1 100%;
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: var(--fs-ui);
+  line-height: 1.9;
+}
+
+#quiz .qcloze input,
+#quiz .qcloze select {
+  flex: none;
+  width: auto;
+  min-width: 5rem;
+  margin: 0 .15rem;
+}
+
 #quiznav {
   display: flex;
   align-items: center;

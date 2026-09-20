@@ -8,6 +8,7 @@ except ImportError:
     fcntl = None
 import hashlib
 import io
+import itertools
 import json
 import os
 import re
@@ -1191,6 +1192,77 @@ def test_presence_counter():
     assert p.touch("c", 1000 + config.PRESENCE_TTL + 1) == 1
 
 
+def test_quiz_validation_refuses_every_shape_the_judge_could_not_grade():
+    def errors_for(question):
+        found = []
+        content_catalogue._quiz({"questions": [question]}, "q.json", found)
+        return " | ".join(found)
+
+    good = {
+        "choice": {"options": ["a", "b"], "answer": "a"},
+        "multi": {"options": ["a", "b", "c"], "answer": ["a", "b"]},
+        "bool": {"answer": True},
+        "text": {"answer": {"accept": ["free", "free()"]}},
+        "number": {"answer": {"value": 12.625, "margin": 0.001}},
+        "match": {"answer": {"malloc": "réserve", "free": "rend"}},
+        "order": {"answer": ["zèbre", "alpha", "moyen"]},
+        "cloze": {"template": "i = ___ ;", "answer": [{"accept": ["0"]}]},
+        "int": {"answer": "42"},
+        "bin8": {"answer": "00010111"},
+    }
+    for kind, extra in good.items():
+        question = dict({"id": "q1", "group": "G", "label": "L", "type": kind}, **extra)
+        assert errors_for(question) == "", (kind, errors_for(question))
+
+    cases = [
+        ({"id": "q1", "type": "essay", "answer": "x"}, "unknown question type"),
+        ({"id": "bad id!", "type": "int", "answer": "1"}, "invalid id"),
+        ({"id": "q1", "type": "int"}, "no answer"),
+        ({"id": "q1", "type": "choice", "options": ["a"], "answer": "a"},
+         "at least two distinct options"),
+        ({"id": "q1", "type": "choice", "options": ["a", "b"], "answer": "c"},
+         "not one of the options"),
+        ({"id": "q1", "type": "multi", "options": ["a", "b"], "answer": ["a", "c"]},
+         "each one an option"),
+        ({"id": "q1", "type": "multi", "options": ["a", "b"], "answer": ["a", "b"]},
+         "every option correct"),
+        ({"id": "q1", "type": "bool", "answer": "vrai"}, "expects true or false"),
+        ({"id": "q1", "type": "text", "answer": {"accept": []}}, "non-empty accept list"),
+        ({"id": "q1", "type": "text", "answer": {"accept": ["Réservé", "reserve"]}},
+         "same once case and accents are dropped"),
+        ({"id": "q1", "type": "number", "answer": "douze"}, "number expects a value"),
+        ({"id": "q1", "type": "number", "answer": {"value": 1, "margin": -1}},
+         "margin must be a number"),
+        ({"id": "q1", "type": "match", "answer": {"a": "b"}}, "at least 2 pairs"),
+        ({"id": "q1", "type": "order", "answer": ["un", "deux"]}, "at least 3 distinct items"),
+        ({"id": "q1", "type": "order", "answer": ["alpha", "beta", "gamma"]},
+         "the correct order is the alphabetical order"),
+        ({"id": "q1", "type": "cloze", "answer": [{"accept": ["0"]}]},
+         "needs a template with at least one"),
+        ({"id": "q1", "type": "cloze", "template": "a ___ b ___", "answer": [{"accept": ["0"]}]},
+         "has 2 gap(s) and the answer has 1"),
+        ({"id": "q1", "type": "cloze", "template": "a ___",
+          "answer": [{"accept": ["x"], "choices": ["y", "z"]}]},
+         "not one of its choices"),
+        ({"id": "q1", "type": "cloze", "template": "a ___",
+          "answer": [{"accept": ["y"], "choices": ["y"]}]},
+         "at least two distinct choices"),
+        ({"id": "q1", "type": "int", "answer": "1", "options": ["a", "b"]},
+         "options are ignored for this type"),
+        ("pas un objet", "is not an object"),
+    ]
+    for question, expected in cases:
+        found = errors_for(question)
+        assert expected in found, (question, found)
+
+    duplicates = []
+    content_catalogue._quiz(
+        {"questions": [{"id": "q1", "type": "int", "answer": "1"},
+                       {"id": "q1", "type": "int", "answer": "2"}]},
+        "q.json", duplicates)
+    assert any("duplicate" in one for one in duplicates), duplicates
+
+
 def test_public_quiz_hides_answers():
     public = publish_content.public_quiz(QUIZ)
     blob = json.dumps(public, ensure_ascii=False)
@@ -1198,7 +1270,8 @@ def test_public_quiz_hides_answers():
     for question in QUIZ["questions"]:
         assert question["answer"] not in blob, question
         assert question["label"] in blob
-    assert set(public["questions"][0]) == {"id", "group", "label", "type", "options"}
+    assert set(public["questions"][0]) == {"id", "group", "label", "type", "options",
+                                          "prompts", "template", "gaps"}
 
     QUIZ["questions"][0]["commentaire_prof"] = "piège classique"
     try:
@@ -1217,7 +1290,173 @@ def test_public_quiz_keeps_the_choices():
     ]}
     question = publish_content.public_quiz(quiz)["questions"][0]
     assert question["options"] == options
-    assert set(question) == {"id", "group", "label", "type", "options"}
+    assert set(question) == {"id", "group", "label", "type", "options",
+                             "prompts", "template", "gaps"}
+
+
+def test_public_quiz_is_independent_of_the_correct_order():
+    # The file order of an `order` answer IS the key, so the projection must be the same
+    # whichever permutation the author wrote.
+    items = ["vérifier", "allouer", "déclarer", "libérer"]
+    projections = set()
+    for arrangement in itertools.permutations(items):
+        quiz = {"questions": [{"id": "q1", "group": "G", "label": "L", "type": "order",
+                               "answer": list(arrangement)}]}
+        projections.add(json.dumps(publish_content.public_quiz(quiz), sort_keys=True,
+                                   ensure_ascii=False))
+    assert len(projections) == 1, projections
+
+    # Same for the right column of a matching question and a gap's choices.
+    pairs = {"malloc": "réserve", "free": "rend", "strlen": "compte"}
+    seen = set()
+    for order in itertools.permutations(pairs.items()):
+        quiz = {"questions": [{"id": "q1", "group": "G", "label": "L", "type": "match",
+                               "answer": dict(order)}]}
+        public = publish_content.public_quiz(quiz)["questions"][0]
+        seen.add(json.dumps(public["options"], ensure_ascii=False))
+    assert len(seen) == 1, seen
+
+    gaps = ["mauvais", "bon", "pire"]
+    rendered = set()
+    for arrangement in itertools.permutations(gaps):
+        quiz = {"questions": [{"id": "q1", "group": "G", "label": "L", "type": "cloze",
+                               "template": "x ___", "answer": [{"accept": ["bon"],
+                                                                "choices": list(arrangement)}]}]}
+        rendered.add(json.dumps(publish_content.public_quiz(quiz)["questions"][0]["gaps"]))
+    assert len(rendered) == 1, rendered
+
+
+def test_public_quiz_publishes_the_same_eight_keys_for_every_type():
+    questions = [
+        {"id": "a", "type": "bool", "answer": True},
+        {"id": "b", "type": "text", "answer": {"accept": ["free"]}},
+        {"id": "c", "type": "number", "answer": {"value": 12.625, "margin": 0.001}},
+        {"id": "d", "type": "multi", "options": ["x", "y"], "answer": ["x"]},
+        {"id": "e", "type": "match", "answer": {"p": "q", "r": "s"}, "options": ["distracteur"]},
+    ]
+    public = publish_content.public_quiz({"questions": questions})
+    keys = {"id", "group", "label", "type", "options", "prompts", "template", "gaps"}
+    for question in public["questions"]:
+        assert set(question) == keys, question
+
+    by_id = {q["id"]: q for q in public["questions"]}
+    # A boolean key has no published image: the options are made up, not read.
+    assert by_id["a"]["options"] == ["Vrai", "Faux"]
+    # Nothing of a text or number key reaches the page.
+    blob = json.dumps(public, ensure_ascii=False)
+    for secret in ("free", "12.625", "0.001"):
+        assert secret not in blob, (secret, blob)
+    # A matching question shows its distractors mixed into the real partners.
+    assert by_id["e"]["options"] == ["distracteur", "q", "s"]
+    assert by_id["e"]["prompts"] == ["p", "r"]
+
+
+MOODLE_EXPORT = """<?xml version="1.0" encoding="UTF-8"?>
+<quiz>
+  <question type="category">
+    <category><text>$course$/top/Pointeurs</text></category>
+  </question>
+  <question type="multichoice">
+    <name><text>Un seul</text></name>
+    <questiontext format="html"><text><![CDATA[<p>Que fait <b>malloc</b> ?</p>]]></text></questiontext>
+    <single>true</single>
+    <answer fraction="100"><text>Réserve un bloc</text></answer>
+    <answer fraction="0"><text>Libère un bloc</text></answer>
+  </question>
+  <question type="multichoice">
+    <name><text>Plusieurs</text></name>
+    <questiontext format="html"><text>Quatre octets ?</text></questiontext>
+    <single>false</single>
+    <answer fraction="50"><text>int a;</text></answer>
+    <answer fraction="50"><text>float b;</text></answer>
+    <answer fraction="0"><text>double c;</text></answer>
+  </question>
+  <question type="truefalse">
+    <name><text>Vrai ou faux</text></name>
+    <questiontext format="html"><text>free(NULL) est sans effet</text></questiontext>
+    <answer fraction="100"><text>true</text></answer>
+    <answer fraction="0"><text>false</text></answer>
+  </question>
+  <question type="shortanswer">
+    <name><text>Courte</text></name>
+    <questiontext format="html"><text>Qui libère ?</text></questiontext>
+    <usecase>0</usecase>
+    <answer fraction="100"><text>free</text></answer>
+    <answer fraction="100"><text>la fonction free</text></answer>
+  </question>
+  <question type="numerical">
+    <name><text>Numerique</text></name>
+    <questiontext format="html"><text>Valeur</text></questiontext>
+    <answer fraction="100"><text>12,625</text><tolerance>0.001</tolerance></answer>
+  </question>
+  <question type="matching">
+    <name><text>Apparier</text></name>
+    <questiontext format="html"><text>Associe</text></questiontext>
+    <subquestion><text>malloc</text><answer><text>réserve</text></answer></subquestion>
+    <subquestion><text>free</text><answer><text>rend</text></answer></subquestion>
+    <subquestion><text></text><answer><text>compare</text></answer></subquestion>
+  </question>
+  <question type="gapselect">
+    <name><text>Trous</text></name>
+    <questiontext format="html"><text>Une variable est [[1]] et [[2]].</text></questiontext>
+    <selectoption><text>automatique</text><group>1</group></selectoption>
+    <selectoption><text>statique</text><group>1</group></selectoption>
+    <selectoption><text>locale</text><group>2</group></selectoption>
+    <selectoption><text>globale</text><group>2</group></selectoption>
+  </question>
+  <question type="essay">
+    <name><text>Disserte</text></name>
+    <questiontext format="html"><text>Explique</text></questiontext>
+  </question>
+  <question type="calculated">
+    <name><text>Calcule</text></name>
+    <questiontext format="html"><text>{a} + {b}</text></questiontext>
+  </question>
+</quiz>
+"""
+
+
+def test_moodle_import_translates_what_it_can_and_names_what_it_cannot():
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import moodle_import
+
+    root = tempfile.mkdtemp(prefix="ctester-moodle-")
+    try:
+        export = os.path.join(root, "export.xml")
+        with open(export, "w", encoding="utf-8") as fh:
+            fh.write(MOODLE_EXPORT)
+        report = moodle_import.Report()
+        grouped = moodle_import.read(export, report)
+        assert list(grouped) == ["Pointeurs"], grouped
+        by_type = {q["type"]: q for q in grouped["Pointeurs"]}
+        assert set(by_type) == {"choice", "multi", "bool", "text", "number", "match", "cloze"}
+
+        assert by_type["choice"]["answer"] == "Réserve un bloc"
+        assert "malloc" in by_type["choice"]["label"] and "<b>" not in by_type["choice"]["label"]
+        assert sorted(by_type["multi"]["answer"]) == ["float b;", "int a;"]
+        assert by_type["bool"]["answer"] is True
+        assert by_type["text"]["answer"] == {"accept": ["free", "la fonction free"]}
+        assert by_type["number"]["answer"] == {"value": 12.625, "margin": 0.001}
+        assert by_type["match"]["answer"] == {"malloc": "réserve", "free": "rend"}
+        assert by_type["match"]["options"] == ["compare"]
+        assert by_type["cloze"]["template"] == "Une variable est ___ et ___."
+        assert by_type["cloze"]["answer"][0] == {"accept": ["automatique"],
+                                                 "choices": ["automatique", "statique"]}
+
+        # Whatever it produces must pass the very checks the publication runs.
+        errors = []
+        content_catalogue._quiz({"questions": grouped["Pointeurs"]}, "q.json", errors)
+        assert errors == [], errors
+
+        # What Moodle can say and CTester cannot is named, not dropped in silence.
+        printed = "\n".join(report.lines)
+        assert report.refused == 2, printed
+        assert "Disserte" in printed and "manual grading" in printed
+        assert "Calcule" in printed and "randomisation" in printed
+        assert "partial credit" in printed, printed
+        assert "image(s) dropped" not in printed
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def test_policy_is_declarative():
