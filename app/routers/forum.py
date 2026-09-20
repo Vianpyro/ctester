@@ -1,6 +1,4 @@
-import asyncio
 import hmac
-import json
 import re
 import secrets
 import uuid
@@ -419,25 +417,8 @@ def put_profile(sub: SubForum, body: ForumProfileIn):
 @router.websocket("/forum/live")
 async def live(socket: WebSocket):
     """A doorbell: clients re-fetch GET /forum, so visibility rules stay in one place."""
-    origin = socket.headers.get("origin", "").strip().rstrip("/")
-    if origin and origin not in config.ORIGINS:
-        await socket.close(code=deps.CLOSE_FORBIDDEN)
-        return
-    await socket.accept()
-    try:
-        hello = await asyncio.wait_for(socket.receive_text(), timeout=10)
-    except Exception:
-        await socket.close(code=deps.CLOSE_BAD)
-        return
-    if len(hello) > config.FORUM_LIVE_FRAME:
-        await socket.close(code=deps.CLOSE_BAD)
-        return
-    try:
-        opening = json.loads(hello)
-    except ValueError:
-        opening = None
-    if not isinstance(opening, dict) or opening.get("t") != "hello":
-        await socket.close(code=deps.CLOSE_BAD)
+    opening = await deps.hello(socket, config.FORUM_LIVE_FRAME)
+    if opening is None:
         return
     token, thread = opening.get("token"), opening.get("thread")
     if not isinstance(token, str) or not token or not isinstance(thread, str):

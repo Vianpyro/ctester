@@ -28,51 +28,49 @@ try {
 } catch {
 }
 
-export function sessionGet(name: string): string {
+// Passed as a thunk, not as a Storage: reading `localStorage` itself throws when a browser
+// blocks site data, so the access has to happen inside the guard.
+const read = (store: () => Storage, name: string): string => {
   try {
-    return sessionStorage.getItem(name) || "";
+    return store().getItem(name) || "";
   } catch {
     return "";
   }
-}
+};
 
-export function sessionSet(name: string, value: string): void {
+const write = (store: () => Storage, name: string, value: string): boolean => {
   try {
-    sessionStorage.setItem(name, value);
-  } catch {
-  }
-}
-
-export function sessionDrop(name: string): void {
-  try {
-    sessionStorage.removeItem(name);
-  } catch {
-  }
-}
-
-export function localGet(name: string): string {
-  try {
-    return localStorage.getItem(name) || "";
-  } catch {
-    return "";
-  }
-}
-
-export function localSet(name: string, value: string): boolean {
-  try {
-    localStorage.setItem(name, value);
+    store().setItem(name, value);
     return true;
   } catch {
     return false;
   }
-}
+};
 
-export function localDrop(name: string): void {
+const drop = (store: () => Storage, name: string): void => {
   try {
-    localStorage.removeItem(name);
+    store().removeItem(name);
   } catch {
   }
-}
+};
+
+const session = () => sessionStorage;
+const local = () => localStorage;
+
+export const sessionGet = (name: string): string => read(session, name);
+
+export const sessionSet = (name: string, value: string): void => {
+  write(session, name, value);
+};
+
+export const sessionDrop = (name: string): void => drop(session, name);
+
+export const localGet = (name: string): string => read(local, name);
+
+export const localSet = (name: string, value: string): boolean =>
+  write(local, name, value);
+
+export const localDrop = (name: string): void => drop(local, name);
 
 export function randomId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();

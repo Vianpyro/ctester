@@ -1,4 +1,3 @@
-import asyncio
 import json
 import uuid
 
@@ -36,16 +35,12 @@ def _gate(sub, assignment_id, exercise_id=None):
     return assignment, team, None
 
 
-def _roster(assignment_id, team_id):
-    return state.team_roster(assignment_id, team_id)
-
-
 @router.get("/team/context")
 def context(sub: Sub, assignment: str = Query("", alias="assignment")):
     entry, team, refused = _gate(sub, assignment)
     if refused is not None:
         return refused
-    roster = _roster(entry["id"], team["team_id"])
+    roster = state.team_roster(entry["id"], team["team_id"])
     if roster is None:
         return headers.error(503, "la base ne répond pas")
     profiles = state.forum_profiles(roster) or {}
@@ -139,7 +134,7 @@ def mine(sub: Sub):
         entry = team_service.published_assignment(row["assignment_id"])
         if entry is None:
             continue
-        roster = _roster(row["assignment_id"], row["team_id"])
+        roster = state.team_roster(row["assignment_id"], row["team_id"])
         if roster is None:
             return headers.error(503, "la base ne répond pas")
         profiles = state.forum_profiles(roster) or {}
@@ -175,7 +170,7 @@ def read_document(sub: Sub, assignment: str = Query(""), ex: str = Query("")):
 
 @router.put("/team/document")
 def write_document(sub: Sub, body: TeamDocumentIn, request: Request):
-    entry, team, refused = _gate(sub, body.assignment_id, body.exercise_id)
+    _, team, refused = _gate(sub, body.assignment_id, body.exercise_id)
     if refused is not None:
         return refused
     catalog_entry = find_exercise(body.exercise_id)
@@ -197,7 +192,7 @@ def revisions(sub: Sub, assignment: str = Query(""), ex: str = Query("")):
     entry, team, refused = _gate(sub, assignment, ex)
     if refused is not None:
         return refused
-    roster = _roster(entry["id"], team["team_id"])
+    roster = state.team_roster(entry["id"], team["team_id"])
     rows = state.read_team_revisions(team["team_id"], ex,
                                      config.TEAM_REVISIONS_MAX)
     if rows is None or roster is None:
@@ -222,7 +217,7 @@ def revision(sub: Sub, assignment: str = Query(""), ex: str = Query(""),
 
 @router.post("/team/restore")
 def restore(sub: Sub, body: TeamRestoreIn, request: Request):
-    entry, team, refused = _gate(sub, body.assignment_id, body.exercise_id)
+    _, team, refused = _gate(sub, body.assignment_id, body.exercise_id)
     if refused is not None:
         return refused
     catalog_entry = find_exercise(body.exercise_id)
@@ -290,45 +285,25 @@ def handin(sub: Sub, body: TeamHandinIn, request: Request):
             "files": sorted(files)}
 
 
-CLOSE_UNAUTHORIZED = deps.CLOSE_UNAUTHORIZED
-CLOSE_FORBIDDEN = deps.CLOSE_FORBIDDEN
-CLOSE_BUSY = deps.CLOSE_BUSY
-CLOSE_BAD = deps.CLOSE_BAD
-
 RELAYED = ("sync", "update", "cursor")
 
 
 @router.websocket("/team/live")
 async def live(socket: WebSocket):
-    origin = socket.headers.get("origin", "").strip().rstrip("/")
-    if origin and origin not in config.ORIGINS:
-        await socket.close(code=CLOSE_FORBIDDEN)
+    opening = await deps.hello(socket, MAX_FRAME)
+    if opening is None:
         return
-    await socket.accept()
-    try:
-        hello = await asyncio.wait_for(socket.receive_text(), timeout=10)
-    except Exception:
-        await socket.close(code=CLOSE_BAD)
-        return
-    try:
-        opening = json.loads(hello)
-    except ValueError:
-        opening = None
-    if not isinstance(opening, dict) or opening.get("t") != "hello":
-        await socket.close(code=CLOSE_BAD)
-        return
-
     token = opening.get("token")
     assignment_id = opening.get("assignment")
     exercise_id = opening.get("exercise")
     if not all(isinstance(v, str) and v for v in (token, assignment_id, exercise_id)):
-        await socket.close(code=CLOSE_BAD)
+        await socket.close(code=deps.CLOSE_BAD)
         return
 
     sub = await run_in_threadpool(security.current_user,
                                   {"Authorization": "Bearer " + token})
     if not sub:
-        await socket.close(code=CLOSE_UNAUTHORIZED)
+        await socket.close(code=deps.CLOSE_UNAUTHORIZED)
         return
 
     def resolve():
@@ -339,12 +314,12 @@ async def live(socket: WebSocket):
 
     assignment, team, roster = await run_in_threadpool(resolve)
     if team is None or roster is None:
-        await socket.close(code=CLOSE_FORBIDDEN)
+        await socket.close(code=deps.CLOSE_FORBIDDEN)
         return
 
     key = collab.room_key(team["team_id"], exercise_id)
     if collab.full(key):
-        await socket.close(code=CLOSE_BUSY)
+        await socket.close(code=deps.CLOSE_BUSY)
         return
     connection = collab.Connection(socket, key,
                                    team_service.member_handle(roster, sub), sub)
@@ -357,7 +332,7 @@ async def live(socket: WebSocket):
         while True:
             raw = await socket.receive_text()
             if len(raw) > MAX_FRAME:
-                await socket.close(code=CLOSE_BAD)
+                await socket.close(code=deps.CLOSE_BAD)
                 return
             try:
                 frame = json.loads(raw)

@@ -30,6 +30,8 @@
     return "n1";
   }
 
+  const labs = $derived(catalog.collections.filter((c) => c.items.length));
+
   const calendar = $derived.by(() => {
     const counts: Record<string, number> = {};
     for (const row of p?.practice_days ?? []) {
@@ -186,11 +188,11 @@
 
 <div class="block">
   <h3 class="subtitle">Par laboratoire</h3>
-  {#if !catalog.collections.some((c) => c.items.length)}
+  {#if !labs.length}
     <p class="help">Aucun exercice n'est publié pour l'instant.</p>
   {:else}
     <div class="grid">
-      {#each catalog.collections.filter((c) => c.items.length) as col (col.title)}
+      {#each labs as col (col.title)}
         {@const openItems = col.items.filter((ex) => !lockNote(ex))}
         {@const done = openItems.filter((ex) => statuses.of(ex.id) === "solved").length}
         <div class="lab">

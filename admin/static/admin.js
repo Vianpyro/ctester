@@ -70,6 +70,12 @@ function render(target, data, fill) {
   target.scrollTop = top;
 }
 
+// Every panel redraws only when its own slice of the payload changed.
+function panel(id, signature, fill) {
+  const target = $(id);
+  render(target, signature, () => fill(target));
+}
+
 async function json(url) {
   const bearer = await validToken();
   if (!bearer) throw new Error("session expirée");
@@ -112,7 +118,7 @@ function loginScreen(reason) {
   $("login-reason").textContent = reason || "";
 }
 
-/* ---- vitals ------------------------------------------------------------ */
+/* vitals */
 
 function vital(key, value, note, options = {}) {
   const node = el("div", "vital");
@@ -128,9 +134,8 @@ function vital(key, value, note, options = {}) {
 let lastStats = null;
 
 function vitals(data) {
-  const target = $("vitals");
-  render(target, [data.queue, lastStats, data.release, data.windows],
-         () => fillVitals(target, data));
+  panel("vitals", [data.queue, lastStats, data.release, data.windows],
+        (target) => fillVitals(target, data));
 }
 
 function fillVitals(target, data) {
@@ -200,10 +205,10 @@ function fillPullCountdown() {
   note.parentElement.querySelector(".value").classList.toggle("alarm", left < -120);
 }
 
-/* ---- verdict distribution ---------------------------------------------- */
+/* verdict distribution */
 
 function distribution(statuses) {
-  render($("legend"), statuses, () => fillDistribution(statuses));
+  panel("legend", statuses, () => fillDistribution(statuses));
 }
 
 function fillDistribution(statuses) {
@@ -232,7 +237,7 @@ function fillDistribution(statuses) {
   }
 }
 
-/* ---- tables ------------------------------------------------------------ */
+/* tables */
 
 function fillTable(target, columns, lines, rendered, message) {
   if (!lines || lines.length === 0) {
@@ -272,11 +277,10 @@ function cells(values) {
   return tr;
 }
 
-/* ---- panels ------------------------------------------------------------ */
+/* panels */
 
 function workers(rows, configured) {
-  const target = $("workers");
-  render(target, [rows, configured], () => fillWorkers(target, rows, configured));
+  panel("workers", [rows, configured], (target) => fillWorkers(target, rows, configured));
 }
 
 function fillWorkers(target, rows, configured) {
@@ -306,8 +310,7 @@ function fillWorkers(target, rows, configured) {
 }
 
 function usage(data, days) {
-  const target = $("usage");
-  render(target, [data.usage, data.stats, days], () => fillUsage(target, data, days));
+  panel("usage", [data.usage, data.stats, days], (target) => fillUsage(target, data, days));
 }
 
 function fillUsage(target, data, days) {
@@ -334,9 +337,8 @@ function fillUsage(target, data, days) {
   target.append(grid);
 }
 
-function file(q) {
-  const target = $("queue");
-  render(target, q, () => fillQueue(target, q));
+function queue(q) {
+  panel("queue", q, (target) => fillQueue(target, q));
 }
 
 function fillQueue(target, q) {
@@ -356,7 +358,7 @@ function fillQueue(target, q) {
 }
 
 function exercises(rows, days) {
-  render($("exercises"), [rows, days], () => fillExercises(rows, days));
+  panel("exercises", [rows, days], () => fillExercises(rows, days));
 }
 
 function fillExercises(rows, days) {
@@ -377,7 +379,7 @@ function fillExercises(rows, days) {
     "Aucun run sur la période.");
 }
 
-/* ---- discussions ------------------------------------------------------- */
+/* discussions */
 
 const CHAT = "@chat:";
 
@@ -396,7 +398,7 @@ function since(iso) {
 }
 
 function channels(rows, days) {
-  render($("channels"), [rows, days], () => fillChannels(rows, days));
+  panel("channels", [rows, days], () => fillChannels(rows, days));
 }
 
 function fillChannels(rows, days) {
@@ -418,8 +420,7 @@ function fillChannels(rows, days) {
 }
 
 function activity(data, days) {
-  const target = $("activity");
-  render(target, [data.activity, days], () => fillActivity(target, data, days));
+  panel("activity", [data.activity, days], (target) => fillActivity(target, data, days));
 }
 
 function fillActivity(target, data, days) {
@@ -562,7 +563,7 @@ function fillRuns(target, rows) {
   if (rows) known = new Set(rows.map((r) => r.job_id));
 }
 
-/* ---- personal data ------------------------------------------------------ */
+/* personal data */
 
 const revealed = () => $("reveal").checked;
 
@@ -678,7 +679,7 @@ function output(body, label, text, always) {
   body.append(el("pre", "out", text || "(rien)"));
 }
 
-/* ---- state line -------------------------------------------------------- */
+/* state line */
 
 function state(message, level) {
   const line = $("state");
@@ -687,7 +688,7 @@ function state(message, level) {
   line.classList.toggle("warm", level === "warm");
 }
 
-/* ---- loading ----------------------------------------------------------- */
+/* loading */
 
 function period() {
   const active = document.querySelector('.period button[aria-pressed="true"]');
@@ -714,7 +715,7 @@ async function refresh() {
     lastOverview = data;
     vitals(data);
     workers(data.workers, data.queue && data.queue.workers_configured);
-    file(data.queue);
+    queue(data.queue);
     const ingestion = data.ingestion;
     if (data.degraded) {
       state("Base injoignable, file et contenu seulement", "warm");
@@ -804,7 +805,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-/* ---- live -------------------------------------------------------------- */
+/* live */
 
 // The queue and the new runs arrive over /api/live the moment they change; the 5 s
 // tick stays for everything else, and is the fallback when the stream is down.
@@ -878,7 +879,7 @@ function liveEvent(block) {
     return;
   }
   if (name === "queue") {
-    file(payload);
+    queue(payload);
     if (lastOverview) vitals({ ...lastOverview, queue: payload });
   } else if (name === "runs") {
     void listRuns();

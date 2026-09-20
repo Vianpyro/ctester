@@ -56,12 +56,7 @@ def leave(connection):
 
 def members(key):
     room = _rooms.get(key)
-    seen, out = set(), []
-    for member in (room or {}).get("members", ()):
-        if member.handle not in seen:
-            seen.add(member.handle)
-            out.append(member.handle)
-    return out
+    return list(dict.fromkeys(m.handle for m in (room or {}).get("members", ())))
 
 
 async def broadcast(connection, payload):

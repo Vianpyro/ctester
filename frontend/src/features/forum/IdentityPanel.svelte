@@ -166,7 +166,7 @@
       {#if held.group_numbers.length}
         <select id="forumgroup" bind:value={group}>
           <option value="">— aucun —</option>
-          {#each held.group_numbers as g}
+          {#each held.group_numbers as g (g)}
             <option value={String(g)}>{groupNumber(g)}</option>
           {/each}
         </select>

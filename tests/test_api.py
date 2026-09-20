@@ -2961,6 +2961,31 @@ def test_the_team_context_names_teammates_without_any_sub():
         assert not fake.profiles
 
 
+def test_the_team_socket_bounds_its_opening_frame_like_the_others():
+    from starlette.websockets import WebSocketDisconnect
+
+    def refused(sender):
+        with assignment_deployment() as (client, _f, _t):
+            try:
+                with client.websocket_connect("/team/live") as socket:
+                    sender(socket)
+                    socket.receive_json()
+            except WebSocketDisconnect as exc:
+                return exc.code
+            raise AssertionError("the socket stayed open")
+
+    assert refused(lambda s: s.send_text("pas du json")) == 4400
+    assert refused(lambda s: s.send_json({"t": "bonjour", "token": "t-alice"})) == 4400
+    # Padded out past the bound but otherwise a hello this deployment would accept, so the
+    # length is the only thing that can refuse it.
+    padded = {"t": "hello", "token": "t-alice", "assignment": "devoir",
+              "exercise": "dev-a", "pad": "x" * config.TEAM_LIVE_MAX_FRAME}
+    assert refused(lambda s: s.send_json(padded)) == 4400
+    assert refused(lambda s: s.send_json({"t": "hello", "token": "faux",
+                                          "assignment": "devoir",
+                                          "exercise": "dev-a"})) == 4401
+
+
 def test_no_team_route_opens_without_proven_membership():
     with assignment_deployment() as (client, fake, _):
         fake.teams.pop(("devoir", "sub-bob"))

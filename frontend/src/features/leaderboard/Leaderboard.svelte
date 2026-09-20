@@ -86,7 +86,7 @@
         aria-pressed={targetGroup === null}
         onclick={() => pick("course", null)}>Tous les groupes</button
       >
-      {#each payload.groups ?? [] as g}
+      {#each payload.groups ?? [] as g (g)}
         <button
           type="button"
           class={"nav" + (targetGroup === g ? " on" : "")}

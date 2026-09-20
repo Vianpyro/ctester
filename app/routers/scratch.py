@@ -44,29 +44,9 @@ def put_scratch_draft(sub: Sub, body: ScratchIn, request: Request):
 
 @router.websocket("/scratch/live")
 async def live(socket: WebSocket):
-    origin = socket.headers.get("origin", "").strip().rstrip("/")
-    if origin and origin not in config.ORIGINS:
-        await socket.close(code=deps.CLOSE_FORBIDDEN)
+    opening = await deps.hello(socket, 2 * config.MAX_CODE + 4096)
+    if opening is None:
         return
-    await socket.accept()
-    # The token travels in the first frame: browsers can't set Authorization on a
-    # WebSocket, and a token in the URL would end up in proxy logs.
-    try:
-        hello = await asyncio.wait_for(socket.receive_text(), timeout=10)
-    except Exception:
-        await socket.close(code=deps.CLOSE_BAD)
-        return
-    if len(hello) > 2 * config.MAX_CODE + 4096:
-        await socket.close(code=deps.CLOSE_BAD)
-        return
-    try:
-        opening = json.loads(hello)
-    except ValueError:
-        opening = None
-    if not isinstance(opening, dict) or opening.get("t") != "hello":
-        await socket.close(code=deps.CLOSE_BAD)
-        return
-
     token, code = opening.get("token"), opening.get("code")
     if not isinstance(token, str) or not token or not isinstance(code, str):
         await socket.close(code=deps.CLOSE_BAD)

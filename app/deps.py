@@ -1,3 +1,5 @@
+import asyncio
+import json
 import time
 from threading import Lock
 from typing import Annotated
@@ -21,6 +23,35 @@ CLOSE_FORBIDDEN = 4403
 CLOSE_BUSY = 4429
 CLOSE_BAD = 4400
 CLOSE_UNAVAILABLE = 4503
+
+HELLO_TIMEOUT = 10
+
+
+async def hello(socket, max_frame):
+    """The opening frame every live socket shares. The token travels in it because a browser
+    cannot set Authorization on a WebSocket and a token in the URL would reach proxy logs.
+    Returns None once the socket has been closed, so the caller only has to return."""
+    origin = socket.headers.get("origin", "").strip().rstrip("/")
+    if origin and origin not in config.ORIGINS:
+        await socket.close(code=CLOSE_FORBIDDEN)
+        return None
+    await socket.accept()
+    try:
+        raw = await asyncio.wait_for(socket.receive_text(), timeout=HELLO_TIMEOUT)
+    except Exception:
+        await socket.close(code=CLOSE_BAD)
+        return None
+    if len(raw) > max_frame:
+        await socket.close(code=CLOSE_BAD)
+        return None
+    try:
+        opening = json.loads(raw)
+    except ValueError:
+        opening = None
+    if not isinstance(opening, dict) or opening.get("t") != "hello":
+        await socket.close(code=CLOSE_BAD)
+        return None
+    return opening
 
 
 class Refusal(Exception):

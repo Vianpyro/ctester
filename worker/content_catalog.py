@@ -316,24 +316,32 @@ def _handin(value, where, items, exercises, errors):
     return {"root": root, "files": out} if out else None
 
 
+def _named_file(data, filename, pattern, where, errors):
+    """The header a collection and an assignment file share. None means the id is unusable."""
+    ident = data.get("id")
+    if data.get("schema_version") != SCHEMA_VERSION:
+        errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
+    if not isinstance(ident, str) or not pattern.match(ident):
+        errors.append("%s: invalid id" % where)
+        return None
+    if filename != ident + ".json":
+        errors.append("%s: the file must be named after the id" % where)
+    if not isinstance(data.get("title"), str) or not data["title"].strip():
+        errors.append("%s: missing title" % where)
+    if not isinstance(data.get("description", ""), str):
+        errors.append("%s: description must be text" % where)
+    return ident
+
+
 def _assignment(root, filename, exercises, errors, prefix=""):
     path = os.path.join(root, "assignments", filename)
     data = _json(path, errors)
     if data is None:
         return None
     where = prefix + "assignments/%s" % filename
-    assignment_id = data.get("id")
-    if data.get("schema_version") != SCHEMA_VERSION:
-        errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
-    if not isinstance(assignment_id, str) or not ASSIGNMENT_RE.match(assignment_id):
-        errors.append("%s: invalid id" % where)
+    assignment_id = _named_file(data, filename, ASSIGNMENT_RE, where, errors)
+    if assignment_id is None:
         return None
-    if filename != assignment_id + ".json":
-        errors.append("%s: the file must be named after the id" % where)
-    if not isinstance(data.get("title"), str) or not data["title"].strip():
-        errors.append("%s: missing title" % where)
-    if not isinstance(data.get("description", ""), str):
-        errors.append("%s: description must be text" % where)
     items = data.get("items")
     if (not isinstance(items, list) or not items
             or any(not isinstance(item, str) for item in items)
@@ -437,18 +445,10 @@ def discover(root):
             data = _json(os.path.join(directory, filename), errors)
             if data is None:
                 continue
-            where, collection_id = prefix + "collections/%s" % filename, data.get("id")
-            if data.get("schema_version") != SCHEMA_VERSION:
-                errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
-            if not isinstance(collection_id, str) or not COLLECTION_RE.match(collection_id):
-                errors.append("%s: invalid id" % where)
+            where = prefix + "collections/%s" % filename
+            collection_id = _named_file(data, filename, COLLECTION_RE, where, errors)
+            if collection_id is None:
                 continue
-            if filename != collection_id + ".json":
-                errors.append("%s: the file must be named after the id" % where)
-            if not isinstance(data.get("title"), str) or not data["title"].strip():
-                errors.append("%s: missing title" % where)
-            if not isinstance(data.get("description", ""), str):
-                errors.append("%s: description must be text" % where)
             items = data.get("items")
             if (not isinstance(items, list)
                     or any(not isinstance(item, str) for item in items)

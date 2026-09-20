@@ -125,8 +125,11 @@ export function tileState(
   return { cls: "todo", word: "à faire" };
 }
 
+// The collection prefix ("TP 3: ") is noise once the exercise is shown inside its collection.
+const bareLabel = (ex: Exercise): string => ex.short.replace(/^[^:]*:\s*/, "");
+
 export function stripLabel(ex: Exercise): string {
-  const bare = (ex.short || "").replace(/^[^:]*:\s*/, "");
+  const bare = bareLabel(ex);
   const number = bare.match(/^ex\.?\s*(\d+)/i);
   if (number) return "ex." + number[1];
   return bare.length > 20 ? bare.slice(0, 19) + "…" : bare;
@@ -134,7 +137,7 @@ export function stripLabel(ex: Exercise): string {
 
 export function gridLabel(ex: Exercise): string {
   if (ex.verification) return "vérif";
-  const bare = (ex.short || "").replace(/^[^:]*:\s*/, "");
+  const bare = bareLabel(ex);
   const number = bare.match(/^ex\.?\s*(\d+)/i);
   if (number) return number[1]!;
   return bare.length > 8 ? bare.slice(0, 7) + "…" : bare;

@@ -1,7 +1,7 @@
 <script lang="ts">  import { onMount } from "svelte";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { localTime } from "../../lib/domain/labels";
-  import { CHAT_GENERAL, CHAT_PREFIX, bareExercise } from "../../lib/api/forum";
+  import { readableThread } from "./labels";
   import { chat } from "./chat.svelte";
   import { thread } from "./thread.svelte";
   import Markdown from "./Markdown.svelte";
@@ -18,14 +18,6 @@
     const found = catalog.catalog.find((t) => t.id === id);
     return found ? found.label || found.short || id : id;
   };
-  function readableThread(key: string): string {
-    if (key === CHAT_GENERAL) return "# général";
-    const bare = bareExercise(key);
-    const found = catalog.catalog.find((t) => t.id === bare);
-    const name = found ? found.short || found.label : bare;
-    return key.startsWith(CHAT_PREFIX) ? "# " + name : "Mes questions — " + name;
-  }
-
   const topRows = $derived((thread.top?.rows ?? []).filter((r) => r.upvotes || !r.replies));
 
   async function openConversation(id: string) {
@@ -93,7 +85,7 @@
             </tr>
           </thead>
           <tbody>
-            {#each thread.help.rows as row}
+            {#each thread.help.rows as row (row.exercise_id + "#" + row.step + "#" + row.blocked_kind)}
               <tr>
               <td>{exerciseLabel(row.exercise_id)}</td>
               <td>

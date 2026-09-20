@@ -343,6 +343,29 @@ def write_scratch(user, code, header_name="", header=""):
     ) is not None
 
 
+# _messages() unpacks these by position, so the two queries that feed it must select the
+# same columns in the same order. forum_conversation appends the thread key after them.
+_MESSAGE_COLUMNS = (
+    "SELECT m.message_id, m.account, m.text, m.hidden, m.created_at,"
+    "       m.step, m.blocked_kind, m.visibility, m.reply_to,"
+    "       COALESCE(r.action = 'retain', false),"
+    "       (SELECT count(*) FROM forum_helpful h"
+    "         WHERE h.message_id = m.message_id AND h.value = 1),"
+    "       (SELECT count(*) FROM forum_helpful h"
+    "         WHERE h.message_id = m.message_id AND h.value = -1),"
+    "       COALESCE((SELECT h.value FROM forum_helpful h"
+    "                  WHERE h.message_id = m.message_id"
+    "                    AND h.account = %(who)s), 0)")
+
+# The last retain/unretain wins; the column list above reads r.action through it.
+_RETAIN_JOIN = (
+    "  LEFT JOIN LATERAL ("
+    "       SELECT action FROM forum_moderation"
+    "        WHERE message_id = m.message_id"
+    "          AND action IN ('retain', 'unretain')"
+    "        ORDER BY created_at DESC, action_id DESC LIMIT 1) r ON true")
+
+
 def forum_thread(exercise_id, limit, reader=None):
     rows = _query(
         "WITH roots AS ("
@@ -350,22 +373,9 @@ def forum_thread(exercise_id, limit, reader=None):
         "    WHERE exercise_id = %(ex)s AND reply_to IS NULL"
         "    ORDER BY created_at DESC, message_id DESC"
         "    LIMIT %(limit)s) "
-        "SELECT m.message_id, m.account, m.text, m.hidden, m.created_at,"
-        "       m.step, m.blocked_kind, m.visibility, m.reply_to,"
-        "       COALESCE(r.action = 'retain', false),"
-        "       (SELECT count(*) FROM forum_helpful h"
-        "         WHERE h.message_id = m.message_id AND h.value = 1),"
-        "       (SELECT count(*) FROM forum_helpful h"
-        "         WHERE h.message_id = m.message_id AND h.value = -1),"
-        "       COALESCE((SELECT h.value FROM forum_helpful h"
-        "                  WHERE h.message_id = m.message_id"
-        "                    AND h.account = %(who)s), 0)"
+        + _MESSAGE_COLUMNS +
         "  FROM forum_message m"
-        "  LEFT JOIN LATERAL ("
-        "       SELECT action FROM forum_moderation"
-        "        WHERE message_id = m.message_id"
-        "          AND action IN ('retain', 'unretain')"
-        "        ORDER BY created_at DESC, action_id DESC LIMIT 1) r ON true"
+        + _RETAIN_JOIN +
         " WHERE m.exercise_id = %(ex)s"
         "   AND (m.message_id IN (SELECT message_id FROM roots)"
         "        OR m.reply_to IN (SELECT message_id FROM roots))"
@@ -407,24 +417,11 @@ def forum_conversation(message_id, reader=None):
         "WITH target AS ("
         "   SELECT COALESCE(reply_to, message_id) AS root, exercise_id"
         "     FROM forum_message WHERE message_id = %(id)s) "
-        "SELECT m.message_id, m.account, m.text, m.hidden, m.created_at,"
-        "       m.step, m.blocked_kind, m.visibility, m.reply_to,"
-        "       COALESCE(r.action = 'retain', false),"
-        "       (SELECT count(*) FROM forum_helpful h"
-        "         WHERE h.message_id = m.message_id AND h.value = 1),"
-        "       (SELECT count(*) FROM forum_helpful h"
-        "         WHERE h.message_id = m.message_id AND h.value = -1),"
-        "       COALESCE((SELECT h.value FROM forum_helpful h"
-        "                  WHERE h.message_id = m.message_id"
-        "                    AND h.account = %(who)s), 0),"
+        + _MESSAGE_COLUMNS + ","
         "       c.exercise_id"
         "  FROM forum_message m"
         "  JOIN target c ON m.message_id = c.root OR m.reply_to = c.root"
-        "  LEFT JOIN LATERAL ("
-        "       SELECT action FROM forum_moderation"
-        "        WHERE message_id = m.message_id"
-        "          AND action IN ('retain', 'unretain')"
-        "        ORDER BY created_at DESC, action_id DESC LIMIT 1) r ON true"
+        + _RETAIN_JOIN +
         " ORDER BY m.created_at, m.message_id",
         {"id": message_id, "who": reader or ""}, read=True)
     if rows is None:
@@ -903,7 +900,7 @@ def read_teams(assignment_id):
             for team_id, group_number, label, members in rows]
 
 
-# --- The judge's run journal, read and written by the admin app only. -----------------
+# The judge's run journal, read and written by the admin app only.
 # judge_run holds no account: it is the history of the service, not of a student, so
 # forget() leaves it alone.
 
@@ -1041,15 +1038,17 @@ def read_submitted(user, exercise_id):
     return {"files": files, "at": rows[0][1].isoformat()}
 
 
-def read_activity(days=7):
+def read_activity(days=7, tz="UTC"):
     """Runs per bucket, so a lab session's shape is visible: hourly over one day,
-    daily beyond it."""
+    daily beyond it. Buckets are cut in the reader's timezone, and `t` comes back
+    as local wall clock without an offset, which is what the page rebuilds its
+    axis from: a day bucket must be that reader's calendar day, not UTC's."""
     unit = "hour" if days <= 1 else "day"
     rows = _query(
-        "SELECT date_trunc(%s, finished_at) AS t, count(*),"
+        "SELECT date_trunc(%s, finished_at AT TIME ZONE %s) AS t, count(*),"
         "       count(*) FILTER (WHERE status NOT IN ('ok', 'console'))"
         "  FROM judge_run WHERE finished_at > now() - make_interval(days => %s)"
-        " GROUP BY t ORDER BY t", (unit, days), read=True)
+        " GROUP BY t ORDER BY t", (unit, tz, days), read=True)
     if rows is None:
         return None
     return {"unit": unit,

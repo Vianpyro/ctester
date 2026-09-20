@@ -162,7 +162,7 @@ BANDS = {b["id"]: b for b in POLICY["mastery"]["bands"]}
 
 def xp_for_solve(entry):
     table = POLICY["xp"]
-    return int(table.get((entry or {}).get("difficulty"), table["default"]))
+    return int(table.get(entry.get("difficulty"), table["default"]))
 
 
 def daily_cap():
@@ -245,4 +245,4 @@ FRAMES = {c["id"]: c for c in POLICY["frames"]}
 
 
 def unlocked_frames(rank):
-    return [dict(c) for c in POLICY["frames"] if int(rank or 1) >= c["threshold"]]
+    return [dict(c) for c in POLICY["frames"] if int(rank) >= c["threshold"]]

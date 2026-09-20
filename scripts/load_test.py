@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import collections
 import http.client
 import json
 import os
@@ -51,33 +52,33 @@ def call(method, path, body=None, student=0, token=False):
 class Measures:
     def __init__(self, name):
         self.name = name
-        self.temps = []
-        self.statuses = {}
+        self.times = []
+        self.statuses = collections.Counter()
 
     def add(self, status, seconds):
-        self.temps.append(seconds)
-        self.statuses[status] = self.statuses.get(status, 0) + 1
+        self.times.append(seconds)
+        self.statuses[status] += 1
 
     def percentile(self, part):
-        if not self.temps:
+        if not self.times:
             return 0.0
-        ordered = sorted(self.temps)
+        ordered = sorted(self.times)
         rank = max(0, min(len(ordered) - 1, round(part * len(ordered)) - 1))
         return ordered[rank]
 
     def line(self):
-        if not self.temps:
+        if not self.times:
             return "%-14s NOT PLAYED" % self.name
         histogram = " ".join("%s:%d" % (s or "failure", n)
                          for s, n in sorted(self.statuses.items()))
         return ("%-14s n=%-4d  p50=%6.0f ms  p95=%6.0f ms  p99=%6.0f ms  "
                 "max=%6.0f ms  %s"
-                % (self.name, len(self.temps), self.percentile(.50) * 1000,
+                % (self.name, len(self.times), self.percentile(.50) * 1000,
                    self.percentile(.95) * 1000, self.percentile(.99) * 1000,
-                   max(self.temps) * 1000, histogram))
+                   max(self.times) * 1000, histogram))
 
     def part_503(self):
-        return self.statuses.get(503, 0) / max(len(self.temps), 1)
+        return self.statuses.get(503, 0) / max(len(self.times), 1)
 
 
 def in_parallel(measure, how_many, workdir):
@@ -135,7 +136,7 @@ def submission_phase(measures):
         return status, duration, payload
 
     in_parallel(repository, SUBMISSIONS, submit)
-    if not repository.temps:
+    if not repository.times:
         return
     measures.append(repository)
     print("               %d job(s) accepted, %.0f %% 503s (queue full)"
@@ -185,7 +186,7 @@ def main():
     if worst:
         print("503s ABOVE 1%: " + ", ".join(
             "%s %.0f %%" % (m.name, m.part_503() * 100) for m in worst))
-    slow = [m for m in measures if m.temps and m.percentile(.95) > 1.0]
+    slow = [m for m in measures if m.times and m.percentile(.95) > 1.0]
     if slow:
         print("p95 ABOVE ONE SECOND: " + ", ".join(
             "%s %.0f ms" % (m.name, m.percentile(.95) * 1000) for m in slow))

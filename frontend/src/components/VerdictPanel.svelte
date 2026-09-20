@@ -59,8 +59,13 @@
     if (!shown) return "";
     if (failed) return outcome!.title;
     const frame = shown.scope && shown.r.kind === "quiz" ? " — " + shown.scope.title : "";
-    return `${shown.r.passed ?? 0} / ${shown.r.total ?? 0} ${UNITS[shown.r.kind] ?? "réussis"}${frame}`;
+    return `${passed} / ${total} ${UNITS[shown.r.kind] ?? "réussis"}${frame}`;
   });
+
+  const passed = $derived(shown?.r.passed ?? 0);
+  const total = $derived(shown?.r.total ?? 0);
+  const failedNames = $derived(shown?.r.failed ?? []);
+  const gcc = $derived(shown?.r.gcc ?? "");
 
   const cls = $derived.by(() => {
     if (phase.kind === "sending" || phase.kind === "queued" || phase.kind === "running") {
@@ -136,10 +141,10 @@
     <div class="bar"><i></i></div>
   {/if}
 
-  {#if shown && !failed && (shown.r.total ?? 0) > 0}
+  {#if shown && !failed && total > 0}
     <div class="ticks">
-      {#each { length: shown.r.total ?? 0 } as _, n}
-        <i class={n < (shown.r.passed ?? 0) ? "on" : ""} style={"--i:" + Math.min(n, 12)}></i>
+      {#each { length: total } as _, n}
+        <i class={n < passed ? "on" : ""} style={"--i:" + Math.min(n, 12)}></i>
       {/each}
     </div>
   {/if}
@@ -160,10 +165,10 @@
         <pre>{firstError(shown.r.gcc)}</pre>
         <details class="case">
           <summary>Voir toute la sortie du compilateur</summary>
-          <pre>{shown.r.gcc ?? ""}</pre>
+          <pre>{gcc}</pre>
         </details>
       {:else}
-        <pre>{shown.r.gcc ?? ""}</pre>
+        <pre>{gcc}</pre>
       {/if}
     </div>
   {/if}
@@ -213,15 +218,15 @@
     </div>
   {/if}
 
-  {#if shown && !failed && !complete && shown.r.kind === "unity" && (shown.r.failed ?? []).length}
+  {#if shown && !failed && !complete && shown.r.kind === "unity" && failedNames.length}
     <div class="failures">
       <p class="what">
-        {(shown.r.failed ?? []).length === 1
+        {failedNames.length === 1
           ? "Cette vérification a échoué. Son nom décrit le cas qu'elle teste :"
           : "Ces vérifications ont échoué. Leur nom décrit le cas qu'elles testent :"}
       </p>
       <ul>
-        {#each shown.r.failed ?? [] as name}<li>{name}</li>{/each}
+        {#each failedNames as name (name)}<li>{name}</li>{/each}
       </ul>
       <p class="contract">
         Les valeurs attendues ne sont pas montrées : les trouver EST l'exercice.
