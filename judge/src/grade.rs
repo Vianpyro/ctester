@@ -269,6 +269,9 @@ pub fn check_answer(kind: &str, given: &str, expected: &str) -> (bool, &'static 
             None => (false, "ce n'est pas un nombre hexadécimal"),
             Some(got) => (norm_hex(expected) == Some(got), ""),
         },
+        // The only kind compared verbatim: the answer is one of the question's own options,
+        // so accents and case are part of it and no normalisation may soften them.
+        "choice" => (given == expected, ""),
         _ => match norm_int(given) {
             None => (false, "ce n'est pas un nombre entier"),
             Some(got) => (norm_int(expected) == Some(got), ""),
@@ -849,6 +852,10 @@ mod tests {
         assert_eq!(check_answer("int", "79", "-79"), (false, ""));
         assert!(!check_answer("int", "1e3", "1000").0);
         assert!(!check_answer("autre", "--1", "1").0);
+
+        assert_eq!(check_answer("choice", "OU", "OU"), (true, ""));
+        assert_eq!(check_answer("choice", "ET", "OU"), (false, ""));
+        assert!(!check_answer("choice", "ou à bit", "OU à bit").0);
     }
 
     #[test]

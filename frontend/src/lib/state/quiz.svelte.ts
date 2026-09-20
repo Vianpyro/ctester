@@ -7,6 +7,7 @@ export interface QuizQuestion {
   id: string;
   label: string;
   group: string;
+  options?: string[];
 }
 
 export interface QuizPage {

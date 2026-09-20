@@ -1421,6 +1421,32 @@ pre {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
+#quiz .qrow:has(.qchoices) {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+#quiz .qchoices {
+  display: flex;
+  flex: 1 1 20rem;
+  flex-wrap: wrap;
+  gap: .4rem 1.2rem;
+}
+
+#quiz .qchoice {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: var(--fs-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#quiz .qchoice input {
+  flex: none;
+  margin: 0;
+}
+
 #quiznav {
   display: flex;
   align-items: center;

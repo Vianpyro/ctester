@@ -1198,13 +1198,26 @@ def test_public_quiz_hides_answers():
     for question in QUIZ["questions"]:
         assert question["answer"] not in blob, question
         assert question["label"] in blob
-    assert set(public["questions"][0]) == {"id", "group", "label", "type"}
+    assert set(public["questions"][0]) == {"id", "group", "label", "type", "options"}
 
     QUIZ["questions"][0]["commentaire_prof"] = "piège classique"
     try:
         assert "piège" not in json.dumps(publish_content.public_quiz(QUIZ), ensure_ascii=False)
     finally:
         del QUIZ["questions"][0]["commentaire_prof"]
+
+
+def test_public_quiz_keeps_the_choices():
+    # The answer of a choice question is one of the options, so it is necessarily published:
+    # what must not leak is which option it is, and only the key set can say so.
+    options = ["ET binaire", "OU binaire"]
+    quiz = {"label": "Opérateurs", "questions": [
+        {"id": "q1", "group": "G", "label": "&", "type": "choice",
+         "options": options, "answer": options[0]},
+    ]}
+    question = publish_content.public_quiz(quiz)["questions"][0]
+    assert question["options"] == options
+    assert set(question) == {"id", "group", "label", "type", "options"}
 
 
 def test_policy_is_declarative():

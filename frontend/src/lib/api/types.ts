@@ -66,7 +66,7 @@ export interface ExerciseDetail {
 }
 
 export interface QuizPayload {
-  questions: { id: string; label: string; group: string }[];
+  questions: { id: string; label: string; group: string; options?: string[] }[];
 }
 
 export interface SubmissionBody {

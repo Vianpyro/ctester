@@ -25,6 +25,7 @@ def public_quiz(quiz):
                 "group": str(q.get("group", "")),
                 "label": str(q.get("label", "")),
                 "type": str(q.get("type", "int")),
+                "options": [str(option) for option in q.get("options") or []],
             }
             for q in quiz.get("questions", [])
         ],

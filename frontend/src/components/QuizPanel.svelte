@@ -20,15 +20,32 @@
           {#each page.questions as q (q.id)}
             <div class="qrow">
               <span id={"qlabel-" + q.id}>{q.label}</span>
-              <input
-                type="text"
-                spellcheck="false"
-                autocomplete="off"
-                data-qid={q.id}
-                aria-labelledby={"qlabel-" + q.id}
-                bind:value={quiz.answers[q.id]}
-                oninput={onInput}
-              />
+              {#if q.options?.length}
+                <div class="qchoices" role="radiogroup" aria-labelledby={"qlabel-" + q.id}>
+                  {#each q.options as option (option)}
+                    <label class="qchoice">
+                      <input
+                        type="radio"
+                        name={"q-" + q.id}
+                        value={option}
+                        bind:group={quiz.answers[q.id]}
+                        onchange={onInput}
+                      />
+                      {option}
+                    </label>
+                  {/each}
+                </div>
+              {:else}
+                <input
+                  type="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                  data-qid={q.id}
+                  aria-labelledby={"qlabel-" + q.id}
+                  bind:value={quiz.answers[q.id]}
+                  oninput={onInput}
+                />
+              {/if}
             </div>
           {/each}
         </div>
