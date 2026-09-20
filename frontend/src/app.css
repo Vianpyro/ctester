@@ -256,6 +256,12 @@ button {
   justify-content: center;
 }
 
+/* An author `display` beats the browser's own `[hidden]`, so without this every hidden
+   .nav, .btn, .tile and .tab stays on screen. */
+:is(.nav, .btn, .tile, .tab, .menu > summary)[hidden] {
+  display: none;
+}
+
 #go,
 #goex {
   min-height: var(--tap-lg);

@@ -181,7 +181,11 @@
         {@const marks = marksOf(loaded)}
         <!-- One width per exercise: a 23-bit mantissa in one must not blow up the
              two-character hex fields of another sharing the page. -->
-        <div class="qexercise" style="--slots: {slotsOnScreen(loaded.sections.flatMap((s) => s.questions))}">
+        <div
+          id={"ex-" + loaded.exerciseId}
+          class="qexercise"
+          style="--slots: {slotsOnScreen(loaded.sections.flatMap((s) => s.questions))}"
+        >
           {#if quiz.shown.length > 1}
             <h2 class="qtitle">{loaded.title}</h2>
           {/if}

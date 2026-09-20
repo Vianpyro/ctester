@@ -39,7 +39,12 @@
         aria-disabled={locked ? "true" : undefined}
         aria-current={here ? "true" : undefined}
         onclick={() => {
-          if (!locked && !current) exercise.open(ex.id);
+          if (locked || current) return;
+          // Already on the page: bring it into view. Opening it would refill from there
+          // and drop the exercises above it.
+          const block = here ? document.getElementById("ex-" + ex.id) : null;
+          if (block) block.scrollIntoView({ block: "start", behavior: "smooth" });
+          else exercise.open(ex.id);
         }}
       >
         {stripLabel(ex)}
