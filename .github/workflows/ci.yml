@@ -47,12 +47,81 @@ jobs:
       # A hang dumps every thread's stack (faulthandler on SIGABRT) instead of an empty log.
       - run: timeout --signal=ABRT 300 python3 -X faulthandler tests/test_ctester.py
       - run: timeout --signal=ABRT 300 python3 -X faulthandler tests/test_api.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: page
           path: frontend/dist
           retention-days: 1
           if-no-files-found: error
+
+  # Lighthouse needs the page to actually load something. Served on its own the bundle asks
+  # its own origin for /catalog.json, gets a 404, and nothing renders -- a green report
+  # would mean nothing. So the API serves the page and demo content from one origin, the
+  # way the README describes for local work.
+  lighthouse:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false      # one profile failing should not hide the other three
+      matrix:
+        profile: [laptop, ipad, desk-4k-150, desk-4k-100]
+    env:
+      CTESTER_KEY: dev      # a throwaway local value, unrelated to the deployed key
+      CTESTER_PAGE: frontend/dist
+      CTESTER_PUBLISHED: ${{ runner.temp }}/demo/published
+      CTESTER_SPOOL: ${{ runner.temp }}/demo/spool
+      CTESTER_RESULTS: ${{ runner.temp }}/demo/results
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Reuses the bundle the tests job already built rather than building it twice.
+      - uses: actions/download-artifact@v8
+        with:
+          name: page
+          path: frontend/dist
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - run: python3 scripts/demo_content.py --out "$RUNNER_TEMP/demo"
+      - name: Serve the page and its API from one origin
+        run: |
+          set -euo pipefail
+          python3 app/main.py > "$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 60); do
+            if curl -fsS -o /dev/null http://localhost:8000/catalog.json; then
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "the demo server never answered:" >&2
+          cat "$RUNNER_TEMP/server.log" >&2
+          exit 1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - run: npm install -g @lhci/cli@0.15.1
+      # Driving lhci directly rather than through lighthouse-ci-action: that action runs
+      # `lhci assert` and throws the exit status away (src/index.js), so a blown budget
+      # would leave the job green -- which is the one thing this job exists to prevent.
+      # Chrome is already on the runner image.
+      - name: Measure and hold the budget
+        env:
+          LH_PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          lhci collect --config=.github/lighthouse/lighthouserc.cjs
+          lhci assert --config=.github/lighthouse/lighthouserc.cjs
+      # always(): the report is most wanted on the run that just failed.
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lighthouse-${{ matrix.profile }}
+          path: .lighthouseci
+          retention-days: 7
+          if-no-files-found: warn
 
   judge:
     strategy:
