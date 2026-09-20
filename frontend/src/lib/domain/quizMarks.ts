@@ -122,3 +122,23 @@ export function packSheets(heights: number[], available: number): number[][] {
   });
   return sheets;
 }
+
+/** Types that draw their own controls instead of a scalar field; mirrors the widget map. */
+const RICH = new Set(["choice", "bool", "multi", "match", "order", "cloze"]);
+
+/** The default when nobody fixed a length, in characters. */
+export const DEFAULT_SLOTS = 12;
+
+/**
+ * One width for every field on screen: the widest the sheet needs. The placeholder still
+ * shows each answer's own length, so a hex field says two characters while sitting in a box
+ * sized for eight bits -- a row of boxes that step up and down reads as an accident.
+ */
+export function slotsOnScreen(questions: { type: string; width: number }[]): number {
+  let widest = 0;
+  for (const q of questions) {
+    if (RICH.has(q.type)) continue;
+    widest = Math.max(widest, q.width > 0 ? q.width : DEFAULT_SLOTS);
+  }
+  return widest || DEFAULT_SLOTS;
+}

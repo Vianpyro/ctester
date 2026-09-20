@@ -4,6 +4,7 @@ import {
   marksFor,
   packSheets,
   pageStatus,
+  slotsOnScreen,
   sectionLabel,
   tableFor,
 } from "../src/lib/domain/quizMarks";
@@ -194,5 +195,25 @@ describe("packing sections into sheets", () => {
 
   it("has nothing to pack when there are no sections", () => {
     expect(packSheets([], 660)).toEqual([]);
+  });
+});
+
+describe("the width every field on screen shares", () => {
+  const q = (type: string, width: number) => ({ type, width });
+
+  it("takes the widest answer the sheet asks for", () => {
+    expect(slotsOnScreen([q("bin", 1), q("bin8", 8), q("bin", 23)])).toBe(23);
+    expect(slotsOnScreen([q("bin8", 8), q("hex8", 2)])).toBe(8);
+  });
+
+  it("lets a field of unknown length pull the row up to the default, never below it", () => {
+    expect(slotsOnScreen([q("hex8", 2), q("text", 0)])).toBe(12);
+    expect(slotsOnScreen([q("bin", 23), q("text", 0)])).toBe(23);
+  });
+
+  it("ignores the types that draw their own controls", () => {
+    expect(slotsOnScreen([q("bin8", 8), q("choice", 0), q("order", 0)])).toBe(8);
+    expect(slotsOnScreen([q("choice", 0)])).toBe(12);
+    expect(slotsOnScreen([])).toBe(12);
   });
 });

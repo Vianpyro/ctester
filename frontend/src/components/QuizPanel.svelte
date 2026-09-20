@@ -1,7 +1,13 @@
 <script lang="ts">
   import type { Component } from "svelte";
   import { quiz, type QuizQuestion } from "../lib/state/quiz.svelte";
-  import { marksFor, packSheets, pageStatus, tableFor } from "../lib/domain/quizMarks";
+  import {
+  marksFor,
+  packSheets,
+  pageStatus,
+  slotsOnScreen,
+  tableFor,
+} from "../lib/domain/quizMarks";
   import { submission } from "../lib/state/submission.svelte";
   import QuizSections from "./QuizSections.svelte";
   import ChoiceQuestion from "./quiz/ChoiceQuestion.svelte";
@@ -95,6 +101,11 @@
     return () => watch.disconnect();
   });
 
+  // Every field on screen takes the width of the widest answer the sheet asks for.
+  const slots = $derived(
+    slotsOnScreen(quiz.shown.flatMap((i) => quiz.sections[i]?.questions ?? [])),
+  );
+
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   function onInput() {
@@ -104,7 +115,7 @@
 </script>
 
 <div id="quizwrap" bind:this={wrap}>
-  <div id="quiz">
+  <div id="quiz" style="--slots: {slots}">
     {#if quiz.loading && !quiz.sections.length}
       <p>Chargement…</p>
     {:else}

@@ -9,6 +9,7 @@
 
   // One dot per character the answer needs, so a half-filled field is visible at a glance.
   // The wording stays in the question's own label, which is what a screen reader announces.
+  // Only the dots vary: every field on screen shares one width, set on the panel.
   const slots = $derived(q.width > 0 ? "·".repeat(q.width) : undefined);
 </script>
 
@@ -24,7 +25,6 @@
   placeholder={slots}
   data-qid={q.id}
   data-qtype={q.type}
-  style={q.width > 0 ? "--slots: " + q.width : undefined}
   aria-labelledby={"qlabel-" + q.id}
   bind:value={quiz.answers[q.id]}
   oninput={onchange}

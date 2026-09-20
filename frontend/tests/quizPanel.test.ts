@@ -51,7 +51,7 @@ describe("the shape of an answer field", () => {
     width,
   });
 
-  it("gives each field one slot per character the answer needs", () => {
+  it("sizes every field on screen to the widest answer the sheet asks for", () => {
     quiz.sections = [
       {
         key: "g",
@@ -60,20 +60,36 @@ describe("the shape of an answer field", () => {
       },
     ];
     quiz.answers = { signe: "", mantisse: "" };
+    quiz.sheets = [[0]];
     const node = show();
-    const one = node.querySelector<HTMLInputElement>('input[data-qid="signe"]')!;
-    const many = node.querySelector<HTMLInputElement>('input[data-qid="mantisse"]')!;
-    expect(one.style.getPropertyValue("--slots")).toBe("1");
-    expect(many.style.getPropertyValue("--slots")).toBe("23");
-    expect(one.placeholder).toBe("·");
-    expect(many.placeholder).toHaveLength(23);
+    expect(node.querySelector<HTMLElement>("#quiz")!.style.getPropertyValue("--slots")).toBe("23");
+    expect(
+      node.querySelector<HTMLInputElement>('input[data-qid="signe"]')!.style.getPropertyValue(
+        "--slots",
+      ),
+    ).toBe("");
   });
 
-  it("leaves a field whose length nobody fixed to the shared default", () => {
+  it("still says in the placeholder how long each answer is", () => {
+    quiz.sections = [
+      {
+        key: "g",
+        title: "Conversions",
+        questions: [sized("bits", "bin8", 8), sized("hex", "hex8", 2)],
+      },
+    ];
+    quiz.answers = { bits: "", hex: "" };
+    const node = show();
+    expect(node.querySelector<HTMLInputElement>('input[data-qid="bits"]')!.placeholder).toBe(
+      "········",
+    );
+    expect(node.querySelector<HTMLInputElement>('input[data-qid="hex"]')!.placeholder).toBe("··");
+  });
+
+  it("leaves a field whose length nobody fixed without a placeholder", () => {
     quiz.sections = [{ key: "g", title: "G", questions: [sized("a", "text", 0)] }];
     quiz.answers = { a: "" };
     const input = show().querySelector<HTMLInputElement>('input[data-qid="a"]')!;
-    expect(input.style.getPropertyValue("--slots")).toBe("");
     expect(input.placeholder).toBe("");
   });
 
