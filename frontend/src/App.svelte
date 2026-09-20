@@ -145,6 +145,12 @@
   });
 
   async function start(deepLink: string, authCode: string | null, authState: string | null) {
+    await boot(deepLink, authCode, authState);
+    // Nothing is going to open the chat any more, so give the reserved column back.
+    if (!dock.open) dock.reserved = false;
+  }
+
+  async function boot(deepLink: string, authCode: string | null, authState: string | null) {
     const deploymentSoon = fetchDeployment();
     const toOpen = await catalog.load(deepLink, lastExercise());
     if (catalog.spotlighted) menuOpen = true;
@@ -203,7 +209,9 @@
     if (view.current !== "") return;
     if (id === "run") {
       event.preventDefault();
-      void runTest(false);
+      // On a quiz the blue button tests the page you are on; the shortcut must agree with
+      // it, or Ctrl+Enter quietly grades the whole quiz instead.
+      void runTest(isQuiz);
       return;
     }
     if (id === "save") {
@@ -300,7 +308,7 @@
 <main>
   <div id="system" class={system.failed ? "outage" : ""} hidden={!system.text}>{system.text}</div>
 
-  <div id="work" class={dock.open ? "withchat" : ""} hidden={!showWorkbench}>
+  <div id="work" class={dock.open || dock.reserved ? "withchat" : ""} hidden={!showWorkbench}>
     <Statement />
 
     <div id="right">
@@ -339,7 +347,7 @@
   </div>
 
   <section id="viewprogress" aria-labelledby="progresstitle" hidden={view.current !== "progress"}>
-    {#if Progress && view.current === "progress"}<Progress />{/if}
+    {#if Progress && view.current === "progress"}<Progress openView={openDestination} />{/if}
   </section>
   <section
     id="viewleaderboard"

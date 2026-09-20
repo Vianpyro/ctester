@@ -82,9 +82,12 @@
   }
   .typst img {
     display: block;
-    width: auto;
+    width: 100%;
     max-width: 100%;
     height: auto;
+    /* A rendered page is A4. Claiming its height before the bytes arrive keeps the
+       statement from growing under the reader, one jump per page. */
+    aspect-ratio: 1 / 1.414;
   }
   .loadfailed {
     margin: 0;

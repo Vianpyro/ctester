@@ -108,7 +108,7 @@
     onclick={() => runTest(false)}
   >
     {submission.busy ? busyLabel : goLabel}
-    {#if !submission.busy}<span class="shortcut">Ctrl+↵</span>{/if}
+    {#if !submission.busy && !isQuiz}<span class="shortcut">Ctrl+↵</span>{/if}
   </button>
   <button
     type="button"
@@ -119,5 +119,6 @@
     onclick={() => runTest(true)}
   >
     {submission.busy ? busyLabel : "Tester l'exercice"}
+    {#if !submission.busy}<span class="shortcut">Ctrl+↵</span>{/if}
   </button>
 </div>

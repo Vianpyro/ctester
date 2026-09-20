@@ -51,6 +51,10 @@ class ExerciseState {
   #load = 0;
 
   async open(id: string): Promise<void> {
+    // Boot re-opens the exercise once the token arrives, to pick up the account draft and
+    // the staff view. Keep the statement that is already on screen until the new one is
+    // computed: collapsing it back to "loading" moves the whole page a second time.
+    const same = catalog.selectedId === id && this.statement.kind !== "loading";
     roomModule?.room.leave();
     drafts.cancel();
     this.saveNow();
@@ -60,13 +64,13 @@ class ExerciseState {
     editor.lock(false);
     const ex = catalog.selected;
     const thisLoad = ++this.#load;
-    this.statement = { kind: "loading" };
+    if (!same) this.statement = { kind: "loading" };
     if (!ex) {
       this.statement = { kind: "none" };
       return;
     }
     localSet(LAST_EXERCISE, ex.id);
-    if (ex.mode === "quiz") quiz.clear();
+    if (ex.mode === "quiz" && !same) quiz.clear();
     const detail = await catalog.detail(ex.id);
     if (thisLoad !== this.#load) return;
     this.statement = statementOf(ex, detail);

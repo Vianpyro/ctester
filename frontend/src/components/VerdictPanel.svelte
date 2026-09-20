@@ -102,8 +102,10 @@
   $effect(() => {
     if (phase.kind !== "done" || phase === lastSeen) return;
     lastSeen = phase;
+    // 700px, matching app.css: from there up the verdict is pinned in view already, so
+    // only the stacked phone layout needs scrolling to it.
     const narrow =
-      typeof matchMedia === "function" && matchMedia("(max-width: 900px)").matches;
+      typeof matchMedia === "function" && matchMedia("(max-width: 700px)").matches;
     if (!narrow || !box) return;
     box.scrollIntoView?.({ block: "start", behavior: "smooth" });
     box.focus?.();

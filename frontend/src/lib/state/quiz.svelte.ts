@@ -68,10 +68,15 @@ class QuizState {
   groupOf = $state<Record<string, string>>({});
 
   async load(id: string): Promise<void> {
+    // Reloading the same quiz (boot does, once the token arrives) keeps the questions on
+    // screen until the new ones land, so the panel never collapses to nothing.
+    const same = this.exerciseId === id && this.pages.length > 0;
     this.loading = true;
     this.exerciseId = id;
-    this.pages = [];
-    this.page = 0;
+    if (!same) {
+      this.pages = [];
+      this.page = 0;
+    }
     const data = await fetchQuiz(id, catalog.staff);
     this.loading = false;
     if (!data || !Array.isArray(data.questions)) return;
@@ -100,6 +105,7 @@ class QuizState {
     this.groupOf = groups;
     this.answers = answers;
     this.pages = pages;
+    if (this.page >= pages.length) this.page = 0;
   }
 
   showPage(i: number): void {

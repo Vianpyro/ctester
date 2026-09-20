@@ -14,7 +14,7 @@
   --ok: #6cc48a;
   --bad: #f2837c;
   --wait: #d8bb6a;
-  --syn-comment: #6e7a70;
+  --syn-comment: #879585;
   --syn-string: #9ecf8a;
   --syn-pre: #d68fd0;
   --syn-key: #7fb0f2;
@@ -26,8 +26,8 @@
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --coin: 0;
   --fs-label: 12px;
-  --fs-ui: 13px;
-  --fs-body: 14px;
+  --fs-ui: 14px;
+  --fs-body: 15px;
   --fs-lead: 15px;
   --fs-code: 14px;
   --tap: 2.25rem;
@@ -53,7 +53,7 @@
   --ok: #1f7a3d;
   --bad: #b3261e;
   --wait: #8a6d1f;
-  --syn-comment: #7d8a7d;
+  --syn-comment: #5f6b60;
   --syn-string: #1f7a3d;
   --syn-pre: #9b2f8f;
   --syn-key: #1d4ed8;
@@ -80,7 +80,7 @@
     --ok: #1f7a3d;
     --bad: #b3261e;
     --wait: #8a6d1f;
-    --syn-comment: #7d8a7d;
+    --syn-comment: #5f6b60;
     --syn-string: #1f7a3d;
     --syn-pre: #9b2f8f;
     --syn-key: #1d4ed8;
@@ -162,9 +162,22 @@ h1 {
   white-space: nowrap;
 }
 
-/* An element given a display value needs its own [hidden] rule to hide. */
+#live {
+  /* An explicit display is what lets the [hidden] rule below hide it by visibility
+     instead: the slot is held until /live answers, so the bar never re-spaces. */
+  display: inline-block;
+  min-width: 9rem;
+}
+
+/* #top wraps, and a second row moves every element on the page. The byline yields first. */
+@media (max-width: 1100px) {
+  .credit {
+    display: none;
+  }
+}
+
 #live[hidden] {
-  display: none;
+  visibility: hidden;
 }
 
 #live::before {
@@ -502,7 +515,8 @@ button:disabled {
 
 #excurrent .title {
   flex: 0 1 auto;
-  min-width: 0;
+  /* "à choisir" is shorter than any real name: reserve so the bar stops jumping. */
+  min-width: 8rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -785,6 +799,8 @@ main {
 
 #now {
   flex-wrap: wrap;
+  /* The label and its badges land with the catalogue; keep their line either way. */
+  min-height: 2.4rem;
 }
 
 #now b {
@@ -1118,10 +1134,12 @@ main {
   padding: .4rem 1.1rem;
 }
 
+/* currentColor, not the inverse ink: on a quiz #go also wears .secondary, the fill is
+   gone, and a hard-coded inverse left the hint at 1.06:1. No opacity either — it costs
+   more contrast than the dark theme has to spare. The mono face carries the demotion. */
 #go .shortcut,
 #goex .shortcut {
-  color: var(--ink-fg);
-  opacity: .72;
+  color: inherit;
   margin-left: 0;
 }
 
@@ -2078,6 +2096,14 @@ pre {
     --tap: 2.75rem;
   }
 
+  .tile {
+    min-height: var(--tap);
+  }
+
+  #labband {
+    min-height: calc(var(--tap) + .9rem);
+  }
+
   html,
   body {
     height: auto;
@@ -2131,6 +2157,76 @@ pre {
     box-shadow: none;
     max-height: none;
     overflow-y: visible;
+  }
+}
+
+/* An iPad in portrait is 810px, which fell into the stacked layout above: read the brief,
+   scroll down to code, scroll up to re-read. Here the statement stops being a block the
+   editor hangs below and becomes a panel over it, so the <details> that was already there
+   works as two full-height states, Consigne and Code, one tap apart. A statement that
+   grows as it loads now moves nothing, and "Tester" stays on screen. */
+@media (min-width: 701px) and (max-width: 1000px) {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    display: flex;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  main {
+    display: flex;
+  }
+
+  #work {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  #statement {
+    flex: 0 0 auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* Out of flow, so the editor below already has its final height. */
+  #statement[open] {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    overflow-y: auto;
+  }
+
+  #statement summary {
+    position: sticky;
+    min-height: var(--tap);
+  }
+
+  #right {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+  }
+
+  .edwrap {
+    height: auto;
+  }
+
+  #out {
+    max-height: min(40vh, 18rem);
+    overflow-y: auto;
+  }
+
+  .tile {
+    min-height: var(--tap);
+  }
+
+  #labband {
+    min-height: calc(var(--tap) + .9rem);
   }
 }
 
@@ -2232,7 +2328,7 @@ pre {
 }
 
 .steps .empty {
-  opacity: .55;
+  opacity: .9;
 }
 
 .explain {
@@ -2358,6 +2454,8 @@ pre {
 
 #labband {
   flex: 0 0 auto;
+  /* One row of tiles, claimed before /catalog.json answers. */
+  min-height: 2.5rem;
   display: flex;
   flex-wrap: wrap;
   gap: .3rem;
@@ -2367,7 +2465,7 @@ pre {
 }
 
 #labband[hidden] {
-  display: none;
+  visibility: hidden;
 }
 
 #exlist .exline .state {
@@ -2520,7 +2618,6 @@ pre {
 }
 
 .tile[aria-disabled="true"] {
-  opacity: .55;
   cursor: not-allowed;
 }
 
@@ -3514,7 +3611,7 @@ pre {
   margin: .35rem 0 0;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   #chatdock {
     position: fixed;
     inset: auto 0 0 0;

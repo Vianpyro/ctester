@@ -15,6 +15,8 @@
   import { STATUS_WORD, plural, skillLabel } from "../../lib/domain/labels";
   import { projection } from "./projection.svelte";
 
+  const { openView }: { openView: (name: "leaderboard" | "collection") => void } = $props();
+
   let title: HTMLHeadingElement | undefined = $state();
   onMount(() => title?.focus());
 
@@ -352,4 +354,25 @@
       </dl>
     {/if}
   </div>
+
+  <div class="block second">
+    <h3 class="subtitle">Ailleurs</h3>
+    <p class="help">Deux pages facultatives : elles ne changent rien à ta progression.</p>
+    <div class="elsewhere">
+      <button type="button" class="nav" onclick={() => openView("collection")}>
+        Ma collection
+      </button>
+      <button type="button" class="nav" onclick={() => openView("leaderboard")}>
+        Classement
+      </button>
+    </div>
+  </div>
 {/if}
+
+<style>
+  .elsewhere {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+</style>

@@ -24,7 +24,7 @@
       <key>foreground</key><string>#DFE3EA</string>
     </dict></dict>
     <dict><key>scope</key><string>comment</string>
-      <key>settings</key><dict><key>foreground</key><string>#6E7A70</string><key>fontStyle</key><string>italic</string></dict></dict>
+      <key>settings</key><dict><key>foreground</key><string>#879585</string><key>fontStyle</key><string>italic</string></dict></dict>
     <dict><key>scope</key><string>string, constant.character.escape</string>
       <key>settings</key><dict><key>foreground</key><string>#9ECF8A</string></dict></dict>
     <dict><key>scope</key><string>meta.preprocessor, keyword.control.import, keyword.control.directive</string>

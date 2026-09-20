@@ -32,7 +32,7 @@
 
 <div id="quizwrap">
   <div id="quiz">
-    {#if quiz.loading}
+    {#if quiz.loading && !quiz.pages.length}
       <p>Chargement…</p>
     {:else}
       {#each quiz.pages as page, n (page.key)}
