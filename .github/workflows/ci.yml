@@ -164,7 +164,7 @@ jobs:
       - run: |
           cp judge/target/x86_64-unknown-linux-musl/release/ctester-judge .
           sha256sum ctester-judge > ctester-judge.sha256
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: ctester-judge
       - env:
