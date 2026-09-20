@@ -64,3 +64,41 @@ export function sectionLabel(title: string): string {
   const stem = title.split(/\s[:—–-]\s/)[0]?.trim() || title.trim();
   return stem.length > 22 ? stem.slice(0, 21) + "…" : stem;
 }
+
+/** The two fields that place a question in a cell; the publisher sets both or neither. */
+export interface Celled {
+  id: string;
+  row: string;
+  col: string;
+}
+
+export interface QuizTable<T extends Celled> {
+  cols: string[];
+  rows: { label: string; cells: (T | null)[] }[];
+}
+
+/**
+ * The table a section draws, or null when it is a plain list. Headers keep the order the
+ * author wrote, so the page reads like the sheet they typed. A group only becomes a table
+ * when every one of its questions carries a cell: publication refuses a half-filled grid,
+ * and a page built from an older release must still render as a list.
+ */
+export function tableFor<T extends Celled>(questions: T[]): QuizTable<T> | null {
+  if (!questions.length || !questions.every((q) => q.row && q.col)) return null;
+  const cols: string[] = [];
+  const rows: string[] = [];
+  for (const q of questions) {
+    if (!cols.includes(q.col)) cols.push(q.col);
+    if (!rows.includes(q.row)) rows.push(q.row);
+  }
+  // Two headers and a single cell is a list wearing a table's clothes.
+  if (cols.length < 2 && rows.length < 2) return null;
+  const at = new Map(questions.map((q) => [q.row + "\u0000" + q.col, q]));
+  return {
+    cols,
+    rows: rows.map((label) => ({
+      label,
+      cells: cols.map((col) => at.get(label + "\u0000" + col) ?? null),
+    })),
+  };
+}

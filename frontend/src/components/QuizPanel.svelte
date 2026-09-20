@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Component } from "svelte";
   import { quiz, type QuizQuestion } from "../lib/state/quiz.svelte";
-  import { marksFor, pageStatus } from "../lib/domain/quizMarks";
+  import { marksFor, pageStatus, tableFor } from "../lib/domain/quizMarks";
   import { submission } from "../lib/state/submission.svelte";
   import QuizSections from "./QuizSections.svelte";
   import ChoiceQuestion from "./quiz/ChoiceQuestion.svelte";
@@ -66,26 +66,70 @@
           quiz.answers,
           marks,
         )}
+        {@const table = tableFor(page.questions)}
         <div hidden={n !== quiz.page}>
           <div class="qgroup" tabindex="-1" bind:this={headings[n]}>
             <span>{page.title}</span>
             <span class="qcount">{status.answered}/{status.total} répondues</span>
           </div>
-          {#each page.questions as q (q.id)}
-            {@const Widget = widgetFor(q)}
-            {@const mark = marks[q.id]}
-            <div class="qq">
-              <div class="qrow">
-                <span id={"qlabel-" + q.id}>{q.label}</span>
-                <Widget {q} onchange={onInput} />
-              </div>
-              {#if mark}
-                <p class="qmark {mark.state}">
-                  {mark.state === "right" ? "✓ juste" : "✗ " + (mark.hint ?? "réponse incorrecte")}
-                </p>
-              {/if}
+          {#if table}
+            <table class="qtable">
+              <thead>
+                <tr>
+                  <td></td>
+                  {#each table.cols as col (col)}<th scope="col">{col}</th>{/each}
+                </tr>
+              </thead>
+              <tbody>
+                {#each table.rows as row (row.label)}
+                  <tr>
+                    <th scope="row">{row.label}</th>
+                    {#each row.cells as q, c (table.cols[c])}
+                      <td>
+                        {#if q}
+                          {@const Widget = widgetFor(q)}
+                          {@const mark = marks[q.id]}
+                          <!-- The widgets name themselves from this span, so a cell reads
+                               as its row and column without any of them knowing. -->
+                          <span id={"qlabel-" + q.id} class="offscreen">
+                            {row.label} — {table.cols[c]}
+                          </span>
+                          <Widget {q} onchange={onInput} />
+                          {#if mark}
+                            <p class="qmark {mark.state}">
+                              {mark.state === "right"
+                                ? "✓"
+                                : "✗ " + (mark.hint ?? "réponse incorrecte")}
+                            </p>
+                          {/if}
+                        {/if}
+                      </td>
+                    {/each}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          {:else}
+            <div class="qlist">
+              {#each page.questions as q (q.id)}
+                {@const Widget = widgetFor(q)}
+                {@const mark = marks[q.id]}
+                <div class="qq">
+                  <div class="qrow">
+                    <span id={"qlabel-" + q.id}>{q.label}</span>
+                    <Widget {q} onchange={onInput} />
+                  </div>
+                  {#if mark}
+                    <p class="qmark {mark.state}">
+                      {mark.state === "right"
+                        ? "✓ juste"
+                        : "✗ " + (mark.hint ?? "réponse incorrecte")}
+                    </p>
+                  {/if}
+                </div>
+              {/each}
             </div>
-          {/each}
+          {/if}
         </div>
       {/each}
     {/if}

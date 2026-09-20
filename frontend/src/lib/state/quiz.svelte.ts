@@ -10,6 +10,8 @@ export interface QuizQuestion {
   id: string;
   label: string;
   group: string;
+  row: string;
+  col: string;
   type: string;
   options: string[];
   prompts: string[];
@@ -82,6 +84,8 @@ class QuizState {
         id: wire.id,
         label: wire.label,
         group: wire.group,
+        row: wire.row ?? "",
+        col: wire.col ?? "",
         type: wire.type ?? "int",
         options: wire.options ?? [],
         prompts: wire.prompts ?? [],

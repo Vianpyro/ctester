@@ -56,7 +56,7 @@ def _gaps(question):
 
 def public_quiz(quiz):
     """Rebuilt field by field, so an answer key can never leak into the release. Every
-    question carries the same eight keys whatever its type: the shape must say nothing."""
+    question carries the same ten keys whatever its type: the shape must say nothing."""
     return {
         "label": quiz.get("label", ""),
         "questions": [
@@ -64,6 +64,8 @@ def public_quiz(quiz):
                 "id": str(q.get("id", "")),
                 "group": str(q.get("group", "")),
                 "label": str(q.get("label", "")),
+                "row": str(q.get("row", "")),
+                "col": str(q.get("col", "")),
                 "type": str(q.get("type", "int")),
                 "options": _published_options(q),
                 "prompts": _prompts(q),

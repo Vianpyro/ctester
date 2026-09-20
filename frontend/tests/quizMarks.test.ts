@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { answered, packAll } from "../src/lib/domain/answer";
-import { marksFor, pageStatus, sectionLabel } from "../src/lib/domain/quizMarks";
+import { marksFor, pageStatus, sectionLabel, tableFor } from "../src/lib/domain/quizMarks";
 import type { Verdict } from "../src/lib/api/types";
 
 const graded = (wrong: { id: string; label: string; hint?: string }[]): Verdict => ({
@@ -115,5 +115,50 @@ describe("a blank answer", () => {
     expect(answered({})).toBe(false);
     expect(answered({ p: "q" })).toBe(true);
     expect(answered(undefined)).toBe(false);
+  });
+});
+
+describe("the table a section draws", () => {
+  const cell = (id: string, row: string, col: string) => ({ id, row, col });
+
+  it("keeps the author's order for both headers rather than sorting them", () => {
+    const table = tableFor([
+      cell("a", "-58", "signe-valeur"),
+      cell("b", "-58", "complément à 1"),
+      cell("c", "-100", "signe-valeur"),
+      cell("d", "-100", "complément à 1"),
+    ])!;
+    expect(table.cols).toEqual(["signe-valeur", "complément à 1"]);
+    expect(table.rows.map((r) => r.label)).toEqual(["-58", "-100"]);
+    expect(table.rows[1]!.cells.map((q) => q?.id)).toEqual(["c", "d"]);
+  });
+
+  it("draws the single-row case the IEEE 754 fields need", () => {
+    const table = tableFor([
+      cell("s", "89,25", "Signe (1 bit)"),
+      cell("e", "89,25", "Exposant (8 bits)"),
+      cell("m", "89,25", "Mantisse (23 bits)"),
+    ])!;
+    expect(table.cols).toHaveLength(3);
+    expect(table.rows).toHaveLength(1);
+  });
+
+  it("leaves a hole where the author declared no question, rather than shifting the row", () => {
+    const table = tableFor([
+      cell("a", "-58", "signe-valeur"),
+      cell("b", "-58", "complément à 1"),
+      cell("c", "-100", "complément à 1"),
+    ])!;
+    expect(table.rows[1]!.cells.map((q) => q?.id)).toEqual([undefined, "c"]);
+  });
+
+  it("stays a list when any question has no cell -- an older release has none at all", () => {
+    expect(tableFor([cell("a", "-58", "signe-valeur"), cell("b", "", "")])).toBeNull();
+    expect(tableFor([{ id: "a", row: "", col: "" }])).toBeNull();
+    expect(tableFor([])).toBeNull();
+  });
+
+  it("refuses a one-cell table, which is a list wearing a table's clothes", () => {
+    expect(tableFor([cell("a", "89,25", "Signe")])).toBeNull();
   });
 });

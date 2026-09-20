@@ -69,6 +69,9 @@ export interface PublishedQuestion {
   id: string;
   label: string;
   group: string;
+  /** Set together, they place the question in a cell of its group's table. */
+  row?: string;
+  col?: string;
   type?: string;
   options?: string[];
   prompts?: string[];
