@@ -852,10 +852,14 @@ main {
 }
 
 /* Short questions flow into as many columns as the panel affords, so a section of five
-   no longer leaves most of the screen empty. Reading order follows the DOM, row by row. */
+   no longer leaves most of the screen empty. Reading order follows the DOM, row by row.
+   The column is exactly a label plus a field, so a row never wraps for want of a few px. */
 #quiz .qlist {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 24rem);
+  grid-template-columns: repeat(
+    auto-fill,
+    calc(var(--qlabel) + var(--slots, 12) * 1ch + var(--qbox) + 1.5rem)
+  );
   justify-content: start;
   gap: 0 2rem;
 }
@@ -1432,6 +1436,11 @@ pre {
   display: flow-root;
 }
 
+/* Several sections share a screen now: they need a visible seam between them. */
+#quiz .qsection + .qsection:not([hidden]) {
+  margin-top: 1.6rem;
+}
+
 #quiz .qsection[hidden] {
   display: none;
 }
@@ -1444,7 +1453,11 @@ pre {
 #quiz .qtable :is(th, td) {
   padding: .25rem .6rem .25rem 0;
   text-align: left;
-  vertical-align: top;
+}
+
+/* Middle, so a row's heading sits on the line of the fields it labels. */
+#quiz .qtable tbody :is(th, td) {
+  vertical-align: middle;
 }
 
 #quiz .qtable thead th {
@@ -1470,18 +1483,13 @@ pre {
 
 #quiz .qgroup {
   display: flex;
-  gap: .75rem;
+  gap: 1.5rem;
   align-items: baseline;
-  justify-content: space-between;
-  margin: 1.2rem 0 .4rem;
+  margin: 0 0 .6rem;
   font-weight: 700;
   font-size: .95rem;
   border-bottom: 1px solid var(--line);
   padding-bottom: .3rem;
-}
-
-#quiz .qgroup:first-child {
-  margin-top: 0;
 }
 
 #quiz .qgroup:focus-visible {

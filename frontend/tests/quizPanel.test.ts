@@ -51,7 +51,7 @@ describe("the shape of an answer field", () => {
     width,
   });
 
-  it("sizes every field on screen to the widest answer the sheet asks for", () => {
+  it("sizes a section's fields to the widest answer that section asks for", () => {
     quiz.sections = [
       {
         key: "g",
@@ -62,12 +62,25 @@ describe("the shape of an answer field", () => {
     quiz.answers = { signe: "", mantisse: "" };
     quiz.sheets = [[0]];
     const node = show();
-    expect(node.querySelector<HTMLElement>("#quiz")!.style.getPropertyValue("--slots")).toBe("23");
+    const section = node.querySelector<HTMLElement>(".qsection")!;
+    expect(section.style.getPropertyValue("--slots")).toBe("23");
     expect(
       node.querySelector<HTMLInputElement>('input[data-qid="signe"]')!.style.getPropertyValue(
         "--slots",
       ),
     ).toBe("");
+  });
+
+  it("does not let one section's widest answer widen another sharing the screen", () => {
+    quiz.sections = [
+      { key: "a", title: "Conversions", questions: [sized("hex", "hex8", 2)] },
+      { key: "b", title: "IEEE 754", questions: [sized("mantisse", "bin", 23)] },
+    ];
+    quiz.answers = { hex: "", mantisse: "" };
+    quiz.sheets = [[0, 1]];
+    const sections = show().querySelectorAll<HTMLElement>(".qsection");
+    expect(sections[0]!.style.getPropertyValue("--slots")).toBe("2");
+    expect(sections[1]!.style.getPropertyValue("--slots")).toBe("23");
   });
 
   it("still says in the placeholder how long each answer is", () => {

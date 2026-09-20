@@ -101,11 +101,6 @@
     return () => watch.disconnect();
   });
 
-  // Every field on screen takes the width of the widest answer the sheet asks for.
-  const slots = $derived(
-    slotsOnScreen(quiz.shown.flatMap((i) => quiz.sections[i]?.questions ?? [])),
-  );
-
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   function onInput() {
@@ -115,7 +110,7 @@
 </script>
 
 <div id="quizwrap" bind:this={wrap}>
-  <div id="quiz" style="--slots: {slots}">
+  <div id="quiz">
     {#if quiz.loading && !quiz.sections.length}
       <p>Chargement…</p>
     {:else}
@@ -126,8 +121,11 @@
           marks,
         )}
         {@const table = tableFor(page.questions)}
+        <!-- One width per section, not per sheet: a 23-bit mantissa in one section must
+             not blow up the two-character hex fields of another. -->
         <div
           class="qsection"
+          style="--slots: {slotsOnScreen(page.questions)}"
           bind:this={blocks[n]}
           hidden={!measuring && !quiz.shown.includes(n)}
         >
