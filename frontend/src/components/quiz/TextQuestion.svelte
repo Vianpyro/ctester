@@ -6,6 +6,10 @@
   const NUMERIC = new Set(["int", "bin", "bin8", "hex8"]);
   const mode = (t: string): "decimal" | "numeric" | undefined =>
     t === "number" ? "decimal" : NUMERIC.has(t) ? "numeric" : undefined;
+
+  // One dot per character the answer needs, so a half-filled field is visible at a glance.
+  // The wording stays in the question's own label, which is what a screen reader announces.
+  const slots = $derived(q.width > 0 ? "·".repeat(q.width) : undefined);
 </script>
 
 <!-- Never type="number": it rejects "12,625" under a French locale and edits on scroll. -->
@@ -17,8 +21,10 @@
   inputmode={mode(q.type)}
   spellcheck="false"
   autocomplete="off"
+  placeholder={slots}
   data-qid={q.id}
   data-qtype={q.type}
+  style={q.width > 0 ? "--slots: " + q.width : undefined}
   aria-labelledby={"qlabel-" + q.id}
   bind:value={quiz.answers[q.id]}
   oninput={onchange}

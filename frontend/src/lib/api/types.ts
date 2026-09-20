@@ -73,6 +73,8 @@ export interface PublishedQuestion {
   row?: string;
   col?: string;
   type?: string;
+  /** Characters the answer is expected to have; 0 when nobody said. */
+  width?: number;
   options?: string[];
   prompts?: string[];
   template?: string;

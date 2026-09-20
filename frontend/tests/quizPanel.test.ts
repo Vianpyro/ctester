@@ -12,6 +12,7 @@ const question = (id: string, label: string, group: string, row = "", col = "") 
   row,
   col,
   type: "bin8",
+  width: 8,
   options: [],
   prompts: [],
   template: "",
@@ -41,6 +42,47 @@ afterEach(() => {
   host = null;
   quiz.clear();
   submission.reset();
+});
+
+describe("the shape of an answer field", () => {
+  const sized = (id: string, type: string, width: number) => ({
+    ...question(id, id, "G"),
+    type,
+    width,
+  });
+
+  it("gives each field one slot per character the answer needs", () => {
+    quiz.pages = [
+      {
+        key: "g",
+        title: "89,25",
+        questions: [sized("signe", "bin", 1), sized("mantisse", "bin", 23)],
+      },
+    ];
+    quiz.answers = { signe: "", mantisse: "" };
+    const node = show();
+    const one = node.querySelector<HTMLInputElement>('input[data-qid="signe"]')!;
+    const many = node.querySelector<HTMLInputElement>('input[data-qid="mantisse"]')!;
+    expect(one.style.getPropertyValue("--slots")).toBe("1");
+    expect(many.style.getPropertyValue("--slots")).toBe("23");
+    expect(one.placeholder).toBe("·");
+    expect(many.placeholder).toHaveLength(23);
+  });
+
+  it("leaves a field whose length nobody fixed to the shared default", () => {
+    quiz.pages = [{ key: "g", title: "G", questions: [sized("a", "text", 0)] }];
+    quiz.answers = { a: "" };
+    const input = show().querySelector<HTMLInputElement>('input[data-qid="a"]')!;
+    expect(input.style.getPropertyValue("--slots")).toBe("");
+    expect(input.placeholder).toBe("");
+  });
+
+  it("never turns the width into a maxlength: the judge accepts separators", () => {
+    quiz.pages = [{ key: "g", title: "G", questions: [sized("a", "bin8", 8)] }];
+    quiz.answers = { a: "" };
+    const input = show().querySelector<HTMLInputElement>('input[data-qid="a"]')!;
+    expect(input.getAttribute("maxlength")).toBeNull();
+  });
 });
 
 describe("a section the author laid out as a table", () => {

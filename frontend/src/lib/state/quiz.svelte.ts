@@ -13,6 +13,7 @@ export interface QuizQuestion {
   row: string;
   col: string;
   type: string;
+  width: number;
   options: string[];
   prompts: string[];
   template: string;
@@ -87,6 +88,7 @@ class QuizState {
         row: wire.row ?? "",
         col: wire.col ?? "",
         type: wire.type ?? "int",
+        width: wire.width ?? 0,
         options: wire.options ?? [],
         prompts: wire.prompts ?? [],
         template: wire.template ?? "",

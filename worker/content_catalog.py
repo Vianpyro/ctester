@@ -21,6 +21,11 @@ QUIZ_TYPES = frozenset(("int", "bin", "bin8", "hex8", "choice", "multi", "bool",
 QUESTION_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 GAP_RE = re.compile(r"_{3,}")
 MATCH_MIN, ORDER_MIN = 2, 3
+# How many characters an answer is expected to have. Fixed by the type where the judge
+# fixes it, declared by the author otherwise, and never guessed from the answer key.
+IMPLIED_WIDTH = {"bin8": 8, "hex8": 2}
+TYPED_WIDTH = frozenset(("int", "bin", "text", "number"))
+MAX_WIDTH = 64
 DIFFICULTIES = frozenset(("intro", "foundation", "intermediate", "advanced"))
 RELEASE_STATES = frozenset(("available", "scheduled", "archived"))
 TEAM_MAX = 8
@@ -361,6 +366,19 @@ def _texts(value):
             and all(isinstance(one, str) and one.strip() for one in value) else None)
 
 
+def _width(question, kind, label, where, errors):
+    if "width" not in question:
+        return
+    if kind in IMPLIED_WIDTH:
+        errors.append("%s %s: width is implied by the type %r" % (where, label, kind))
+    elif kind not in TYPED_WIDTH:
+        errors.append("%s %s: width is ignored for this type" % (where, label))
+    elif (not isinstance(question["width"], int) or isinstance(question["width"], bool)
+          or not 1 <= question["width"] <= MAX_WIDTH):
+        errors.append("%s %s: width must be a whole number from 1 to %d"
+                      % (where, label, MAX_WIDTH))
+
+
 def _question(question, index, seen, where, errors):
     if not isinstance(question, dict):
         errors.append("%s: question %d is not an object" % (where, index))
@@ -407,6 +425,7 @@ def _question(question, index, seen, where, errors):
 
     if options is not None and kind != "match":
         errors.append("%s %s: options are ignored for this type" % (where, label))
+    _width(question, kind, label, where, errors)
 
     if kind == "bool":
         if not isinstance(answer, bool):

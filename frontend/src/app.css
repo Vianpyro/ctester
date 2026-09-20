@@ -1504,31 +1504,23 @@ pre {
   max-width: 100%;
 }
 
-#quiz .qrow input {
+/* The field is shaped like the answer it wants: eight bits look like eight bits. `--slots`
+   is set on the field itself from the published width, so one bit gets one slot and the
+   mantissa gets twenty-three. The width is a hint, never a limit -- the judge accepts
+   "1011 1010" and "0b10111010" too. Fields whose length nobody fixed share one size. */
+#quiz input[data-qtype] {
   flex: 0 0 auto;
-  width: 11rem;
+  width: calc(var(--slots, 12) * 1ch + var(--qbox));
+  /* A two-slot hex field still has to hold "0xC8", which the judge accepts. */
+  min-width: calc(4ch + var(--qbox));
+  max-width: 100%;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* The field is shaped like the answer it wants: eight bits look like eight bits. The
-   width is a hint, never a limit -- the judge accepts "1011 1010" and "0b10111010" too. */
-#quiz .qrow input[data-qtype="bin8"] {
-  width: calc(11ch + var(--qbox));
-  letter-spacing: .18em;
-}
-
-#quiz .qrow input[data-qtype="bin"] {
-  width: calc(20ch + var(--qbox));
-  letter-spacing: .18em;
-}
-
-#quiz .qrow input[data-qtype="hex8"] {
-  width: calc(6ch + var(--qbox));
-}
-
-#quiz .qrow input:is([data-qtype="int"], [data-qtype="number"]) {
-  width: calc(9ch + var(--qbox));
+#quiz input[data-qtype]::placeholder {
+  color: var(--line-2);
+  letter-spacing: .1em;
 }
 
 #quiz .qmark {

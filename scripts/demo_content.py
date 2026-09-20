@@ -87,7 +87,8 @@ COLLECTIONS = [
 
 QUIZ_QUESTIONS = [
     {"id": "q1", "group": "Exercice 1 — les types", "type": "int",
-     "label": "Combien d'octets occupe un int sur la machine du juge ?", "answer": 4},
+     "label": "Combien d'octets occupe un int sur la machine du juge ?",
+     "width": 1, "answer": 4},
     {"id": "q2", "group": "Exercice 1 — les types", "type": "choice",
      "label": "Quel format printf affiche un entier signé ?",
      "options": ["%d", "%s", "%c", "%f"], "answer": "%d"},
