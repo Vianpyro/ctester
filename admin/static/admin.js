@@ -453,7 +453,7 @@ function fillActivity(target, data, days) {
     const date = new Date(b.t);
     column.title = (byHour
       ? pad2(date.getHours()) + " h"
-      : date.toLocaleDateString("fr-CA"))
+      : date.toLocaleDateString("fr-CA", { timeZone: "UTC" }))
       + " : " + b.runs + " run(s), " + b.failures + " échec(s)";
     if (!b.runs) {
       column.append(el("span", "part hollow"));
@@ -477,7 +477,7 @@ function fillActivity(target, data, days) {
   const edgeLabel = (b) => {
     const d = new Date(b.t);
     return byHour ? pad2(d.getHours()) + " h"
-      : d.toLocaleDateString("fr-CA", { month: "short", day: "numeric" });
+      : d.toLocaleDateString("fr-CA", { month: "short", day: "numeric", timeZone: "UTC" });
   };
   axis.append(el("span", null, edgeLabel(series[0])),
              el("span", null, "max " + peak),
