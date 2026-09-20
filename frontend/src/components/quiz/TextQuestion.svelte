@@ -2,15 +2,23 @@
   import { quiz, type QuizQuestion } from "../../lib/state/quiz.svelte";
 
   const { q, onchange }: { q: QuizQuestion; onchange: () => void } = $props();
+
+  const NUMERIC = new Set(["int", "bin", "bin8", "hex8"]);
+  const mode = (t: string): "decimal" | "numeric" | undefined =>
+    t === "number" ? "decimal" : NUMERIC.has(t) ? "numeric" : undefined;
 </script>
 
 <!-- Never type="number": it rejects "12,625" under a French locale and edits on scroll. -->
+<!-- The width says how long the answer is; it is never a maxlength, because the judge
+     normalises first: "1011 1010" and "0b10111010" are legitimate 8-bit answers.
+     ponytail: one plain input, not a segmented bit field, which breaks paste and select-all. -->
 <input
   type="text"
-  inputmode={q.type === "number" ? "decimal" : undefined}
+  inputmode={mode(q.type)}
   spellcheck="false"
   autocomplete="off"
   data-qid={q.id}
+  data-qtype={q.type}
   aria-labelledby={"qlabel-" + q.id}
   bind:value={quiz.answers[q.id]}
   oninput={onchange}

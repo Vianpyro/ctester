@@ -2,9 +2,9 @@ import { fetchQuiz } from "../api/public";
 import { catalog } from "./catalog.svelte";
 import { drafts } from "./drafts.svelte";
 import type { Scope } from "../domain/verdict";
+import { type Answer, answered, packAll } from "../domain/answer";
 
-/** What a student sends for one question: a text, a list, or a map of prompt to choice. */
-export type Answer = string | string[] | Record<string, string>;
+export { answered, packAll, type Answer };
 
 export interface QuizQuestion {
   id: string;
@@ -34,12 +34,9 @@ function blankFor(q: QuizQuestion): Answer {
   return "";
 }
 
-// Drafts are stored as text. A structured answer travels as JSON and is only restored when
+// A draft is stored as text. A structured answer travels as JSON and is only restored when
 // it still has the shape its question expects: a question whose type changed must not
 // poison a widget with a value it cannot render.
-const pack = (value: Answer): string =>
-  typeof value === "string" ? value : JSON.stringify(value);
-
 function unpack(raw: string | undefined, blank: Answer): Answer {
   if (raw === undefined) return blank;
   if (typeof blank === "string") return raw;
@@ -52,13 +49,6 @@ function unpack(raw: string | undefined, blank: Answer): Answer {
   }
 }
 
-/** Shape-aware emptiness, mirroring what the server calls a blank answer. */
-export function answered(value: Answer): boolean {
-  if (typeof value === "string") return !!value.trim();
-  const entries = Array.isArray(value) ? value : Object.values(value);
-  return entries.some((one) => !!one.trim());
-}
-
 class QuizState {
   pages = $state<QuizPage[]>([]);
   page = $state(0);
@@ -66,6 +56,8 @@ class QuizState {
   exerciseId = $state("");
   loading = $state(false);
   groupOf = $state<Record<string, string>>({});
+  /** The answers as they were last sent, so a mark is dropped the moment a field is retyped. */
+  submitted = $state<Record<string, string>>({});
 
   async load(id: string): Promise<void> {
     // Reloading the same quiz (boot does, once the token arrives) keeps the questions on
@@ -76,6 +68,7 @@ class QuizState {
     if (!same) {
       this.pages = [];
       this.page = 0;
+      this.submitted = {};
     }
     const data = await fetchQuiz(id, catalog.staff);
     this.loading = false;
@@ -114,9 +107,7 @@ class QuizState {
   }
 
   save(): void {
-    const flat: Record<string, string> = {};
-    for (const [id, value] of Object.entries(this.answers)) flat[id] = pack(value);
-    drafts.putLocal(this.exerciseId, flat);
+    drafts.putLocal(this.exerciseId, packAll(this.answers));
   }
 
   currentScope(): Scope | null {
@@ -129,6 +120,7 @@ class QuizState {
     this.pages = [];
     this.answers = {};
     this.groupOf = {};
+    this.submitted = {};
     this.exerciseId = "";
     this.page = 0;
   }

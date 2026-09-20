@@ -845,6 +845,14 @@ main {
   padding: .9rem;
 }
 
+/* A worksheet column, not the full panel: the answer stays within reach of its question. */
+#quiz {
+  --qlabel: 18rem;
+  /* Padding and border of an input, since everything here is border-box. */
+  --qbox: 1.4rem;
+  max-width: 64rem;
+}
+
 #tabs {
   display: flex;
   gap: .2rem;
@@ -1412,6 +1420,10 @@ pre {
 }
 
 #quiz .qgroup {
+  display: flex;
+  gap: .75rem;
+  align-items: baseline;
+  justify-content: space-between;
   margin: 1.2rem 0 .4rem;
   font-weight: 700;
   font-size: .95rem;
@@ -1423,20 +1435,75 @@ pre {
   margin-top: 0;
 }
 
+#quiz .qgroup:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+#quiz .qcount {
+  flex: none;
+  font-weight: 400;
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+#quiz .qq {
+  margin: .35rem 0;
+}
+
 #quiz .qrow {
   display: flex;
   gap: .75rem;
   align-items: center;
-  margin: .35rem 0;
+  flex-wrap: wrap;
 }
 
-#quiz .qrow span {
-  flex: 1 1 20rem;
+/* Fixed, not growing: the answers line up in a column the eye can scan, and no question
+   ends up a screen away from its own field. */
+#quiz .qrow > span {
+  flex: 0 0 var(--qlabel);
+  max-width: 100%;
 }
 
 #quiz .qrow input {
-  flex: 0 0 11rem;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  flex: 0 0 auto;
+  width: 11rem;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The field is shaped like the answer it wants: eight bits look like eight bits. The
+   width is a hint, never a limit -- the judge accepts "1011 1010" and "0b10111010" too. */
+#quiz .qrow input[data-qtype="bin8"] {
+  width: calc(11ch + var(--qbox));
+  letter-spacing: .18em;
+}
+
+#quiz .qrow input[data-qtype="bin"] {
+  width: calc(20ch + var(--qbox));
+  letter-spacing: .18em;
+}
+
+#quiz .qrow input[data-qtype="hex8"] {
+  width: calc(6ch + var(--qbox));
+}
+
+#quiz .qrow input:is([data-qtype="int"], [data-qtype="number"]) {
+  width: calc(9ch + var(--qbox));
+}
+
+#quiz .qmark {
+  margin: .15rem 0 .5rem;
+  padding-left: calc(var(--qlabel) + .75rem);
+  font-size: var(--fs-label);
+}
+
+#quiz .qmark.wrong {
+  color: var(--bad);
+}
+
+#quiz .qmark.right {
+  color: var(--ok);
 }
 
 #quiz .qrow:has(.qchoices) {
@@ -1540,22 +1607,51 @@ pre {
   margin: 0 .15rem;
 }
 
-#quiznav {
+#quizsections {
   display: flex;
-  align-items: center;
-  gap: .75rem;
+  flex-wrap: wrap;
+  gap: .3rem;
+  max-width: 64rem;
   margin-top: 1.2rem;
   padding-top: .8rem;
   border-top: 1px solid var(--line);
 }
 
-#quiznav[hidden] {
+#quizsections[hidden] {
   display: none;
 }
 
-#quiznav .pos {
+#quizsections .tab {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  align-items: flex-start;
+  text-align: left;
+  padding: .35rem .6rem;
+}
+
+#quizsections .count {
+  font-size: var(--fs-label);
   color: var(--muted);
-  font-size: var(--fs-ui);
+}
+
+#quizsections .count.wrong {
+  color: var(--bad);
+}
+
+#quizsections .count.right {
+  color: var(--ok);
+}
+
+/* Narrow: the label takes its own line and the field sits under it. */
+@media (max-width: 900px) {
+  #quiz {
+    --qlabel: 100%;
+  }
+
+  #quiz .qmark {
+    padding-left: 0;
+  }
 }
 
 :is(#consent, #charter, #identitypanel, #shortcuts) {

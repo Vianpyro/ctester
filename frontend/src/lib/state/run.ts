@@ -1,6 +1,6 @@
 import { catalog } from "./catalog.svelte";
 import { editor } from "./editor.svelte";
-import { answered, quiz } from "./quiz.svelte";
+import { answered, packAll, quiz } from "./quiz.svelte";
 import { statuses } from "./statuses.svelte";
 import { submission } from "./submission.svelte";
 import { system } from "./system.svelte";
@@ -29,6 +29,8 @@ export async function runTest(scoped: boolean): Promise<void> {
       system.say("Saisis au moins une réponse avant de tester.");
       return;
     }
+    // Snapshot what was sent: a question is only marked while its field still holds it.
+    quiz.submitted = packAll(answers);
     await submission.submit(here, sessionKey(), { answers }, scoped ? quiz.currentScope() : null, afterVerdict);
     return;
   }
