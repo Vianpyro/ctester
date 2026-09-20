@@ -2,14 +2,15 @@
   import { quiz } from "../lib/state/quiz.svelte";
   import { pageStatus, sectionLabel, type Mark } from "../lib/domain/quizMarks";
 
-  const { marks }: { marks: Record<string, Mark> } = $props();
+  let { marks, strip = $bindable(null) }: { marks: Record<string, Mark>; strip?: HTMLDivElement | null } =
+    $props();
 
   const GLYPH = { right: "✓", wrong: "✗", unknown: "" };
 </script>
 
 <!-- One tile per section, in the same language as the exercise strip above it. -->
-<div id="quizsections" hidden={quiz.pages.length <= 1}>
-  {#each quiz.pages as page, n (page.key)}
+<div id="quizsections" bind:this={strip} hidden={quiz.sections.length <= 1}>
+  {#each quiz.sections as page, n (page.key)}
     {@const status = pageStatus(
       page.questions.map((q) => q.id),
       quiz.answers,
@@ -18,9 +19,9 @@
     <button
       type="button"
       class="tab"
-      class:on={n === quiz.page}
-      aria-current={n === quiz.page ? "true" : undefined}
-      onclick={() => quiz.showPage(n)}
+      class:on={quiz.shown.includes(n)}
+      aria-current={quiz.shown.includes(n) ? "true" : undefined}
+      onclick={() => quiz.showSection(n)}
       title={page.title}
     >
       <span class="name">{sectionLabel(page.title)}</span>

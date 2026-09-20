@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 import QuizPanel from "../src/components/QuizPanel.svelte";
-import { quiz, type QuizPage } from "../src/lib/state/quiz.svelte";
+import { quiz, type QuizSection } from "../src/lib/state/quiz.svelte";
 import { submission } from "../src/lib/state/submission.svelte";
 import { packAll } from "../src/lib/domain/answer";
 
@@ -19,7 +19,7 @@ const question = (id: string, label: string, group: string, row = "", col = "") 
   gaps: [] as string[][],
 });
 
-const PAGES: QuizPage[] = [
+const PAGES: QuizSection[] = [
   { key: "g1", title: "Exercice 1 : décimal vers binaire", questions: [question("a", "23", "Exercice 1 : décimal vers binaire")] },
   { key: "g2", title: "Exercice 2 : masques", questions: [question("b", "0b1 & 0b1", "Exercice 2 : masques")] },
 ];
@@ -52,7 +52,7 @@ describe("the shape of an answer field", () => {
   });
 
   it("gives each field one slot per character the answer needs", () => {
-    quiz.pages = [
+    quiz.sections = [
       {
         key: "g",
         title: "89,25",
@@ -70,7 +70,7 @@ describe("the shape of an answer field", () => {
   });
 
   it("leaves a field whose length nobody fixed to the shared default", () => {
-    quiz.pages = [{ key: "g", title: "G", questions: [sized("a", "text", 0)] }];
+    quiz.sections = [{ key: "g", title: "G", questions: [sized("a", "text", 0)] }];
     quiz.answers = { a: "" };
     const input = show().querySelector<HTMLInputElement>('input[data-qid="a"]')!;
     expect(input.style.getPropertyValue("--slots")).toBe("");
@@ -78,7 +78,7 @@ describe("the shape of an answer field", () => {
   });
 
   it("never turns the width into a maxlength: the judge accepts separators", () => {
-    quiz.pages = [{ key: "g", title: "G", questions: [sized("a", "bin8", 8)] }];
+    quiz.sections = [{ key: "g", title: "G", questions: [sized("a", "bin8", 8)] }];
     quiz.answers = { a: "" };
     const input = show().querySelector<HTMLInputElement>('input[data-qid="a"]')!;
     expect(input.getAttribute("maxlength")).toBeNull();
@@ -86,7 +86,7 @@ describe("the shape of an answer field", () => {
 });
 
 describe("a section the author laid out as a table", () => {
-  const TABLE: QuizPage[] = [
+  const TABLE: QuizSection[] = [
     {
       key: "t",
       title: "Exercice 3",
@@ -100,7 +100,7 @@ describe("a section the author laid out as a table", () => {
   ];
 
   it("draws one header per column and one field per cell", () => {
-    quiz.pages = TABLE;
+    quiz.sections = TABLE;
     quiz.answers = { a: "", b: "", c: "", d: "" };
     const node = show();
     expect([...node.querySelectorAll("thead th")].map((th) => th.textContent)).toEqual([
@@ -115,7 +115,7 @@ describe("a section the author laid out as a table", () => {
   });
 
   it("names each field by its row and column, since the cell carries no label of its own", () => {
-    quiz.pages = TABLE;
+    quiz.sections = TABLE;
     quiz.answers = { a: "", b: "", c: "", d: "" };
     const node = show();
     const input = node.querySelector<HTMLInputElement>('input[data-qid="d"]')!;
@@ -124,7 +124,7 @@ describe("a section the author laid out as a table", () => {
   });
 
   it("puts the hint in the cell that is wrong", () => {
-    quiz.pages = TABLE;
+    quiz.sections = TABLE;
     quiz.answers = { a: "1", b: "", c: "", d: "" };
     quiz.submitted = packAll(quiz.answers);
     submission.phase = {
@@ -148,7 +148,7 @@ describe("a section the author laid out as a table", () => {
 
 describe("the quiz panel", () => {
   it("puts the judge's hint under the question it belongs to, not in a list elsewhere", () => {
-    quiz.pages = PAGES;
+    quiz.sections = PAGES;
     quiz.answers = { a: "10111", b: "" };
     quiz.submitted = packAll(quiz.answers);
     submission.phase = {
@@ -169,7 +169,7 @@ describe("the quiz panel", () => {
   });
 
   it("drops a mark as soon as the field is retyped, so no stale verdict is left on screen", () => {
-    quiz.pages = PAGES;
+    quiz.sections = PAGES;
     quiz.answers = { a: "10111", b: "" };
     quiz.submitted = packAll(quiz.answers);
     submission.phase = {
@@ -186,23 +186,44 @@ describe("the quiz panel", () => {
   });
 
   it("counts the filled answers of the section on screen", () => {
-    quiz.pages = PAGES;
+    quiz.sections = PAGES;
     quiz.answers = { a: "1", b: "" };
     expect(show().querySelector(".qcount")?.textContent).toContain("1/1");
   });
 
-  it("moves the focus to the new heading when the section changes", () => {
-    quiz.pages = PAGES;
+  it("moves the focus to the new heading when the sheet changes", () => {
+    quiz.sections = PAGES;
     quiz.answers = { a: "", b: "" };
+    // jsdom lays nothing out, so the panel never packs: state the split the way a real
+    // measurement would have, then check what changing sheet does.
+    quiz.sheets = [[0], [1]];
     const node = show();
-    quiz.showPage(1);
+    quiz.showSection(1);
     flushSync();
     const headings = node.querySelectorAll(".qgroup");
+    expect(quiz.sheet).toBe(1);
     expect(document.activeElement).toBe(headings[1]);
   });
 
+  it("keeps sections that share a sheet on screen together", () => {
+    quiz.sections = PAGES;
+    quiz.answers = { a: "", b: "" };
+    quiz.sheets = [[0, 1]];
+    const node = show();
+    quiz.showSection(1);
+    flushSync();
+    expect(quiz.sheet).toBe(0);
+    expect([...node.querySelectorAll(".qsection")].every((s) => !s.hasAttribute("hidden"))).toBe(
+      true,
+    );
+    expect(quiz.currentScope()).toEqual({
+      title: "Exercice 1 : décimal vers binaire · Exercice 2 : masques",
+      ids: ["a", "b"],
+    });
+  });
+
   it("offers one tile per section and none when there is a single one", () => {
-    quiz.pages = PAGES;
+    quiz.sections = PAGES;
     quiz.answers = { a: "", b: "" };
     const node = show();
     expect(node.querySelectorAll("#quizsections .tab")).toHaveLength(2);

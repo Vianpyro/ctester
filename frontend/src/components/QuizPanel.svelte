@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Component } from "svelte";
   import { quiz, type QuizQuestion } from "../lib/state/quiz.svelte";
-  import { marksFor, pageStatus, tableFor } from "../lib/domain/quizMarks";
+  import { marksFor, packSheets, pageStatus, tableFor } from "../lib/domain/quizMarks";
   import { submission } from "../lib/state/submission.svelte";
   import QuizSections from "./QuizSections.svelte";
   import ChoiceQuestion from "./quiz/ChoiceQuestion.svelte";
@@ -26,7 +26,7 @@
   const widgetFor = (q: QuizQuestion): Widget => WIDGETS[q.type] ?? TextQuestion;
 
   // The server grades the whole quiz, so one run marks every section. The panel below
-  // narrows a scoped run to its own page; these marks must not be narrowed with it.
+  // narrows a scoped run to the sheet on screen; these marks must not be narrowed with it.
   const marks = $derived(
     marksFor(
       submission.phase.kind === "done" ? submission.phase.verdict : null,
@@ -36,15 +36,63 @@
   );
 
   let headings: HTMLDivElement[] = $state([]);
-  let seen = quiz.page;
+  let blocks: HTMLDivElement[] = $state([]);
+  let wrap: HTMLDivElement | null = $state(null);
+  let strip: HTMLDivElement | null = $state(null);
+  let seen = quiz.sheet;
 
-  // Switching section swaps the whole panel under the reader: move the focus to the new
-  // heading so it is announced and the next Tab lands in its questions.
+  // Switching sheet swaps the whole panel under the reader: move the focus to the first
+  // heading it shows so it is announced and the next Tab lands in its questions.
   $effect(() => {
-    const now = quiz.page;
+    const now = quiz.sheet;
     if (now === seen) return;
     seen = now;
-    headings[now]?.focus();
+    headings[quiz.shown[0] ?? 0]?.focus();
+  });
+
+  // Sections are only split when they do not fit together. Measuring needs them all laid
+  // out, so `measuring` shows everything for one pass, then the sheets hide the rest.
+  let measuring = $state(true);
+  let packedFor = "";
+
+  /** The height a sheet has: the panel less the strip, which sits inside it. */
+  const room = (): number =>
+    wrap ? wrap.clientHeight - (strip?.offsetHeight ?? 0) - 24 : 0;
+
+  // Keyed on the border-box width, not clientWidth: a scrollbar appearing while everything
+  // is laid out must not read as a new size, or measuring would feed itself for ever.
+  const stamp = (): string =>
+    wrap
+      ? `${quiz.exerciseId}|${quiz.sections.length}|${Math.round(
+          wrap.getBoundingClientRect().width,
+        )}x${wrap.clientHeight}`
+      : "";
+
+  $effect(() => {
+    if (!measuring || !quiz.sections.length || !wrap) return;
+    const heights = quiz.sections.map((_, i) => blocks[i]?.offsetHeight ?? 0);
+    if (heights.some((height) => height === 0)) return;
+    const here = quiz.shown[0] ?? 0;
+    quiz.sheets = packSheets(heights, room());
+    quiz.showSection(here);
+    seen = quiz.sheet;
+    packedFor = stamp();
+    measuring = false;
+  });
+
+  // A new quiz, or a panel that changed size, has to be measured again; nothing else does.
+  $effect(() => {
+    const now = stamp();
+    if (!measuring && now && now !== packedFor) measuring = true;
+  });
+
+  $effect(() => {
+    if (!wrap) return;
+    const watch = new ResizeObserver(() => {
+      if (!measuring && stamp() !== packedFor) measuring = true;
+    });
+    watch.observe(wrap);
+    return () => watch.disconnect();
   });
 
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -55,19 +103,23 @@
   }
 </script>
 
-<div id="quizwrap">
+<div id="quizwrap" bind:this={wrap}>
   <div id="quiz">
-    {#if quiz.loading && !quiz.pages.length}
+    {#if quiz.loading && !quiz.sections.length}
       <p>Chargement…</p>
     {:else}
-      {#each quiz.pages as page, n (page.key)}
+      {#each quiz.sections as page, n (page.key)}
         {@const status = pageStatus(
           page.questions.map((q) => q.id),
           quiz.answers,
           marks,
         )}
         {@const table = tableFor(page.questions)}
-        <div hidden={n !== quiz.page}>
+        <div
+          class="qsection"
+          bind:this={blocks[n]}
+          hidden={!measuring && !quiz.shown.includes(n)}
+        >
           <div class="qgroup" tabindex="-1" bind:this={headings[n]}>
             <span>{page.title}</span>
             <span class="qcount">{status.answered}/{status.total} répondues</span>
@@ -134,5 +186,5 @@
       {/each}
     {/if}
   </div>
-  <QuizSections {marks} />
+  <QuizSections {marks} bind:strip />
 </div>

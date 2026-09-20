@@ -20,7 +20,8 @@ export interface QuizQuestion {
   gaps: string[][];
 }
 
-export interface QuizPage {
+/** One `group` of the quiz. Several may share a sheet when they fit the screen together. */
+export interface QuizSection {
   /** Unique even when two runs of questions carry the same group, which `{#each}` keys on. */
   key: string;
   title: string;
@@ -53,8 +54,10 @@ function unpack(raw: string | undefined, blank: Answer): Answer {
 }
 
 class QuizState {
-  pages = $state<QuizPage[]>([]);
-  page = $state(0);
+  sections = $state<QuizSection[]>([]);
+  /** Sections per sheet, in order. One sheet holding everything until the page measures. */
+  sheets = $state<number[][]>([]);
+  sheet = $state(0);
   answers = $state<Record<string, Answer>>({});
   exerciseId = $state("");
   loading = $state(false);
@@ -65,19 +68,20 @@ class QuizState {
   async load(id: string): Promise<void> {
     // Reloading the same quiz (boot does, once the token arrives) keeps the questions on
     // screen until the new ones land, so the panel never collapses to nothing.
-    const same = this.exerciseId === id && this.pages.length > 0;
+    const same = this.exerciseId === id && this.sections.length > 0;
     this.loading = true;
     this.exerciseId = id;
     if (!same) {
-      this.pages = [];
-      this.page = 0;
+      this.sections = [];
+      this.sheets = [];
+      this.sheet = 0;
       this.submitted = {};
     }
     const data = await fetchQuiz(id, catalog.staff);
     this.loading = false;
     if (!data || !Array.isArray(data.questions)) return;
     const held = drafts.get(id) ?? {};
-    const pages: QuizPage[] = [];
+    const sections: QuizSection[] = [];
     const groups: Record<string, string> = {};
     const answers: Record<string, Answer> = {};
     for (const wire of data.questions) {
@@ -96,39 +100,61 @@ class QuizState {
       };
       groups[q.id] = q.group;
       answers[q.id] = unpack(held[q.id], blankFor(q));
-      const last = pages[pages.length - 1];
+      const last = sections[sections.length - 1];
       if (!last || last.title !== q.group) {
-        pages.push({ key: q.group + "\u0000" + pages.length, title: q.group, questions: [q] });
+        sections.push({
+          key: q.group + "\u0000" + sections.length,
+          title: q.group,
+          questions: [q],
+        });
       } else last.questions.push(q);
     }
     this.groupOf = groups;
     this.answers = answers;
-    this.pages = pages;
-    if (this.page >= pages.length) this.page = 0;
+    this.sections = sections;
+    // Everything on one sheet until the panel has measured: a quiz reads fine
+    // unpaginated, and guessing here would show as a flash of the wrong split.
+    this.sheets = sections.length ? [sections.map((_, i) => i)] : [];
+    this.sheet = 0;
   }
 
-  showPage(i: number): void {
-    if (!this.pages.length) return;
-    this.page = Math.min(Math.max(i, 0), this.pages.length - 1);
+  /** The sections the current sheet shows, in order. */
+  get shown(): number[] {
+    return this.sheets[this.sheet] ?? [];
+  }
+
+  /** Show the sheet that holds this section; sheet 0 until the panel has packed them. */
+  showSection(i: number): void {
+    if (!this.sections.length) return;
+    const wanted = Math.min(Math.max(i, 0), this.sections.length - 1);
+    this.sheet = Math.max(
+      this.sheets.findIndex((sheet) => sheet.includes(wanted)),
+      0,
+    );
   }
 
   save(): void {
     drafts.putLocal(this.exerciseId, packAll(this.answers));
   }
 
+  /** What "Tester l'exercice" covers: every question of every section on screen. */
   currentScope(): Scope | null {
-    const here = this.pages[this.page];
-    if (!here) return null;
-    return { title: here.title, ids: here.questions.map((q) => q.id) };
+    const here = this.shown.map((i) => this.sections[i]).filter((s) => !!s);
+    if (!here.length) return null;
+    return {
+      title: here.map((s) => s.title).join(" · "),
+      ids: here.flatMap((s) => s.questions.map((q) => q.id)),
+    };
   }
 
   clear(): void {
-    this.pages = [];
+    this.sections = [];
+    this.sheets = [];
     this.answers = {};
     this.groupOf = {};
     this.submitted = {};
     this.exerciseId = "";
-    this.page = 0;
+    this.sheet = 0;
   }
 }
 

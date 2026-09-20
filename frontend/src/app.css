@@ -1426,6 +1426,16 @@ pre {
   word-break: break-word;
 }
 
+/* flow-root, so the heading's margin stays inside the section and its offsetHeight is the
+   height the packer needs. [hidden] still wins: it is more specific than this rule. */
+#quiz .qsection {
+  display: flow-root;
+}
+
+#quiz .qsection[hidden] {
+  display: none;
+}
+
 /* A group the author laid out as a table: one question per cell, headers carry the wording. */
 #quiz .qtable {
   border-collapse: collapse;

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { answered, packAll } from "../src/lib/domain/answer";
-import { marksFor, pageStatus, sectionLabel, tableFor } from "../src/lib/domain/quizMarks";
+import {
+  marksFor,
+  packSheets,
+  pageStatus,
+  sectionLabel,
+  tableFor,
+} from "../src/lib/domain/quizMarks";
 import type { Verdict } from "../src/lib/api/types";
 
 const graded = (wrong: { id: string; label: string; hint?: string }[]): Verdict => ({
@@ -160,5 +166,33 @@ describe("the table a section draws", () => {
 
   it("refuses a one-cell table, which is a list wearing a table's clothes", () => {
     expect(tableFor([cell("a", "89,25", "Signe")])).toBeNull();
+  });
+});
+
+describe("packing sections into sheets", () => {
+  it("keeps sections together while they fit the height on screen", () => {
+    expect(packSheets([190, 90], 660)).toEqual([[0, 1]]);
+    expect(packSheets([190, 90, 300, 200], 660)).toEqual([[0, 1, 2], [3]]);
+  });
+
+  it("splits only at the point where the next section would overflow", () => {
+    expect(packSheets([400, 400], 660)).toEqual([[0], [1]]);
+    expect(packSheets([400, 260], 660)).toEqual([[0, 1]]);
+    expect(packSheets([400, 261], 660)).toEqual([[0], [1]]);
+  });
+
+  it("gives a section taller than the screen a sheet of its own rather than none", () => {
+    expect(packSheets([900], 660)).toEqual([[0]]);
+    expect(packSheets([100, 900, 100], 660)).toEqual([[0], [1], [2]]);
+  });
+
+  it("keeps the author's order and loses no section", () => {
+    const heights = [120, 80, 700, 40, 40, 40];
+    const sheets = packSheets(heights, 300);
+    expect(sheets.flat()).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it("has nothing to pack when there are no sections", () => {
+    expect(packSheets([], 660)).toEqual([]);
   });
 });

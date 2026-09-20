@@ -102,3 +102,23 @@ export function tableFor<T extends Celled>(questions: T[]): QuizTable<T> | null 
     })),
   };
 }
+
+/**
+ * Consecutive sections packed into sheets that fit the height on screen. Sections keep the
+ * author's order, and one taller than the screen gets a sheet of its own and scrolls: a
+ * sheet always holds at least one section, or navigation would have nowhere to go.
+ */
+export function packSheets(heights: number[], available: number): number[][] {
+  const sheets: number[][] = [];
+  let used = Infinity;
+  heights.forEach((height, index) => {
+    if (sheets.length && used + height <= available) {
+      sheets[sheets.length - 1]!.push(index);
+      used += height;
+    } else {
+      sheets.push([index]);
+      used = height;
+    }
+  });
+  return sheets;
+}
