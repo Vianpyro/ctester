@@ -435,13 +435,19 @@ function fillActivity(target, data, days) {
 
   // The axis is the chosen period, not the span that happens to hold data: a week
   // with one run must read as a quiet week, not as one busy day.
-  const step = byHour ? 3600e3 : 86400e3;
-  const seen = new Map(cell.buckets.map((b) => [Math.floor(Date.parse(b.t) / step), b]));
-  const end = Math.floor(Date.now() / step);
-  const first = end - (byHour ? 24 : days) + 1;
+  // A day is a calendar day here, not 86400 s of epoch: dividing the epoch would cut
+  // the days at UTC midnight and put the evening's runs on tomorrow's column.
+  const key = byHour
+    ? (d) => Math.floor(d.getTime() / 3600e3)
+    : (d) => d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  const seen = new Map(cell.buckets.map((b) => [key(new Date(b.t)), b]));
+  const now = new Date();
   const series = [];
-  for (let k = first; k <= end; k += 1) {
-    series.push(seen.get(k) || { t: new Date(k * step).toISOString(), runs: 0, failures: 0 });
+  for (let i = (byHour ? 24 : days) - 1; i >= 0; i -= 1) {
+    const at = byHour
+      ? new Date(now.getTime() - i * 3600e3)
+      : new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    series.push(seen.get(key(at)) || { t: at.toISOString(), runs: 0, failures: 0 });
   }
   const peak = Math.max(...series.map((b) => b.runs), 1);
 
@@ -453,7 +459,7 @@ function fillActivity(target, data, days) {
     const date = new Date(b.t);
     column.title = (byHour
       ? pad2(date.getHours()) + " h"
-      : date.toLocaleDateString("fr-CA", { timeZone: "UTC" }))
+      : date.toLocaleDateString("fr-CA"))
       + " : " + b.runs + " run(s), " + b.failures + " échec(s)";
     if (!b.runs) {
       column.append(el("span", "part hollow"));
@@ -477,7 +483,7 @@ function fillActivity(target, data, days) {
   const edgeLabel = (b) => {
     const d = new Date(b.t);
     return byHour ? pad2(d.getHours()) + " h"
-      : d.toLocaleDateString("fr-CA", { month: "short", day: "numeric", timeZone: "UTC" });
+      : d.toLocaleDateString("fr-CA", { month: "short", day: "numeric" });
   };
   axis.append(el("span", null, edgeLabel(series[0])),
              el("span", null, "max " + peak),
@@ -735,7 +741,8 @@ async function statistics() {
   inFlight.stats = true;
   const days = period();
   try {
-    const data = await json("/api/stats?days=" + days);
+    const data = await json("/api/stats?days=" + days + "&tz="
+      + encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"));
     lastStats = data.stats;
     if (lastOverview) vitals(lastOverview);
     distribution(data.statuses);

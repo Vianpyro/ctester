@@ -17,6 +17,7 @@ import os
 import sys
 import time
 from typing import Annotated
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import code as code_service
 import config
@@ -165,7 +166,7 @@ def create_app():
         return JSONResponse(code_service.pour(job_id[:64], exercise_id[:64], account[:128]))
 
     @app.get("/api/stats")
-    def api_stats(_: Moderator, days: int = 7):
+    def api_stats(_: Moderator, days: int = 7, tz: str = "UTC"):
         days = max(1, min(days, 180))
         return _payload({
             "days": days,
@@ -173,11 +174,21 @@ def create_app():
             "statuses": state.read_status_counts(days),
             "exercises": state.read_exercise_stats(days),
             "usage": state.read_usage(days),
-            "activity": state.read_activity(days),
+            "activity": state.read_activity(days, _zone(tz)),
             "channels": state.read_channels(days),
         })
 
     return app
+
+
+# The page sends its own IANA zone. An unknown one would abort the whole stats query,
+# so it falls back rather than taking the panel down with it.
+def _zone(name):
+    try:
+        ZoneInfo(name[:64])
+    except (ZoneInfoNotFoundError, ValueError):
+        return "UTC"
+    return name[:64]
 
 
 LIVE_TICK = 0.25
