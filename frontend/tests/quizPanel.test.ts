@@ -268,6 +268,17 @@ describe("a section of a quiz", () => {
     ]);
   });
 
+  it("gives a single unnamed section one heading, not two saying the same thing", async () => {
+    // A split exercise carries no group: the exercise title is the section title.
+    payloads = { ex1: [ask("a", { group: "" })], ex2: [ask("b", { group: "" })] };
+    const node = await show();
+    expect(node.querySelectorAll("h2.qtitle")).toHaveLength(0);
+    expect([...node.querySelectorAll(".qgroup span:first-child")].map((h) => h.textContent)).toEqual(
+      ["Ex.1 conversions", "Ex.2 masques"],
+    );
+    expect(node.querySelectorAll(".qgroup.lead")).toHaveLength(2);
+  });
+
   it("draws a table when the author laid one out", async () => {
     payloads = {
       ex1: [

@@ -179,6 +179,9 @@
     {:else}
       {#each quiz.shown as loaded (loaded.exerciseId)}
         {@const marks = marksOf(loaded)}
+        <!-- An exercise with a single unnamed section IS that section: one heading, not
+             two saying the same thing. -->
+        {@const lone = loaded.sections.length === 1 && !loaded.sections[0]!.title}
         <!-- One width per exercise: a 23-bit mantissa in one must not blow up the
              two-character hex fields of another sharing the page. -->
         <div
@@ -186,7 +189,7 @@
           class="qexercise"
           style="--slots: {slotsOnScreen(loaded.sections.flatMap((s) => s.questions))}"
         >
-          {#if quiz.shown.length > 1}
+          {#if quiz.shown.length > 1 && !lone}
             <h2 class="qtitle">{loaded.title}</h2>
           {/if}
           {#each loaded.sections as section (section.key)}
@@ -197,8 +200,8 @@
             )}
             {@const table = tableFor(section.questions)}
             <div class="qsection">
-              <div class="qgroup">
-                <span>{section.title}</span>
+              <div class={lone ? "qgroup lead" : "qgroup"}>
+                <span>{section.title || loaded.title}</span>
                 <span class="qcount">{status.answered}/{status.total} répondues</span>
               </div>
               {#if table}
