@@ -2100,10 +2100,6 @@ pre {
     min-height: var(--tap);
   }
 
-  #labband {
-    min-height: calc(var(--tap) + .9rem);
-  }
-
   html,
   body {
     height: auto;
@@ -2223,10 +2219,6 @@ pre {
 
   .tile {
     min-height: var(--tap);
-  }
-
-  #labband {
-    min-height: calc(var(--tap) + .9rem);
   }
 }
 
@@ -2454,8 +2446,10 @@ pre {
 
 #labband {
   flex: 0 0 auto;
-  /* One row of tiles, claimed before /catalog.json answers. */
-  min-height: 2.5rem;
+  /* One row of tiles, claimed before /catalog.json answers. Keyed to --tap so the reserve
+     follows the tile height on every screen: a media query would land above this rule and
+     lose the cascade. */
+  min-height: calc(var(--tap) + .9rem);
   display: flex;
   flex-wrap: wrap;
   gap: .3rem;
@@ -3612,6 +3606,19 @@ pre {
 }
 
 @media (max-width: 1000px) {
+  /* Below 1000px the tiles do not fit on one row on every font, and a second row moves
+     the editor down after /catalog.json answers. One row that scrolls sideways instead:
+     the reserved height is then the real height. */
+  #labband {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  #labband > * {
+    flex-shrink: 0;
+  }
+
   #chatdock {
     position: fixed;
     inset: auto 0 0 0;

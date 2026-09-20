@@ -153,7 +153,9 @@
 
   {#if phase.kind === "idle" || phase.kind === "lost" || phase.kind === "cooldown"}
     <p class="explain">
-      {catalog.catalog.length
+      <!-- Also the text shown before /catalog.json answers: swapping it afterwards
+           reflows the panel and pushes the editor up. -->
+      {!catalog.loaded || catalog.catalog.length
         ? idleHelp
         : "Le menu « Exercices » donne la date d'ouverture de chacun."}
     </p>
