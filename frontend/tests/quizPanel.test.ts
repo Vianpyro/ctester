@@ -45,16 +45,41 @@ function fakeFetch(input: RequestInfo | URL): Promise<Response> {
 let host: HTMLElement | null = null;
 let panel: Record<string, unknown> | null = null;
 
-/** jsdom lays nothing out, so the page is told how tall it is. */
-function measures(scrollHeight: number, room = 1000): void {
+/**
+ * jsdom lays nothing out, so the page is told how tall it is. Modelled the way a browser
+ * really behaves: the content grows with what is on the page, while the scrolling panel
+ * reports a `scrollHeight` of at least its own height whatever it holds. Measuring the
+ * panel instead of the content is exactly the mistake this shape is here to catch.
+ */
+function measures(perExercise: number, room = 1000): void {
   Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
     configurable: true,
     get(this: HTMLElement) {
-      return this.id === "quizwrap" ? scrollHeight * quiz.shown.length : 0;
+      return this.id === "quizwrap" ? PANEL : 0;
+    },
+  });
+  Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value(this: Element): DOMRect {
+      const height = this.id === "quiz" ? perExercise * quiz.shown.length : 0;
+      return {
+        top: 0,
+        left: 0,
+        right: 500,
+        bottom: height,
+        width: 500,
+        height,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
     },
   });
   vi.stubGlobal("innerHeight", room);
 }
+
+/** What a scrolling panel reports however little it holds. */
+const PANEL = 700;
 
 async function show(): Promise<HTMLElement> {
   host = document.createElement("div");
@@ -99,6 +124,14 @@ describe("what a page takes in", () => {
       "Ex.1 conversions",
       "Ex.2 masques",
     ]);
+  });
+
+  it("measures the content, not the panel: a scroll box is never smaller than itself", async () => {
+    payloads = { ex1: [ask("a")], ex2: [ask("b")] };
+    // Two short exercises against a panel that reports 700px whatever it holds.
+    measures(80, 600);
+    await show();
+    expect(quiz.shown.map((one) => one.exerciseId)).toEqual(["ex1", "ex2"]);
   });
 
   it("stops at the first exercise that does not fit, and never loads past it", async () => {

@@ -38,6 +38,7 @@
   const MIN_PAGE = 220;
 
   let wrap: HTMLDivElement | null = $state(null);
+  let inner: HTMLDivElement | null = $state(null);
 
   /**
    * What this page may hold: the open exercise and the quiz exercises that follow it in
@@ -78,7 +79,19 @@
     return Math.max(MIN_PAGE, view - wrap.getBoundingClientRect().top - (reserve || 0));
   }
 
-  const fits = (): boolean => !!wrap && wrap.scrollHeight <= room();
+  /**
+   * The content's own height, never the panel's. `#quizwrap` scrolls, and a scroll box
+   * reports `scrollHeight` as at least its `clientHeight`: measuring it would compare the
+   * panel to itself and conclude nothing ever fits.
+   */
+  function taken(): number {
+    if (!wrap || !inner) return 0;
+    const box = getComputedStyle(wrap);
+    const pad = (parseFloat(box.paddingTop) || 0) + (parseFloat(box.paddingBottom) || 0);
+    return inner.getBoundingClientRect().height + pad;
+  }
+
+  const fits = (): boolean => !!wrap && !!inner && taken() <= room();
 
   const stamp = (): string =>
     wrap
@@ -160,7 +173,7 @@
 </script>
 
 <div id="quizwrap" bind:this={wrap}>
-  <div id="quiz">
+  <div id="quiz" bind:this={inner}>
     {#if quiz.loading && !quiz.shown.length}
       <p>Chargement…</p>
     {:else}

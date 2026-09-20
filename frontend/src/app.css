@@ -851,6 +851,9 @@ main {
 }
 
 #quiz {
+  /* flow-root, so the exercises' margins stay inside and its height is the height the
+     filler needs to compare against the room on screen. */
+  display: flow-root;
   --qlabel: min(12rem, 100%);
   /* Padding and border of an input, since everything here is border-box. */
   --qbox: 1.4rem;
