@@ -57,8 +57,9 @@ describe("the judge's mark, beside its field", () => {
     quiz.submitted = packAll(quiz.answers);
     submission.phase = { kind: "done", scope: null, verdict: graded([{ id: "b", label: "167" }]) };
     const rows = show().querySelectorAll(".qrow");
-    // The mark follows the widget: same line, after the field, never on a line of its own.
-    expect(rows[0]!.lastElementChild?.previousElementSibling?.textContent).toBe("✓");
+    // The mark follows the widget on the same line, right after the field it judges.
+    expect(rows[0]!.querySelector("input")!.nextElementSibling?.className).toBe("qmark right");
+    expect(rows[0]!.querySelector(".qmark")?.textContent).toBe("✓");
     expect(rows[1]!.querySelector(".qmark.wrong")?.textContent).toBe("✗");
     expect(rows[0]!.querySelector(".qmark")?.getAttribute("aria-hidden")).toBe("true");
     expect(rows[0]!.querySelector(".offscreen")?.textContent).toBe("juste");
@@ -73,13 +74,18 @@ describe("the judge's mark, beside its field", () => {
     expect(row.querySelector(".qmark.wrong")).toBeTruthy();
     quiz.answers = { ...quiz.answers, a: "00010111" };
     flushSync();
-    expect(row.querySelector(".qmark")).toBeNull();
+    expect(row.querySelector(".qmark")?.textContent).toBe("");
+    expect(row.querySelector(".offscreen")).toBeNull();
   });
 
-  it("marks nothing before anything has been tested", () => {
+  it("keeps the slot empty but present, so a verdict never shifts the field sideways", () => {
     quiz.pages = PAGES;
     quiz.answers = { a: "00010111", b: "10100111" };
-    expect(show().querySelector(".qmark")).toBeNull();
+    const node = show();
+    // Two rows, two slots, no glyph and nothing announced.
+    expect(node.querySelectorAll(".qmark")).toHaveLength(2);
+    expect([...node.querySelectorAll(".qmark")].every((one) => one.textContent === "")).toBe(true);
+    expect(node.querySelector(".offscreen")).toBeNull();
   });
 });
 

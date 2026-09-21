@@ -1434,25 +1434,28 @@ pre {
   flex: 1 1 20rem;
 }
 
-/* The judge's answer on the question's own line. Only the glyph is coloured: the row and
-   the field keep the look they have while nothing has been tested. */
-#quiz .qmark {
-  flex: none;
+/* The judge's answer, beside the field it judges. The slot is always there, empty until
+   there is a verdict, so a tick landing never moves the field it belongs to.
+   More classes than `#quiz .qrow span` on purpose: that rule would otherwise hand these
+   `flex: 1 1 20rem` and push the whole column of fields across the panel. */
+#quiz .qrow .qmark {
+  flex: 0 0 1.25rem;
+  text-align: center;
   font-size: var(--fs-ui);
 }
 
-#quiz .qmark.right {
+#quiz .qrow .qmark.right {
   color: var(--ok);
 }
 
-#quiz .qmark.wrong {
+#quiz .qrow .qmark.wrong {
   color: var(--bad);
 }
 
 /* A shape that is not there yet is not a wrong answer: --wait, never --bad, so it cannot
    be mistaken for the judge's ✗ -- which stays the only thing that decides. */
-#quiz .qshape {
-  flex: none;
+#quiz .qrow .qshape {
+  flex: 0 1 auto;
   font-size: var(--fs-label);
   color: var(--wait);
 }

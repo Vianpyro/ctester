@@ -70,8 +70,11 @@
             <div class="qrow">
               <span id={"qlabel-" + q.id}>{q.label}</span>
               <Widget {q} onchange={onInput} />
+              <!-- Always rendered, so the field does not jump aside when a verdict lands. -->
+              <span class={mark ? "qmark " + mark : "qmark"} aria-hidden="true"
+                >{mark ? (mark === "right" ? "✓" : "✗") : ""}</span
+              >
               {#if mark}
-                <span class="qmark {mark}" aria-hidden="true">{mark === "right" ? "✓" : "✗"}</span>
                 <span class="offscreen">{mark === "right" ? "juste" : "faux"}</span>
               {/if}
               {#if note}
