@@ -29,6 +29,7 @@ export async function runTest(scoped: boolean): Promise<void> {
       system.say("Saisis au moins une réponse avant de tester.");
       return;
     }
+    quiz.snapshot();
     await submission.submit(here, sessionKey(), { answers }, scoped ? quiz.currentScope() : null, afterVerdict);
     return;
   }

@@ -37,8 +37,14 @@ function blankFor(q: QuizQuestion): Answer {
 // Drafts are stored as text. A structured answer travels as JSON and is only restored when
 // it still has the shape its question expects: a question whose type changed must not
 // poison a widget with a value it cannot render.
-const pack = (value: Answer): string =>
+export const pack = (value: Answer): string =>
   typeof value === "string" ? value : JSON.stringify(value);
+
+export const packAll = (answers: Record<string, Answer>): Record<string, string> => {
+  const flat: Record<string, string> = {};
+  for (const [id, value] of Object.entries(answers)) flat[id] = pack(value);
+  return flat;
+};
 
 function unpack(raw: string | undefined, blank: Answer): Answer {
   if (raw === undefined) return blank;
@@ -66,6 +72,8 @@ class QuizState {
   exerciseId = $state("");
   loading = $state(false);
   groupOf = $state<Record<string, string>>({});
+  /** The answers as they were last sent, so a mark is dropped the moment a field is retyped. */
+  submitted = $state<Record<string, string>>({});
 
   async load(id: string): Promise<void> {
     // Reloading the same quiz (boot does, once the token arrives) keeps the questions on
@@ -76,6 +84,7 @@ class QuizState {
     if (!same) {
       this.pages = [];
       this.page = 0;
+      this.submitted = {};
     }
     const data = await fetchQuiz(id, catalog.staff);
     this.loading = false;
@@ -114,9 +123,12 @@ class QuizState {
   }
 
   save(): void {
-    const flat: Record<string, string> = {};
-    for (const [id, value] of Object.entries(this.answers)) flat[id] = pack(value);
-    drafts.putLocal(this.exerciseId, flat);
+    drafts.putLocal(this.exerciseId, packAll(this.answers));
+  }
+
+  /** Remember exactly what was sent: comparing against it is what ages a mark out. */
+  snapshot(): void {
+    this.submitted = packAll(this.answers);
   }
 
   currentScope(): Scope | null {
@@ -129,6 +141,7 @@ class QuizState {
     this.pages = [];
     this.answers = {};
     this.groupOf = {};
+    this.submitted = {};
     this.exerciseId = "";
     this.page = 0;
   }

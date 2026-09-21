@@ -1,0 +1,41 @@
+{
+  "note": "Shared by frontend/tests/answerShape.test.ts and the `shape_vectors_agree_with_the_judge` test in judge/src/grade.rs. The page warns about the SHAPE of an answer while it is being typed; the judge alone decides the value. The invariant these vectors hold is one-way: what the page calls malformed, the judge must be unable to call right. So every `formed: false` case must be one the judge's own normalisation rejects, and every `formed: true` case must be one it accepts.",
+  "cases": [
+    { "type": "bin8", "given": "10111010", "formed": true },
+    { "type": "bin8", "given": "1011 1010", "formed": true },
+    { "type": "bin8", "given": "0b10111010", "formed": true },
+    { "type": "bin8", "given": "0B1011_1010", "formed": true },
+    { "type": "bin8", "given": "1011101", "formed": false },
+    { "type": "bin8", "given": "101110101", "formed": false },
+    { "type": "bin8", "given": "1011201", "formed": false },
+    { "type": "bin8", "given": "deadbeef", "formed": false },
+
+    { "type": "bin", "given": "0", "formed": true },
+    { "type": "bin", "given": "011001010", "formed": true },
+    { "type": "bin", "given": "0b1", "formed": true },
+    { "type": "bin", "given": "12", "formed": false },
+    { "type": "bin", "given": "0x1", "formed": false },
+
+    { "type": "hex8", "given": "C8", "formed": true },
+    { "type": "hex8", "given": "c8", "formed": true },
+    { "type": "hex8", "given": "0x00C8", "formed": true },
+    { "type": "hex8", "given": "2Fh", "formed": true },
+    { "type": "hex8", "given": "G8", "formed": false },
+    { "type": "hex8", "given": "2F!", "formed": false },
+
+    { "type": "int", "given": "42", "formed": true },
+    { "type": "int", "given": "-58", "formed": true },
+    { "type": "int", "given": "−58", "formed": true },
+    { "type": "int", "given": "+7", "formed": true },
+    { "type": "int", "given": "1 000", "formed": true },
+    { "type": "int", "given": "12a", "formed": false },
+    { "type": "int", "given": "0x1A", "formed": false },
+    { "type": "int", "given": "12.5", "formed": false },
+
+    { "type": "number", "given": "12.625", "formed": true },
+    { "type": "number", "given": "12,625", "formed": true },
+    { "type": "number", "given": "-3e8", "formed": true },
+    { "type": "number", "given": "douze", "formed": false },
+    { "type": "number", "given": "3 et 4", "formed": false }
+  ]
+}

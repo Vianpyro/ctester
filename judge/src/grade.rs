@@ -1733,4 +1733,31 @@ mod tests {
         assert!(check_case(&json!({"expect": ["a"]}), "1", DEFAULT_TOLERANCE).is_err());
         assert!(check_case(&json!({"absent": "turbulent"}), "x", DEFAULT_TOLERANCE).is_err());
     }
+
+    /// The page warns about the shape of an answer while it is typed, replaying the
+    /// normalisation below. Two copies that drift would have it complain about an answer
+    /// this grader accepts, so the vectors bind them -- the way release_access.json binds
+    /// the two implementations of `access`. The invariant is one-way: what the page calls
+    /// malformed, nothing here may call right.
+    #[test]
+    fn shape_vectors_agree_with_the_judge() {
+        let file: Value =
+            serde_json::from_str(include_str!("../../tests/vectors/answer_shape.json")).unwrap();
+        let cases = file["cases"].as_array().unwrap();
+        assert!(cases.len() >= 30, "the vectors are the contract: keep them thorough");
+        for v in cases {
+            let (kind, given) = (v["type"].as_str().unwrap(), v["given"].as_str().unwrap());
+            let formed = v["formed"].as_bool().unwrap();
+            let accepted = match kind {
+                // Fixed width, and the grader says so itself: "l'énoncé demande 8 bits".
+                "bin8" => norm_bin(given).is_some_and(|s| s.len() == 8),
+                "bin" => norm_bin(given).is_some(),
+                "hex8" => norm_hex(given).is_some(),
+                "int" => norm_int(given).is_some(),
+                "number" => extract_numbers(given).len() == 1,
+                other => panic!("no shape rule for {other}"),
+            };
+            assert_eq!(accepted, formed, "{kind} {given:?}");
+        }
+    }
 }

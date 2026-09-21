@@ -1434,6 +1434,29 @@ pre {
   flex: 1 1 20rem;
 }
 
+/* The judge's answer on the question's own line. Only the glyph is coloured: the row and
+   the field keep the look they have while nothing has been tested. */
+#quiz .qmark {
+  flex: none;
+  font-size: var(--fs-ui);
+}
+
+#quiz .qmark.right {
+  color: var(--ok);
+}
+
+#quiz .qmark.wrong {
+  color: var(--bad);
+}
+
+/* A shape that is not there yet is not a wrong answer: --wait, never --bad, so it cannot
+   be mistaken for the judge's ✗ -- which stays the only thing that decides. */
+#quiz .qshape {
+  flex: none;
+  font-size: var(--fs-label);
+  color: var(--wait);
+}
+
 #quiz .qrow input {
   flex: 0 0 11rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
