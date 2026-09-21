@@ -11,7 +11,17 @@ const setting = (name: string) => (process.env.VITEST ? "" : process.env[name] ?
 
 const API = trim(setting("CTESTER_API_ORIGIN"));
 const AUTH = trim(setting("CTESTER_AUTH_ORIGIN"));
+// The header prints the name and the tagline side by side, and index.html joins them for
+// the tab. A title carrying the whole sentence shows it twice, which is easy to do and
+// invisible until someone looks at the page.
+const TAGLINE = "Tester mon code";
 const TITLE = setting("CTESTER_TITLE") || "CTester";
+if (TITLE.includes(TAGLINE)) {
+  throw new Error(
+    `CTESTER_TITLE must be the instance's name alone, not "${TITLE}": ` +
+      `"${TAGLINE}" is already shown next to it.`,
+  );
+}
 const DOMAIN = trim(setting("CTESTER_PAGES_DOMAIN"));
 
 export const SUBSTITUTIONS: Record<string, string> = {

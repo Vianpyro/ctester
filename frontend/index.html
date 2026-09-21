@@ -12,7 +12,10 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' %API_ORIGIN% blob:; connect-src 'self' %API_ORIGIN% %API_WS% %AUTH_ORIGIN%; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>%TITLE%</title>
+<!-- %TITLE% is the instance's NAME alone (CTESTER_TITLE, e.g. "TCH009"): the tagline
+     is already beside it in the header, and putting the whole sentence in the variable
+     prints it twice. -->
+<title>%TITLE% — Tester mon code</title>
 <!-- Blocking on purpose: the theme is applied before the first paint. -->
 <script src="/theme.js"></script>
 <script type="module" src="/src/main.ts"></script>
