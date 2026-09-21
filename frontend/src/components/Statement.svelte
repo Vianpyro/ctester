@@ -2,10 +2,14 @@
   import { exercise } from "../lib/state/exercise.svelte";
   import { catalog } from "../lib/state/catalog.svelte";
   import { lockNote } from "../lib/domain/catalog";
-  import StatementBody from "./StatementBody.svelte";
+  import { renderStatement } from "../lib/domain/statement";
+  import TypstStatement from "./TypstStatement.svelte";
+  import TypstHtml from "./TypstHtml.svelte";
 
-  const shown = $derived(exercise.statements);
+  const current = $derived(exercise.statement);
   const closed = $derived(lockNote(catalog.selected));
+
+  let htmlFailedFor = $state<string | null>(null);
 </script>
 
 <details id="statement" open>
@@ -13,12 +17,33 @@
   {#if closed}
     <p class="preview">🔒 Invisible pour les étudiants — {closed}.</p>
   {/if}
-  {#each shown as one (one.id + "|" + one.title)}
-    {#if one.title}
-      <h3 class="stitle">{one.title}</h3>
-    {/if}
-    <StatementBody current={one.state} />
-  {/each}
+  {#if current.kind === "loading"}
+    <pre id="statementtext" class="empty">Chargement…</pre>
+  {:else if current.kind === "text"}
+    <div id="statementtext" class="md">{@html renderStatement(current.text)}</div>
+  {:else if current.kind === "typst" && current.html && htmlFailedFor !== current.id}
+    {@const id = current.id}
+    <div id="statementtext" class="md">
+      <TypstHtml {id} staff={current.staff} onfail={() => (htmlFailedFor = id)} />
+    </div>
+  {:else if current.kind === "typst"}
+    <div id="statementtext" class="typstpages">
+      <TypstStatement
+        id={current.id}
+        pages={current.pages}
+        staff={current.staff}
+        title={current.title}
+      />
+    </div>
+  {:else if current.kind === "none"}
+    <pre id="statementtext" class="empty">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.</pre>
+  {:else}
+    <pre id="statementtext" class="empty">La consigne n'a pas pu être chargée. Tu peux quand même écrire et tester : les noms de fichiers attendus, eux, sont déjà là.<button
+        type="button"
+        class="nav"
+        onclick={() => exercise.retryStatement()}>Réessayer</button
+      ></pre>
+  {/if}
 </details>
 
 <style>

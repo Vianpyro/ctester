@@ -6,13 +6,13 @@
   // The template alternates text runs and gaps: run 0, gap 0, run 1, gap 1, ... The judge
   // never parses it, so this split and the publisher's must agree on `_{3,}`.
   const runs = $derived(q.template.split(/_{3,}/));
-  const filled = $derived((quiz.answers[q.key] ?? []) as string[]);
+  const filled = $derived((quiz.answers[q.id] ?? []) as string[]);
 
   function fill(i: number, value: string) {
     const next = [...filled];
     while (next.length < q.gaps.length) next.push("");
     next[i] = value;
-    quiz.answers[q.key] = next;
+    quiz.answers[q.id] = next;
     onchange();
   }
 </script>

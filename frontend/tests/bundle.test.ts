@@ -115,10 +115,10 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
   });
 
   it("keeps the QUIZ widgets out: most exercises are not a quiz", () => {
-    expect(eagerSource(), "the quiz panel is only for a quiz").not.toContain("répondues");
+    expect(eagerSource(), "the quiz nav is only for a quiz").not.toContain("‹ Précédent");
     const panel = allChunks().find((name) => name.startsWith("QuizPanel"));
     expect(panel, "the quiz panel must exist as its own chunk").toBeTruthy();
-    expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("répondues");
+    expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("‹ Précédent");
   });
 
   it("keeps the shortcuts WORKING but the cheat sheet DEFERRED", () => {

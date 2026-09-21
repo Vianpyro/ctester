@@ -69,12 +69,7 @@ export interface PublishedQuestion {
   id: string;
   label: string;
   group: string;
-  /** Set together, they place the question in a cell of its group's table. */
-  row?: string;
-  col?: string;
   type?: string;
-  /** Characters the answer is expected to have; 0 when nobody said. */
-  width?: number;
   options?: string[];
   prompts?: string[];
   template?: string;
@@ -85,19 +80,11 @@ export interface QuizPayload {
   questions: PublishedQuestion[];
 }
 
-export interface SubmissionItem {
+export interface SubmissionBody {
+  key: string;
   exercise_id: string;
   files?: Record<string, string>;
   answers?: Record<string, string | string[] | Record<string, string>>;
-}
-
-export interface SubmissionBody {
-  key: string;
-  exercise_id?: string;
-  files?: Record<string, string>;
-  answers?: Record<string, string | string[] | Record<string, string>>;
-  /** A page may hold several exercises; they travel together for one cooldown slot. */
-  items?: SubmissionItem[];
 }
 
 export type VerdictStatus =

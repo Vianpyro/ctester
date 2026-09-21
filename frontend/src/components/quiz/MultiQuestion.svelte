@@ -5,13 +5,13 @@
 
   // A fieldset, not role="radiogroup": there is no checkboxgroup role, and a legend is
   // how a native group of checkboxes gets its accessible name.
-  const chosen = $derived((quiz.answers[q.key] ?? []) as string[]);
+  const chosen = $derived((quiz.answers[q.id] ?? []) as string[]);
 
   function toggle(option: string) {
     const next = chosen.includes(option)
       ? chosen.filter((one) => one !== option)
       : [...chosen, option];
-    quiz.answers[q.key] = next;
+    quiz.answers[q.id] = next;
     onchange();
   }
 </script>

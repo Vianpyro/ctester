@@ -256,12 +256,6 @@ button {
   justify-content: center;
 }
 
-/* An author `display` beats the browser's own `[hidden]`, so without this every hidden
-   .nav, .btn, .tile and .tab stays on screen. */
-:is(.nav, .btn, .tile, .tab, .menu > summary)[hidden] {
-  display: none;
-}
-
 #go,
 #goex {
   min-height: var(--tap-lg);
@@ -601,7 +595,7 @@ main {
   display: none;
 }
 
-.statementtext {
+#statementtext {
   margin: 0;
   padding: .85rem var(--gut);
   border: 0;
@@ -612,18 +606,18 @@ main {
   font-family: var(--mono);
 }
 
-.statementtext.empty {
+#statementtext.empty {
   font-family: var(--sans);
   color: var(--muted);
 }
 
-.statementtext.typstpages {
+#statementtext.typstpages {
   margin: 0;
   padding: 0;
   background: var(--bg);
 }
 
-.statementtext.md {
+#statementtext.md {
   margin: 0;
   padding: .85rem var(--gut);
   white-space: normal;
@@ -632,36 +626,36 @@ main {
   line-height: 1.65;
 }
 
-.statementtext.md> :first-child {
+#statementtext.md> :first-child {
   margin-top: 0;
 }
 
-.statementtext.md> :last-child {
+#statementtext.md> :last-child {
   margin-bottom: 0;
 }
 
-.statementtext.md p {
+#statementtext.md p {
   margin: 0 0 .7rem;
 }
 
-.statementtext.md :is(h1, h2, h3, h4) {
+#statementtext.md :is(h1, h2, h3, h4) {
   margin: 0 0 .45rem;
   font-size: var(--fs-lead);
   font-weight: 600;
   color: var(--fg);
 }
 
-.statementtext.md ul,
-.statementtext.md ol {
+#statementtext.md ul,
+#statementtext.md ol {
   margin: 0 0 .7rem;
   padding-left: 1.3rem;
 }
 
-.statementtext.md li {
+#statementtext.md li {
   margin-bottom: .2rem;
 }
 
-.statementtext.md pre {
+#statementtext.md pre {
   margin: 0 0 .7rem;
   padding: .55rem .65rem;
   overflow-x: auto;
@@ -674,7 +668,7 @@ main {
   tab-size: 4;
 }
 
-.statementtext.md pre code {
+#statementtext.md pre code {
   padding: 0;
   background: none;
   border: 0;
@@ -776,7 +770,7 @@ main {
   font-size: .9em;
 }
 
-.statementtext.md code {
+#statementtext.md code {
   font-family: var(--mono);
   font-size: var(--fs-ui);
   padding: 0 .25rem;
@@ -785,13 +779,13 @@ main {
   border-radius: var(--coin);
 }
 
-.statementtext.md math {
+#statementtext.md math {
   font-size: 1.4em;
   math-style: normal;
 }
 
-.statementtext.md p:has(math),
-.statementtext.md li:has(math) {
+#statementtext.md p:has(math),
+#statementtext.md li:has(math) {
   line-height: 2.1;
   overflow-x: auto;
   padding-bottom: .4rem;
@@ -849,33 +843,6 @@ main {
   min-height: 0;
   overflow-y: auto;
   padding: .9rem;
-  container-type: inline-size;
-  container-name: quiz;
-  /* What sits under the panel -- the action bar and the verdict -- and so is not room a
-     page may fill. One knob: the filler reads it, nothing else does. */
-  --quiz-reserve: 176px;
-}
-
-#quiz {
-  /* flow-root, so the exercises' margins stay inside and its height is the height the
-     filler needs to compare against the room on screen. */
-  display: flow-root;
-  --qlabel: min(12rem, 100%);
-  /* Padding and border of an input, since everything here is border-box. */
-  --qbox: 1.4rem;
-}
-
-/* Short questions flow into as many columns as the panel affords, so a section of five
-   no longer leaves most of the screen empty. Reading order follows the DOM, row by row.
-   The column is exactly a label plus a field, so a row never wraps for want of a few px. */
-#quiz .qlist {
-  display: grid;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(min(100%, calc(var(--qlabel) + var(--slots, 12) * 1ch + var(--qbox) + 1.5rem)), 1fr)
-  );
-  justify-content: start;
-  gap: 0 2rem;
 }
 
 #tabs {
@@ -1215,9 +1182,8 @@ main {
 }
 
 #out {
-  /* Never shrinks: the panel above it scrolls, and that is what its own overflow is for.
-     Letting the verdict be squeezed put a scrollbar on a two-line message. */
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-height: 0;
   max-height: min(45vh, 22rem);
   overflow-y: auto;
   padding: .85rem var(--gut) .85rem calc(var(--gut) - 3px);
@@ -1445,166 +1411,32 @@ pre {
   word-break: break-word;
 }
 
-/* flow-root, so the heading's margin stays inside the section and its offsetHeight is the
-   height the packer needs. [hidden] still wins: it is more specific than this rule. */
-#quiz .qsection {
-  display: flow-root;
-}
-
-/* Several sections share a screen now: they need a visible seam between them. */
-#quiz .qsection + .qsection {
-  margin-top: 1.6rem;
-}
-
-/* Several exercises share a page: each is a block of its own, with a seam between them
-   that is heavier than the one between two sections of the same exercise. */
-#quiz .qexercise + .qexercise {
-  margin-top: 2rem;
-  padding-top: 1.4rem;
-  border-top: 2px solid var(--line);
-}
-
-#quiz .qtitle {
-  margin: 0 0 .8rem;
-  font-size: var(--fs-lead);
-  font-weight: 700;
-  color: var(--ink);
-}
-
-/* The one heading of an exercise that has no sections of its own: it names the exercise,
-   so it wears the exercise's weight while keeping the section row's counter. */
-#quiz .qgroup.lead {
-  font-size: var(--fs-lead);
-  color: var(--ink);
-}
-
-/* A group the author laid out as a table: one question per cell, headers carry the wording. */
-#quiz .qtable {
-  border-collapse: collapse;
-}
-
-#quiz .qtable :is(th, td) {
-  padding: .25rem .6rem .25rem 0;
-  text-align: left;
-}
-
-/* Middle, so a row's heading sits on the line of the fields it labels. */
-#quiz .qtable tbody :is(th, td) {
-  vertical-align: middle;
-}
-
-#quiz .qtable thead th {
-  padding-bottom: .4rem;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--fs-label);
-  color: var(--muted);
-  font-weight: 600;
-}
-
-#quiz .qtable tbody th {
-  font-weight: 400;
-  padding-right: 1.2rem;
-}
-
-@container quiz (min-width: 34rem) {
-  #quiz .qtable tbody th {
-    white-space: nowrap;
-  }
-}
-
-/* A cell names itself for the screen reader; below the fold it also names itself for the
-   eye. `display: block` on a table strips its roles in most browsers, so this label is
-   what keeps a stacked cell meaningful -- hence clip, never `display: none`. */
-#quiz .qcell {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  clip-path: inset(50%);
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-#quiz .qtable .qmark {
-  /* Kept narrow so a hint wraps inside its cell instead of stretching the column. */
-  max-width: 14rem;
-  padding-left: 0;
-  margin: .1rem 0 0;
-}
-
 #quiz .qgroup {
-  display: flex;
-  gap: 1.5rem;
-  align-items: baseline;
-  margin: 0 0 .6rem;
+  margin: 1.2rem 0 .4rem;
   font-weight: 700;
   font-size: .95rem;
   border-bottom: 1px solid var(--line);
   padding-bottom: .3rem;
 }
 
-#quiz .qgroup:focus-visible {
-  outline: 3px solid var(--ink);
-  outline-offset: 3px;
-}
-
-#quiz .qcount {
-  flex: none;
-  font-weight: 400;
-  font-size: var(--fs-label);
-  color: var(--muted);
-}
-
-#quiz .qq {
-  margin: .35rem 0;
+#quiz .qgroup:first-child {
+  margin-top: 0;
 }
 
 #quiz .qrow {
   display: flex;
   gap: .75rem;
   align-items: center;
-  flex-wrap: wrap;
+  margin: .35rem 0;
 }
 
-/* Fixed, not growing: the answers line up in a column the eye can scan, and no question
-   ends up a screen away from its own field. */
-#quiz .qrow > span {
-  flex: 0 0 var(--qlabel);
-  max-width: 100%;
-  min-width: 0;
+#quiz .qrow span {
+  flex: 1 1 20rem;
 }
 
-/* The field is shaped like the answer it wants: eight bits look like eight bits. `--slots`
-   is set on the field itself from the published width, so one bit gets one slot and the
-   mantissa gets twenty-three. The width is a hint, never a limit -- the judge accepts
-   "1011 1010" and "0b10111010" too. Fields whose length nobody fixed share one size. */
-#quiz input[data-qtype] {
-  flex: 0 0 auto;
-  width: calc(var(--slots, 12) * 1ch + var(--qbox));
-  /* A two-slot hex field still has to hold "0xC8", which the judge accepts. */
-  min-width: calc(4ch + var(--qbox));
-  max-width: 100%;
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-}
-
-#quiz input[data-qtype]::placeholder {
-  color: var(--line-2);
-  letter-spacing: .1em;
-}
-
-#quiz .qmark {
-  margin: .15rem 0 .5rem;
-  padding-left: calc(var(--qlabel) + .75rem);
-  font-size: var(--fs-label);
-}
-
-#quiz .qmark.wrong {
-  color: var(--bad);
-}
-
-#quiz .qmark.right {
-  color: var(--ok);
+#quiz .qrow input {
+  flex: 0 0 11rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 #quiz .qrow:has(.qchoices) {
@@ -1614,8 +1446,7 @@ pre {
 
 #quiz .qchoices {
   display: flex;
-  flex: 1 1 min(100%, 20rem);
-  min-width: 0;
+  flex: 1 1 20rem;
   flex-wrap: wrap;
   gap: .4rem 1.2rem;
 }
@@ -1625,6 +1456,7 @@ pre {
   align-items: center;
   gap: .4rem;
   font-size: var(--fs-ui);
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1650,8 +1482,7 @@ pre {
 
 #quiz .qmatch,
 #quiz .qorder {
-  flex: 1 1 min(100%, 20rem);
-  min-width: 0;
+  flex: 1 1 20rem;
   display: flex;
   flex-direction: column;
   gap: .35rem;
@@ -1695,8 +1526,6 @@ pre {
 
 #quiz .qcloze {
   flex: 1 1 100%;
-  min-width: 0;
-  overflow-wrap: anywhere;
   white-space: pre-wrap;
   font-family: var(--mono);
   font-size: var(--fs-ui);
@@ -1711,76 +1540,22 @@ pre {
   margin: 0 .15rem;
 }
 
-/* Narrow: one column, the label on its own line, and the table unfolded. Keyed to the
-   panel, not the window. Nothing here may scroll sideways. */
-@container quiz (max-width: 34rem) {
-  #quiz {
-    --qlabel: 100%;
-  }
+#quiznav {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-top: 1.2rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--line);
+}
 
-  #quiz .qlist {
-    grid-template-columns: minmax(0, 1fr);
-  }
+#quiznav[hidden] {
+  display: none;
+}
 
-  #quiz .qmark {
-    padding-left: 0;
-  }
-
-  #quiz .qtable thead {
-    display: none;
-  }
-
-  #quiz .qtable,
-  #quiz .qtable tbody,
-  #quiz .qtable tr,
-  #quiz .qtable :is(th, td) {
-    display: block;
-  }
-
-  #quiz .qtable tr + tr {
-    margin-top: .9rem;
-  }
-
-  #quiz .qtable tbody th {
-    font-weight: 700;
-    padding: 0 0 .25rem;
-  }
-
-  #quiz .qtable td {
-    padding: 0 0 .4rem;
-  }
-
-  #quiz .qtable td:empty {
-    display: none;
-  }
-
-  /* The cell's label comes out of hiding and becomes its caption. Its row half stays
-     clipped: the row already reads as the heading just above. */
-  #quiz .qcell {
-    position: static;
-    width: auto;
-    height: auto;
-    margin: 0;
-    clip-path: none;
-    overflow: visible;
-    white-space: normal;
-    display: block;
-    font-size: var(--fs-label);
-    color: var(--muted);
-  }
-
-  #quiz .qcell-row {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    clip-path: inset(50%);
-    overflow: hidden;
-  }
-
-  #quiz .qtable .qmark {
-    max-width: none;
-  }
+#quiznav .pos {
+  color: var(--muted);
+  font-size: var(--fs-ui);
 }
 
 :is(#consent, #charter, #identitypanel, #shortcuts) {
@@ -3958,26 +3733,4 @@ pre {
   display: flex;
   justify-content: flex-end;
   margin-top: .9rem;
-}
-
-/* One card per exercise tested. The box around them carries the worst outcome, so a card
-   only has to say its own. */
-#out .verdictcard + .verdictcard {
-  margin-top: .9rem;
-  padding-top: .8rem;
-  border-top: 1px solid var(--line);
-}
-
-#out .verdicttitle {
-  font-size: var(--fs-label);
-  color: var(--muted);
-  margin-bottom: .15rem;
-}
-
-/* The exercise a consigne belongs to, shown only when the page holds several. */
-#statement .stitle {
-  margin: .9rem .6rem .2rem;
-  font-size: var(--fs-ui);
-  font-weight: 700;
-  color: var(--ink);
 }

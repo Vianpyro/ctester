@@ -10,9 +10,6 @@ import type { ExerciseDetail } from "../api/types";
 
 const LAST_EXERCISE = "ctester.exercise";
 
-/** The page as it stands now, so a slow load cannot overwrite a newer one. */
-const still = (): string => quiz.shown.map((one) => one.exerciseId).join(",");
-
 export function lastExercise(): string {
   return localGet(LAST_EXERCISE);
 }
@@ -49,50 +46,9 @@ export function whenChatReady(follow: () => Promise<void>): void {
   followChannel = follow;
 }
 
-/** One consigne on screen. A quiz page showing three exercises shows three. */
-export interface StatementView {
-  id: string;
-  /** Empty when there is only one: a lone consigne needs no exercise name above it. */
-  title: string;
-  state: StatementState;
-}
-
 class ExerciseState {
-  statements = $state<StatementView[]>([{ id: "", title: "", state: { kind: "loading" } }]);
+  statement = $state<StatementState>({ kind: "loading" });
   #load = 0;
-
-  /** The consigne of the exercise in focus, for the callers that only ever face one. */
-  get statement(): StatementState {
-    return this.statements[0]?.state ?? { kind: "loading" };
-  }
-
-  set statement(state: StatementState) {
-    const id = catalog.selectedId;
-    this.statements = [{ id, title: "", state }];
-  }
-
-  /**
-   * The consignes of every exercise a quiz page holds. One place for them, in the order
-   * the questions appear, so nothing is said twice. The panel owns this for a quiz, and
-   * `open()` leaves it alone: the two would otherwise race, since the page is filled
-   * before the open finishes resolving its detail.
-   */
-  async showStatements(wanted: { id: string; short: string }[]): Promise<void> {
-    const asked = wanted.map((one) => one.id).join(",");
-    const found: StatementView[] = [];
-    for (const one of wanted) {
-      const ex = catalog.catalog.find((e) => e.id === one.id);
-      if (!ex) continue;
-      const detail = await catalog.detail(ex.id);
-      // Named only when there are several: one consigne needs no exercise name above it.
-      found.push({
-        id: ex.id,
-        title: wanted.length > 1 ? one.short : "",
-        state: statementOf(ex, detail),
-      });
-    }
-    if (found.length && asked === still()) this.statements = found;
-  }
 
   async open(id: string): Promise<void> {
     // Boot re-opens the exercise once the token arrives, to pick up the account draft and
@@ -103,9 +59,7 @@ class ExerciseState {
     drafts.cancel();
     this.saveNow();
     catalog.selectedId = id;
-    // A quiz page decides for itself which legs stay: an exercise still on screen must
-    // keep its verdict, and a job that stops being polled is never recorded.
-    if (catalog.selected?.mode !== "quiz") submission.reset();
+    submission.reset();
     editor.exerciseId = null;
     editor.lock(false);
     const ex = catalog.selected;
@@ -119,10 +73,11 @@ class ExerciseState {
     if (ex.mode === "quiz" && !same) quiz.clear();
     const detail = await catalog.detail(ex.id);
     if (thisLoad !== this.#load) return;
-    // A quiz page is filled by the panel: it is the only place that knows how many
-    // exercises fit on screen, and it sets the consignes to match.
-    if (ex.mode === "quiz") return;
     this.statement = statementOf(ex, detail);
+    if (ex.mode === "quiz") {
+      await quiz.load(ex.id);
+      return;
+    }
     await drafts.pullFromAccount(ex.id);
     if (thisLoad !== this.#load) return;
     this.#fillEditor(ex, detail.files);

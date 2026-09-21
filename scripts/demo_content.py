@@ -87,8 +87,7 @@ COLLECTIONS = [
 
 QUIZ_QUESTIONS = [
     {"id": "q1", "group": "Exercice 1 — les types", "type": "int",
-     "label": "Combien d'octets occupe un int sur la machine du juge ?",
-     "width": 1, "answer": 4},
+     "label": "Combien d'octets occupe un int sur la machine du juge ?", "answer": 4},
     {"id": "q2", "group": "Exercice 1 — les types", "type": "choice",
      "label": "Quel format printf affiche un entier signé ?",
      "options": ["%d", "%s", "%c", "%f"], "answer": "%d"},
@@ -96,26 +95,6 @@ QUIZ_QUESTIONS = [
      "label": "En C, 0 est considéré comme faux.", "answer": True},
     {"id": "q4", "group": "Exercice 2 — les conditions", "type": "int",
      "label": "Que vaut 7 / 2 en division entière ?", "answer": 3},
-    # `row` and `col` lay a group out as a table: every question of the group carries both,
-    # the headers keep this order, and no two share a cell. Without them it is a plain list.
-    {"id": "q5", "group": "Exercice 3 — entiers signés sur 8 bits", "type": "bin8",
-     "row": "-58", "col": "signe-valeur", "label": "-58 en signe-valeur",
-     "answer": "10111010"},
-    {"id": "q6", "group": "Exercice 3 — entiers signés sur 8 bits", "type": "bin8",
-     "row": "-58", "col": "complément à 1", "label": "-58 en complément à 1",
-     "answer": "11000101"},
-    {"id": "q7", "group": "Exercice 3 — entiers signés sur 8 bits", "type": "bin8",
-     "row": "-58", "col": "complément à 2", "label": "-58 en complément à 2",
-     "answer": "11000110"},
-    {"id": "q8", "group": "Exercice 3 — entiers signés sur 8 bits", "type": "bin8",
-     "row": "75", "col": "signe-valeur", "label": "75 en signe-valeur",
-     "answer": "01001011"},
-    {"id": "q9", "group": "Exercice 3 — entiers signés sur 8 bits", "type": "bin8",
-     "row": "75", "col": "complément à 1", "label": "75 en complément à 1",
-     "answer": "01001011"},
-    {"id": "q10", "group": "Exercice 3 — entiers signés sur 8 bits", "type": "bin8",
-     "row": "75", "col": "complément à 2", "label": "75 en complément à 2",
-     "answer": "01001011"},
 ]
 
 

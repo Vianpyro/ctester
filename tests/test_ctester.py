@@ -1263,80 +1263,6 @@ def test_quiz_validation_refuses_every_shape_the_judge_could_not_grade():
     assert any("duplicate" in one for one in duplicates), duplicates
 
 
-def test_quiz_table_is_all_or_nothing_within_a_group():
-    def errors_for(questions):
-        found = []
-        content_catalogue._quiz({"questions": questions}, "q.json", found)
-        return " | ".join(found)
-
-    cell = lambda ident, row, col: {
-        "id": ident, "group": "G", "label": ident, "row": row, "col": col,
-        "type": "bin8", "answer": "00010111",
-    }
-
-    assert errors_for([cell("a", "-58", "signe-valeur"),
-                       cell("b", "-58", "complément à 1"),
-                       cell("c", "-100", "signe-valeur"),
-                       cell("d", "-100", "complément à 1")]) == ""
-
-    # A group with no row or col at all is a plain list, still the common case.
-    assert errors_for([{"id": "a", "group": "G", "label": "23",
-                        "type": "bin8", "answer": "00010111"}]) == ""
-
-    half = errors_for([cell("a", "-58", "signe-valeur"),
-                       {"id": "b", "group": "G", "label": "L",
-                        "type": "int", "answer": "1"}])
-    assert "cover the whole group, or none of it" in half, half
-
-    twice = errors_for([cell("a", "-58", "signe-valeur"),
-                        cell("b", "-58", "signe-valeur")])
-    assert "share the cell" in twice, twice
-
-    lonely = errors_for([cell("a", "-58", ""), cell("b", "-100", "signe-valeur")])
-    assert "needs both a row and a col" in lonely, lonely
-
-    # Another group in the same quiz stays a list without dragging this one down.
-    mixed = errors_for([cell("a", "-58", "signe-valeur"),
-                        cell("b", "-100", "signe-valeur"),
-                        {"id": "c", "group": "H", "label": "41",
-                         "type": "bin8", "answer": "00101001"}])
-    assert mixed == "", mixed
-
-    not_text = errors_for([dict(cell("a", "-58", "signe-valeur"), row=58)])
-    assert "must be text" in not_text, not_text
-
-
-def test_quiz_width_is_declared_or_implied_but_never_guessed():
-    def errors_for(question):
-        found = []
-        content_catalogue._quiz({"questions": [question]}, "q.json", found)
-        return " | ".join(found)
-
-    base = {"id": "q1", "group": "G", "label": "L"}
-    assert errors_for(dict(base, type="bin", width=23, answer="01100101")) == ""
-    assert errors_for(dict(base, type="bin", answer="0")) == ""
-
-    implied = errors_for(dict(base, type="bin8", width=8, answer="00010111"))
-    assert "implied by the type" in implied, implied
-
-    wrong_type = errors_for(dict(base, type="bool", width=4, answer=True))
-    assert "ignored for this type" in wrong_type, wrong_type
-
-    for bad in (0, -1, 65, "8", 8.0, True):
-        found = errors_for(dict(base, type="bin", width=bad, answer="0"))
-        assert "whole number from 1 to 64" in found, (bad, found)
-
-    # The width the page sizes a field with comes from the type when the judge fixes it,
-    # and is zero -- not the length of the answer key -- when nobody said.
-    published = publish_content.public_quiz({"questions": [
-        {"id": "a", "type": "bin8", "answer": "00010111"},
-        {"id": "b", "type": "hex8", "answer": "C8"},
-        {"id": "c", "type": "bin", "width": 23, "answer": "01100101"},
-        {"id": "d", "type": "bin", "answer": "01100101"},
-    ]})
-    assert [q["width"] for q in published["questions"]] == [8, 2, 23, 0]
-
-
 def test_public_quiz_hides_answers():
     public = publish_content.public_quiz(QUIZ)
     blob = json.dumps(public, ensure_ascii=False)
@@ -1344,8 +1270,8 @@ def test_public_quiz_hides_answers():
     for question in QUIZ["questions"]:
         assert question["answer"] not in blob, question
         assert question["label"] in blob
-    assert set(public["questions"][0]) == {"id", "group", "label", "row", "col", "type",
-                                          "width", "options", "prompts", "template", "gaps"}
+    assert set(public["questions"][0]) == {"id", "group", "label", "type", "options",
+                                          "prompts", "template", "gaps"}
 
     QUIZ["questions"][0]["commentaire_prof"] = "piège classique"
     try:
@@ -1364,8 +1290,8 @@ def test_public_quiz_keeps_the_choices():
     ]}
     question = publish_content.public_quiz(quiz)["questions"][0]
     assert question["options"] == options
-    assert set(question) == {"id", "group", "label", "row", "col", "type", "width",
-                             "options", "prompts", "template", "gaps"}
+    assert set(question) == {"id", "group", "label", "type", "options",
+                             "prompts", "template", "gaps"}
 
 
 def test_public_quiz_is_independent_of_the_correct_order():
@@ -1400,7 +1326,7 @@ def test_public_quiz_is_independent_of_the_correct_order():
     assert len(rendered) == 1, rendered
 
 
-def test_public_quiz_publishes_the_same_eleven_keys_for_every_type():
+def test_public_quiz_publishes_the_same_eight_keys_for_every_type():
     questions = [
         {"id": "a", "type": "bool", "answer": True},
         {"id": "b", "type": "text", "answer": {"accept": ["free"]}},
@@ -1409,8 +1335,7 @@ def test_public_quiz_publishes_the_same_eleven_keys_for_every_type():
         {"id": "e", "type": "match", "answer": {"p": "q", "r": "s"}, "options": ["distracteur"]},
     ]
     public = publish_content.public_quiz({"questions": questions})
-    keys = {"id", "group", "label", "row", "col", "type", "width", "options",
-            "prompts", "template", "gaps"}
+    keys = {"id", "group", "label", "type", "options", "prompts", "template", "gaps"}
     for question in public["questions"]:
         assert set(question) == keys, question
 

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { catalog } from "../lib/state/catalog.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
-  import { quiz } from "../lib/state/quiz.svelte";
   import { presence } from "../lib/state/presence.svelte";
   import { profile } from "../lib/state/profile.svelte";
   import { session } from "../lib/auth/session.svelte";
@@ -28,12 +27,8 @@
   const plate = $derived(profile.plate);
   const light = $derived(theme.current === "light");
 
-  // A page can hold several exercises, so the arrows move by page: forward lands on the
-  // first exercise the page does not already show, back on the one before it.
   const step = (by: number) => {
-    const shown = quiz.shown.map((one) => one.exerciseId);
-    const from = by > 0 && shown.length > 1 ? shown.length - 1 : 0;
-    const target = catalog.step(by + (by > 0 ? from : 0));
+    const target = catalog.step(by);
     if (target) exercise.open(target.id);
   };
   const index = $derived(catalog.catalog.findIndex((t) => t.id === catalog.selectedId));

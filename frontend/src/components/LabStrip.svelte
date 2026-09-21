@@ -2,7 +2,6 @@
   import { catalog } from "../lib/state/catalog.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import { statuses } from "../lib/state/statuses.svelte";
-  import { quiz } from "../lib/state/quiz.svelte";
   import { lockNote, stripLabel, tileState } from "../lib/domain/catalog";
   import { STATUS_MARK, plural } from "../lib/domain/labels";
 
@@ -15,9 +14,6 @@
   const neighbors = $derived(catalog.neighbors);
   const shown = $derived(neighbors.length >= 2);
   const solved = $derived(neighbors.filter((e) => statuses.of(e.id) === "solved").length);
-  // A page can hold several exercises, so the strip marks all of them, not just the one
-  // the header names.
-  const onPage = $derived(new Set(quiz.shown.map((one) => one.exerciseId)));
 </script>
 
 <nav id="labband" aria-label="Exercices de ce laboratoire, et accès au catalogue" hidden={!shown}>
@@ -27,24 +23,18 @@
       {@const locked = !!note && !catalog.staff}
       {@const state = tileState(ex, !!note, statuses.byExercise)}
       {@const current = ex.id === catalog.selectedId}
-      {@const here = current || onPage.has(ex.id)}
       {@const said =
         (note || state.word) +
         (ex.bonus ? ", bonus facultatif" : "") +
-        (here ? ", affiché sur cette page" : "")}
+        (current ? ", ouvert dans l'éditeur" : "")}
       <button
         type="button"
-        class={"tile " + state.cls + (ex.bonus ? " bonus" : "") + (here ? " current" : "")}
+        class={"tile " + state.cls + (ex.bonus ? " bonus" : "") + (current ? " current" : "")}
         title={ex.short + " — " + said}
         aria-disabled={locked ? "true" : undefined}
-        aria-current={here ? "true" : undefined}
+        aria-current={current ? "true" : undefined}
         onclick={() => {
-          if (locked || current) return;
-          // Already on the page: bring it into view. Opening it would refill from there
-          // and drop the exercises above it.
-          const block = here ? document.getElementById("ex-" + ex.id) : null;
-          if (block) block.scrollIntoView({ block: "start", behavior: "smooth" });
-          else exercise.open(ex.id);
+          if (!locked && !current) exercise.open(ex.id);
         }}
       >
         {stripLabel(ex)}
