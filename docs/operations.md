@@ -16,7 +16,8 @@
   no API origin in its CSP — unconfigured, the page asks its own origin for `/catalog.json` and the
   site is down. `CTESTER_TITLE` is the instance's **name alone** (`TCH009`, not
   `TCH009 — Tester mon code`): the header shows the tagline beside it and the tab joins the two,
-  so a title carrying the whole sentence prints it twice. The build refuses that value. `CTESTER_API_ORIGIN` is also read by the server, which is what keeps the CSP in
+  so a title carrying the whole sentence prints it twice. The build refuses that value.
+  `CTESTER_API_ORIGIN` is also read by the server, which is what keeps the CSP in
   `index.html` and the one in `app/csp.py` saying the same thing.
   `CTESTER_PAGE` may still point at a `dist` directory to serve the page from the API; set it to an
   empty string to disable that router.
@@ -363,11 +364,11 @@ per-exercise statistics and where the discussion is. What it reads:
 | `published/current.json` | the revision the API is serving |
 | `exercise_state`, `practice_attempt`, `xp_transaction` | solved counts, active accounts, XP |
 | `web`'s `/live` | open browser windows right now |
+| `forum_message` | the Discussions panel: per-channel message counts and last activity, never any message text |
 
 Console sessions are kept out of every timing and success aggregate: their duration is the
 student's typing, and their queue wait is the global console lock rather than a busy worker.
 They keep their own `:console` row under *Par exercice*, which is where console usage belongs.
-| `forum_message` | the Discussions panel: per-channel message counts and last activity, never any message text |
 
 Everything on the page refreshes on the same 5 s tick. A request is skipped while the previous
 one is still out, so on a long period the dashboard slows to the database's real speed instead

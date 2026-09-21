@@ -104,8 +104,7 @@ repository declared.
 | `verification` | no | boolean: this one counts as a check, not practice |
 | `bonus` | no | boolean |
 
-`difficulty` is not decoration: it is what the XP table in `app/policy.py` keys on. An
-unlisted value is refused; a missing one earns the default award.
+`difficulty` is what the XP table in `app/policy.py` keys on. An unlisted value is refused; a missing one earns the default award.
 
 ### `release`
 
@@ -145,7 +144,7 @@ only selects the mode.
 Each entry becomes an editor tab, pre-named and pre-filled with its optional `template`.
 A name matches `[A-Za-z0-9_]{1,32}\.[ch]`; anything resembling a path is refused.
 
-**The names are imposed, and that is not authoritarianism.** Once a student writes a
+**The names are imposed.** Once a student writes a
 module, their own `#include "calcul.h"` only resolves if the file carries exactly that
 name — and so does the test file. Letting the student name their files would add a class
 of error, not a freedom.
@@ -198,7 +197,7 @@ For textual rather than numeric output:
 {"stdin": "1\n", "contains": "laminaire", "absent": ["turbulent", "transitoire"]}
 ```
 
-`contains` ignores case and accents. `absent` is not zeal: without it, a program whose
+`contains` ignores case and accents. `absent` matters: without it, a program whose
 prompt lists all three words passes every case without computing anything.
 
 On failure the student sees the case number, **their input** and **their own output** —
