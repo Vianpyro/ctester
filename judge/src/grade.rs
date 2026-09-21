@@ -1744,7 +1744,10 @@ mod tests {
         let file: Value =
             serde_json::from_str(include_str!("../../tests/vectors/answer_shape.json")).unwrap();
         let cases = file["cases"].as_array().unwrap();
-        assert!(cases.len() >= 30, "the vectors are the contract: keep them thorough");
+        assert!(
+            cases.len() >= 30,
+            "the vectors are the contract: keep them thorough"
+        );
         for v in cases {
             let (kind, given) = (v["type"].as_str().unwrap(), v["given"].as_str().unwrap());
             let formed = v["formed"].as_bool().unwrap();
