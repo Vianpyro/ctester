@@ -15,14 +15,27 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
   to the API-owned spool, `gate.rs` the judge's gate to an exercise.
 - `worker/`: `content_catalog.py`, `publish_content.py` and `typst_build.py` form the content
   pipeline. `judge.py` calls the Rust
-  grading rules for the content tools. `build-*.sh` run inside the sandbox.
+  grading rules for the content tools. `build-*.sh` run inside the sandbox, and
+  `local_build.py` runs those same scripts on the host so the content tools compile
+  exactly like the sandbox instead of keeping a second recipe.
 - `admin/`: the teacher's dashboard, a separate read-only FastAPI app on the LAN. It imports
   `app/state.py` and `app/services/spool.py`; `journal.py` is stdlib-only so the checks can
   import it.
 - `deploy/`: the Compose stack, systemd units and update scripts, all configured by `/opt/ctester/.env`.
-- `scripts/`: command-line tools. `tests/`: the Python checks.
+- `scripts/`: command-line tools. `demo_content.py` + `demo_content_data.py` write the engine's
+  example content base, which is what the format is documented against and what CI publishes.
+- `tests/`: the Python checks. `tests/fixture/unity/` is a stand-in for Unity, so the checks
+  build a unity exercise without a content repository.
+- `docs/content/format.md`: the content format, for anyone bringing their own exercises.
 
 ## Rules the code depends on
+
+- **CTester ships no exercises.** No file under `app/`, `worker/`, `judge/` or `frontend/src/`
+  names an exercise, a collection or a skill. Course vocabulary lives in the content repository:
+  skills and their wording in `catalog.json`, the collection's cards in `cards.json`. The engine
+  fixes the mechanism (the four difficulties, the three modes, the quiz types, the card drawings)
+  and nothing else. The checks run without any content: `test_sandbox.py` writes its own fixture,
+  and `demo_content.py` is the example base.
 
 - **One uvicorn worker.** Quotas, presence, the token cache and collaboration rooms live in memory.
 - **Endpoints are `def`, not `async def`,** and share one PostgreSQL connection behind a lock.
@@ -40,13 +53,18 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **Anything `test_ctester.py` imports must be standard-library only.** It runs with the host Python on
   the Dell. The same goes for `csp.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares
-  them. No inline scripts.
+  them. No inline scripts. The page names no host: `vite.config.ts` fills `%API_ORIGIN%`,
+  `%API_WS%`, `%AUTH_ORIGIN%` and `%TITLE%` at build time from `CTESTER_API_ORIGIN`,
+  `CTESTER_AUTH_ORIGIN` and `CTESTER_TITLE` — the same variables the server reads, which is what
+  keeps the two copies comparable.
 - **The anonymous bundle stays small.** Anything that needs an account is loaded lazily, and
   `bundle.test.ts` checks the built output.
 - **Tables and grants live together** in `app/schema.sql`. Any table with an `account` column must be
   cleared by `state.forget()`, and tests enforce both rules.
 - **Persisted ids never change:** achievement, card and frame ids, event ids (`solved:<exercise>`), and
-  status values.
+  status values. Card ids come from the content's `cards.json`, so renaming one there orphans what
+  students already earned; a card naming an unknown exercise fails the publication instead of
+  becoming quietly unobtainable.
 - **The page never declares a result.** XP, solved states and verdicts are derived by the server.
 - **The worker trusts nothing from the web tier.** It re-resolves the exercise and recomputes the
   moderator role itself.
@@ -74,9 +92,10 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 npm run check && npm run build && npm test
 python3 tests/test_ctester.py
 python3 tests/test_api.py
-python3 scripts/validate_content.py ../unittests/content
-python3 scripts/verify_content.py   ../unittests/content
-python3 tests/test_sandbox.py       ../unittests/content
+python3 tests/test_sandbox.py                        # its own fixture, no content needed
+python3 scripts/demo_content.py --out /tmp/demo      # the engine's example content base
+python3 scripts/validate_content.py /tmp/demo/content
+python3 scripts/verify_content.py   /tmp/demo/content
 ```
 
 `test_postgres.py` needs a real PostgreSQL; see the operations guide.

@@ -4,14 +4,15 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- The API is a different origin from the page: warm it while the HTML is still parsing,
      instead of paying the handshake at the first fetch on a slow link. -->
-<link rel="preconnect" href="https://tch099.thevhome.com" crossorigin>
-<link rel="dns-prefetch" href="https://auth.thevhome.com">
+<link rel="preconnect" href="%API_ORIGIN%" crossorigin>
+<link rel="dns-prefetch" href="%AUTH_ORIGIN%">
 <meta charset="utf-8">
-<!-- Must follow <meta charset> and match app/csp.py; frame-ancestors is header-only. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://tch099.thevhome.com blob:; connect-src 'self' https://tch099.thevhome.com wss://tch099.thevhome.com https://auth.thevhome.com; base-uri 'none'; form-action 'none'">
+<!-- Must follow <meta charset> and match app/csp.py; frame-ancestors is header-only.
+     The %TOKENS% are filled by the deployment plugin in vite.config.ts. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' %API_ORIGIN% blob:; connect-src 'self' %API_ORIGIN% %API_WS% %AUTH_ORIGIN%; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>TCH009 — Tester mon code</title>
+<title>%TITLE%</title>
 <!-- Blocking on purpose: the theme is applied before the first paint. -->
 <script src="/theme.js"></script>
 <script type="module" src="/src/main.ts"></script>

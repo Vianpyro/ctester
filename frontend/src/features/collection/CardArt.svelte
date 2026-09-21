@@ -1,9 +1,10 @@
 <script lang="ts">
   interface Props {
-    id: string;
+    /** A drawing from the gallery below. The content base names it on its card. */
+    art: string;
   }
 
-  const { id }: Props = $props();
+  const { art }: Props = $props();
 
   type Shape =
     | { tag: "path"; d: string }
@@ -13,9 +14,10 @@
   const path = (d: string): Shape => ({ tag: "path", d });
   const circle = (cx: number, cy: number, r: number): Shape => ({ tag: "circle", cx, cy, r });
 
+  // Generic engineering parts, not any course's: a card says which one it wants.
   const DRAWINGS: Record<string, Shape[]> = {
-    "E-01": [path("M6 32h18l6-12 8 24 8-24 8 24 6-12h18")],
-    "M-04": [
+    resistor: [path("M6 32h18l6-12 8 24 8-24 8 24 6-12h18")],
+    bearing: [
       circle(48, 32, 22),
       circle(48, 32, 9),
       circle(48, 16.5, 3.5),
@@ -23,27 +25,27 @@
       circle(32.5, 32, 3.5),
       circle(63.5, 32, 3.5),
     ],
-    "E-07": [
+    relay: [
       { tag: "rect", x: 14, y: 14, width: 68, height: 36 },
       path("M26 40V24m8 16V24m8 16V24"),
       path("M56 42l20-14"),
       circle(56, 42, 2.5),
     ],
-    "M-02": [
+    gear: [
       circle(48, 32, 16),
       circle(48, 32, 5),
       path("M48 8v8m0 32v8M24 32h8m32 0h8M31 15l6 6m22 22l6 6m0-34l-6 6m-22 22l-6 6"),
     ],
-    "P-03": [{ tag: "rect", x: 10, y: 20, width: 44, height: 24 }, path("M54 32h30M78 26v12")],
-    "E-12": [path("M8 32h24m56 0H64"), path("M32 18l32 14-32 14z"), path("M64 18v28")],
-    "M-09": [
+    cylinder: [{ tag: "rect", x: 10, y: 20, width: 44, height: 24 }, path("M54 32h30M78 26v12")],
+    diode: [path("M8 32h24m56 0H64"), path("M32 18l32 14-32 14z"), path("M64 18v28")],
+    spring: [
       path("M8 32h10m60 0h10"),
       path("M18 32l6-12 8 24 8-24 8 24 8-24 8 24 6-12"),
     ],
-    "P-06": [circle(34, 32, 14), path("M34 32l10-9"), path("M54 22h30M54 32h30M54 42h18")],
+    sensor: [circle(34, 32, 14), path("M34 32l10-9"), path("M54 22h30M54 32h30M54 42h18")],
   };
 
-  const shapes = $derived(DRAWINGS[id] ?? []);
+  const shapes = $derived(DRAWINGS[art] ?? []);
 </script>
 
 {#if shapes.length}

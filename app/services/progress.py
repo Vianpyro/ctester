@@ -1,6 +1,6 @@
 import policy
 import state
-from services.catalog import open_exercises
+from services.catalog import open_exercises, published_cards
 
 MAX_SKILLS = 40
 
@@ -155,19 +155,20 @@ def cards_to_grant(user):
     published = {e["id"] for e in open_exercises()}
     solved = {row.get("exercise_id") for row in states
               if row.get("status") == "solved"} & published
-    return policy.cards_earned(solved)
+    return policy.cards_earned(solved, published_cards())
 
 
 def collection_view(unlocked, rates, cohort):
     held = {row["id"] for row in unlocked or ()}
     cohort = int(cohort or 0)
     views = []
-    for key, card in policy.CARDS.items():
+    for key, card in policy.cards_by_key(published_cards()).items():
         holders = int((rates or {}).get(key, 0))
         views.append({
             "id": card["id"],
             "name": card["name"],
             "family": card["family"],
+            "art": card.get("art") or card.get("family") or "",
             "condition": card["condition"],
             "held": key in held,
             "rarity": (round(holders * 100 / cohort)
@@ -200,7 +201,7 @@ def progress_payload(entries, facts, states, practice, evidences,
                     "unlocked_at": row["unlocked_at"]}
                    for row in facts["achievements"] if row["id"] in policy.ACHIEVEMENTS],
         "cards": sum(1 for row in facts["achievements"]
-                     if row["id"] in policy.CARDS),
+                     if row["id"] in policy.cards_by_key(published_cards())),
         "next": recommend(exercises, touched, solved),
         "practice_days": practice_days or [],
         "transactions": facts["transactions"],

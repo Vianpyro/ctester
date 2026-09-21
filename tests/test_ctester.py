@@ -382,6 +382,35 @@ def test_content_v2_publication_locks_and_switches():
         shutil.rmtree(dest)
 
 
+def test_the_reference_solution_never_leaves_the_content_repository():
+    """solution/ is a secret like the tests. It must reach neither the published tree nor
+    the Typst workdir, where a statement could read it back through --root."""
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    dest = tempfile.mkdtemp(prefix="ctester-published-")
+    workdir = tempfile.mkdtemp(prefix="ctester-typst-")
+    try:
+        _content_v2(root, {"state": "available"})
+        exercise = os.path.join(root, "exercises", "surface")
+        os.makedirs(os.path.join(exercise, "solution"))
+        with open(os.path.join(exercise, "solution", "submission.c"), "w", encoding="utf-8") as fh:
+            fh.write("int main(void) { return 0; } /* SECRET_SOLUTION */\n")
+
+        revision = publish_content.publish(content_catalogue.discover(root), dest)
+        release = os.path.join(dest, revision)
+        for directory, _, names in os.walk(release):
+            for name in names:
+                path = os.path.join(directory, name)
+                relative = os.path.relpath(path, release).replace(os.sep, "/")
+                assert "solution" not in relative, relative
+                assert "SECRET_SOLUTION" not in read_file(path), relative
+
+        typst_build._prepare(exercise, workdir)
+        assert "solution" not in os.listdir(workdir), os.listdir(workdir)
+    finally:
+        for path in (root, dest, workdir):
+            shutil.rmtree(path)
+
+
 def test_current_survives_a_broken_pointer():
     dest = tempfile.mkdtemp(prefix="ctester-published-")
     try:
@@ -2402,15 +2431,30 @@ def test_csp_without_an_issuer_omits_the_extra_connect_src_origin():
             assert a[key] == b[key], key
 
 
+# The page and the server read the same two settings, so the built copy and the source
+# copy of the CSP can be compared against csp.csp() whether or not a deployment set them.
+AUTH_ORIGIN = os.environ.get("CTESTER_AUTH_ORIGIN") or "https://auth.exemple"
+
+
+def _deployed(page):
+    """index.html names no host: vite.config.ts fills these in at build time."""
+    api = config.API_ORIGIN
+    return (page.replace(b"%API_ORIGIN%", api.encode())
+                .replace(b"%API_WS%",
+                         ("wss://" + api.split("://")[-1]).encode() if api else b"")
+                .replace(b"%AUTH_ORIGIN%", AUTH_ORIGIN.encode())
+                .replace(b"%TITLE%", (os.environ.get("CTESTER_TITLE") or "CTester").encode()))
+
+
 def test_document_csp():
-    pages = [read_file(os.path.join(ROOT, "frontend", "index.html")).encode()]
+    pages = [_deployed(read_file(os.path.join(ROOT, "frontend", "index.html")).encode())]
     built = os.path.join(ROOT, "frontend", "dist", "index.html")
     if os.path.exists(built):
-        pages.append(read_file(built).encode())
+        pages.append(_deployed(read_file(built).encode()))
     for page in pages:
         assert b"<script" in page and not csp._INLINE_SCRIPT_RE.findall(page), page
     page = pages[0]
-    policy = csp.csp(page, "https://auth.exemple/auth/v1")
+    policy = csp.csp(page, AUTH_ORIGIN + "/auth/v1")
     assert "default-src 'none'" in policy
     assert "sha256-" not in policy, policy
     assert "script-src 'self';" in policy, policy
@@ -2421,9 +2465,10 @@ def test_document_csp():
             raise AssertionError("an inline <script> slipped through silently")
         except ValueError:
             pass
-    assert "https://auth.exemple" in policy.split("connect-src")[1]
+    assert AUTH_ORIGIN in policy.split("connect-src")[1]
     assert "/auth/v1" not in policy, policy
-    assert config.API_ORIGIN in policy.split("connect-src")[1]
+    if config.API_ORIGIN:
+        assert config.API_ORIGIN in policy.split("connect-src")[1]
     for forbidden in ("frame-ancestors 'none'", "base-uri 'none'",
                      "form-action 'none'", "img-src 'self'"):
         assert forbidden in policy, forbidden
@@ -2438,7 +2483,7 @@ def test_document_csp():
                for d in meta.group(1).decode().split("; ")}
     from_server = {d.split()[0]: " ".join(d.split()[1:])
                   for d in csp.csp(page, config.OIDC_ISSUER or
-                                   "https://auth.thevhome.com/auth/v1").split("; ")}
+                                   AUTH_ORIGIN + "/auth/v1").split("; ")}
     assert "frame-ancestors" not in from_meta, from_meta
     assert from_server.pop("frame-ancestors") == "'none'"
     assert from_meta == from_server, (from_meta, from_server)
@@ -2781,23 +2826,37 @@ def test_divisions_only_go_up_never_down():
     assert [d["accounts"] for d in view] == [0, 0, 1]
 
 
+CARDS_FIXTURE = [
+    {"id": "E-01", "name": "Résistance", "family": "electrical",
+     "condition": "Réussir un-ex3", "exercises": ["un-ex3"]},
+    {"id": "M-04", "name": "Roulement", "family": "mechanical",
+     "condition": "Réussir tout le lot", "exercises": ["un-ex0", "un-ex1", "un-ex3"]},
+]
+
+
 def test_a_card_drops_on_a_whole_family_and_its_rarity_is_measured():
-    assert policy.cards_earned({"tp2-ex0", "tp2-ex1"}) == []
-    assert policy.cards_earned({"tp2-ex3"}) == ["card:E-01"]
-    complete_set = {"tp2-ex0", "tp2-ex1", "tp2-ex2", "tp2-ex3", "tp2-ex4"}
-    assert set(policy.cards_earned(complete_set)) == {"card:E-01", "card:M-04"}
+    """The table is the content base's; only the mechanism belongs to the engine."""
+    assert policy.cards_earned({"un-ex0", "un-ex1"}, CARDS_FIXTURE) == []
+    assert policy.cards_earned({"un-ex3"}, CARDS_FIXTURE) == ["card:E-01"]
+    complete_set = {"un-ex0", "un-ex1", "un-ex3"}
+    assert set(policy.cards_earned(complete_set, CARDS_FIXTURE)) == {"card:E-01", "card:M-04"}
 
-    for card in policy.POLICY["cards"]:
-        assert card["name"] and card["condition"] and card["exercises"]
-    assert not set(policy.CARDS) & set(policy.ACHIEVEMENTS)
+    # The engine ships none: a card that named an exercise would name someone's course.
+    assert policy.cards_earned(complete_set, []) == []
+    assert not set(policy.cards_by_key(CARDS_FIXTURE)) & set(policy.ACHIEVEMENTS)
 
-    views = {c["id"]: c for c in progress.collection_view(
-        [{"id": "card:E-01"}], {"card:E-01": 6}, 10)}
-    assert views["E-01"]["held"] and views["E-01"]["rarity"] == 60
-    assert views["M-04"]["held"] is False
-    assert views["M-04"]["condition"]
-    muted = progress.collection_view([], {"card:E-01": 1}, 2)
-    assert all(c["rarity"] is None for c in muted), muted
+    saved = progress.published_cards
+    progress.published_cards = lambda: CARDS_FIXTURE
+    try:
+        views = {c["id"]: c for c in progress.collection_view(
+            [{"id": "card:E-01"}], {"card:E-01": 6}, 10)}
+        assert views["E-01"]["held"] and views["E-01"]["rarity"] == 60
+        assert views["M-04"]["held"] is False
+        assert views["M-04"]["condition"]
+        muted = progress.collection_view([], {"card:E-01": 1}, 2)
+        assert all(c["rarity"] is None for c in muted), muted
+    finally:
+        progress.published_cards = saved
 
 
 def _assignment_content(root, team=True, handin=True, items=None, deadline=None):

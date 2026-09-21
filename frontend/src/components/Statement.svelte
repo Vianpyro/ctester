@@ -36,7 +36,7 @@
       />
     </div>
   {:else if current.kind === "none"}
-    <pre id="statementtext" class="empty">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé du TP sur Moodle : les noms de fichiers et de fonctions attendus y sont.</pre>
+    <pre id="statementtext" class="empty">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé remis par ton enseignant : les noms de fichiers et de fonctions attendus y sont.</pre>
   {:else}
     <pre id="statementtext" class="empty">La consigne n'a pas pu être chargée. Tu peux quand même écrire et tester : les noms de fichiers attendus, eux, sont déjà là.<button
         type="button"

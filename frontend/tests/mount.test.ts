@@ -273,7 +273,7 @@ describe("the anonymous page", () => {
     const banner = document.getElementById("system")!;
     expect(banner.hidden).toBe(false);
     expect(banner.textContent).toContain("clé d'accès");
-    expect(banner.textContent).toContain("Moodle");
+    expect(banner.textContent).toContain("depuis ton cours");
   });
 
   it("shows the presence counter to the anonymous visitor", async () => {

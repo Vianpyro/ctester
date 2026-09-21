@@ -450,8 +450,8 @@ mod tests {
     fn declared_files_filter_hostile_names() {
         let dir = Path::new("/nonexistent/assessment");
         assert_eq!(declared_files(&json!({}), dir), ["submission.c"]);
-        let conf = json!({"files": [{"name": "calendrier.h"}, {"name": "calendrier.c"}]});
-        assert_eq!(declared_files(&conf, dir), ["calendrier.h", "calendrier.c"]);
+        let conf = json!({"files": [{"name": "module.h"}, {"name": "module.c"}]});
+        assert_eq!(declared_files(&conf, dir), ["module.h", "module.c"]);
         let conf = json!({"files": [{"name": "../../etc/passwd"}, {"name": "a/b.c"}, {"name": "bon.c"},
                                      {"name": "script.sh"}, {"name": ".hidden"}, "x.c"]});
         assert_eq!(declared_files(&conf, dir), ["bon.c", "x.c"]);

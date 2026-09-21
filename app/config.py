@@ -17,12 +17,13 @@ PAGE = os.environ.get("CTESTER_PAGE", "/web")
 
 PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "")
 
+# Both default to empty, which is fail-closed: no cross-origin caller is known and the CSP
+# names no extra host. A deployment that forgets these serves its own origin and nothing
+# else, rather than inheriting someone else's allowlist.
 ORIGINS = tuple(o.strip().rstrip("/") for o in os.environ.get(
-    "CTESTER_ORIGINS",
-    "https://tch009.thevhome.com,https://vianpyro.github.io").split(",")
-    if o.strip())
+    "CTESTER_ORIGINS", "").split(",") if o.strip())
 
-API_ORIGIN = os.environ.get("CTESTER_API_ORIGIN", "https://tch099.thevhome.com")
+API_ORIGIN = os.environ.get("CTESTER_API_ORIGIN", "")
 
 PORT = _int("CTESTER_PORT", "8000")
 DOCS = os.environ.get("CTESTER_DOCS", "") == "1"

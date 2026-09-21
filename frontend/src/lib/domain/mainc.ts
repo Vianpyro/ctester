@@ -1,3 +1,4 @@
+import { TITLE } from "../config";
 import type { Exercise } from "./catalog";
 
 // Without a BOM, Visual Studio reads the file in the system code page and mangles accents.
@@ -88,7 +89,7 @@ function header(name: string, group: string, numbers: number[], first: number, a
     "Fichier : main.c",
     "Auteur : " + name,
     "Date : " + today(at),
-    "Description : " + labelForNumbers(numbers) + " — " + group + " — TCH009",
+    "Description : " + labelForNumbers(numbers) + " — " + group + " — " + TITLE,
     "*/",
     "/* *******************************************************",
     "* Commande de preprocesseur",

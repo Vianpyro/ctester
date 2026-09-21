@@ -17,85 +17,25 @@ Also handy on its own: it gives a working site locally without the real backend.
 import argparse
 import json
 import os
+import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "worker"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-SKILLS = ["boucles", "entrees-sorties", "tableaux", "types", "conditions"]
+from demo_content_data import (  # noqa: E402
+    CARDS, COLLECTIONS, EXERCISES, QUIZ_ASKED, QUIZ_ID, QUIZ_QUESTIONS,
+    SKILLS, STATEMENT, UNITY_STATEMENT,
+)
 
-# The quiz the Lighthouse config deep-links to. Named here so the two stay in step.
-QUIZ_ID = "tp1-ex3"
+# The engine's stand-in for Unity, so the demo base builds from a bare clone. A real
+# content base vendors the framework itself at shared/unity.
+UNITY_SOURCE = os.path.join(ROOT, "tests", "fixture", "unity")
 
-# Long enough to matter. The shifts this whole exercise is meant to catch come from a
-# statement growing from one placeholder line into a real brief, so a one-word statement
-# would measure nothing.
-STATEMENT = """## Ce qu'on te demande
-
-Écris un programme qui lit deux entiers sur l'entrée standard, puis affiche %s.
-
-Les deux nombres arrivent l'un après l'autre, séparés par un retour à la ligne. Tu peux
-supposer qu'ils tiennent tous les deux dans un `int` et qu'aucun des deux n'est négatif.
-
-### Comment ton programme est lu
-
-Le juge lit les **nombres** de ta sortie, dans l'ordre où ils apparaissent. Le texte qui
-les entoure est libre : `Résultat = 42` et `42` sont lus exactement pareil. Tu peux donc
-écrire la phrase qui te semble la plus claire.
-
-### Un point de départ
-
-```c
-#include <stdio.h>
-
-int main(void) {
-    int a, b;
-    scanf("%%d", &a);
-    scanf("%%d", &b);
-    /* à toi de jouer */
-    return 0;
-}
-```
-
-### Ce qui coince souvent
-
-- Oublier le `&` devant la variable dans `scanf` : le programme compile, puis plante.
-- Lire les deux nombres dans le mauvais ordre. Le premier lu est le premier donné.
-- Afficher autre chose que des nombres quand le calcul échoue : le juge ne verra rien à lire.
-
-Prends le temps de tester avec de petites valeurs avant de lancer le test complet.
-"""
-
-EXERCISES = [
-    ("tp1-ex1", "Additionner deux entiers", "io", "leur somme",
-     ["entrees-sorties", "types"], "intro"),
-    ("tp1-ex2", "Le plus grand des deux", "io", "le plus grand des deux",
-     ["conditions", "entrees-sorties"], "intro"),
-    (QUIZ_ID, "Ce que tu as retenu", "quiz", "", ["types", "conditions"], "intro"),
-    ("tp2-ex1", "Somme d'un tableau", "io", "la somme des valeurs lues",
-     ["tableaux", "boucles"], "foundation"),
-    ("tp2-ex2", "Compter les pairs", "io", "combien d'entre eux sont pairs",
-     ["boucles", "conditions"], "foundation"),
-    ("tp2-ex3", "Inverser l'ordre", "io", "les mêmes valeurs en ordre inverse",
-     ["tableaux", "boucles"], "intermediate"),
-]
-
-COLLECTIONS = [
-    ("tp1", "TP 1 : premiers programmes", ["tp1-ex1", "tp1-ex2", QUIZ_ID]),
-    ("tp2", "TP 2 : tableaux et boucles", ["tp2-ex1", "tp2-ex2", "tp2-ex3"]),
-]
-
-QUIZ_QUESTIONS = [
-    {"id": "q1", "group": "Exercice 1 — les types", "type": "int",
-     "label": "Combien d'octets occupe un int sur la machine du juge ?", "answer": 4},
-    {"id": "q2", "group": "Exercice 1 — les types", "type": "choice",
-     "label": "Quel format printf affiche un entier signé ?",
-     "options": ["%d", "%s", "%c", "%f"], "answer": "%d"},
-    {"id": "q3", "group": "Exercice 2 — les conditions", "type": "bool",
-     "label": "En C, 0 est considéré comme faux.", "answer": True},
-    {"id": "q4", "group": "Exercice 2 — les conditions", "type": "int",
-     "label": "Que vaut 7 / 2 en division entière ?", "answer": 3},
-]
+DEFAULT_FILES = [{"name": "main.c", "template":
+                  "#include <stdio.h>\n\nint main(void) {\n"
+                  "    // Écris ton code ici\n    return 0;\n}\n"}]
 
 
 def write(path, data):
@@ -112,26 +52,46 @@ def write_text(path, text):
 
 
 def write_content(root):
-    write(os.path.join(root, "catalog.json"),
-          {"schema_version": 1, "skills": sorted(SKILLS)})
+    write(os.path.join(root, "catalog.json"), {"schema_version": 1, "skills": SKILLS})
+    write(os.path.join(root, "cards.json"), {"schema_version": 1, "cards": CARDS})
 
-    for ident, title, mode, asked, skills, difficulty in EXERCISES:
+    for exercise in EXERCISES:
+        ident, mode = exercise["id"], exercise["mode"]
         directory = os.path.join(root, "exercises", ident)
         write(os.path.join(directory, "exercise.json"),
-              {"schema_version": 1, "id": ident, "title": title, "skills": skills,
-               "difficulty": difficulty, "release": {"state": "available"}})
-        write_text(os.path.join(directory, "statement.md"), STATEMENT % asked)
+              {"schema_version": 1, "id": ident, "title": exercise["title"],
+               "skills": exercise["skills"], "difficulty": exercise["difficulty"],
+               "release": {"state": "available"}})
         assessment = os.path.join(directory, "assessment")
+
         if mode == "quiz":
+            write_text(os.path.join(directory, "statement.md"), STATEMENT % QUIZ_ASKED)
             write(os.path.join(assessment, "quiz.json"), {"questions": QUIZ_QUESTIONS})
             continue
-        write(os.path.join(assessment, "io.json"),
-              {"cases": [{"stdin": "2\n3\n", "expect": [5]},
-                         {"stdin": "10\n7\n", "expect": [17]}]})
+
+        # Every exercise carries its reference solution: verify_content.py compiles each
+        # against its own tests, the only proof that a test accepts a correct answer.
+        if mode == "unity":
+            write_text(os.path.join(directory, "statement.md"), UNITY_STATEMENT)
+            write(os.path.join(assessment, "unity.json"), {})
+            for name, text in exercise["tests"].items():
+                write_text(os.path.join(assessment, name), text)
+            for name, text in exercise["solution"].items():
+                write_text(os.path.join(directory, "solution", name), text)
+        else:
+            write_text(os.path.join(directory, "statement.md"),
+                       STATEMENT % exercise["asked"])
+            write(os.path.join(assessment, "io.json"), {"cases": exercise["cases"]})
+            write_text(os.path.join(directory, "solution", "main.c"),
+                       exercise["solution"])
         write(os.path.join(directory, "public", "files.json"),
-              {"files": [{"name": "main.c", "template":
-                          "#include <stdio.h>\n\nint main(void) {\n    // Écris ton code ici\n"
-                          "    return 0;\n}\n"}]})
+              {"files": exercise.get("files", DEFAULT_FILES)})
+
+    if any(e["mode"] == "unity" for e in EXERCISES):
+        unity = os.path.join(root, "shared", "unity")
+        os.makedirs(unity, exist_ok=True)
+        for name in sorted(os.listdir(UNITY_SOURCE)):
+            shutil.copyfile(os.path.join(UNITY_SOURCE, name), os.path.join(unity, name))
 
     for ident, title, items in COLLECTIONS:
         write(os.path.join(root, "collections", ident + ".json"),

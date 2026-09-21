@@ -120,7 +120,7 @@ no Copy button and refuses selection. This discourages copying but does not prev
 Docker or a `typst` 0.15.1 binary (`CTESTER_TYPST_BIN`) is required.
 
 ```sh
-python3 scripts/render_statement.py ../unittests/content/exercises/tp2-ex3 --out /tmp/preview --png
+python3 scripts/render_statement.py <content root>/exercises/<id> --out /tmp/preview --png
 ```
 
 To see it in the real page, publish locally and start the API (see the README).

@@ -37,33 +37,6 @@ POLICY = {
                         "un exercice de pratique."},
     ],
 
-    "cards": [
-        {"id": "E-01", "name": "Résistance", "family": "electrical",
-         "exercises": ["tp2-ex3"],
-         "condition": "Réussir la loi d'Ohm (TP2)"},
-        {"id": "M-04", "name": "Roulement", "family": "mechanical",
-         "exercises": ["tp2-ex0", "tp2-ex1", "tp2-ex2", "tp2-ex3", "tp2-ex4"],
-         "condition": "Réussir tout le TP2"},
-        {"id": "E-07", "name": "Relais", "family": "electrical",
-         "exercises": ["verif-tp1"],
-         "condition": "Réussir la vérification du TP1"},
-        {"id": "M-02", "name": "Engrenage", "family": "mechanical",
-         "exercises": ["tp1-ex1"],
-         "condition": "Réussir le premier exercice du TP1"},
-        {"id": "P-03", "name": "Vérin", "family": "production",
-         "exercises": ["tp3-ex1", "tp3-ex2", "tp3-ex3"],
-         "condition": "Réussir trois exercices du TP3"},
-        {"id": "E-12", "name": "Diode", "family": "electrical",
-         "exercises": ["verif-tp2"],
-         "condition": "Réussir la vérification du TP2"},
-        {"id": "M-09", "name": "Ressort", "family": "mechanical",
-         "exercises": ["tp2-ex5", "tp2-ex6"],
-         "condition": "Réussir les deux derniers exercices du TP2"},
-        {"id": "P-06", "name": "Capteur", "family": "production",
-         "exercises": ["verif-tp2-debogage"],
-         "condition": "Réussir la vérification de débogage du TP2"},
-    ],
-
     "leaderboard": {
         "minimum_cohort": 5,
         "visible_rows": 5,
@@ -204,13 +177,19 @@ def mastery_band(solved, attempted, total):
 
 CARD_PREFIX = "card:"
 
-CARDS = {CARD_PREFIX + c["id"]: c for c in POLICY["cards"]}
+
+# A card names exercises, so its table belongs to the content base and not to this file:
+# it travels in cards.json and arrives through the published catalogue. A base with no
+# cards.json simply has no collection.
+def cards_by_key(cards):
+    return {CARD_PREFIX + c["id"]: c for c in cards or ()
+            if isinstance(c, dict) and isinstance(c.get("id"), str)}
 
 
-def cards_earned(solved):
+def cards_earned(solved, cards):
     solved = set(solved or ())
-    return [CARD_PREFIX + c["id"] for c in POLICY["cards"]
-            if c["exercises"] and solved.issuperset(c["exercises"])]
+    return [CARD_PREFIX + c["id"] for c in cards or ()
+            if c.get("exercises") and solved.issuperset(c["exercises"])]
 
 
 def minimum_cohort():

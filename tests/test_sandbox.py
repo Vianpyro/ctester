@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
+"""End-to-end checks of the sandbox build scripts, on a content fixture of its own.
+
+What is verified here -- no test source ever reaches the verdict, ASan is on, the timers
+fire, the phases stay separated -- belongs to the engine, not to any course. So the
+fixture is written to a temporary directory and the suite runs on a bare clone, with no
+content repository anywhere.
+"""
 import json
 import os
 import re
 import select
 import pathlib
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,81 +18,135 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKER = ROOT / "worker"
-CONTENT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1
-                       else ROOT.parent / "unittests" / "content").resolve()
-SOLUTIONS = pathlib.Path(os.environ.get("CTESTER_SOLUTIONS") or next(
-    (c for c in (CONTENT.parent / "solutions",
-                 CONTENT.parent.parent / "solutions") if c.is_dir()),
-    CONTENT.parent / "solutions")).resolve()
-UNITY = CONTENT / "shared" / "unity"
-
-
-def assessment(exercise):
-    return CONTENT / "exercises" / exercise / "assessment"
-
-
-def corrected(exercise):
-    for candidate in (SOLUTIONS / exercise,
-                     SOLUTIONS.joinpath(*exercise.split("-", 1))):
-        if candidate.is_dir():
-            return candidate
-    raise SystemExit("no reference solution found for " + exercise
-                     + " under " + str(SOLUTIONS))
+UNITY = ROOT / "tests" / "fixture" / "unity"
 
 sys.path.insert(0, str(WORKER))
 import judge  # noqa: E402
+import local_build  # noqa: E402
 
 NONCE = "e2e0123456789abcdef0123456789abc"
 
-STD = "gnu23"
-if subprocess.run(["gcc", "-std=gnu23", "-E", "-"], input="", capture_output=True,
-                  text=True).returncode != 0:
-    STD = "gnu2x"
+# The io reference solution: correct, and sloppy enough to make gcc say something.
+IO_SOLUTION = """#include <stdio.h>
 
+int main(void)
+{
+    int annee, naissance, inutilisee;
+    printf("Annee actuelle : ");
+    scanf("%d", &annee);
+    printf("Annee de naissance : ");
+    scanf("%d", &naissance);
+    printf("Age : %d\\n", annee - naissance);
+    return 0;
+}
+"""
 
-SETTINGS = {
-    "CTESTER_C_STD": STD,
-    "CTESTER_SANITIZERS": "-fsanitize=address,undefined",
-    "CTESTER_ASAN_OPTIONS": "exitcode=86:detect_leaks=0",
-    "CTESTER_COMPILE_TIMEOUT": "10",
-    "CTESTER_RUN_TIMEOUT": "5",
+IO_CASES = [{"stdin": "2026\n2000\n", "expect": [26]},
+            {"stdin": "2026\n1990\n", "expect": [36]},
+            {"stdin": "2026\n1974\n", "expect": [52]},
+            {"stdin": "2100\n2012\n", "expect": [88]}]
+
+MODULE_H = """#ifndef MODULE_H
+#define MODULE_H
+
+int somme(int a, int b);
+int produit(int a, int b);
+double moyenne(int a, int b);
+
+#endif /* MODULE_H */
+"""
+
+MODULE_C = """#include "module.h"
+
+int somme(int a, int b)
+{
+    return a + b;
 }
 
+int produit(int a, int b)
+{
+    return a * b;
+}
 
-def render(name, root):
-    text = (WORKER / name).read_text(encoding="utf-8")
-    text = text.replace("/in/", f"{root}/in/").replace("/work", f"{root}/work")
-    script = root / name
-    script.write_text(text, encoding="utf-8")
-    script.chmod(0o755)
-    return script
+double moyenne(int a, int b)
+{
+    return (a + b) / 2.0;
+}
+"""
+
+TEST_NAME = "test_module.c"
+
+# Every identifier here is deliberately absent from the module: the leak checks below
+# count them, and need something to bite on.
+TEST_SOURCE = """#include "unity.h"
+#include "module.h"
+
+void setUp(void) {}
+void tearDown(void) {}
+
+static void test_somme_additionne_deux_entiers(void)
+{
+    TEST_ASSERT_EQUAL_INT(7, somme(3, 4));
+}
+
+static void test_somme_supporte_les_negatifs(void)
+{
+    TEST_ASSERT_EQUAL_INT(-1, somme(3, -4));
+}
+
+static void test_produit_multiplie_deux_entiers(void)
+{
+    TEST_ASSERT_EQUAL_INT(12, produit(3, 4));
+}
+
+static void test_produit_par_zero_vaut_zero(void)
+{
+    TEST_ASSERT_EQUAL_INT(0, produit(9999, 0));
+}
+
+static void test_moyenne_garde_la_demie(void)
+{
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 3.5, moyenne(3, 4));
+}
+
+int main(void)
+{
+    UNITY_BEGIN();
+    RUN_TEST(test_somme_additionne_deux_entiers);
+    RUN_TEST(test_somme_supporte_les_negatifs);
+    RUN_TEST(test_produit_multiplie_deux_entiers);
+    RUN_TEST(test_produit_par_zero_vaut_zero);
+    RUN_TEST(test_moyenne_garde_la_demie);
+    return UNITY_END();
+}
+"""
+
+FIXTURE = pathlib.Path(tempfile.mkdtemp(prefix="e2e-content-"))
+
+
+def _fixture():
+    io_dir = FIXTURE / "exercises/io-demo/assessment"
+    io_dir.mkdir(parents=True)
+    (io_dir / "io.json").write_text(json.dumps({"cases": IO_CASES}), encoding="utf-8")
+
+    unity_dir = FIXTURE / "exercises/unity-demo/assessment"
+    unity_dir.mkdir(parents=True)
+    (unity_dir / "unity.json").write_text("{}", encoding="utf-8")
+    (unity_dir / TEST_NAME).write_text(TEST_SOURCE, encoding="utf-8")
+
+
+_fixture()
+
+
+def module_files():
+    return {"module.h": MODULE_H, "module.c": MODULE_C}
 
 
 def run(mode, files, exercise, **settings):
-    root = pathlib.Path(tempfile.mkdtemp(prefix="e2e-"))
-    (root / "work").mkdir()
-    (root / "in/src").mkdir(parents=True)
-    for name, content in files.items():
-        (root / "in/src" / name).write_text(content, encoding="utf-8")
-
-    if mode == "io":
-        (root / "in/cases").mkdir()
-        conf = json.loads(
-            (assessment(exercise) / "io.json").read_text(encoding="utf-8"))
-        for i, case in enumerate(conf["cases"], 1):
-            (root / "in/cases" / ("%02d.in" % i)).write_text(case["stdin"], encoding="utf-8")
-        script = render("build-io.sh", root)
-        cases = conf["cases"]
-    else:
-        shutil.copytree(assessment(exercise), root / "in/tests")
-        shutil.copytree(UNITY, root / "in/unity")
-        script = render("build-unity.sh", root)
-        cases = None
-
-    done = subprocess.run(["bash", str(script)], capture_output=True, text=True,
-                          env={**os.environ, **SETTINGS, **settings,
-                               "CTESTER_NONCE": NONCE}, cwd=root)
-    return done.returncode, done.stdout, cases, root
+    assessment = FIXTURE / "exercises" / exercise / "assessment"
+    rc, out, cases, root = local_build.run(
+        mode, files, str(assessment), str(UNITY), NONCE, **settings)
+    return rc, out, cases, pathlib.Path(root)
 
 
 def run_console(source, entry=None, budget=20, header=None, **settings):
@@ -97,11 +157,11 @@ def run_console(source, entry=None, budget=20, header=None, **settings):
     if header:
         name, text = header
         (root / "in/src" / name).write_text(text, encoding="utf-8")
-    script = render("build-scratch.sh", root)
+    script = local_build.render("build-scratch.sh", root)
     proc = subprocess.Popen(
         ["bash", str(script)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, bufsize=0, cwd=root,
-        env={**os.environ, **SETTINGS, **settings, "CTESTER_NONCE": NONCE})
+        env=local_build.environment(NONCE, **settings))
     seen, start = b"", time.time()
     while time.time() - start < budget:
         ready, _, _ = select.select([proc.stdout], [], [], 0.2)
@@ -123,18 +183,6 @@ def phases(output):
         return output, b""
     before, after = output.split(marker, 1)
     return before, after
-
-
-def sources_c(directory):
-    return sorted(f.name for f in directory.iterdir() if f.suffix == ".c")
-
-
-def module_c(files, exercise, name="calendrier.c"):
-    if name not in files:
-        raise SystemExit(
-            f"reference solution for {exercise!r} has no {name} "
-            f"(files found: {sorted(files)}) -- solutions repo out of sync?")
-    return name
 
 
 failures = []
@@ -229,20 +277,8 @@ check(_scratch_text.count("/in/") == _scratch_text.count("/in/src"),
       "the only /in path it reads is /in/src")
 
 
-CARELESS = """#include <stdio.h>
-
-int main(void)
-{
-    int annee, naissance, inutilisee;
-    printf("Annee actuelle : ");
-    scanf("%d", &annee);
-    printf("Annee de naissance : ");
-    scanf("%d", &naissance);
-    printf("Age : %d\\n", annee - naissance);
-    return 0;
-}
-"""
-rc, out, cases, _ = run("io", {"submission.c": CARELESS}, "tp2-ex0")
+CARELESS = IO_SOLUTION
+rc, out, cases, _ = run("io", {"submission.c": CARELESS}, "io-demo")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 1. correct but sloppy code ---")
 show(res)
@@ -255,7 +291,7 @@ check(res["passed"] == res["total"],
       f"every case passes ({res['passed']}/{res['total']})")
 
 WITHOUT_AMPERSAND = CARELESS.replace('scanf("%d", &naissance)', 'scanf("%d", naissance)')
-rc, out, cases, _ = run("io", {"submission.c": WITHOUT_AMPERSAND}, "tp2-ex0")
+rc, out, cases, _ = run("io", {"submission.c": WITHOUT_AMPERSAND}, "io-demo")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 2. scanf without & ---")
 text = res.get("warnings", "") + res.get("gcc", "")
@@ -265,13 +301,12 @@ for line in text.strip().splitlines():
     if "expects argument" in line:
         print("      " + line.strip()[:100])
 
-sol = corrected("tp7-ex1")
-files = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-name = module_c(files, "tp7-ex1")
+files = module_files()
+name = "module.c"
 files[name] += "\nstatic int never_used_e2e = 42;\n"
-rc, out, cases, root = run("unity", files, "tp7-ex1")
+rc, out, cases, root = run("unity", files, "unity-demo")
 res = judge.verdict(rc, out, "unity", NONCE)
-test_src = (root / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
+test_src = (root / "in/tests" / TEST_NAME).read_text(encoding="utf-8")
 own_sources = "\n".join(files.values())
 tokens = {m for m in re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
           if m not in own_sources and not m.startswith(("TEST_", "UNITY"))
@@ -282,17 +317,16 @@ show(res)
 check(res["status"] == "ok" and res["passed"] == res["total"],
       f"the reference solution passes ({res.get('passed')}/{res.get('total')})")
 check(bool(res.get("warnings")), "warnings are indeed present (otherwise this check is empty)")
-check("test_calendrier" not in str(res), "no mention of the test file")
+check(TEST_NAME[:-2] not in str(res), "no mention of the test file")
 check(not leaks, "no identifier specific to the test in the verdict"
       + (" -- LEAKED: " + ", ".join(leaks[:8]) if leaks else ""))
 check(len(tokens) > 5, f"the check had something to bite on ({len(tokens)} identifiers watched)")
 
 
-sol = corrected("tp2-ex0")
-buggy = (sol / sources_c(sol)[0]).read_text(encoding="utf-8")
+buggy = IO_SOLUTION
 OVERFLOW = "    int t_e2e[3];\n    t_e2e[7] = 1;\n    return "
 buggy = buggy.replace("    return ", OVERFLOW, 1)
-rc, out, cases, _ = run("io", {"submission.c": buggy}, "tp2-ex0")
+rc, out, cases, _ = run("io", {"submission.c": buggy}, "io-demo")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 4. overflow in io mode: the report is returned ---")
 case = res["cases"][0] if res["cases"] else {}
@@ -305,12 +339,11 @@ for line in case.get("stderr", "").splitlines():
         print("      " + line.strip()[:96])
         break
 
-sol = corrected("tp7-ex1")
-files = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-c_name = module_c(files, "tp7-ex1")
+files = module_files()
+c_name = "module.c"
 files[c_name] = ("static int overflow_e2e[4];\n" + files[c_name]).replace(
     "return", "overflow_e2e[9] = 1;\n    return", 1)
-rc, out, cases, root = run("unity", files, "tp7-ex1")
+rc, out, cases, root = run("unity", files, "unity-demo")
 res = judge.verdict(rc, out, "unity", NONCE)
 print("\n--- 5. overflow in unity mode: the fact, without the report ---")
 show(res)
@@ -318,7 +351,7 @@ check(res["status"] == "memory_error",
       "the verdict is a memory overflow, not a \"failed test\"")
 check("AddressSanitizer" not in str(res) and "#0" not in str(res),
       "no fragment of the ASan report leaked")
-test_src = (root / "in/tests/test_calendrier.c").read_text(encoding="utf-8")
+test_src = (root / "in/tests" / TEST_NAME).read_text(encoding="utf-8")
 own_sources = "\n".join(files.values())
 tokens = {m for m in re.findall(r"[A-Za-z_][A-Za-z0-9_]{5,}", test_src)
           if m not in own_sources and not m.startswith(("TEST_", "UNITY"))
@@ -328,7 +361,7 @@ check(not leaks, "no identifier from the test file in the verdict"
       + (" -- LEAKED: " + ", ".join(leaks[:8]) if leaks else ""))
 
 LOOP = '#include <stdio.h>\nint main(void){ while (1) {} return 0; }\n'
-rc, out, cases, _ = run("io", {"submission.c": LOOP}, "tp2-ex0",
+rc, out, cases, _ = run("io", {"submission.c": LOOP}, "io-demo",
                            CTESTER_RUN_TIMEOUT="2")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 6a. infinite loop in io mode ---")
@@ -337,13 +370,12 @@ check(res.get("passed") == 0, "no case passes (status %r)" % res["status"])
 check("boucle infinie" in case.get("reason", ""),
       "the message names the infinite loop: " + case.get("reason", "(none)")[:80])
 
-sol = corrected("tp7-ex1")
-files = {p.name: p.read_text(encoding="utf-8") for p in sol.iterdir()}
-name = module_c(files, "tp7-ex1")
+files = module_files()
+name = "module.c"
 files[name] += (
     "\n__attribute__((constructor)) static void loop_e2e(void)"
     " { while (1) {} }\n")
-rc, out, cases, _ = run("unity", files, "tp7-ex1", CTESTER_RUN_TIMEOUT="2")
+rc, out, cases, _ = run("unity", files, "unity-demo", CTESTER_RUN_TIMEOUT="2")
 res = judge.verdict(rc, out, "unity", NONCE)
 print("\n--- 6b. infinite loop in unity mode ---")
 show(res)

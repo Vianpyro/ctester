@@ -115,7 +115,7 @@
                     </p>
                   {:else}
                     <p class="help">
-                      Choisis ton équipe, la même que sur Moodle. Vous serez {assignment.team!
+                      Choisis ton équipe, la même que celle de ton cours. Vous serez {assignment.team!
                         .min}{assignment.team!.max > assignment.team!.min
                         ? " à " + assignment.team!.max
                         : ""} ; tu peux en changer tant que le devoir n'est pas ouvert.

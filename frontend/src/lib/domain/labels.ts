@@ -1,50 +1,11 @@
-export const SKILL_LABELS: Record<string, string> = {
-  "number-systems": "systèmes de nombres",
-  "binary-hexadecimal": "binaire et hexadécimal",
-  compilation: "compilation",
-  main: "main()",
-  libraries: "bibliothèques",
-  printf: "printf",
-  scanf: "scanf",
-  variables: "variables",
-  types: "types",
-  "arithmetic-operators": "opérateurs",
-  "boolean-logic": "logique booléenne",
-  "bitwise-operations": "opérations binaires",
-  conditions: "conditions",
-  switch: "switch",
-  while: "boucles while",
-  "do-while": "boucles do/while",
-  for: "boucles for",
-  functions: "fonctions",
-  parameters: "paramètres",
-  "return-values": "retours",
-  pointers: "pointeurs",
-  "arrays-1d": "tableaux",
-  "arrays-2d": "tableaux 2D",
-  strings: "chaînes",
-  "algorithm-design": "algorithmes",
-  complexity: "complexité",
-};
+let SKILL_LABELS: Record<string, string> = {};
+
+/** The published catalogue carries a label per skill; an unnamed one shows its id. */
+export function setSkillLabels(labels: Record<string, string>): void {
+  SKILL_LABELS = labels;
+}
 
 export const skillLabel = (id: string): string => SKILL_LABELS[id] ?? id;
-
-export const CONTEXT_LABELS: Record<string, string> = {
-  mechanical: "mécanique",
-  electrical: "électrique",
-  "automated-production": "production automatisée",
-  aerospace: "aérospatial",
-  logistics: "logistique",
-  computing: "informatique",
-  "general-engineering": "ingénierie",
-};
-
-export const DIFFICULTY_LABELS: Record<string, string> = {
-  intro: "découverte",
-  foundation: "fondations",
-  intermediate: "intermédiaire",
-  advanced: "avancé",
-};
 
 export const EXPECTED: Record<string, string> = {
   quiz: "réponses à saisir",

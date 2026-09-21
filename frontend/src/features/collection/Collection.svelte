@@ -48,7 +48,7 @@
           <span class="code">{c.id}</span>
           <span class="code">{c.rarity === null || c.rarity === undefined ? "—" : c.rarity + " %"}</span>
         </div>
-        <div class="drawing"><CardArt id={c.id} /></div>
+        <div class="drawing"><CardArt art={c.art} /></div>
         <div class="name">{c.name}</div>
         <div class="what">{c.held ? c.condition : "verrouillée · " + c.condition}</div>
         <span class="offscreen"> — {c.held ? "obtenue" : "pas encore obtenue"}</span>

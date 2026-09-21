@@ -12,6 +12,10 @@ EXERCISE_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,62}\Z")
 COLLECTION_RE = EXERCISE_RE
 ASSIGNMENT_RE = EXERCISE_RE
 SKILL_RE = re.compile(r"\A[a-z][a-z0-9-]{0,47}\Z")
+# Card ids are persisted against the accounts that earned them.
+CARD_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{0,31}\Z")
+# Names one of the drawings the page ships; an unknown one simply draws nothing.
+CARD_ART_RE = re.compile(r"\A[a-z][a-z0-9-]{0,31}\Z")
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 MODES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
 # The judge reads an unknown type as "int" and says so to the student, so the only
@@ -546,6 +550,57 @@ def _label(root):
     return name
 
 
+def _cards(root, prefix, errors):
+    """cards.json is optional: a content base that wants no collection simply omits it.
+
+    Card ids are stored against the accounts that earned them, so they may never change;
+    and a card naming an exercise that does not exist would be quietly unobtainable, so
+    the reference is checked here instead, where it fails the publication.
+    """
+    path = os.path.join(root, "cards.json")
+    if not os.path.isfile(path):
+        return []
+    data = _json(path, errors)
+    if data is None:
+        return []
+    where = prefix + "cards.json"
+    if data.get("schema_version") != SCHEMA_VERSION:
+        errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
+    entries = data.get("cards", [])
+    if not isinstance(entries, list):
+        errors.append("%s: cards must be a list" % where)
+        return []
+    cards = []
+    for index, card in enumerate(entries):
+        place = "%s: card %d" % (where, index + 1)
+        if not isinstance(card, dict):
+            errors.append("%s: must be an object" % place)
+            continue
+        card_id = card.get("id")
+        if not isinstance(card_id, str) or not CARD_ID_RE.match(card_id):
+            errors.append("%s: invalid id" % place)
+            continue
+        place = "%s: card %s" % (where, card_id)
+        for key in ("name", "family", "condition"):
+            if not isinstance(card.get(key), str) or not card[key].strip():
+                errors.append("%s: missing %s" % (place, key))
+        items = card.get("exercises")
+        if (not isinstance(items, list) or not items
+                or any(not isinstance(item, str) for item in items)
+                or len(items) != len(set(items))):
+            errors.append("%s: exercises must be a non-empty list of ids with no duplicates"
+                          % place)
+            items = []
+        art = card.get("art", "")
+        if art and (not isinstance(art, str) or not CARD_ART_RE.match(art)):
+            errors.append("%s: invalid art" % place)
+            art = ""
+        cards.append({"id": card_id, "name": card.get("name", ""),
+                      "family": card.get("family", ""), "art": art,
+                      "condition": card.get("condition", ""), "exercises": items})
+    return cards
+
+
 def _catalog_skills(root, prefix, errors):
     catalog = _json(os.path.join(root, "catalog.json"), errors)
     if catalog is None:
@@ -553,14 +608,30 @@ def _catalog_skills(root, prefix, errors):
     where = prefix + "catalog.json"
     if catalog.get("schema_version") != SCHEMA_VERSION:
         errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
-    skills = catalog.get("skills", [])
-    if not isinstance(skills, list) or any(not isinstance(s, str) or not SKILL_RE.match(s)
-                                           for s in skills):
+    # A skill is an id, or an id with the words the page should show for it: the
+    # vocabulary is the content base's, so its wording travels with it.
+    entries = catalog.get("skills", [])
+    if not isinstance(entries, list):
         errors.append("%s: invalid skills" % where)
-        return []
+        return [], {}
+    skills, labels = [], {}
+    for entry in entries:
+        if isinstance(entry, dict):
+            skill, label = entry.get("id"), entry.get("label", "")
+        else:
+            skill, label = entry, ""
+        if not isinstance(skill, str) or not SKILL_RE.match(skill):
+            errors.append("%s: invalid skills" % where)
+            return [], {}
+        if not isinstance(label, str):
+            errors.append("%s: skill %s has a non-text label" % (where, skill))
+            label = ""
+        skills.append(skill)
+        if label.strip():
+            labels[skill] = label.strip()
     if len(skills) != len(set(skills)):
         errors.append("%s: duplicate skills" % where)
-    return skills
+    return skills, labels
 
 
 def discover(root):
@@ -579,9 +650,11 @@ def discover(root):
     errors = []
 
     # Every root's vocabulary, so an exercise may use a skill declared by another repository.
-    skills = []
+    skills, skill_labels = [], {}
     for one in roots:
-        skills += _catalog_skills(one, prefixes[os.fspath(one)], errors)
+        found, labels = _catalog_skills(one, prefixes[os.fspath(one)], errors)
+        skills += found
+        skill_labels.update(labels)
     skills = sorted(set(skills))
 
     exercises, came_from = {}, {}
@@ -647,6 +720,21 @@ def discover(root):
                 assignments[entry["id"]] = entry
                 assignment_from[entry["id"]] = _label(one)
 
+    cards, card_from = {}, {}
+    for one in roots:
+        prefix = prefixes[os.fspath(one)]
+        for card in _cards(one, prefix, errors):
+            if card["id"] in cards:
+                errors.append("%sduplicate card id: %s (already in %s)"
+                              % (prefix, card["id"], card_from[card["id"]]))
+                continue
+            for item in card["exercises"]:
+                if item not in exercises:
+                    errors.append("%scards.json: card %s names unknown exercise %r"
+                                  % (prefix, card["id"], item))
+            cards[card["id"]] = card
+            card_from[card["id"]] = _label(one)
+
     owner = {}
     for entry in assignments.values():
         for item in entry["items"]:
@@ -670,9 +758,11 @@ def discover(root):
         return dict(sorted(items.items(), key=lambda pair: key(pair[0])))
 
     return {"schema_version": SCHEMA_VERSION, "skills": skills,
+            "skill_labels": dict(sorted(skill_labels.items())),
             "exercises": _by(exercises, lambda name: name),
             "collections": _by(collections, _natural_key),
-            "assignments": _by(assignments, _natural_key)}
+            "assignments": _by(assignments, _natural_key),
+            "cards": _by(cards, _natural_key)}
 
 
 def public_catalogue(model, now=None):
@@ -698,6 +788,7 @@ def public_catalogue(model, now=None):
             public["files"] = [{"name": item["name"]} for item in entry["files"]]
         exercises.append(public)
     return {"schema_version": SCHEMA_VERSION, "skills": list(model["skills"]),
+            "skill_labels": dict(model.get("skill_labels") or {}),
             "exercises": exercises,
             "collections": [{"id": entry["id"], "title": entry["title"],
                              "description": entry["description"], "items": list(entry["items"]),
@@ -705,7 +796,8 @@ def public_catalogue(model, now=None):
                              "access": access(entry["release"], now)}
                             for entry in model["collections"].values()],
             "assignments": [_public_assignment(entry, now)
-                            for entry in model.get("assignments", {}).values()]}
+                            for entry in model.get("assignments", {}).values()],
+            "cards": [dict(card) for card in model.get("cards", {}).values()]}
 
 
 def _public_assignment(entry, now=None):

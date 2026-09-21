@@ -2,111 +2,72 @@
 """Checks that every reference solution passes its exercise's tests."""
 
 import os
-import subprocess
+import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "worker"))
 import content_catalog  # noqa: E402
 import judge  # noqa: E402
+import local_build  # noqa: E402
 
-CC = os.environ.get("CC", "gcc")
-STD = os.environ.get("CTESTER_STD", "gnu2x")
-TIMEOUT = 30
-EXTRA = os.environ.get("CTESTER_EXTRA", "").split()
 SOLUTIONS = os.environ.get("CTESTER_SOLUTIONS", "")
+NONCE = "verify0123456789abcdef0123456789a"
 
 
-def gcc(args, cwd):
-    done = subprocess.run([CC] + args, cwd=cwd, capture_output=True, text=True,
-                          errors="replace", timeout=TIMEOUT, check=False)
-    return done.returncode, done.stderr
+def failure(result):
+    """The judge's own message, plus gcc's text when it is the compilation that failed."""
+    return (result.get("message", "") + "\n" + (result.get("gcc") or "")).strip()[:400]
 
 
-def sources(path):
-    return sorted(f for f in os.listdir(path) if f.endswith(".c"))
-
-
-def validate_unity(entry, sol_dir, unity_dir, workdir):
-    objects = []
-    for src in sources(sol_dir):
-        obj = os.path.join(workdir, src[:-2] + ".o")
-        rc, err = gcc(EXTRA + ["-std=" + STD, "-Wall", "-I" + sol_dir, "-c",
-                       os.path.join(sol_dir, src), "-o", obj], workdir)
-        if rc:
-            return "the solution does not compile:\n" + err.strip()[:400]
-        objects.append(obj)
-
-    binary = os.path.join(workdir, "t")
-    # Unity excludes doubles by default, and TEST_ASSERT_DOUBLE_WITHIN then always fails.
-    rc, err = gcc(EXTRA + ["-DUNITY_INCLUDE_DOUBLE"] + objects
-                  + [os.path.join(entry["path"], f)
-                     for f in sources(entry["path"])]
-                  + [os.path.join(unity_dir, "unity.c"),
-                     "-I" + unity_dir, "-I" + entry["path"], "-I" + sol_dir,
-                     "-o", binary, "-lm"], workdir)
-    if rc:
-        return "linking fails:\n" + err.strip()[:400]
-
-    done = subprocess.run([binary], capture_output=True, text=True,
-                          errors="replace", timeout=TIMEOUT, check=False)
-    verdict = judge.verdict(done.returncode, done.stdout)
-    if verdict.get("status") != "ok":
-        return verdict.get("message", "") + "\n" + done.stdout.strip()[:400]
-    if verdict["passed"] != verdict["total"]:
+def validate_unity(entry, sol_dir, unity_dir):
+    rc, out, _, root = local_build.run("unity", local_build.read(sol_dir),
+                                       entry["path"], unity_dir)
+    shutil.rmtree(root, ignore_errors=True)
+    result = judge.verdict(rc, out, "unity")
+    if result.get("status") != "ok":
+        return failure(result)
+    if result["passed"] != result["total"]:
         return "only %d/%d tests, failures: %s" % (
-            verdict["passed"], verdict["total"], ", ".join(verdict["failed"]))
+            result["passed"], result["total"], ", ".join(result["failed"]))
     return ""
 
 
-def validate_io(entry, sol_dir, workdir):
-    conf = entry["config"]
-    binary = os.path.join(workdir, "t")
-    rc, err = gcc(EXTRA + ["-std=" + STD, "-Wall", "-I" + sol_dir]
-                  + [os.path.join(sol_dir, f) for f in sources(sol_dir)]
-                  + ["-o", binary, "-lm"], workdir)
-    if rc:
-        return "the solution does not compile:\n" + err.strip()[:400]
-
-    tol = conf.get("tolerance", judge.DEFAULT_TOLERANCE)
-    for number, case in enumerate(conf.get("cases", []), 1):
-        try:
-            done = subprocess.run([binary], input=case.get("stdin", ""),
-                                  capture_output=True, text=True,
-                                  errors="replace", timeout=TIMEOUT, check=False)
-        except subprocess.TimeoutExpired:
-            return "case %d: the program does not terminate" % number
-        reason = judge.check_case(case, done.stdout, tol)
-        if reason:
-            return "case %d (%r): %s\n      output: %r" % (
-                number, case.get("stdin", ""), reason, done.stdout[:200])
+def validate_io(entry, sol_dir):
+    rc, out, cases, root = local_build.run("io", local_build.read(sol_dir),
+                                            entry["path"], nonce=NONCE)
+    shutil.rmtree(root, ignore_errors=True)
+    tol = entry["config"].get("tolerance", judge.DEFAULT_TOLERANCE)
+    result = judge.verdict(rc, out, "io", NONCE, cases, tol)
+    if result.get("status") != "ok":
+        return failure(result)
+    bad = result.get("cases") or []
+    if bad:
+        first = bad[0]
+        return "case %s (%r): %s\n      output: %r" % (
+            first.get("case"), first.get("stdin", ""), first.get("reason", ""),
+            first.get("stdout", "")[:200])
     return ""
 
 
-def solutions_root(content):
+def solutions_dir(ident, exercise_dir):
+    """An exercise carries its own reference solution, so one clone of the content
+    repository is enough to check it. CTESTER_SOLUTIONS is for a base that files them
+    elsewhere: <that root>/<exercise id>."""
+    candidates = [os.path.join(exercise_dir, "solution")]
     if SOLUTIONS:
-        return os.path.abspath(SOLUTIONS)
-    for top in (os.pardir, os.path.join(os.pardir, os.pardir)):
-        candidate = os.path.abspath(os.path.join(content, top, "solutions"))
-        if os.path.isdir(candidate):
-            return candidate
-    return os.path.abspath(os.path.join(content, os.pardir, "solutions"))
-
-
-def solutions_dir(root, ident):
-    for candidate in ([os.path.join(root, ident)]
-                     + ([os.path.join(root, *ident.split("-", 1))]
-                        if "-" in ident else [])):
-        if os.path.isdir(candidate) and sources(candidate):
+        candidates.append(os.path.join(os.path.abspath(SOLUTIONS), ident))
+    for candidate in candidates:
+        if os.path.isdir(candidate) and local_build.sources(candidate):
             return candidate
     return None
 
 
 def main():
-    root = os.path.abspath(sys.argv[1] if len(sys.argv) > 1
-                             else os.path.join("unittests", "content"))
+    if len(sys.argv) < 2:
+        print("usage: verify_content.py <content root>")
+        return 2
+    root = os.path.abspath(sys.argv[1])
     unity_dir = os.path.join(root, "shared", "unity")
-    sol_root = solutions_root(root)
 
     if not os.path.isdir(root):
         print("this directory does not exist: " + root)
@@ -120,7 +81,7 @@ def main():
             print("  - " + error)
         return 1
     entries = [{"id": e["id"], "mode": e["mode"], "config": e["config"],
-                "path": os.path.join(e["path"], "assessment")}
+                "dir": e["path"], "path": os.path.join(e["path"], "assessment")}
                for e in model["exercises"].values()]
     if not entries:
         print("no exercise found in " + root)
@@ -145,21 +106,18 @@ def main():
                 ok += 1
             continue
 
-        sol_dir = solutions_dir(sol_root, ident)
+        sol_dir = solutions_dir(ident, entry["dir"])
         if sol_dir is None:
             skipped.append(ident)
             continue
 
-        workdir = tempfile.mkdtemp(prefix="validate-")
         try:
             if mode == "unity":
-                problem = validate_unity(entry, sol_dir, unity_dir, workdir)
+                problem = validate_unity(entry, sol_dir, unity_dir)
             else:
-                problem = validate_io(entry, sol_dir, workdir)
+                problem = validate_io(entry, sol_dir)
         except Exception as exc:  # noqa: BLE001
             problem = "validator error: %s" % exc
-        finally:
-            subprocess.run(["rm", "-rf", workdir], check=False)
 
         if problem:
             broken.append((ident, problem))

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { TITLE } from "../lib/config";
   import { catalog } from "../lib/state/catalog.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import { presence } from "../lib/state/presence.svelte";
@@ -42,7 +43,7 @@
       title="Revenir à l'exercice"
       onclick={() => view.show("")}
     >
-      TCH009<span class="tagline">Tester mon code</span>
+      {TITLE}<span class="tagline">Tester mon code</span>
     </button>
   </h1>
   <span class="tagline credit">par <a href="https://www.linkedin.com/in/vianney-veremme-1b88a5177" target="_blank">Vianney Veremme</a></span>

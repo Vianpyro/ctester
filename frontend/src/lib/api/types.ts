@@ -14,6 +14,8 @@ export interface PublishedRelease {
   collections?: PublishedCollection[];
   exercises?: PublishedExercise[];
   assignments?: PublishedAssignment[];
+  /** Skill id to the words to show for it, declared by the content base. */
+  skill_labels?: Record<string, string>;
 }
 
 export interface PublishedCollection {
@@ -193,6 +195,8 @@ export interface ProgressPayload {
 export interface Card {
   id: string;
   name: string;
+  /** Which of the page's drawings to use; the content base picks it. */
+  art: string;
   condition: string;
   held: boolean;
   rarity: number | null;

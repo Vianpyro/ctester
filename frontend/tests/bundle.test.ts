@@ -47,11 +47,15 @@ describe.skipIf(!built)("the built document", () => {
     expect(html.indexOf("<link rel=\"stylesheet\"")).toBeGreaterThan(policy);
   });
 
-  it("ships the files GitHub Pages needs at the apex, and the custom domain", () => {
-    expect(existsSync(join(DIST, "CNAME"))).toBe(true);
-    expect(readFileSync(join(DIST, "CNAME"), "utf8").trim()).toBe("tch009.thevhome.com");
+  it("ships the files GitHub Pages needs at the apex, and the configured domain", () => {
     expect(existsSync(join(DIST, "favicon.svg"))).toBe(true);
     expect(existsSync(join(DIST, "theme.js"))).toBe(true);
+    // The domain is a deployment setting: no CTESTER_PAGES_DOMAIN, no CNAME to ship.
+    const domain = (process.env.CTESTER_PAGES_DOMAIN ?? "").replace(/\/+$/, "");
+    expect(existsSync(join(DIST, "CNAME"))).toBe(Boolean(domain));
+    if (domain) {
+      expect(readFileSync(join(DIST, "CNAME"), "utf8").trim()).toBe(domain);
+    }
   });
 
   it("references its assets from the ROOT, which is what the custom domain serves", () => {

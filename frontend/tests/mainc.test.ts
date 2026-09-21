@@ -158,6 +158,6 @@ describe("build", () => {
   it("sets the preprocessor preamble the course expects", () => {
     const built = build([exercise("tp2-ex1", "ex.1")], {}, "", "TP 2", AT);
     expect(built.text).toContain("#define _CRT_SECURE_NO_WARNINGS");
-    expect(built.text).toContain("Description : Exercice 1 — TP 2 — TCH009");
+    expect(built.text).toContain("Description : Exercice 1 — TP 2 — CTester");
   });
 });

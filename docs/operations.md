@@ -8,6 +8,12 @@
 - **The API container** runs the stock `python:3.13-slim` image on read-only mounted code. The `deps`
   service installs `requirements.txt` into a volume whenever the file changes. There is no Dockerfile.
 - **The page** is built by CI (`npm run build` → `frontend/dist`) and published to GitHub Pages.
+  It carries no hostname of its own: `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`,
+  `CTESTER_TITLE` and `CTESTER_PAGES_DOMAIN` are baked in at build time and come from the
+  repository's Actions **variables**. Unset, the build is a generic CTester talking to its own
+  origin, with no CNAME — so a deployment that forgets them ships a page that cannot reach its
+  API. `CTESTER_API_ORIGIN` is also read by the server, which is what keeps the CSP in
+  `index.html` and the one in `app/csp.py` saying the same thing.
   `CTESTER_PAGE` may still point at a `dist` directory to serve the page from the API; set it to an
   empty string to disable that router.
 - **`ctester-pull.timer`** follows the application branch nightly, deploys only when
@@ -90,9 +96,9 @@ npm run build                      # must come before the next two: they read fr
 npm test
 python3 tests/test_ctester.py
 python3 tests/test_api.py
-python3 scripts/validate_content.py ../unittests/content
-python3 scripts/verify_content.py   ../unittests/content   # every reference solution passes its tests
-python3 tests/test_sandbox.py       ../unittests/content   # the build scripts with a real gcc
+python3 tests/test_sandbox.py                              # the build scripts with a real gcc
+python3 scripts/validate_content.py <content root>
+python3 scripts/verify_content.py   <content root>         # every reference solution passes its tests
 ```
 
 - Without `frontend/dist`, the bundle and CSP document checks skip instead of failing.
@@ -116,8 +122,8 @@ docker stop pg
 ## Content
 
 ```sh
-python3 scripts/validate_content.py ../unittests/content
-python3 worker/publish_content.py   ../unittests/content /tmp/published
+python3 scripts/validate_content.py <content root>
+python3 worker/publish_content.py   <content root> /tmp/published
 ```
 
 - Pushing to the private test repository is enough; the timer republishes within five minutes.

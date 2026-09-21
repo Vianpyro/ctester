@@ -18,6 +18,12 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: "1"
+      # The page carries no hostname of its own: these are baked in at build time, and
+      # bundle.test.ts reads the same values. Unset, the build is a generic CTester.
+      CTESTER_API_ORIGIN: ${{ vars.CTESTER_API_ORIGIN }}
+      CTESTER_AUTH_ORIGIN: ${{ vars.CTESTER_AUTH_ORIGIN }}
+      CTESTER_TITLE: ${{ vars.CTESTER_TITLE }}
+      CTESTER_PAGES_DOMAIN: ${{ vars.CTESTER_PAGES_DOMAIN }}
     steps:
       - uses: actions/checkout@v7
         with:

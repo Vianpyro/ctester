@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app")]
 
 os.environ.setdefault("CTESTER_ORIGINS",
-                      "https://tch009.thevhome.com,https://vianpyro.github.io")
+                      "https://ctester.example,https://pages.example")
 
 try:
     from fastapi.testclient import TestClient
@@ -33,7 +33,7 @@ from services import collab  # noqa: E402
 from services import forum_live  # noqa: E402
 from services import quotas  # noqa: E402
 
-KNOWN_ORIGIN = "https://tch009.thevhome.com"
+KNOWN_ORIGIN = "https://ctester.example"
 UNKNOWN_ORIGIN = "https://mechant.example"
 
 client = TestClient(main.app)
@@ -541,6 +541,12 @@ def _write_content(root, exercises=CONTENT, release=None, assignment=None):
     skill_names = sorted({c for _, _, _, _, skills, _ in exercises for c in skills})
     write(os.path.join(root, "catalog.json"),
            {"schema_version": 1, "skills": skill_names})
+    # The collection's table is the content base's, so the fixture has to carry one.
+    write(os.path.join(root, "cards.json"),
+           {"schema_version": 1, "cards": [
+               {"id": "E-01", "name": "Resistance", "family": "electrical",
+                "condition": "Reussir le premier exercice",
+                "exercises": [exercises[0][0]]}]})
     for identifier, title, mode, files, skills, difficulty in exercises:
         directory = os.path.join(root, "exercises", identifier)
         write(os.path.join(directory, "exercise.json"),
@@ -813,14 +819,27 @@ def test_the_csp_allows_api_images_and_blobs():
         config.PAGE = os.path.join(tmp, "web")
         with open(os.path.join(config.PAGE, "index.html"), "w", encoding="utf-8") as fh:
             fh.write("<html><head></head><body></body></html>")
-        r = c.get("/")
-        csp_header = r.headers["content-security-policy"]
-        directives = {d.split()[0]: d.split()[1:] for d in csp_header.split("; ")}
-        assert "'self'" in directives["img-src"], csp_header
-        assert "blob:" in directives["img-src"], csp_header
-        assert config.API_ORIGIN in directives["img-src"], csp_header
-        assert "data:" not in directives["img-src"], csp_header
-        assert "*" not in directives["img-src"], csp_header
+
+        def directives_now():
+            header = c.get("/").headers["content-security-policy"]
+            return header, {d.split()[0]: d.split()[1:] for d in header.split("; ")}
+
+        # Unconfigured, the CSP names no host but the page's own origin.
+        saved = config.API_ORIGIN
+        try:
+            config.API_ORIGIN = ""
+            csp_header, directives = directives_now()
+            assert directives["img-src"] == ["'self'", "blob:"], csp_header
+
+            config.API_ORIGIN = "https://api.exemple"
+            csp_header, directives = directives_now()
+            assert "'self'" in directives["img-src"], csp_header
+            assert "blob:" in directives["img-src"], csp_header
+            assert "https://api.exemple" in directives["img-src"], csp_header
+            assert "data:" not in directives["img-src"], csp_header
+            assert "*" not in directives["img-src"], csp_header
+        finally:
+            config.API_ORIGIN = saved
 
 
 def test_dates_apply_to_students_and_the_teacher_still_sees():
@@ -2268,7 +2287,7 @@ def test_the_collection_shows_locked_cards_with_their_condition():
         r = c.get("/collection", headers=auth("alice"))
         assert r.status_code == 200, r.text
         cards = r.json()["cards"]
-        assert len(cards) == len(policy.POLICY["cards"])
+        assert [card["id"] for card in cards] == ["E-01"], cards
         assert all(not card["held"] for card in cards)
         assert all(card["condition"] for card in cards), cards
         assert all(card["rarity"] is None for card in cards)

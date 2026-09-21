@@ -17,5 +17,5 @@ export function sessionKey(): string {
 }
 
 export const MISSING_KEY_MESSAGE =
-  "Il manque ta clé d'accès. Rouvre le lien de CTester depuis Moodle pour pouvoir " +
+  "Il manque ta clé d'accès. Rouvre le lien de CTester depuis ton cours pour pouvoir " +
   "tester ton code. Tu peux écrire en attendant : ton brouillon est enregistré.";

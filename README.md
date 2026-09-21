@@ -1,7 +1,12 @@
 # CTester
 
-A self-hosted C programming platform built for **[TCH009](https://www.etsmtl.ca/etudes/cours/TCH009)** at ÉTS.
-Students write C in the browser and get immediate feedback from private tests, run in an isolated sandbox.
+A self-hosted C programming platform. Students write C in the browser and get immediate feedback
+from private tests, run in an isolated sandbox.
+
+CTester ships **no exercises**: a separate content repository supplies them, and the engine reads it
+without knowing anything about the course inside. See [docs/content/format.md](docs/content/format.md)
+for the format, and `scripts/demo_content.py` for a runnable example of it.
+It was built for [TCH009](https://www.etsmtl.ca/etudes/cours/TCH009) at ÉTS, which is one deployment.
 
 ## Features
 
@@ -47,6 +52,7 @@ frontend/                     Svelte 5 + TypeScript page, built with Vite
 judge/                        host judge (Rust): queue, sandbox, verdicts, verdict cache, console sessions
 worker/
   judge.py                    the judge's grading rules, for the content tools
+  local_build.py              the sandbox build scripts, run on the host, for those tools
   content_catalog.py          content validation and access rules
   publish_content.py          release publication and rollback
   typst_build.py              Typst statement rendering
@@ -78,8 +84,8 @@ python3 tests/test_api.py
 Run the page and API locally against published content:
 
 ```sh
-python3 worker/publish_content.py ../unittests/content /tmp/published
-CTESTER_KEY=dev CTESTER_PUBLISHED=/tmp/published CTESTER_PAGE=frontend/dist python3 app/main.py
+python3 scripts/demo_content.py --out /tmp/demo      # or your own content repository
+CTESTER_KEY=dev CTESTER_PUBLISHED=/tmp/demo/published CTESTER_PAGE=frontend/dist python3 app/main.py
 ```
 
 Real verdicts also need a worker, which requires Docker and gVisor. See

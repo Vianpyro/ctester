@@ -17,7 +17,7 @@ export interface Exercise {
   bonus: boolean;
   assignment: string;
   files: { name: string }[];
-  learning: { skills?: string[]; context?: string; difficulty?: string };
+  learning: { skills?: string[] };
   access: Access;
   available_from: string;
 }
@@ -40,8 +40,6 @@ export const EMPTY_CATALOG: CatalogModel = { collections: [], catalog: [], assig
 function catalogEntry(ex: PublishedExercise, group: string): Exercise {
   const learning: Exercise["learning"] = {};
   if (Array.isArray(ex.skills) && ex.skills.length) learning.skills = ex.skills;
-  if (Array.isArray(ex.contexts) && ex.contexts.length) learning.context = ex.contexts[0];
-  if (ex.difficulty) learning.difficulty = ex.difficulty;
   const title = ex.title ?? ex.id;
   return {
     id: ex.id,

@@ -27,8 +27,9 @@ _VERSION_RE = re.compile(r"\btypst\s+(\d+\.\d+\.\d+)")
 # An SVG cannot follow prefers-color-scheme, so each statement is rendered twice.
 THEMES = ("dark", "light")
 
-# Never copied next to the source, so typst cannot read the tests even through --root.
-EXCLUDED = frozenset(("assessment", "public", "exercise.json", "statement.md"))
+# Never copied next to the source, so typst cannot read the tests or the reference
+# solution even through --root.
+EXCLUDED = frozenset(("assessment", "public", "solution", "exercise.json", "statement.md"))
 
 MAX_PAGES = 16
 

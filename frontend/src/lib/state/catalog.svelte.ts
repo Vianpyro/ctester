@@ -1,4 +1,5 @@
 import { fetchCatalog, fetchDetail } from "../api/public";
+import { setSkillLabels } from "../domain/labels";
 import {
   EMPTY_CATALOG,
   fold,
@@ -86,6 +87,7 @@ class CatalogState {
       return "";
     }
     this.#published = published;
+    setSkillLabels(published.skill_labels ?? {});
     this.model = normalize(published, this.staff);
     if (!this.collections.length) {
       system.say("Aucun exercice n'est publié pour l'instant.");

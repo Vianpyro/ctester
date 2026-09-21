@@ -63,7 +63,9 @@
     return out;
   });
 
-  const BAND_ORDER = ["verifie", "en-progression", "a-consolider", "non-verifie"] as const;
+  // The payload's order is the policy's: listing the ids here would hide any band
+  // the server adds.
+  const bandOrder = $derived((p?.mastery.bands ?? []).map((b) => b.id));
 
   const exerciseLabel = (id: string) => {
     const found = catalog.catalog.find((t) => t.id === id);
@@ -158,7 +160,7 @@
         <p class="big">
           {verified} compétence{verified > 1 ? "s" : ""} sur {p.mastery.skills.length}
         </p>
-        {#each BAND_ORDER as id}
+        {#each bandOrder as id}
           {@const named = p.mastery.skills.filter((r) => r.band === id)}
           {#if named.length}
             <p class="bandline">
