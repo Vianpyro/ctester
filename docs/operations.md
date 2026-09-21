@@ -9,10 +9,12 @@
   service installs `requirements.txt` into a volume whenever the file changes. There is no Dockerfile.
 - **The page** is built by CI (`npm run build` → `frontend/dist`) and published to GitHub Pages.
   It carries no hostname of its own: `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`,
-  `CTESTER_TITLE` and `CTESTER_PAGES_DOMAIN` are baked in at build time and come from the
-  repository's Actions **variables**. Unset, the build is a generic CTester talking to its own
-  origin, with no CNAME — so a deployment that forgets them ships a page that cannot reach its
-  API. `CTESTER_API_ORIGIN` is also read by the server, which is what keeps the CSP in
+  `CTESTER_TITLE` and `CTESTER_PAGES_DOMAIN` are baked in at build time and are variables of the
+  **`github-pages` environment**. Only the `pages` job enters it, so only that job builds the page
+  it deploys; the artifact the `tests` job uploads is deliberately generic, because Lighthouse
+  serves it from one local origin. Before deploying, `pages` refuses a build with no CNAME or with
+  no API origin in its CSP — unconfigured, the page asks its own origin for `/catalog.json` and the
+  site is down. `CTESTER_API_ORIGIN` is also read by the server, which is what keeps the CSP in
   `index.html` and the one in `app/csp.py` saying the same thing.
   `CTESTER_PAGE` may still point at a `dist` directory to serve the page from the API; set it to an
   empty string to disable that router.

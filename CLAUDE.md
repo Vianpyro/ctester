@@ -56,7 +56,9 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
   them. No inline scripts. The page names no host: `vite.config.ts` fills `%API_ORIGIN%`,
   `%API_WS%`, `%AUTH_ORIGIN%` and `%TITLE%` at build time from `CTESTER_API_ORIGIN`,
   `CTESTER_AUTH_ORIGIN` and `CTESTER_TITLE` — the same variables the server reads, which is what
-  keeps the two copies comparable.
+  keeps the two copies comparable. **Only the `pages` job builds the deployed page**, because
+  those settings are variables of the `github-pages` environment and no other job enters it; it
+  refuses to publish a build whose CSP names no API origin.
 - **The anonymous bundle stays small.** Anything that needs an account is loaded lazily, and
   `bundle.test.ts` checks the built output.
 - **Tables and grants live together** in `app/schema.sql`. Any table with an `account` column must be

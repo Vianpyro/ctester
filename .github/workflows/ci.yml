@@ -18,12 +18,6 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHONUNBUFFERED: "1"
-      # The page carries no hostname of its own: these are baked in at build time, and
-      # bundle.test.ts reads the same values. Unset, the build is a generic CTester.
-      CTESTER_API_ORIGIN: ${{ vars.CTESTER_API_ORIGIN }}
-      CTESTER_AUTH_ORIGIN: ${{ vars.CTESTER_AUTH_ORIGIN }}
-      CTESTER_TITLE: ${{ vars.CTESTER_TITLE }}
-      CTESTER_PAGES_DOMAIN: ${{ vars.CTESTER_PAGES_DOMAIN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -199,20 +193,47 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read
       pages: write
       id-token: write    # the OIDC token deploy-pages exchanges, not a stored secret
     environment:
       name: github-pages
       url: ${{ steps.deploiement.outputs.page_url }}
     steps:
-      - uses: actions/download-artifact@v8
+      # Built here, not reused from `tests`: the page's API origin, title and domain are
+      # baked in at build time and live in this environment, which no other job enters.
+      # The artifact `tests` uploads is deliberately generic -- Lighthouse serves it from
+      # one local origin, and pointing it at production would measure the wrong thing.
+      - uses: actions/checkout@v7
         with:
-          name: page
-          path: page
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+        env:
+          CTESTER_API_ORIGIN: ${{ vars.CTESTER_API_ORIGIN }}
+          CTESTER_AUTH_ORIGIN: ${{ vars.CTESTER_AUTH_ORIGIN }}
+          CTESTER_TITLE: ${{ vars.CTESTER_TITLE }}
+          CTESTER_PAGES_DOMAIN: ${{ vars.CTESTER_PAGES_DOMAIN }}
+      # An unconfigured build looks fine and bricks the site: it asks its own origin for
+      # /catalog.json and gets a 404. Never publish one.
+      - name: The page knows where its API is
+        run: |
+          set -eu
+          test -f frontend/dist/CNAME || {
+            echo "::error::no CNAME: the github-pages environment has no CTESTER_PAGES_DOMAIN"
+            exit 1
+          }
+          grep -q 'connect-src[^"]*https://' frontend/dist/index.html || {
+            echo "::error::the CSP names no API origin: the github-pages environment has no CTESTER_API_ORIGIN"
+            exit 1
+          }
+          echo "domain: $(cat frontend/dist/CNAME)"
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: page
+          path: frontend/dist
       - uses: actions/deploy-pages@v5
         id: deploiement
