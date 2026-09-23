@@ -324,6 +324,15 @@ describe("the anonymous page", () => {
     expect(document.getElementById("gutter")!.textContent).toBe("1\n2\n3\n");
   });
 
+  it("shows what the checker finds in the exercise's editor", async () => {
+    await render();
+    const zone = document.getElementById("code") as HTMLTextAreaElement;
+    zone.value = "int main(void) {\n    int x = 1\n    return 0;\n}\n";
+    zone.dispatchEvent(new Event("input", { bubbles: true }));
+    await until("the checker speaks", () => !!document.querySelector(".diag"));
+    expect(document.querySelector(".diag")?.textContent).toContain("ligne 2");
+  });
+
   it("keeps the chat dock closed and empty", async () => {
     await render();
     const dock = document.getElementById("chatdock")!;

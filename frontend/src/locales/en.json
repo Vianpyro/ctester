@@ -118,6 +118,7 @@
   "app.load.team": "the team space",
   "app.load.shortcuts": "the shortcuts cheat sheet",
   "app.load.quiz": "the quiz",
+  "app.load.checker": "the code checker",
   "app.signin_failed": "Signing in failed. You can go on without an account: the page works exactly the same.",
   "app.autosaved": "No need to save: your code is saved on its own.",
   "app.verification": "verification — no XP",

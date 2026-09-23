@@ -67,18 +67,24 @@
   });
 
   let issues = $state<Issue[]>([]);
-  // The checker is loaded on the first pause in typing, so it stays out of the eager bundle.
+  // Out of the eager bundle, but fetched with the page rather than at the first pause: a tab
+  // left open across a release would ask for a chunk the new release no longer serves.
+  const linting = import("../lib/domain/syntax").catch(() => {
+    system.say(t("app.load_failed", { what: t("app.load.checker") }), true);
+    return null;
+  });
   let lint: typeof import("../lib/domain/syntax") | null = null;
 
   $effect(() => {
     const source = value;
     const timer = setTimeout(() => {
-      void import("../lib/domain/syntax").then((mod) => {
+      void linting.then((mod) => {
+        if (!mod) return;
         lint = mod;
         if (source !== value) return;
         issues = mod.check(source);
         onIssues?.(issues);
-      }, () => {});
+      });
     }, 600);
     return () => clearTimeout(timer);
   });

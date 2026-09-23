@@ -118,6 +118,7 @@
   "app.load.team": "l'espace d'équipe",
   "app.load.shortcuts": "l'aide-mémoire des raccourcis",
   "app.load.quiz": "le questionnaire",
+  "app.load.checker": "le vérificateur de code",
   "app.signin_failed": "La connexion a échoué. Tu peux continuer sans compte : la page fonctionne exactement pareil.",
   "app.autosaved": "Pas besoin d'enregistrer : ton code est sauvegardé tout seul.",
   "app.verification": "vérification — sans XP",
