@@ -8,7 +8,6 @@ import {
   caseInputs,
   caseNumbers,
   estimatedWait,
-  explainGcc,
   firstError,
   isJudgeFailure,
   outcomeNext,
@@ -21,6 +20,7 @@ import {
   verdictHeadline,
 } from "../src/lib/domain/verdict";
 import type { Verdict } from "../src/lib/api/types";
+import { explainGcc } from "../src/lib/domain/gcc";
 
 describe("the three stages", () => {
   it("agrees in gender and number with the stage", () => {
