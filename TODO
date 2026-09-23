@@ -1,4 +1,3 @@
-- Translation files (i18n)
 - Hamberger menu for smaller devices
 - Reduce online users counter for smaller devices
 - WASM corrector for quizes with requests to the main server so it logs in the admin interface anyway?
