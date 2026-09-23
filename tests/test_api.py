@@ -633,7 +633,11 @@ def context(*, tokens=None, moderators=(), forum_enabled=True, base=None,
     deps.scratch_quota = quotas.Quota(cooldown=0, hourly=100000)
 
     try:
-        yield TestClient(main.create_app()), fake, tmp
+        # Entered, so every WebSocket shares one event loop, as under uvicorn. Otherwise
+        # each gets its own thread, and a frame relayed from one socket's loop to another's
+        # can leave the receiver asleep for good.
+        with TestClient(main.create_app()) as client:
+            yield client, fake, tmp
     finally:
         for m, previous in saved_state:
             m.state = previous
