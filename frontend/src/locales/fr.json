@@ -39,7 +39,7 @@
   "verdict.compile_timeout.title": "La compilation a été trop longue",
   "verdict.compile_timeout.next": "Réessaie. Si ça recommence, préviens ton enseignant.",
   "verdict.link_error.title": "Ton code ne s'assemble pas avec les tests",
-  "verdict.link_error.next": "Compare ta signature avec celle de l’énoncé, caractère par caractère.",
+  "verdict.link_error.next": "Compare ta signature avec celle de l'énoncé, caractère par caractère.",
   "verdict.memory_error.title": "Ton programme sort de la mémoire qu'il a réservée",
   "verdict.memory_error.next": "Revois tes conditions de boucle (< et non <=) et la taille que tu réserves.",
   "verdict.timeout.title": "Ton programme ne s'est pas arrêté",

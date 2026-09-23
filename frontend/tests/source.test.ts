@@ -3,7 +3,7 @@ import cases from "./fixtures/source.json";
 import { canonicalize, canonicalizeFiles, decodeImported } from "../src/lib/domain/source";
 
 describe("the canonical form of a source", () => {
-  it("REALLY READS THE SHARED FIXTURE", () => {
+  it("really reads the shared fixture", () => {
     expect(cases.encoding.length).toBeGreaterThanOrEqual(6);
     expect(cases.dead_whitespace.length).toBeGreaterThanOrEqual(5);
     expect(cases.untouched.length).toBeGreaterThanOrEqual(7);
@@ -20,18 +20,18 @@ describe("the canonical form of a source", () => {
     for (const c of cases.dead_whitespace) expect(canonicalize(c.in), c.why).toBe(c.out);
   });
 
-  it("STAYS SILENT ON EVERYTHING ELSE -- that is the half that makes it invisible", () => {
+  it("stays silent on everything else", () => {
     for (const c of cases.untouched) {
       expect(c.out, "this case must be a fixed point").toBe(c.in);
       expect(canonicalize(c.in), c.why).toBe(c.in);
     }
   });
 
-  it("\"open a file\" ACTUALLY DOES LESS, deliberately", () => {
+  it("\"open a file\" actually does less, deliberately", () => {
     for (const c of cases.dead_whitespace) expect(decodeImported(c.in), c.why).toBe(c.in);
   });
 
-  it("NEVER CHANGES THE LINE COUNT, and can only shorten", () => {
+  it("never changes the line count, and can only shorten", () => {
     for (const c of [...cases.encoding, ...cases.dead_whitespace, ...cases.untouched]) {
       const got = canonicalize(c.in);
       if (!c.in.includes("\r")) {
@@ -42,7 +42,7 @@ describe("the canonical form of a source", () => {
     }
   });
 
-  it("applies file by file, into a NEW object", () => {
+  it("applies file by file, into a new object", () => {
     const source = { "calendrier.h": "int f(void);  \n", "calendrier.c": "int f(void){\r\n}\r\n" };
     const out = canonicalizeFiles(source);
     expect(out).toEqual({ "calendrier.h": "int f(void);\n", "calendrier.c": "int f(void){\n}\n" });

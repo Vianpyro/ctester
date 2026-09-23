@@ -92,9 +92,7 @@ services:
           cpus: "${CTESTER_WEB_CPUS:-0.25}"
           memory: ${CTESTER_WEB_MEMORY:-512m}
 
-  # The teacher's dashboard. No published port: Nginx Proxy Manager reaches it over the
-  # ingress network, and the access list on that proxy host is the only boundary, so it
-  # must be restricted to the LAN. See docs/operations.md.
+  # The teacher's dashboard, reached only through the proxy (see docs/operations.md).
   admin:
     image: ${CTESTER_WEB_IMAGE:-python:3.13-slim}
     restart: unless-stopped

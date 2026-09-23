@@ -39,7 +39,7 @@ describe("pairs", () => {
     expect(press('"', "§salut§")).toBe('"|salut|"');
   });
 
-  it("does NOT WRAP when text follows: one is typing before an existing word", () => {
+  it("does not wrap when text follows: one is typing before an existing word", () => {
     expect(press("(", "§printf")).toBeNull();
     expect(press("[", "§tableau")).toBeNull();
   });
@@ -169,31 +169,31 @@ describe("comment", () => {
     expect(text("commentLine", "§// int x;\n// int y;§")).toBe("int x;\nint y;");
   });
 
-  it("SILENCE on the direction: a MIXED block gets commented, not uncommented", () => {
+  it("comments a mixed block rather than uncommenting it", () => {
     expect(text("commentLine", "§// int x;\nint y;§")).toBe("// // int x;\n// int y;");
   });
 
-  it("aligns the `//` in a COLUMN and keeps the relative indentation", () => {
+  it("aligns the `//` in a column and keeps the relative indentation", () => {
     expect(text("commentLine", "§    int a;\n        int b;§")).toBe(
       "    // int a;\n    //     int b;",
     );
   });
 
-  it("SILENCE on a block's empty lines: they receive nothing", () => {
+  it("leaves a block's empty lines untouched", () => {
     expect(text("commentLine", "§int a;\n\nint b;§")).toBe("// int a;\n\n// int b;");
   });
 
-  it("still comments a LONE empty line, or the key looks dead", () => {
+  it("still comments a lone empty line, or the key looks dead", () => {
     expect(text("commentLine", "  §")).toBe("  // ");
   });
 
-  it("makes an EXACT round trip, and keeps a deliberate alignment space", () => {
+  it("makes an exact round trip, and keeps a deliberate alignment space", () => {
     expect(text("commentLine", "§//x§")).toBe("x");
     expect(text("commentLine", "§// x§")).toBe("x");
     expect(text("commentLine", "§//  x§")).toBe(" x");
   });
 
-  it("SILENCE on the line below when the selection ends at its start", () => {
+  it("ignores the line below when the selection ends at its start", () => {
     expect(text("commentLine", "§int a;\n§int b;")).toBe("// int a;\nint b;");
     expect(text("commentLine", "§int a;\ni§nt b;")).toBe("// int a;\n// int b;");
   });
@@ -216,7 +216,7 @@ describe("block comment", () => {
     expect(run("commentBlock", "a;§")).toBe("a;/* | */");
   });
 
-  it("SILENCE: a `*/` in the middle falls back to the line comment", () => {
+  it("a `*/` in the middle falls back to the line comment", () => {
     expect(text("commentBlock", "§int a; /* n */\nint b;§")).toBe("// int a; /* n */\n// int b;");
   });
 });
@@ -226,7 +226,7 @@ describe("duplicate", () => {
     expect(run("duplicate", "int §x;")).toBe("int x;\nint |x;");
   });
 
-  it("copies a block of WHOLE lines below, and selects the COPY", () => {
+  it("copies a block of whole lines below, and selects the copy", () => {
     expect(run("duplicate", "§int a;\nint b;§")).toBe("int a;\nint b;\n|int a;\nint b;|");
   });
 
@@ -245,7 +245,7 @@ describe("delete the line", () => {
     expect(text("deleteLine", "int a;\nint §b;\nint c;")).toBe("int a;\nint c;");
   });
 
-  it("takes the line break BEFORE on the last line", () => {
+  it("takes the line break before on the last line", () => {
     expect(text("deleteLine", "int a;\nint §b;")).toBe("int a;");
   });
 
@@ -253,7 +253,7 @@ describe("delete the line", () => {
     expect(text("deleteLine", "int §a;")).toBe("");
   });
 
-  it("SILENCE on an already empty file", () => {
+  it("does nothing on an empty file", () => {
     expect(run("deleteLine", "§")).toBeNull();
   });
 });
@@ -267,7 +267,7 @@ describe("move the line", () => {
     expect(run("moveDown", "int §a;\nint b;")).toBe("int b;\nint |a;");
   });
 
-  it("keeps the SELECTION on the moved block, so one can do it again", () => {
+  it("keeps the selection on the moved block, so one can do it again", () => {
     expect(run("moveDown", "§int a;\nint b;§\nint c;")).toBe("int c;\n|int a;\nint b;|");
   });
 
@@ -277,7 +277,7 @@ describe("move the line", () => {
     expect(text("moveUp", "a\n§c\nb")).toBe("c\na\nb");
   });
 
-  it("SILENCE at both ends, and the text stays INTACT", () => {
+  it("does nothing at either end and leaves the text intact", () => {
     expect(run("moveUp", "int §a;\nint b;")).toBeNull();
     expect(run("moveDown", "int a;\nint §b;")).toBeNull();
     expect(run("moveUp", "§int a;\nint b;§")).toBeNull();
@@ -289,11 +289,11 @@ describe("complete the statement", () => {
     expect(run("completeStatement", "    int x = 1§")).toBe("    int x = 1;\n    |");
   });
 
-  it("SILENCE: a line already ending with `;` does not get a second one", () => {
+  it("a line already ending with `;` does not get a second one", () => {
     expect(run("completeStatement", "    int x = 1;§")).toBe("    int x = 1;\n    |");
   });
 
-  it("SILENCE ON `if (x)`, the most expensive semicolon in the course", () => {
+  it("adds no semicolon after `if (x)`", () => {
     expect(run("completeStatement", "    if (x)§")).toBe("    if (x)\n    |");
     expect(run("completeStatement", "for (;;)§")).toBe("for (;;)\n|");
     expect(run("completeStatement", "while (a)§")).toBe("while (a)\n|");
@@ -311,12 +311,12 @@ describe("go to line", () => {
     expect(lineSpan("aa\nbbb\nc", 1)).toEqual({ from: 0, to: 2 });
   });
 
-  it("CLAMPS instead of refusing: 999 means \"the end\"", () => {
+  it("clamps instead of refusing: 999 means \"the end\"", () => {
     expect(parseLine("999", 5)).toBe(5);
     expect(parseLine("  3 ", 5)).toBe(3);
   });
 
-  it("SILENCE on what is not a line number", () => {
+  it("ignores what is not a line number", () => {
     for (const bad of ["", "0", "abc", "-2", "1.5", "2e3"]) {
       expect(parseLine(bad, 5), bad).toBeNull();
     }

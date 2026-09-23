@@ -109,7 +109,7 @@ async function render() {
 }
 
 describe("the page's structure, which the stylesheet depends on", () => {
-  it("keeps `#top` and `<main>` as children of BODY, which is the flex column", async () => {
+  it("keeps `#top` and `<main>` as children of body, the flex column", async () => {
     await render();
     const bar = document.getElementById("top")!;
     const main = document.querySelector("main")!;
@@ -131,7 +131,7 @@ describe("the page's structure, which the stylesheet depends on", () => {
     ]);
   });
 
-  it("keeps the three floating panels INSIDE `#top`, which is what they anchor to", async () => {
+  it("keeps the three floating panels inside `#top`, which is what they anchor to", async () => {
     await render();
     const bar = document.getElementById("top")!;
     expect(document.getElementById("consent")!.parentElement).toBe(bar);
@@ -260,7 +260,7 @@ describe("the anonymous page", () => {
     ).toBe("true");
   });
 
-  it("starts on the idle verdict, and NOT on three failed stages", async () => {
+  it("starts on the idle verdict, and not on three failed stages", async () => {
     await render();
     const out = document.getElementById("out")!;
     expect(out.className).toBe("idle");
@@ -268,7 +268,7 @@ describe("the anonymous page", () => {
     expect(out.querySelector(".steps")).toBeNull();
   });
 
-  it("says the access key is missing at LOAD time, not at the first submission", async () => {
+  it("says the access key is missing at load time, not at the first submission", async () => {
     await render();
     const banner = document.getElementById("system")!;
     expect(banner.hidden).toBe(false);
@@ -283,7 +283,7 @@ describe("the anonymous page", () => {
     expect(live.textContent).toContain("3 personnes en ligne");
   });
 
-  it("offers NO account button on a deployment with no issuer", async () => {
+  it("offers no account button on a deployment with no issuer", async () => {
     await render();
     expect(document.getElementById("login")).toBeNull();
     expect(document.getElementById("accountmenu")).toBeNull();
@@ -350,7 +350,7 @@ describe("the page's shortcuts", () => {
     expect(document.querySelector("#menuex")?.hasAttribute("open")).toBe(true);
   });
 
-  it("opens it ALSO with Caps Lock -- the bug the table fixes", async () => {
+  it("opens it with Caps Lock on too", async () => {
     await render();
     expect(key("K", { ctrlKey: true }).defaultPrevented).toBe(true);
     expect(document.querySelector("#menuex")?.hasAttribute("open")).toBe(true);
@@ -363,7 +363,7 @@ describe("the page's shortcuts", () => {
     expect(document.querySelector("#system")?.textContent).toContain("sauvegardé tout seul");
   });
 
-  it("the Ctrl+S message clears by itself, AND GIVES THE BANNER BACK", async () => {
+  it("the Ctrl+S message clears by itself and gives the banner back", async () => {
     await render();
     const banner = () => document.querySelector("#system")?.textContent ?? "";
     const before = banner();
@@ -382,7 +382,7 @@ describe("the page's shortcuts", () => {
     }
   });
 
-  it("SILENCE: a keystroke already handled by the surface is not replayed", async () => {
+  it("a keystroke already handled by the surface is not replayed", async () => {
     await render();
     const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true });
     event.preventDefault();
@@ -391,7 +391,7 @@ describe("the page's shortcuts", () => {
     expect(document.querySelector("#menuex")?.hasAttribute("open")).toBeFalsy();
   });
 
-  it("SILENCE: nothing that belongs to the browser is prevented", async () => {
+  it("nothing that belongs to the browser is prevented", async () => {
     await render();
     for (const k of ["z", "c", "v", "f", "a", "y"]) {
       expect(key(k, { ctrlKey: true }).defaultPrevented, "Ctrl+" + k).toBe(false);
@@ -414,7 +414,7 @@ describe("the cheat sheet", () => {
     expect(document.querySelector("#shortcuts")?.hasAttribute("hidden")).toBe(true);
   });
 
-  it("says what it does NOT take from the browser", async () => {
+  it("says what it does not take from the browser", async () => {
     await render();
     key("F1");
     await until("le panneau des raccourcis", () => !!document.querySelector("#shortcuts"));
@@ -425,7 +425,7 @@ describe("the cheat sheet", () => {
   });
 });
 
-describe("SILENCE: Escape does not break the keyboard escape hatch", () => {
+describe("Escape does not break the keyboard escape hatch", () => {
   it("prevents nothing when the caret is in the code", async () => {
     await render();
     const zone = document.querySelector<HTMLTextAreaElement>("#code")!;

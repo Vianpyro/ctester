@@ -40,7 +40,7 @@ describe("the mark a question wears", () => {
     expect(marks).toEqual({ p1: "right", p2: "wrong" });
   });
 
-  it("marks nothing when the run did not grade -- a service failure is not a judgment", () => {
+  it("marks nothing when the run did not grade", () => {
     const answers = { a: "1" };
     const broken: Verdict = { state: "done", status: "error", kind: "quiz", message: "juge" };
     expect(marksFor(broken, packAll(answers), answers)).toEqual({});

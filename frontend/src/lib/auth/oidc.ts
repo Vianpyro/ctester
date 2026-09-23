@@ -134,7 +134,7 @@ export async function ensureValidAccessToken(): Promise<boolean> {
   return await refreshAccessToken();
 }
 
-export function forgetRenewal(): void {
+function forgetRenewal(): void {
   refreshing = null;
   dropCredentials();
 }

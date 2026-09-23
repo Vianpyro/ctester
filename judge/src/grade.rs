@@ -830,7 +830,7 @@ pub fn verdict_io(rc: i64, output: &str, cases: &[Value], nonce: &str, tol: f64)
 /// Untrusted: student code shares the process and could print a fake summary.
 pub fn parse_unity(out: &str) -> Option<Map<String, Value>> {
     let caps = SUMMARY_RE.captures_iter(out).last()?;
-    // ponytail: absurdly long counts saturate at u64::MAX; only a forged summary has them.
+    // Only a forged summary has counts this long; they saturate.
     let number = |i: usize| caps[i].parse::<u64>().unwrap_or(u64::MAX);
     let (total, failures, ignored) = (number(1), number(2), number(3));
     let names: Vec<&str> = FAIL_RE
@@ -1189,7 +1189,6 @@ mod tests {
         assert!(!ok && hint == "empty_gap");
         assert!(!q("cloze", json!(["1", "<", "+="]), gaps).0);
 
-        // An unknown type is loud instead of being read as an integer.
         let (ok, hint) = q("essai", json!("un texte"), json!("autre"));
         assert!(!ok && hint == "unknown_type");
     }
@@ -1256,9 +1255,7 @@ mod tests {
 
     #[test]
     fn the_derived_key_grades_itself_perfectly() {
-        // What verify_content.py does: feed each question's own answer back through the
-        // grader. The key of a text, number or cloze question is not a submission, so the
-        // rendering has to come from here.
+        // What verify_content.py does.
         let quiz = json!({"questions": [
             {"id": "s", "type": "bin8", "answer": "00010111"},
             {"id": "m", "type": "multi", "answer": ["a", "b"]},
@@ -1283,7 +1280,6 @@ mod tests {
             "{note}"
         );
 
-        // A question with no answer is left out rather than crashing the check.
         let hollow = json!({"questions": [{"id": "x", "type": "int"}]});
         assert_eq!(quiz_key(&hollow).unwrap(), json!({}));
         assert!(quiz_key(&json!({"questions": "pas une liste"})).is_err());
@@ -1646,11 +1642,8 @@ mod tests {
         assert!(check_case(&json!({"absent": "turbulent"}), "x", DEFAULT_TOLERANCE).is_err());
     }
 
-    /// The page warns about the shape of an answer while it is typed, replaying the
-    /// normalisation below. Two copies that drift would have it complain about an answer
-    /// this grader accepts, so the vectors bind them -- the way release_access.json binds
-    /// the two implementations of `access`. The invariant is one-way: what the page calls
-    /// malformed, nothing here may call right.
+    /// The page's shape warnings replay this normalisation; the shared vectors keep the two
+    /// in step. One-way: nothing the page calls malformed may be graded right here.
     #[test]
     fn shape_vectors_agree_with_the_judge() {
         let file: Value =

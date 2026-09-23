@@ -3,6 +3,7 @@
   import { t } from "../../lib/i18n.svelte";
   import { thread } from "./thread.svelte";
   import Markdown from "./Markdown.svelte";
+  import { stepLabel } from "./labels";
   import type { ForumMessage } from "../../lib/api/types";
 
   interface Props {
@@ -23,7 +24,6 @@
     if (message.role === "teacher") return t("forum.author.teacher");
     return message.author || t("identity.participant");
   }
-  const stepLabel = (id: string) => t(`forum.step.${id}`);
 </script>
 
 <li

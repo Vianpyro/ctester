@@ -1,20 +1,9 @@
 """Reading back the code behind a run, without storing any of it.
 
-Two sources, tried in order, because neither covers every case on its own:
-
-1. The spool still holds `files.json` until the judge sweeps it
-   (`CTESTER_SWEEP_AFTER`, 600 s). That is the code of *this* run, and it is there even
-   for a student who was not signed in. During a lab -- when this page is actually
-   being watched -- this is the source that answers.
-2. `exercise_state.sources`, written on every attempt the student polled. Persistent,
-   but it is their *latest* code for that exercise, not necessarily this run's.
-
-Neither holds anything for a run the student never polled and that has been swept: the
-poll is what writes the row.
-
-The verdict (compiler output, failed cases with their stdout and stderr) is the judge's
-`result.json`, swept on the same schedule as the spool. Nothing else keeps it: an old
-run comes back with its code, at best, and without its output.
+The spool's `files.json` is this run's exact code, until the judge sweeps it
+(CTESTER_SWEEP_AFTER). After that, `exercise_state.sources` holds the student's latest
+code for the exercise, which may be a later attempt. The verdict is swept with the spool
+and is not kept anywhere else.
 """
 
 import json

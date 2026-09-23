@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""End-to-end checks of the sandbox build scripts, on a content fixture of its own.
-
-What is verified here -- no test source ever reaches the verdict, ASan is on, the timers
-fire, the phases stay separated -- belongs to the engine, not to any course. So the
-fixture is written to a temporary directory and the suite runs on a bare clone, with no
-content repository anywhere.
+"""End-to-end checks of the sandbox build scripts, on a fixture written to a temporary
+directory, so they run on a bare clone without any content repository.
 """
 import json
 import os
@@ -199,7 +195,7 @@ def check(cond, label):
         failures.append(label)
 
 
-print("\n--- 0a. the prompt arrives BEFORE anything is typed ---")
+print("\n--- 0a. the prompt arrives before any input ---")
 DIALOGUE = """#include <stdio.h>
 
 int main(void)
@@ -222,7 +218,7 @@ check(NONCE.encode() not in after,
       "the phase marker never crosses the boundary")
 proc.kill()
 
-print("\n--- 0b. `while (1);` dies on CPU TIME ---")
+print("\n--- 0b. `while (1);` hits the CPU limit ---")
 proc, seen, _ = run_console("int main(void){ for(;;); }", budget=25,
                              CTESTER_CPU_SECONDS="2")
 proc.wait(timeout=10)
@@ -232,7 +228,7 @@ check(proc.returncode not in (0, None),
 check(b"Killed" not in after and b"ulimit" not in after,
       "and its output contains NO bash noise: " + repr(after[:120]))
 
-print("\n--- 0c. ...but a program that WAITS survives the same cap ---")
+print("\n--- 0c. a program waiting for input survives it ---")
 proc, seen, _ = run_console(DIALOGUE, budget=6, CTESTER_CPU_SECONDS="2")
 _, after = phases(seen)
 check(proc.poll() is None,
@@ -248,7 +244,7 @@ check(proc.returncode == 10, "exit code 10 (%r)" % proc.returncode)
 check(b"zzz" in before, "gcc's text is in the `build` phase")
 check(after == b"", "and nothing ran")
 
-print("\n--- 0d bis. the Console header is found next to main.c ---")
+print("\n--- 0e. the Console header is found next to main.c ---")
 proc, seen, _ = run_console(
     '#include <stdio.h>\n#include "pile.h"\n\n'
     'int triple(int n) { return N * n; }\n\n'
@@ -265,7 +261,7 @@ before, _ = phases(seen)
 check(proc.returncode == 10 and b"pile.h" in before,
       "without the header, gcc says so in the `build` phase (%r)" % proc.returncode)
 
-print("\n--- 0e. build-scratch.sh knows NEITHER cases NOR tests ---")
+print("\n--- 0f. build-scratch.sh sees no cases and no tests ---")
 _scratch_text = "\n".join(
     line for line in (WORKER / "build-scratch.sh").read_text(encoding="utf-8").splitlines()
     if not line.lstrip().startswith("#"))
@@ -382,6 +378,6 @@ show(res)
 check(res["status"] == "timeout", "the verdict is a timeout, not a crash")
 
 print()
-print("%d CHECK(S) FAILED" % len(failures) if failures
+print("%d check(s) failed" % len(failures) if failures
       else "the sandbox holds its invariants")
 sys.exit(1 if failures else 0)

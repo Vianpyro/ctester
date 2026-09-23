@@ -12,7 +12,7 @@ function parsed(source: string): HTMLElement {
 const shape = (el: Element | null) => Array.from(el?.children ?? []).map((c) => c.tagName.toLowerCase());
 
 describe("the six formulas the course actually writes", () => {
-  it("tp2-ex3 -- `I = V / R` is a fraction, not a slash", () => {
+  it("tp2-ex3: `I = V / R` is a fraction, not a slash", () => {
     const host = parsed("I = V / R");
     const frac = host.querySelector("mfrac");
     expect(frac).not.toBeNull();
@@ -20,19 +20,19 @@ describe("the six formulas the course actually writes", () => {
     expect(frac!.children[1]!.textContent).toBe("R");
   });
 
-  it("tp2-ex4 -- `A = pi * r^2` is a superscript and a Greek pi", () => {
+  it("tp2-ex4: `A = pi * r^2` is a superscript and a Greek pi", () => {
     const host = parsed("A = pi * r^2");
     expect(host.querySelector("msup")?.textContent).toBe("r2");
     expect(host.textContent).toContain("π");
     expect(host.textContent).not.toContain("pi");
   });
 
-  it("asks for DISPLAY STYLE, without which a fraction is drawn at script size", () => {
+  it("asks for display style, without which a fraction is drawn at script size", () => {
     const root = parsed("V = racine(a / b)").querySelector("math");
     expect(root?.getAttribute("displaystyle")).toBe("true");
   });
 
-  it("tp2-ex5 -- a radical OVER a fraction, and the redundant parentheses DROP", () => {
+  it("tp2-ex5: a radical over a fraction, and the redundant parentheses drop", () => {
     const host = parsed("V = racine( 2*m*g / (0,5 * rho * pi * r^2 ))");
     const sqrt = host.querySelector("msqrt");
     expect(sqrt).not.toBeNull();
@@ -45,20 +45,20 @@ describe("the six formulas the course actually writes", () => {
     expect(Array.from(host.querySelectorAll("mn")).map((n) => n.textContent)).toContain("0,5");
   });
 
-  it("tp2-ex8 and tp3-ex3 -- `R = V * L / v` puts V·L over v", () => {
+  it("tp2-ex8 and tp3-ex3: `R = V * L / v` puts V·L over v", () => {
     const frac = parsed("R = V * L / v").querySelector("mfrac");
     expect(frac!.children[0]!.textContent).toBe("V⋅L");
     expect(frac!.children[1]!.textContent).toBe("v");
   });
 
-  it("bonus-1 -- `P = F * v` has no fraction at all", () => {
+  it("bonus-1: `P = F * v` has no fraction at all", () => {
     const host = parsed("P = F * v");
     expect(host.querySelector("mfrac")).toBeNull();
     expect(host.textContent).toBe("P=F⋅v");
   });
 });
 
-describe("precedence is C's, and the SHAPE of the tree is what says so", () => {
+describe("precedence is C's, and the shape of the tree is what says so", () => {
   it("puts only the neighbouring term over the bar: `a + b / c`", () => {
     const frac = parsed("a + b / c").querySelector("mfrac");
     expect(frac!.children[0]!.textContent).toBe("b");
@@ -83,7 +83,7 @@ describe("precedence is C's, and the SHAPE of the tree is what says so", () => {
   });
 });
 
-describe("the lexer reads the LONGEST operator first", () => {
+describe("the lexer reads the longest operator first", () => {
   const pairs: [string, string][] = [
     ["a << 2", "a<<2"],
     ["a < 2", "a<2"],
@@ -136,14 +136,14 @@ describe("`^` is the exponent and exclusive-or is spelled `xor`", () => {
     expect(renderMath("a xor")).toBeNull();
   });
 
-  it("reads `|` as bitwise OR, absolute value being `abs(x)`", () => {
+  it("reads `|` as bitwise OR; absolute value is `abs(x)`", () => {
     expect(parsed("a | b").querySelector("mo")?.textContent).toBe("|");
     expect(parsed("abs(x)").textContent).toBe("|x|");
   });
 });
 
 describe("floor and ceil, which is what makes C's truncation visible", () => {
-  it("wraps a REAL fraction in stretchy fences: `floor(23*m/9)`", () => {
+  it("wraps a real fraction in stretchy fences: `floor(23*m/9)`", () => {
     const host = parsed("floor(23*m/9)");
     const fences = host.querySelectorAll('mo[stretchy="true"]');
     expect(Array.from(fences).map((f) => f.textContent)).toEqual(["⌊", "⌋"]);
@@ -159,7 +159,7 @@ describe("floor and ceil, which is what makes C's truncation visible", () => {
   });
 });
 
-describe("calls, and the list of them is CLOSED", () => {
+describe("calls, and the list of them is closed", () => {
   it("draws `pow(a, b)` as an exponent: C has no power operator", () => {
     expect(parsed("pow(a, b)").querySelector("msup")?.textContent).toBe("ab");
   });
@@ -168,7 +168,7 @@ describe("calls, and the list of them is CLOSED", () => {
     expect(parsed("max(a, b)").textContent).toBe("max(a,b)");
   });
 
-  it("REFUSES a name that is not on the list", () => {
+  it("refuses a name that is not on the list", () => {
     expect(renderMath("frobnicate(x)")).toBeNull();
     expect(renderMath("printf(x)")).toBeNull();
   });

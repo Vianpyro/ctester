@@ -56,6 +56,12 @@ class CatalogState {
     if (this.#published) this.model = normalize(this.#published, value);
   }
 
+  // The long label for an id, or the id itself when the exercise is not open.
+  labelOf(id: string): string {
+    const found = this.catalog.find((ex) => ex.id === id);
+    return found ? found.label || found.short || id : id;
+  }
+
   nextOpen(): Exercise | null {
     const i = this.catalog.findIndex((t) => t.id === this.selectedId);
     return i >= 0 ? (this.catalog[i + 1] ?? null) : null;

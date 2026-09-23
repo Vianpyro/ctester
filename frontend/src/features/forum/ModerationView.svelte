@@ -2,7 +2,7 @@
   import { catalog } from "../../lib/state/catalog.svelte";
   import { groupNumber, localTime } from "../../lib/domain/labels";
   import { t } from "../../lib/i18n.svelte";
-  import { readableThread } from "./labels";
+  import { readableThread, stepLabel } from "./labels";
   import { chat } from "./chat.svelte";
   import { thread } from "./thread.svelte";
   import Markdown from "./Markdown.svelte";
@@ -13,12 +13,7 @@
     title?.focus();
   });
 
-  const stepLabel = (id: string) => t(`forum.step.${id}`);
   const blockedLabel = (id: string) => t(`forum.blocked.${id}`);
-  const exerciseLabel = (id: string) => {
-    const found = catalog.catalog.find((ex) => ex.id === id);
-    return found ? found.label || found.short || id : id;
-  };
   const topRows = $derived((thread.top?.rows ?? []).filter((r) => r.upvotes || !r.replies));
 
   async function openConversation(id: string) {
@@ -83,7 +78,7 @@
           <tbody>
             {#each thread.help.rows as row (row.exercise_id + "#" + row.step + "#" + row.blocked_kind)}
               <tr>
-              <td>{exerciseLabel(row.exercise_id)}</td>
+              <td>{catalog.labelOf(row.exercise_id)}</td>
               <td>
                 {stepLabel(row.step) + (row.blocked_kind ? " — " + blockedLabel(row.blocked_kind) : "")}
               </td>

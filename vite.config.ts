@@ -4,16 +4,12 @@ import { defineConfig, type Plugin } from "vitest/config";
 
 const trim = (value: string) => value.replace(/\/+$/, "");
 
-// One knob per deployment, and index.html carries no hostname of its own. The wss:// form
-// is derived here rather than configured, so the two can never disagree.
-// Unit tests assert the engine's own behaviour, so they never inherit a deployment's
-// values; the bundle tests read the real build, which is not a vitest run.
+// Unit tests never see a deployment's settings; the bundle tests read the real build.
 const setting = (name: string) => (process.env.VITEST ? "" : process.env[name] ?? "");
 
 const API = trim(setting("CTESTER_API_ORIGIN"));
 const AUTH = trim(setting("CTESTER_AUTH_ORIGIN"));
-// The instance's language, for <html lang> and the tab's title before the page runs.
-// en.json is the source every other language falls back to.
+// For <html lang> and the tab title before the page runs.
 const locale = (lang: string): Record<string, string> => {
   const path = `frontend/src/locales/${lang}.json`;
   return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
@@ -22,9 +18,8 @@ const LANG = setting("CTESTER_LANG") || "en";
 if (!existsSync(`frontend/src/locales/${LANG}.json`)) {
   throw new Error(`CTESTER_LANG="${LANG}" has no frontend/src/locales/${LANG}.json.`);
 }
-// The header prints the name and the tagline side by side, and index.html joins them for
-// the tab. A title carrying the whole sentence shows it twice, which is easy to do and
-// invisible until someone looks at the page.
+// The header and the tab show the tagline beside the title, so a title that already
+// contains it prints it twice.
 const TAGLINE = locale(LANG)["app.tagline"] ?? locale("en")["app.tagline"] ?? "";
 const TITLE = setting("CTESTER_TITLE") || "CTester";
 if (TAGLINE && TITLE.includes(TAGLINE)) {
@@ -37,6 +32,7 @@ const DOMAIN = trim(setting("CTESTER_PAGES_DOMAIN"));
 
 export const SUBSTITUTIONS: Record<string, string> = {
   "%API_ORIGIN%": API,
+  // Derived, so it can never disagree with the API origin.
   "%API_WS%": API ? "wss://" + API.split("://")[1] : "",
   "%AUTH_ORIGIN%": AUTH,
   "%TITLE%": TITLE,
@@ -63,7 +59,7 @@ function deployment(): Plugin {
       );
     },
     generateBundle() {
-      // GitHub Pages reads CNAME from the published root. No domain configured, no file.
+      // GitHub Pages reads CNAME from the published root.
       if (DOMAIN) {
         this.emitFile({ type: "asset", fileName: "CNAME", source: DOMAIN + "\n" });
       }

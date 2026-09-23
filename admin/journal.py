@@ -1,8 +1,6 @@
-"""Reading the judge's run journal.
+"""Reading the judge's append-only run journal, results/runs-<date>.jsonl.
 
-Standard library only: test_ctester.py imports this and runs on the host Python.
-The judge appends one JSON object per line to results/runs-<date>.jsonl and never
-rewrites one, so reading is a matter of remembering how far each file was read.
+Standard library only: test_ctester.py imports this.
 """
 
 import json
@@ -18,9 +16,8 @@ LINES_MAX = 500
 def parse_journal(blob, limit=LINES_MAX):
     """(records, consumed) for a chunk read at a known offset.
 
-    A trailing fragment without its newline is a line the judge is still writing, or one
-    torn by a full disk: it is left unconsumed so the next read sees it whole. A complete
-    but unreadable line is consumed and dropped, otherwise it would block the cursor.
+    A last line without its newline is still being written and is left for the next read;
+    a complete but unreadable line is dropped so it cannot block the cursor.
     """
     records = []
     consumed = 0

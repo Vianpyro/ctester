@@ -56,19 +56,19 @@ describe("the keyboard layout", () => {
     expect(matchShortcut(ctrl("/", { shiftKey: true }))).toBe("commentLine");
   });
 
-  it("SILENCE: `?` is never the LINE comment, and vice versa", () => {
+  it("`?` is never the line comment, and vice versa", () => {
     expect(matchShortcut(ctrl("?"))).toBe("commentBlock");
     expect(matchShortcut(ctrl("?", { shiftKey: true }))).toBe("commentBlock");
     expect(matchShortcut(ctrl("/"))).not.toBe("commentBlock");
   });
 
-  it("SILENCE: AltGr is not Ctrl, and must keep typing its character", () => {
+  it("treats AltGr as typing, not as Ctrl", () => {
     expect(matchShortcut(ctrl("/", { altKey: true }))).toBeNull();
     expect(matchShortcut(ctrl("?", { altKey: true }))).toBeNull();
     expect(matchShortcut(ctrl("d", { altKey: true }))).toBeNull();
   });
 
-  it("SILENCE: a bare key is never a shortcut", () => {
+  it("a bare key is never a shortcut", () => {
     expect(matchShortcut(chord("/"))).toBeNull();
     expect(matchShortcut(chord("?"))).toBeNull();
     expect(matchShortcut(chord("d"))).toBeNull();
@@ -92,14 +92,14 @@ describe("Shift tells them apart, and Caps Lock tells nothing apart", () => {
     expect(matchShortcut(ctrl("d", { shiftKey: true }))).toBe("deleteLine");
   });
 
-  it("opens the catalogue even with Caps Lock -- the bug the table fixes", () => {
+  it("opens the catalogue with Caps Lock on", () => {
     expect(matchShortcut(ctrl("K"))).toBe("catalog");
     expect(matchShortcut(ctrl("D"))).toBe("duplicate");
     expect(matchShortcut(ctrl("S"))).toBe("save");
   });
 });
 
-describe("SILENCE: what stays with the browser and the student", () => {
+describe("what stays with the browser and the student", () => {
   it("touches nothing an editor owes the browser", () => {
     for (const key of ["z", "y", "c", "v", "x", "a", "f", "p", "r", "w", "t"]) {
       expect(matchShortcut(ctrl(key)), "Ctrl+" + key).toBeNull();
@@ -140,7 +140,7 @@ describe("the two sets", () => {
     expect(TEXT_COMMANDS.has("gotoLine")).toBe(false);
   });
 
-  it("keeps the PAGE commands out of the editing surface", () => {
+  it("keeps the page commands out of the editing surface", () => {
     for (const id of ["save", "run", "help", "catalog", "escape"] as ShortcutId[]) {
       expect(EDITOR_COMMANDS.has(id), id).toBe(false);
     }

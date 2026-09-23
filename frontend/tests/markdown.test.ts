@@ -8,11 +8,11 @@ describe("the sanitizer is really there", () => {
 });
 
 describe("escapeAngle", () => {
-  it("escapes `<` BEFORE parsing: a tag that never reaches the parser cannot come out", () => {
+  it("escapes `<` before parsing: a tag that never reaches the parser cannot come out", () => {
     expect(escapeAngle("<script>")).toBe("&lt;script>");
   });
 
-  it("leaves `>` alone -- escaping it broke Markdown blockquotes, which ARE allowed", () => {
+  it("leaves `>` alone so blockquotes still work", () => {
     expect(escapeAngle("> comme ceci")).toBe("> comme ceci");
   });
 
@@ -110,7 +110,7 @@ describe("renderMarkdown", () => {
     expect(parsed(fenced).querySelector("pre")).toBeNull();
   });
 
-  it("keeps a student's angle brackets VISIBLE as text rather than dropping them", () => {
+  it("keeps a student's angle brackets visible as text rather than dropping them", () => {
     expect(parsed("j'ai écrit <stdio.h>").textContent).toContain("<stdio.h>");
   });
 });

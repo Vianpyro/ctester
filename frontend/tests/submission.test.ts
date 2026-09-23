@@ -83,7 +83,7 @@ describe("a submission that lands", () => {
     expect(submission.lastVerdict).toEqual({ exercise: "tp2-ex3", title: "3 / 3 cas réussis" });
   });
 
-  it("re-reads the projections AFTER the verdict, and survives their failure", async () => {
+  it("re-reads the projections after the verdict, and survives their failure", async () => {
     queue("d", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, async () => {
       throw new Error("une projection qui lève");
@@ -111,7 +111,7 @@ describe("a submission that lands", () => {
 });
 
 describe("a submission that does not", () => {
-  it("puts a QUOTA in the service channel and counts it down on the button", async () => {
+  it("puts a quota in the service channel and counts it down on the button", async () => {
     accepted = [{ status: 429, body: { error: "trop de soumissions", retry_after: 8 } }];
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     expect(submission.phase).toEqual({ kind: "cooldown", seconds: 8 });
@@ -136,7 +136,7 @@ describe("a submission that does not", () => {
     expect(submission.phase.kind).toBe("idle");
   });
 
-  it("calls a LOST verdict a service failure, not a judgment on the code", async () => {
+  it("calls a lost verdict a service failure, not a judgment on the code", async () => {
     queue("g", { status: 404, body: { state: "gone" } });
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     expect(submission.phase.kind).toBe("lost");
@@ -144,7 +144,7 @@ describe("a submission that does not", () => {
     expect(system.text).toMatch(/relance simplement le test/);
   });
 
-  it("keeps a JUDGE failure out of the verdict channel entirely", async () => {
+  it("keeps a judge failure out of the verdict channel entirely", async () => {
     queue("h", {
       status: 200,
       body: { state: "done", status: "error", kind: "io", code: "judge_internal" },
@@ -176,7 +176,7 @@ describe("the queue", () => {
     vi.useRealTimers();
   });
 
-  it("shows a FAST job's verdict a quarter second later, not two", async () => {
+  it("shows a fast job's verdict a quarter second later, not two", async () => {
     vi.useFakeTimers();
     queue("p", { status: 200, body: { state: "running" } }, { status: 200, body: OK });
     const done = submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
@@ -188,7 +188,7 @@ describe("the queue", () => {
     vi.useRealTimers();
   });
 
-  it("slows down to one poll every 2 s for a LONG job", async () => {
+  it("slows down to one poll every 2 s for a long job", async () => {
     vi.useFakeTimers();
     const running = { status: 200, body: { state: "running" } };
     queue("q", ...Array.from({ length: 40 }, () => running));
@@ -200,7 +200,7 @@ describe("the queue", () => {
     vi.useRealTimers();
   });
 
-  it("still calls a job LOST when the server forgets it mid-way", async () => {
+  it("still calls a job lost when the server forgets it mid-way", async () => {
     vi.useFakeTimers();
     queue(
       "s",
@@ -215,7 +215,8 @@ describe("the queue", () => {
     vi.useRealTimers();
   });
 
-  it("keeps a STALE poll silent -- an abandoned test's verdict arrives LAST", async () => {
+  // An abandoned test's verdict arrives last.
+  it("keeps a stale poll silent", async () => {
     vi.useFakeTimers();
     queue(
       "j",
@@ -234,7 +235,7 @@ describe("the queue", () => {
 });
 
 describe("do not ask again for what was just asked", () => {
-  it("redisplays without sending, and ASSERTS NOTHING to the server", async () => {
+  it("redisplays without sending, and asserts nothing to the server", async () => {
     const files = uniqueCode();
     queue("l", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
@@ -246,7 +247,7 @@ describe("do not ask again for what was just asked", () => {
     expect(system.text).toMatch(/Même code que ta dernière soumission/);
   });
 
-  it("SENDS ANYWAY on the second click -- the escape hatch is not optional", async () => {
+  it("sends anyway on the second click", async () => {
     const files = uniqueCode();
     queue("m", { status: 200, body: OK });
     queue("n", { status: 200, body: OK });
@@ -256,7 +257,7 @@ describe("do not ask again for what was just asked", () => {
     expect(submits()).toHaveLength(2);
   });
 
-  it("KEEPS ONLY WHAT THE SERVER AGREES TO KEEP: `rerun` is never memoized", async () => {
+  it("keeps only what the server agrees to keep: `rerun` is never memoized", async () => {
     const files = uniqueCode();
     queue("o", { status: 200, body: { ...OK, rerun: true } });
     queue("p", { status: 200, body: OK });
@@ -265,7 +266,7 @@ describe("do not ask again for what was just asked", () => {
     expect(submits()).toHaveLength(2);
   });
 
-  it("A TRAILING SPACE IS NOT DIFFERENT CODE", async () => {
+  it("A trailing space is not different code", async () => {
     const files = uniqueCode();
     queue("ws1", { status: 200, body: OK });
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
@@ -277,7 +278,7 @@ describe("do not ask again for what was just asked", () => {
     expect(system.text).toMatch(/Même code que ta dernière soumission/);
   });
 
-  it("but a REAL extra line is", async () => {
+  it("but a real extra line is", async () => {
     const files = uniqueCode();
     queue("ws2", { status: 200, body: OK });
     queue("ws3", { status: 200, body: OK });

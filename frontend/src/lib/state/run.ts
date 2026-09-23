@@ -7,7 +7,7 @@ import { system } from "./system.svelte";
 import { sessionKey } from "./accesskey";
 import { t } from "../i18n.svelte";
 
-export async function afterVerdict(): Promise<void> {
+async function afterVerdict(): Promise<void> {
   await statuses.load();
   const progress = await import("../../features/progress/projection.svelte").catch(() => null);
   await progress?.projection.refreshIfOpen();

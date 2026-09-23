@@ -60,8 +60,8 @@ print("yes" if n and d.datetime.fromisoformat(n) <= d.datetime.now(d.timezone.ut
     fi
 fi
 
-# One publish for every root: a bad commit in one repository blocks them all, which is the
-# point -- a half-published catalogue is worse than an old one.
+# One publish for every root: a bad commit in one repository blocks them all, so students
+# never see a half-updated catalogue.
 CTESTER_CONTENT="$content" CTESTER_PUBLISHED="$published" \
 PYTHONPATH="$dir/src/worker" PYTHONDONTWRITEBYTECODE=1 \
     python3 -c 'import os, publish_content as p; e = os.environ; print("ctester: published %d exercise(s)" % len(p.publish_catalogue(e["CTESTER_CONTENT"], e["CTESTER_PUBLISHED"], e.get("CTESTER_PREVIEW", "") not in ("", "0"))))'

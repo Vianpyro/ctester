@@ -278,7 +278,6 @@ mod tests {
             with(&[("CTESTER_CONTENT", "/a:/b: /c ")]).unwrap().content,
             ["/a", "/b", "/c"].map(PathBuf::from).to_vec()
         );
-        // An empty segment would resolve `exercises/<id>` against the working directory.
         assert_eq!(
             with(&[("CTESTER_CONTENT", "/a::/b:")]).unwrap().content,
             ["/a", "/b"].map(PathBuf::from).to_vec()

@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Turns a Moodle XML question bank into CTester quiz.json files.
 
-Standard library only, like the rest of the content pipeline: it runs with the host Python
-on the Dell and imports worker/content_catalog.py to apply the very same checks the
-publication does, so it can never write a quiz that validate_content.py would refuse.
-
-What Moodle can express and CTester cannot is reported, never dropped in silence.
+It applies worker/content_catalog.py's checks, and reports what Moodle can express but
+CTester cannot instead of dropping it.
 """
 
 import argparse

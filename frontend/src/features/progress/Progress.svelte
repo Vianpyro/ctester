@@ -63,11 +63,6 @@
   // the server adds.
   const bandOrder = $derived((p?.mastery.bands ?? []).map((b) => b.id));
 
-  const exerciseLabel = (id: string) => {
-    const found = catalog.catalog.find((t) => t.id === id);
-    return found ? found.label || found.short || id : id;
-  };
-
   function open(id: string) {
     if (!catalog.catalog.some((t) => t.id === id)) return;
     exercise.open(id);
@@ -124,7 +119,7 @@
           {p.exercises.total ? t("progress.all_solved") : t("progress.none_published")}
         </p>
       {:else}
-        {@const what = exerciseLabel(p.next.exercise_id)}
+        {@const what = catalog.labelOf(p.next.exercise_id)}
         <p>
           {p.next.skill
             ? t("progress.continue_with", { skill: skillLabel(p.next.skill), exercise: what })

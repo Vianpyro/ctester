@@ -1,12 +1,12 @@
 # The content format
 
-CTester ships no exercises. A **content repository** supplies them, and the engine reads
-it without knowing anything about the course inside. This document is the format that
+CTester ships no exercises. A content repository supplies them, and the engine reads it
+without knowing anything about the course inside. This page describes the format that
 repository must follow; [typst.md](typst.md) covers statement presentation.
 
-`scripts/demo_content.py` writes a small, complete example of everything below — three
-modes, a reference solution per exercise, collections and a card — and publishes it
-through the real pipeline:
+`scripts/demo_content.py` writes a small example of everything below (all three modes, a
+reference solution per exercise, collections and a card) and publishes it through the real
+pipeline:
 
 ```sh
 python3 scripts/demo_content.py --out /tmp/demo   # writes /tmp/demo/content
@@ -38,21 +38,21 @@ final authority: anything it refuses never reaches a student.
 ```
 
 `CTESTER_CONTENT` may name several roots joined by `:`; `discover()` merges them into one
-flat namespace. **Exercise ids stay unique across every root** and a duplicate fails the
+flat namespace. Exercise ids must be unique across every root, and a duplicate fails the
 publication. Only one root may hold `shared/unity`.
 
 ## Identifiers
 
-An exercise id matches `[a-z0-9][a-z0-9-]{0,62}` and **the directory must be named after
-it**. The id travels to the browser, comes back in a submission, and is then joined to a
+An exercise id matches `[a-z0-9][a-z0-9-]{0,62}` and the directory must be named after
+it. The id travels to the browser, comes back in a submission, and is then joined to a
 root path on the server; allowing a slash would reopen the directory traversal the
 validation exists to close.
 
 Renaming a directory changes the id, which breaks deep links and orphans anything already
 recorded against it. Do it between sessions, not in the middle of one.
 
-Collection and assignment ids use the same pattern. Menu order is **natural**: sorted as
-text, `tp10` would come before `tp2`.
+Collection and assignment ids use the same pattern. The menu sorts them naturally, so `tp2`
+comes before `tp10`.
 
 ## `catalog.json`
 
@@ -67,11 +67,10 @@ text, `tp10` would come before `tp2`.
 }
 ```
 
-The skill vocabulary is the content base's, not the engine's. An entry is an id matching
+The skill vocabulary belongs to the content. An entry is an id matching
 `[a-z][a-z0-9-]{0,47}`, or that id with the `label` the page should show for it; a bare
-string is the same thing with no label, and an unlabelled skill shows its id. An exercise
-naming a skill that is not declared here **fails the publication**, so a typo cannot
-quietly invent a ghost skill.
+string is an id with no label, and an unlabelled skill shows its id. An exercise naming a
+skill that is not declared here fails the publication, so a typo cannot invent a skill.
 
 With several roots, the vocabularies are unioned: an exercise may use a skill another
 repository declared.
@@ -114,20 +113,19 @@ repository declared.
 {"state": "archived"}
 ```
 
-`scheduled` requires an ISO 8601 `available_from` **with a timezone**. Until that moment
+`scheduled` requires an ISO 8601 `available_from` with a timezone. Until that moment
 the catalogue omits the entry: it is not in the menu and a deep link does not resolve.
 `tests/vectors/release_access.json` binds the Python and Rust readings of this rule.
 
 ## The mode comes from the file
 
-The mode is **deduced from which file is present** in `assessment/`. There is no field to
-set, which would be a second source of truth to keep in step with the first.
+The mode is deduced from which file is present in `assessment/`; there is no field for it.
 
 | File | Mode | What the student submits |
 |---|---|---|
 | `quiz.json` | quiz | answers typed into fields |
 | `io.json` | io | a whole program, with its `main()` |
-| `unity.json` + `test_*.c` | unity | a module, **without** `main()` |
+| `unity.json` + `test_*.c` | unity | a module, without `main()` |
 
 Exactly one of the three per exercise. In unity mode `unity.json` is usually `{}`: it
 only selects the mode.
@@ -144,10 +142,8 @@ only selects the mode.
 Each entry becomes an editor tab, pre-named and pre-filled with its optional `template`.
 A name matches `[A-Za-z0-9_]{1,32}\.[ch]`; anything resembling a path is refused.
 
-**The names are imposed.** Once a student writes a
-module, their own `#include "calcul.h"` only resolves if the file carries exactly that
-name — and so does the test file. Letting the student name their files would add a class
-of error, not a freedom.
+The names are imposed: the student's own `#include "calcul.h"`, and the test file's, only
+resolve if the file has exactly that name.
 
 No `files.json` means a single `submission.c`.
 
@@ -167,29 +163,27 @@ No `files.json` means a single `submission.c`.
 The program is compiled with its `main()`, then run once per case with `stdin` on
 standard input.
 
-**How the output is compared.** A brief says "print the current", not in which format:
-one student writes `I = 2.50 A`, another `2.5`. So the judge extracts **every number**
-from the output and checks that the `expect` values appear **in order**, as a
+The output is compared by its numbers. A brief says "print the current" without fixing a
+format, so one student writes `I = 2.50 A` and another `2.5`. The judge extracts every
+number from the output and checks that the `expect` values appear in order, as a
 subsequence, within `tolerance` (relative, 0.005 by default). Prompts, units, re-printed
 inputs and extra decimals all pass.
 
-Three rules when writing cases:
+When writing cases:
 
-1. **Every expected value should exceed 1 in absolute value.** A student printing `%.2f`
-   is off by at most 0.005: above 1 that is inside the tolerance, below it they fail on
-   formatting rather than on logic.
-2. **Write floats in decimal** (`0.000001`), never in scientific notation.
-3. **Include at least one case that punishes a classic mistake.** `5 / 2` fails under
-   integer division, which is exactly the lesson.
+- Keep expected values above 1 in absolute value. A student printing `%.2f` is off by up to
+  0.005, which is within the tolerance only above 1.
+- Write floats in decimal (`0.000001`), never in scientific notation.
+- Include a case that catches a classic mistake: `5 / 2` fails under integer division.
 
-For a program that **draws at random**, there is no expected value, only bounds:
+For a program that draws at random, there is no expected value, only bounds:
 
 ```json
 {"stdin": "", "in_range": [1, 6], "count": 5}
 ```
 
-"at least 5 of the printed numbers fall between 1 and 6". **At least, not all**: a prompt
-saying "rolling 100 times" adds a 100 that "all" would fail a correct program on.
+means at least 5 of the printed numbers fall between 1 and 6. It is "at least" because a
+prompt such as "rolling 100 times" prints a 100 too.
 
 For textual rather than numeric output:
 
@@ -200,33 +194,31 @@ For textual rather than numeric output:
 `contains` ignores case and accents. `absent` matters: without it, a program whose
 prompt lists all three words passes every case without computing anything.
 
-On failure the student sees the case number, **their input** and **their own output** —
-never the expected value, which would invite a `printf` of constants.
+On failure the student sees the case number, their input and their own output. The expected
+value is never shown, or students would print constants.
 
 ## `unity.json` + `test_*.c` — modules
 
-The student writes a module — a `.h` and a `.c` whose prototypes the statement dictates.
+The student writes a module: a `.h` and a `.c` whose prototypes the statement dictates.
 The `test_*.c` files next to `unity.json` supply `main()`, `setUp()` and `tearDown()`.
 
 The test file may `#include "calcul.h"`: the sandbox compiles with `-I` on the student's
-sources, so it is **their** header that is included. That is what makes it possible to
-test an interface the student wrote.
+sources, so the student's own header is included.
 
-**`-DUNITY_INCLUDE_DOUBLE` is on.** Worth knowing: Unity 2.6 defines `UNITY_EXCLUDE_DOUBLE`
-by default, and without that macro `TEST_ASSERT_DOUBLE_WITHIN` still compiles but **always
-fails**. If you compile a test by hand to debug it, do not forget the macro.
+`-DUNITY_INCLUDE_DOUBLE` is on. Unity 2.6 defines `UNITY_EXCLUDE_DOUBLE` by default, and
+without the macro `TEST_ASSERT_DOUBLE_WITHIN` compiles but always fails, so add it when you
+compile a test by hand.
 
 For any floating value use `TEST_ASSERT_DOUBLE_WITHIN` (or `TEST_ASSERT_FLOAT_WITHIN`)
 with a tolerance, never `TEST_ASSERT_EQUAL`.
 
 Test names must fit `[A-Za-z0-9_]` and 64 characters: they are what the student sees when
-they fail, so write them for the student — `test_pop_pile_vide`, not `test_3b`.
+they fail, so name them for the student: `test_pop_pile_vide` rather than `test_3b`.
 
 Unity's own sources (v2.6.1, MIT) go in `shared/unity/` at the root. The engine does not
-ship them; `tests/fixture/unity/` is a stand-in wide enough for CTester's own checks, not
-a framework to build a course on.
+ship them; `tests/fixture/unity/` is a minimal stand-in for CTester's own checks.
 
-## `quiz.json` — on paper
+## `quiz.json` — questions
 
 ```json
 {
@@ -246,12 +238,12 @@ unique and stable: it travels between the browser and the server.
 
 | type | accepts | refuses |
 |---|---|---|
-| `bin8` | `00010111`, `0001 0111`, `0b00010111` | `10111` — right value, and the student is told the brief asked for 8 bits |
+| `bin8` | `00010111`, `0001 0111`, `0b00010111` | `10111` (the student is told the brief asks for 8 bits) |
 | `hex8` | `17`, `0x17`, `0X17`, `17h`, lowercase, leading zeros | a numerically different value |
 | `int` | `-49`, `+84`, `84`, surrounding spaces | anything that is not an integer |
 
-A `cloze` marks its gaps with three or more underscores (`___`). The student learns
-**which** questions are wrong, never the right answer.
+A `cloze` marks its gaps with three or more underscores (`___`). The student learns which
+questions are wrong, never the right answer.
 
 ## `allowed_includes.txt`
 
@@ -260,8 +252,8 @@ its absence disables the check.
 
 ## `solution/` — the reference solution
 
-One correct solution per exercise, which exists to **prove the test is right**. A wrong
-test sends a student hunting a bug that does not exist, which is worse than no test.
+One correct solution per exercise, to prove the tests are right: a wrong test sends students
+hunting a bug that does not exist.
 
 ```sh
 python3 scripts/verify_content.py <root>
@@ -283,7 +275,7 @@ tree, and `worker/typst_build.py` keeps it out of the directory Typst renders in
 ```
 
 `items` are exercise ids, in the order the menu shows them; an unknown id fails the
-publication. An exercise in no collection lands in a trailing "Autres" group.
+publication. An exercise in no collection lands in a trailing "Others" group.
 
 ## `assignments/<id>.json`
 
@@ -300,7 +292,7 @@ An exercise may belong to at most one assignment.
 
 ## `cards.json` — the collection
 
-Optional. A base with no `cards.json` simply has no collection screen entries.
+Optional. Without `cards.json`, the collection screen is empty.
 
 ```json
 {"schema_version": 1, "cards": [
@@ -309,25 +301,22 @@ Optional. A base with no `cards.json` simply has no collection screen entries.
 ]}
 ```
 
-A card drops when the student has solved **every** exercise it names. `condition` is the
+A card drops when the student has solved every exercise it names. `condition` is the
 sentence shown while it is locked; `art` names one of the drawings the page ships
-(`resistor`, `bearing`, `relay`, `gear`, `cylinder`, `diode`, `spring`, `sensor`), and an
-unknown one simply draws nothing.
+(`resistor`, `bearing`, `relay`, `gear`, `cylinder`, `diode`, `spring`, `sensor`); an
+unknown one draws nothing.
 
-**Card ids are persisted** against the accounts that earned them, so they may never
-change. A card naming an exercise that does not exist fails the publication rather than
+Card ids are stored against the accounts that earned them, so they must never change. A card naming an exercise that does not exist fails the publication rather than
 becoming quietly unobtainable.
 
 ## What the engine defines, and what you do
-
-The engine owns the mechanism, the content owns the vocabulary:
 
 | The engine fixes | You choose |
 |---|---|
 | the four `difficulty` values, and the XP each is worth | which exercise is which |
 | the three modes and their file names | which mode each exercise uses |
 | the twelve quiz types | the questions |
-| the achievements, levels, divisions and mastery bands | nothing — they count generically |
+| the achievements, levels, divisions and mastery bands | nothing: they count generically |
 | the eight card drawings | the cards, their names and their conditions |
 | the comparison rules for `io` output | the cases |
 | — | every skill id and its wording |

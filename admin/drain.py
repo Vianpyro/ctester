@@ -1,8 +1,7 @@
 """Moving the judge's run journal into PostgreSQL.
 
-results/ is the judge's and is mounted read-only here, so the files are never truncated:
-a per-file byte offset is how far each has been read. The offset is only an optimisation,
-because the insert ignores a job id that is already stored.
+The files are read-only here, so a byte offset per file tracks progress; re-reading is
+harmless because the insert skips known job ids.
 """
 
 import datetime

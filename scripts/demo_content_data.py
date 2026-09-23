@@ -17,9 +17,7 @@ SKILLS = [
 # The quiz the Lighthouse config deep-links to. Named here so the two stay in step.
 QUIZ_ID = "tp1-ex3"
 
-# Long enough to matter. The shifts this whole exercise is meant to catch come from a
-# statement growing from one placeholder line into a real brief, so a one-word statement
-# would measure nothing.
+# A realistic length: Lighthouse measures the shift when the statement loads.
 STATEMENT = """## Ce qu'on te demande
 
 %s

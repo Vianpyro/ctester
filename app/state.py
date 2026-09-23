@@ -12,7 +12,6 @@ except ImportError:
 DSN = os.environ.get("CTESTER_DB_DSN", "")
 
 # A single connection behind a global lock: endpoints are sync and share it.
-# Move to psycopg_pool if requests ever start queueing here.
 _lock = threading.Lock()
 _conn = None
 
@@ -915,8 +914,6 @@ def read_teams(assignment_id):
 
 
 # The judge's run journal, read and written by the admin app only.
-# judge_run holds no account: it is the history of the service, not of a student, so
-# forget() leaves it alone.
 
 RUN_COLUMNS = ("job_id", "exercise_id", "account", "station", "status", "passed", "total",
                "kind", "duration_s", "queue_wait_s", "worker_id", "cache_hit", "reprises",

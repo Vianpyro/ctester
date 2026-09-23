@@ -50,7 +50,7 @@ def notify(key):
         return
     try:
         _loop.call_soon_threadsafe(lambda: asyncio.ensure_future(_ring(key)))
-    except Exception:
+    except RuntimeError:
         pass
 
 

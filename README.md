@@ -68,7 +68,7 @@ deploy/                       Compose stack, systemd units, update scripts, env.
 tests/                        backend, sandbox and PostgreSQL checks
 bot/bridge.py                 Discord bridge
 typst/                        statement template and vendored Typst packages
-docs/                         operations runbook and the Typst authoring guide
+docs/                         operations, content format, Typst and translation guides
 ```
 
 ## Development

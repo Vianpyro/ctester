@@ -314,7 +314,6 @@ mod tests {
                 "CTESTER_RUN_TIMEOUT=5"
             ]
         );
-        // In io mode the tests are never mounted: inputs were extracted on the host.
         assert_eq!(
             after(&io, "-v"),
             [
@@ -369,7 +368,6 @@ mod tests {
                 "/opt/ctester/src/worker/build-scratch.sh:/in/build.sh:ro"
             ]
         );
-        // -i without -t (docker refuses a terminal it does not have), and no log of the keystrokes.
         assert!(
             console.iter().any(|a| a == "-i") && !console.iter().any(|a| a == "-t" || a == "-it")
         );

@@ -4,13 +4,9 @@ import type { Verdict } from "../api/types";
 export type Mark = "right" | "wrong";
 
 /**
- * The mark each question wears after a run. A question is only marked while the field
- * still holds the answer that was graded: retyping clears its mark rather than leaving a
- * verdict that no longer describes it. The server grades the whole quiz, so a run started
- * from one page marks the questions of the others too.
- *
- * The import goes this way round on purpose: only the lazily loaded panel reads this
- * module, and the reverse direction would pull it into the anonymous bundle.
+ * The mark each question wears after a run, only while its field still holds the graded
+ * answer. Only the lazy quiz panel imports this; importing it from quiz.svelte.ts would
+ * pull it into the anonymous bundle.
  */
 export function marksFor(
   verdict: Verdict | null | undefined,

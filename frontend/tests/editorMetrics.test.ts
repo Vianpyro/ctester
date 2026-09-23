@@ -24,11 +24,11 @@ describe("the editor's metric contract", () => {
   const gutter = body(".gutter");
   const overlay = body(".hl, .codein");
 
-  it("gives the gutter and the overlay THE SAME `font` shorthand", () => {
+  it("gives the gutter and the overlay the same `font` shorthand", () => {
     expect(prop(gutter, "font")).toBe(prop(overlay, "font"));
   });
 
-  it("keeps that `font` as a SHORTHAND, with its line-height slot and its literal stack", () => {
+  it("keeps that `font` as a shorthand, with its line-height slot and its literal stack", () => {
     const expected = /^400 \d+(?:\.\d+)?px\/1\.5 ui-monospace, SFMono-Regular, Consolas, monospace$/;
     expect(prop(overlay, "font")).toMatch(expected);
     expect(prop(gutter, "font")).toMatch(expected);
@@ -43,7 +43,7 @@ describe("the editor's metric contract", () => {
     expect(prop(overlay, "tab-size")).toBe("4");
   });
 
-  it("aligns the gutter VERTICALLY with them, without requiring the same side gutter", () => {
+  it("aligns the gutter vertically with them, without requiring the same side gutter", () => {
     const vertical = (p: string) => p.split(" ")[0];
     expect(vertical(prop(gutter, "padding"))).toBe(vertical(prop(overlay, "padding")));
     expect(prop(gutter, "margin")).toBe("0");

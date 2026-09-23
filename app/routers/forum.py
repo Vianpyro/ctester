@@ -10,7 +10,7 @@ import policy
 import security
 import state
 from deps import SubForum, SubModerator, throttle_forum
-from fastapi import APIRouter, Query, Request, WebSocket
+from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from schemas import (DiscordBridgeIn, ForumTargetIn, ForumMessageIn, ForumModerationIn,
                      ForumProfileIn, ForumReportIn, ForumVoteIn)
 from services.catalog import find_exercise
@@ -451,7 +451,7 @@ async def live(socket: WebSocket):
             if len(incoming) > config.FORUM_LIVE_FRAME:
                 await socket.close(code=deps.CLOSE_BAD)
                 return
-    except Exception:
+    except WebSocketDisconnect:
         pass
     finally:
         forum_live.leave(connection)

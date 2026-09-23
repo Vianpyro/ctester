@@ -54,10 +54,8 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Lighthouse needs the page to actually load something. Served on its own the bundle asks
-  # its own origin for /catalog.json, gets a 404, and nothing renders -- a green report
-  # would mean nothing. So the API serves the page and demo content from one origin, the
-  # way the README describes for local work.
+  # The API serves the page and the demo content from one origin, so Lighthouse measures
+  # a page that actually renders exercises.
   lighthouse:
     needs: tests
     runs-on: ubuntu-latest
@@ -104,10 +102,8 @@ jobs:
         with:
           node-version: "22"
       - run: npm install -g @lhci/cli@0.15.1
-      # Driving lhci directly rather than through lighthouse-ci-action: that action runs
-      # `lhci assert` and throws the exit status away (src/index.js), so a blown budget
-      # would leave the job green -- which is the one thing this job exists to prevent.
-      # Chrome is already on the runner image.
+      # lhci directly: lighthouse-ci-action ignores the exit status of `lhci assert`, so a
+      # blown budget would leave the job green.
       - name: Measure and hold the budget
         env:
           LH_PROFILE: ${{ matrix.profile }}
@@ -199,10 +195,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deploiement.outputs.page_url }}
     steps:
-      # Built here, not reused from `tests`: the page's API origin, title and domain are
-      # baked in at build time and live in this environment, which no other job enters.
-      # The artifact `tests` uploads is deliberately generic -- Lighthouse serves it from
-      # one local origin, and pointing it at production would measure the wrong thing.
+      # Built here: the deployment settings are baked in at build time and only this
+      # environment holds them. The `tests` artifact stays generic for Lighthouse.
       - uses: actions/checkout@v7
         with:
           persist-credentials: false

@@ -1,5 +1,5 @@
 import { fetchScratchDraft, saveScratchDraft } from "../../lib/api/scratch";
-import { i18n, t } from "../../lib/i18n.svelte";
+import { t, tOr } from "../../lib/i18n.svelte";
 import {
   consoleFiles,
   headerNameHint,
@@ -218,9 +218,8 @@ class Scratch {
         this.say(t("console.running"));
         this.write(frame.d);
       } else if (frame.t === "exit") {
-        const reason = `console.reason.${frame.reason}`;
-        const why = i18n.has(reason) ? t(reason) : null;
-        this.say(why ?? t("console.finished", { code: frame.code }), !!why);
+        const why = tOr(`console.reason.${frame.reason}`, "");
+        this.say(why || t("console.finished", { code: frame.code }), !!why);
       }
     };
 

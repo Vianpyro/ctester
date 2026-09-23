@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
-"""Write a small demo content root and publish it.
+"""Write a small demo content root and publish it with the production pipeline.
 
-Lighthouse needs the page to actually load something: served on its own, the bundle asks
-its own origin for /catalog.json and gets a 404, so nothing renders and the layout never
-moves. A green report would then mean nothing. This gives the API real content to serve,
-over the same pipeline production uses -- content_catalog.discover, then publish_content.
-
-Also handy on its own: it gives a working site locally without the real backend.
+CI's Lighthouse run needs real content to render, and it also gives a working local site:
 
     python3 scripts/demo_content.py --out /tmp/ctester-demo
     CTESTER_KEY=dev CTESTER_PUBLISHED=/tmp/ctester-demo/published \

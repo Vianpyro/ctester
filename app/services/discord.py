@@ -1,4 +1,5 @@
 import json
+import sys
 import threading
 import urllib.request
 
@@ -31,11 +32,11 @@ def _post(body):
     request = urllib.request.Request(
         config.DISCORD_WEBHOOK, data=data,
         headers={"Content-Type": "application/json"})
+    # Discord being down must never fail the student's post.
     try:
-        with urllib.request.urlopen(request, timeout=config.DISCORD_TIMEOUT):
-            pass
-    except Exception:
-        pass
+        urllib.request.urlopen(request, timeout=config.DISCORD_TIMEOUT).close()
+    except Exception as error:
+        print("discord: webhook failed:", error, file=sys.stderr)
 
 
 def announce(thread, account, author, text, channel=""):
@@ -43,7 +44,7 @@ def announce(thread, account, author, text, channel=""):
         return False
     if not is_chat(thread):
         return False
-    if from_discord(account):  # loop guard
+    if from_discord(account):
         return False
     if not str(text or "").strip():
         return False

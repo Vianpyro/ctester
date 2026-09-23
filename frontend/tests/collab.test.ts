@@ -10,7 +10,7 @@ function room(): Y.Doc {
 }
 
 describe("applyLocal", () => {
-  it("sends ONE contiguous change for a keystroke, not a whole rewrite", () => {
+  it("sends one contiguous change for a keystroke, not a whole rewrite", () => {
     const doc = room();
     const text = textOf(doc, "main.c");
     text.insert(0, "int main(void){}");
@@ -81,7 +81,7 @@ describe("seed and snapshot", () => {
     });
   });
 
-  it("refuses to seed a document that already has content -- the belt on top of `peers`", () => {
+  it("refuses to seed a document that already has content", () => {
     const doc = room();
     seed(doc, FILES, { "main.c": "déjà là" });
     seed(doc, FILES, { "main.c": "encore" });
@@ -95,12 +95,12 @@ describe("seed and snapshot", () => {
   });
 });
 
-describe("shift -- where the caret lands after somebody else's change", () => {
-  it("moves the caret along when text is inserted BEFORE it", () => {
+describe("shift: where the caret lands after somebody else's change", () => {
+  it("moves the caret along when text is inserted before it", () => {
     expect(shift([{ retain: 3 }, { insert: "abc" }], 10)).toBe(13);
   });
 
-  it("leaves it alone when the insertion is AFTER it", () => {
+  it("leaves it alone when the insertion is after it", () => {
     expect(shift([{ retain: 20 }, { insert: "abc" }], 10)).toBe(10);
   });
 

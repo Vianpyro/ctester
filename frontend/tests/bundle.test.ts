@@ -23,13 +23,13 @@ const allChunks = () =>
   readdirSync(join(DIST, "assets")).filter((n) => n.endsWith(".js") && !n.endsWith(".map"));
 
 describe.skipIf(!built)("the built document", () => {
-  it("carries NO inline script: `script-src 'self'` needs no hash, and none is copied", () => {
+  it("carries no inline script: `script-src 'self'` needs no hash, and none is copied", () => {
     const html = document_();
     expect(html).toMatch(/<script[^>]+src=/);
     expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/i);
   });
 
-  it("keeps the pre-paint theme script a CLASSIC script with a stable name", () => {
+  it("keeps the pre-paint theme script a classic script with a stable name", () => {
     const html = document_();
     expect(html).toContain('<script src="/theme.js"></script>');
     const themeTag = html.match(/<script src="\/theme\.js"[^>]*>/)![0];
@@ -58,7 +58,7 @@ describe.skipIf(!built)("the built document", () => {
     }
   });
 
-  it("references its assets from the ROOT, which is what the custom domain serves", () => {
+  it("references its assets from the root, which is what the custom domain serves", () => {
     // preconnect and dns-prefetch name an origin to warm, not an asset to load.
     const loaded = document_().replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/g, "");
     for (const path of loaded.match(/(?:src|href)="[^"]+"/g) ?? []) {
@@ -97,7 +97,7 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     }
   });
 
-  it("still carries everything the anonymous path DOES need", () => {
+  it("still carries everything the anonymous path does need", () => {
     const source = eagerSource();
     for (const sentence of [
       "catalog.json",
@@ -129,14 +129,14 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     expect(bytes).toBeLessThan(147_000);
   });
 
-  it("keeps the QUIZ widgets out: most exercises are not a quiz", () => {
+  it("keeps the quiz widgets out: most exercises are not a quiz", () => {
     expect(eagerSource(), "the quiz nav is only for a quiz").not.toContain("quiz.previous");
     const panel = allChunks().find((name) => name.startsWith("QuizPanel"));
     expect(panel, "the quiz panel must exist as its own chunk").toBeTruthy();
     expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("quiz.previous");
   });
 
-  it("keeps the shortcuts WORKING but the cheat sheet DEFERRED", () => {
+  it("keeps the shortcuts working but the cheat sheet deferred", () => {
     const source = eagerSource();
     expect(source, "the matcher runs on every keystroke").toContain("commentBlock");
     expect(source, "so do the transforms").toContain("completeStatement");

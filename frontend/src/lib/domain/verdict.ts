@@ -1,11 +1,11 @@
 import { unitsOf } from "./labels";
-import { i18n, t, type Params } from "../i18n.svelte";
+import { t, tOr } from "../i18n.svelte";
 import type { FailedCase, Verdict } from "../api/types";
 
 export type StepState = "ok" | "ko" | "";
 
 // Each language agrees the state with its own step noun: verdict.step.<id>.<state>.
-export const STEPS = ["compile", "run", "tests"] as const;
+const STEPS = ["compile", "run", "tests"] as const;
 
 export const stepLabel = (i: number): string => t(`verdict.step.${STEPS[i]}`);
 export const stepState = (i: number, state: StepState): string =>
@@ -78,21 +78,16 @@ export const caseClass = (reason: string | undefined): CaseClass =>
 export const showsContract = (c: FailedCase): boolean =>
   caseClass(c.reason) === "wrong" && c.reason !== "missing_word" && c.reason !== "forbidden_word";
 
-// A key this page knows is worded; anything else is shown as sent.
-const worded = (key: string, raw: string, params?: Params | null): string =>
-  i18n.has(key) || i18n.has(key + "_other") ? t(key, params ?? {}) : raw;
-
 export const caseReason = (c: FailedCase): string =>
-  worded(`verdict.reason.${c.reason}`, c.reason, c.params);
+  tOr(`verdict.reason.${c.reason}`, c.reason, c.params);
 
-export const quizHint = (hint: string): string => worded(`verdict.hint.${hint}`, hint);
+export const quizHint = (hint: string): string => tOr(`verdict.hint.${hint}`, hint);
 
 // The longer explanation under a verdict's title: the judge's code if it gave one,
 // otherwise its status's own text, otherwise whatever an older judge wrote.
 export function verdictExplain(r: Verdict): string {
-  if (r.code) return worded(`verdict.code.${r.code}`, r.message ?? r.code);
-  const key = `verdict.${r.status}.explain`;
-  return i18n.has(key) ? t(key, r.params ?? {}) : (r.message ?? "");
+  if (r.code) return tOr(`verdict.code.${r.code}`, r.message ?? r.code);
+  return tOr(`verdict.${r.status}.explain`, r.message ?? "", r.params);
 }
 
 export const caseNumbers = (c: FailedCase): (string | number)[] | undefined =>

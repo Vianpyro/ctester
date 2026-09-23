@@ -45,7 +45,7 @@ describe("what is blanked, and what it protects", () => {
 });
 
 describe("the certain faults", () => {
-  it("reports an unclosed brace AT THE OPENING BRACE", () => {
+  it("reports an unclosed brace at the opening brace", () => {
     const src = "int main(void) {\n    return 0;\n";
     const issues = check(src);
     expect(issues).toHaveLength(1);
@@ -98,7 +98,7 @@ describe("= instead of ==", () => {
     expect(issues[0]!.message).toContain("==");
   });
 
-  it("LEAVES THE getchar IDIOM ALONE -- the depth is the guard", () => {
+  it("leaves the getchar idiom alone", () => {
     expect(
       check("int main(void) {\n    while ((c = getchar()) != EOF) putchar(c);\n    return 0;\n}\n"),
     ).toEqual([]);
@@ -130,7 +130,7 @@ describe("scanf without &", () => {
     expect(issues[0]!.message).toContain("« x »");
   });
 
-  it("LEAVES %s ALONE -- a char array needs no &", () => {
+  it("leaves %s alone: a char array needs no &", () => {
     expect(check('int main(void) {\n    scanf("%s", nom);\n    return 0;\n}\n')).toEqual([]);
   });
 
@@ -196,12 +196,12 @@ describe("the missing semicolon", () => {
 });
 
 describe("the noise rules", () => {
-  it("A CERTAIN FAULT SILENCES EVERY HEURISTIC", () => {
+  it("A certain fault silences every heuristic", () => {
     const src = "int main(void) {\n    if (x = 3) return 1;\n    int y = 2\n    return 0;\n";
     expect(levels(src)).toEqual(["error"]);
   });
 
-  it("A LOST QUOTE IS ONE MESSAGE, NOT THREE", () => {
+  it("A lost quote is one message, not three", () => {
     const issues = check('int main(void) {\n    puts("salut);\n    return 0;\n}\n');
     expect(issues).toHaveLength(1);
     expect(issues[0]!.message).toContain("guillemet");
@@ -226,7 +226,7 @@ describe("the next error (F2)", () => {
     expect(nextIssue([at(10), at(30), at(20)], 12)?.from).toBe(20);
   });
 
-  it("WRAPS back to the first once the last is passed", () => {
+  it("wraps back to the first once the last is passed", () => {
     expect(nextIssue([at(10), at(30)], 99)?.from).toBe(10);
   });
 
@@ -234,11 +234,11 @@ describe("the next error (F2)", () => {
     expect(nextIssue([at(10), at(30)], 0)?.from).toBe(10);
   });
 
-  it("SILENCE when there is no error", () => {
+  it("says nothing when there is no error", () => {
     expect(nextIssue([], 0)).toBeNull();
   });
 
-  it("SILENCE on the error the caret is ALREADY on: it must move forward", () => {
+  it("moves past the error the caret is already on", () => {
     expect(nextIssue([at(10), at(30)], 10)?.from).toBe(30);
   });
 });

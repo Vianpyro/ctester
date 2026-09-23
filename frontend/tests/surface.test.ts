@@ -51,7 +51,7 @@ describe("the checker reaches the screen", () => {
     expect(host.querySelector(".gutter .error")).toBeNull();
   });
 
-  it("flags the gutter line AND lists the fault", () => {
+  it("flags the gutter line and lists the fault", () => {
     surface("int main(void) {\n    return 0;\n");
     expect(host.querySelector(".diags")?.hasAttribute("hidden")).toBe(false);
     const flagged = host.querySelectorAll(".gutter .error");
@@ -66,7 +66,7 @@ describe("the checker reaches the screen", () => {
     expect(host.querySelector(".diag.error")).toBeNull();
   });
 
-  it("SAYS NOTHING BEFORE THE PAUSE -- it must not scold while one types", () => {
+  it("says nothing until typing pauses", () => {
     mounted.push(
       mount(CodeSurface, {
         target: host,
@@ -81,7 +81,7 @@ describe("the checker reaches the screen", () => {
 });
 
 describe("two editors, one document", () => {
-  it("KEEPS THE IDS APART -- `#work` is hidden, not unmounted", () => {
+  it("keeps ids unique while `#work` is hidden", () => {
     surface("int x;\n");
     surface("int y;\n", "scratch");
     for (const id of ["edwrap", "gutter", "pane", "hl", "hlcode", "code"]) {
@@ -121,7 +121,7 @@ function typing(value: string, props: Record<string, unknown> = {}) {
 }
 
 describe("the commands reach the editor", () => {
-  it("duplicates the line, and announces the change only ONCE", () => {
+  it("duplicates the line, and announces the change only once", () => {
     const { area, seen } = typing("int a;");
     area.setSelectionRange(6, 6);
     press(area, "d", { ctrlKey: true });
@@ -136,14 +136,14 @@ describe("the commands reach the editor", () => {
     expect(area.value).toBe("// int a;");
   });
 
-  it("also comments when Shift is held -- the Canadian French keyboard", () => {
+  it("also comments when Shift is held (Canadian French keyboard)", () => {
     const { area } = typing("int a;");
     area.setSelectionRange(0, 0);
     press(area, "/", { ctrlKey: true, shiftKey: true });
     expect(area.value).toBe("// int a;");
   });
 
-  it("deletes the line through BOTH its chords", () => {
+  it("deletes the line through both its chords", () => {
     const first = typing("a\nb");
     first.area.setSelectionRange(0, 0);
     press(first.area, "k", { ctrlKey: true, shiftKey: true });
@@ -155,7 +155,7 @@ describe("the commands reach the editor", () => {
     expect(second.area.value, "Ctrl+Shift+D, for Firefox").toBe("b");
   });
 
-  it("prevents the default EVEN when the command does nothing", () => {
+  it("prevents the default even when the command does nothing", () => {
     const { area } = typing("a\nb");
     area.setSelectionRange(0, 0);
     const event = press(area, "ArrowUp", { altKey: true, shiftKey: true });
@@ -164,7 +164,7 @@ describe("the commands reach the editor", () => {
   });
 });
 
-describe("SILENCE: what is not ours goes back untouched", () => {
+describe("what is not ours goes back untouched", () => {
   it("does not touch Ctrl+Z, and does not prevent it", () => {
     const { area, seen } = typing("int a;");
     area.setSelectionRange(0, 0);
@@ -199,7 +199,7 @@ describe("SILENCE: what is not ours goes back untouched", () => {
 });
 
 describe("a locked document", () => {
-  it("refuses editing AND SAYS SO, and still prevents the default", () => {
+  it("refuses editing and says so, and still prevents the default", () => {
     const { area, seen } = typing("int a;", { readOnly: true });
     area.setSelectionRange(0, 0);
     const event = press(area, "d", { ctrlKey: true });
@@ -210,7 +210,7 @@ describe("a locked document", () => {
     system.clear();
   });
 
-  it("lets NAVIGATION work: one can read what one cannot write", () => {
+  it("lets navigation work: one can read what one cannot write", () => {
     const { area } = typing("int a;", { readOnly: true });
     press(area, "g", { ctrlKey: true });
     expect(host.querySelector(".goto"), "Ctrl+G must open the field").not.toBeNull();
@@ -218,7 +218,7 @@ describe("a locked document", () => {
 });
 
 describe("go to line", () => {
-  it("is NOT in the document until it is asked for", () => {
+  it("is not in the document until it is asked for", () => {
     const { area } = typing("a\nb\nc");
     expect(host.querySelector(".goto")).toBeNull();
     press(area, "g", { ctrlKey: true });
@@ -263,7 +263,7 @@ describe("the next error (F2)", () => {
     expect(area.selectionEnd, "the selection must have moved").toBeGreaterThan(0);
   });
 
-  it("SILENCE when the code is correct: the selection does not move", () => {
+  it("leaves the selection alone when the code is correct", () => {
     const { area } = typing("int a = 1;\n");
     vi.advanceTimersByTime(700);
     flushSync();

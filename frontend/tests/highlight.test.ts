@@ -6,7 +6,7 @@ describe("escaping", () => {
     expect(escapeHtml("<a & b>")).toBe("&lt;a &amp; b&gt;");
   });
 
-  it("escapes a student's markup wherever it appears -- code, string or comment", () => {
+  it("escapes a student's markup in code, strings and comments", () => {
     for (const source of [
       "<script>alert(1)</script>",
       'printf("<script>alert(1)</script>");',

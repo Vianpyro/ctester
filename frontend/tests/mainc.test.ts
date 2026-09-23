@@ -34,13 +34,14 @@ describe("disassemble", () => {
     expect(piece.body).toBe("int main(void){}");
   });
 
-  it("does NOT hoist an include already inside a student `#if`", () => {
+  it("does not hoist an include already inside a student `#if`", () => {
     const piece = disassemble("#ifdef X\n#include <math.h>\n#endif\nint main(void){}");
     expect(piece.includes).toEqual([]);
     expect(piece.body).toContain("#include <math.h>");
   });
 
-  it("leaves `#define` where it is -- the `#if` is what keeps two labs from clashing", () => {
+  // The `#if` is what keeps two labs from clashing.
+  it("leaves `#define` where it is", () => {
     const piece = disassemble("#define DIMANCHE 0\nint main(void){}");
     expect(piece.body).toContain("#define DIMANCHE 0");
   });
@@ -95,7 +96,7 @@ describe("codeOf", () => {
 describe("build", () => {
   const AT = new Date(2026, 8, 9, 21, 30);
 
-  it("opens on the first exercise that HAS code, not simply the first", () => {
+  it("opens on the first exercise that has code, not simply the first", () => {
     const built = build(
       [exercise("tp2-ex0", "ex.0"), exercise("tp2-ex1", "ex.1")],
       { "tp2-ex1": { "submission.c": "int main(void){return 0;}" } },
@@ -126,7 +127,7 @@ describe("build", () => {
     expect(built.empty).toEqual([3]);
   });
 
-  it("deduplicates on the HEADER, not on the line", () => {
+  it("deduplicates on the header, not on the line", () => {
     const built = build(
       [exercise("tp2-ex0", "ex.0"), exercise("tp2-ex1", "ex.1")],
       {
@@ -142,7 +143,7 @@ describe("build", () => {
     expect(built.text).toContain("#include <stdio.h>  // pour printf");
   });
 
-  it("dates the file in the READER's zone, not in UTC", () => {
+  it("dates the file in the reader's zone, not in UTC", () => {
     expect(today(AT)).toBe("2026-09-09");
     const built = build([exercise("tp2-ex1", "ex.1")], {}, "", "TP 2", AT);
     expect(built.text).toContain("Date : 2026-09-09");

@@ -291,7 +291,7 @@ def test_content_v2_marks_a_bonus():
         shutil.rmtree(root)
 
 
-def test_content_v2_rejects_conflicting_modes_and_unknown_collection_item():
+def test_content_rejects_conflicting_modes_and_unknown_items():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     try:
         _write_json(os.path.join(root, "catalog.json"), {"schema_version": 1, "skills": []})
@@ -499,7 +499,7 @@ def test_publication_refuses_a_worker_without_content():
             raise AssertionError("silent publication: %r %r" % (content, published))
 
 
-def test_publish_catalogue_really_publishes_and_says_so_in_preview():
+def test_publish_catalogue_publishes_and_reports_preview():
     root = tempfile.mkdtemp(prefix="ctester-content-")
     dest = tempfile.mkdtemp(prefix="ctester-published-")
     try:
@@ -1776,7 +1776,7 @@ def test_station_tag_is_short_stable_and_hides_the_raw_id():
     assert security.station_tag("") is None and security.station_tag(None) is None
 
 
-def test_the_journal_skips_an_unreadable_line_without_blocking_the_cursor():
+def test_journal_skips_an_unreadable_line():
     good = json.dumps({"job_id": "c"}).encode()
     blob = b"pas du json\n" + b'{"job_id": 7}\n' + b"[]\n" + good + b"\n"
     lines, consumed = journal.parse_journal(blob)
@@ -1911,7 +1911,7 @@ def test_close_is_idempotent_and_absorbs_a_failed_shutdown():
         state._conn = guard
 
 
-def test_forum_moderate_and_profiles_refuse_without_touching_the_database():
+def test_forum_refusals_do_not_touch_the_database():
     assert state.forum_moderate("a", "m", "u", "bogus") == []
     assert state.forum_profiles([]) == {}
     assert state.forum_profiles([None, ""]) == {}
@@ -1949,7 +1949,7 @@ class _PartialOutage:
         raise AssertionError("unlock() must never be called without the facts")
 
 
-def test_reward_and_verification_survive_an_outage_between_write_and_reread():
+def test_reward_survives_an_outage_after_writing():
     guard = progress.state
     try:
         progress.state = _PartialOutage()
@@ -1960,7 +1960,7 @@ def test_reward_and_verification_survive_an_outage_between_write_and_reread():
         progress.state = guard
 
 
-def test_scan_jobs_survives_a_missing_spool_and_a_directory_still_being_written():
+def test_scan_jobs_survives_missing_spool_and_partial_job():
     guard = config.SPOOL
     try:
         config.SPOOL = os.path.join(tempfile.mkdtemp(prefix="ctester-spool-"), "does-not-exist")
@@ -2369,11 +2369,12 @@ def test_get_json_reads_a_bounded_response_and_never_follows_a_redirect():
     try:
         port = server.server_port
         assert security._get_json(f"http://127.0.0.1:{port}/ok") == {"hello": "world"}
+        followed = None
         try:
-            security._get_json(f"http://127.0.0.1:{port}/redirige")
-            assert False, "a redirect must not resolve silently"
+            followed = security._get_json(f"http://127.0.0.1:{port}/redirige")
         except Exception:
             pass
+        assert followed is None, "a redirect must not resolve silently"
     finally:
         server.shutdown()
         server_thread.join(timeout=2)
@@ -3103,7 +3104,7 @@ def test_the_team_view_leaks_no_sub():
     assert teams.member_handle(roster, "sub-etranger") == ""
 
 
-def test_the_history_names_a_position_and_quantifies_no_contribution():
+def test_history_shows_positions_not_contributions():
     roster = ["sub-alice", "sub-bob"]
     lines = [{"revision_id": "r2", "account": "sub-bob",
                "created_at": "2026-09-07T14:32Z", "bytes": 812},
@@ -3234,7 +3235,7 @@ def test_two_teams_on_the_same_exercise_are_two_rooms():
         collab.reset()
 
 
-def test_an_emptied_room_changes_epoch_and_the_client_restarts_from_the_server():
+def test_emptied_room_changes_epoch():
     collab.reset()
     try:
         room = collab.room_key("e1", "dev-a")
@@ -3378,7 +3379,7 @@ def test_console_has_no_include_list():
     assert "forbidden_includes" not in source
 
 
-def test_the_bridge_bot_runs_without_third_parties_and_skips_its_own_messages():
+def test_bridge_bot_skips_its_own_messages():
     path = os.path.join(ROOT, "bot", "bridge.py")
     assert os.path.exists(path), path
     output = subprocess.run([sys.executable, path, "--autotest"],

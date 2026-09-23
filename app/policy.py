@@ -160,9 +160,7 @@ def mastery_band(solved, attempted, total):
 CARD_PREFIX = "card:"
 
 
-# A card names exercises, so its table belongs to the content base and not to this file:
-# it travels in cards.json and arrives through the published catalogue. A base with no
-# cards.json simply has no collection.
+# Cards name exercises, so they come from the content's cards.json, not from here.
 def cards_by_key(cards):
     return {CARD_PREFIX + c["id"]: c for c in cards or ()
             if isinstance(c, dict) and isinstance(c.get("id"), str)}

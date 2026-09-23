@@ -2,6 +2,8 @@ import { CHAT_GENERAL, CHAT_PREFIX, bareExercise } from "../../lib/api/forum";
 import { t } from "../../lib/i18n.svelte";
 import { catalog } from "../../lib/state/catalog.svelte";
 
+export const stepLabel = (id: string): string => t(`forum.step.${id}`);
+
 export function readableThread(key: string): string {
   if (key === CHAT_GENERAL) return t("forum.general");
   const bare = bareExercise(key);

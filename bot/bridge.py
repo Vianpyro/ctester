@@ -40,17 +40,17 @@ def should_relay(message):
     # Messages posted by the site's own webhook would loop back.
     if message.get("webhook_id"):
         return False
-    auteur = message.get("author") or {}
-    if auteur.get("bot"):
+    author = message.get("author") or {}
+    if author.get("bot"):
         return False
     return bool(str(message.get("content") or "").strip())
 
 
 def display_name(message):
-    auteur = message.get("author") or {}
+    author = message.get("author") or {}
     member = message.get("member") or {}
-    return (member.get("nick") or auteur.get("global_name")
-            or auteur.get("username") or "Discord")
+    return (member.get("nick") or author.get("global_name")
+            or author.get("username") or "Discord")
 
 
 def read_state():
@@ -58,7 +58,10 @@ def read_state():
         with open(STATE_PATH, encoding="utf-8") as fh:
             value = json.load(fh)
         return value if isinstance(value, dict) else {}
-    except Exception:
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as error:
+        print("ctester-bridge: state unreadable, starting over:", error, flush=True)
         return {}
 
 
@@ -144,7 +147,7 @@ def start():
             if batch:
                 state[channel] = str(batch[-1].get("id") or "")
         except Exception as error:
-            print("ctester-bridge: amorcage impossible :", error, flush=True)
+            print("ctester-bridge: could not prime", channel + ":", error, flush=True)
     write_state(state)
     while True:
         write_state(poll_once(state))

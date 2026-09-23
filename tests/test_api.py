@@ -20,8 +20,8 @@ os.environ.setdefault("CTESTER_ORIGINS",
 
 try:
     from fastapi.testclient import TestClient
-except ImportError:  # pragma: no cover -- message, pas trace
-    sys.exit("tests/test_api.py a besoin de httpx2 : pip install -r requirements-dev.txt")
+except ImportError:  # pragma: no cover
+    sys.exit("tests/test_api.py needs httpx2: pip install -r requirements-dev.txt")
 
 import config      # noqa: E402
 import deps        # noqa: E402
@@ -310,9 +310,9 @@ class FakeDatabase:
         return {p["alias"] for p in self.profiles.values() if p.get("alias")}
 
     def read_progress(self, user):
-        mien = lambda t: [v for (u, _), v in sorted(t.items()) if u == user]  # noqa: E731
-        return {"xp": sum(t["amount"] for t in mien(self.xp)),
-                "achievements": mien(self.achievement), "transactions": mien(self.xp)}
+        own = lambda t: [v for (u, _), v in sorted(t.items()) if u == user]  # noqa: E731
+        return {"xp": sum(t["amount"] for t in own(self.xp)),
+                "achievements": own(self.achievement), "transactions": own(self.xp)}
 
     def _message_view(self, m, reader):
         return dict(m, retained=self.retained.get(m["id"], False),
@@ -1081,7 +1081,7 @@ def test_quiz_bounds_the_number_and_length_of_answers():
                 assert len(value) <= 256, value
 
 
-def test_quiz_keeps_a_structured_answer_whole_but_flattens_anything_deeper():
+def test_quiz_keeps_structured_answers_one_level_deep():
     with context() as (c, _, tmp):
         r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
                                     "answers": {"ordre": ["b", "a"],
@@ -1182,7 +1182,7 @@ def test_anonymous_quota_per_station_and_shorter_window_when_logged_in():
             assert r.status_code == 200, (r.status_code, r.text)
 
 
-def test_an_anonymous_job_carries_a_station_tag_and_a_signed_in_one_does_not():
+def test_only_anonymous_jobs_carry_a_station_tag():
     with context(tokens={"alice": "sub-alice"}) as (c, _, _tmp):
         deps.quota = quotas.Quota(cooldown=0, hourly=100)
         deps.signed_in_quota = quotas.Quota(cooldown=0, hourly=100)
@@ -1536,7 +1536,7 @@ def test_states_and_practice_during_a_database_outage():
         assert c.get("/practice", headers=auth("alice")).status_code == 503
 
 
-def test_read_draft_refuses_an_unknown_exercise_and_distinguishes_absence():
+def test_read_draft_unknown_exercise_versus_no_draft():
     with context(tokens={"alice": "sub-alice"}) as (c, _base, _tmp):
         r = c.get("/draft?ex=inconnu", headers=auth("alice"))
         assert r.status_code == 400 and r.json() == {"error": "unknown_exercise"}, r.text
@@ -1563,7 +1563,7 @@ def test_the_draft_is_stored_in_its_canonical_form():
         assert saved.count("\n") == 4, repr(saved)
 
 
-def test_write_draft_refuses_a_file_outside_the_allow_list_before_the_quota():
+def test_write_draft_checks_files_before_the_quota():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
         for _ in range(5):
             r = c.put("/draft",
@@ -1588,7 +1588,7 @@ def test_write_draft_during_a_database_outage():
         assert r.status_code == 503, r.text
 
 
-def test_deleting_the_account_fails_without_leaving_the_illusion_of_success():
+def test_failed_account_deletion_reports_failure():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
         base.states[("sub-alice", "tp2-ex3")] = "solved"
         r = c.delete("/account", headers=auth("alice"))
@@ -1778,7 +1778,7 @@ def test_a_failure_grants_nothing():
 
 
 def _output(job, name):
-    """Where the judge would write `nom` for `job`; the directory is the judge's to create."""
+    """Where the judge would write `name` for `job`; the directory is the judge's to create."""
     os.makedirs(os.path.join(config.RESULTS, job), exist_ok=True)
     return os.path.join(config.RESULTS, job, name)
 
@@ -1985,7 +1985,7 @@ def test_the_chat_is_a_separate_thread_and_everything_in_it_is_public():
         assert fake.messages[1]["visibility"] == "private"
 
 
-def test_the_discord_bridge_does_not_exist_without_a_key_and_refuses_everything_else():
+def test_discord_bridge_needs_a_key():
     tokens = {"alice": "sub-alice"}
     with context(tokens=tokens, moderators=["sub-prof"]) as (c, _fake, _tmp):
         r = c.post("/forum/bridge", json={"exercise_id": "@chat:general",
@@ -2074,7 +2074,7 @@ def test_a_reply_targets_its_root_and_has_no_visibility_of_its_own():
         assert "sub-alice" not in payload and "sub-bob" not in payload
 
 
-def test_the_permalink_returns_a_conversation_and_the_same_404_everywhere():
+def test_permalink_returns_the_conversation_or_404():
     tokens = {"alice": "sub-alice", "bob": "sub-bob"}
     with context(tokens=tokens, moderators=["sub-prof"]) as (c, fake, _tmp):
         c.post("/forum", json={"exercise_id": "@chat:general", "text": "question"},
@@ -2182,7 +2182,7 @@ def test_the_chat_bell_refuses_in_the_right_order_and_says_nothing_else():
         forum_live.reset()
 
 
-def test_the_leaderboard_excludes_the_teacher_without_saying_so_backwards():
+def test_leaderboard_excludes_the_teacher():
     tokens = {"alice": "sub-alice", "prof": "sub-prof"}
     with context(tokens=tokens, moderators=["sub-prof"]) as (c, fake, _tmp):
         for who, group, alias in (("sub-alice", 4, "Rotor cuivré"),
@@ -2201,9 +2201,9 @@ def test_the_leaderboard_excludes_the_teacher_without_saying_so_backwards():
         assert view["cohort"] == 1 and view["rows"] == []
         assert sum(d["accounts"] for d in view["divisions"]) == 1
 
-        mien = c.get("/leaderboard?scope=group&group=6", headers=auth("alice")).json()
-        assert mien["group"] == 4 and mien["moderator"] is False
-        assert mien["groups"] == []
+        mine = c.get("/leaderboard?scope=group&group=6", headers=auth("alice")).json()
+        assert mine["group"] == 4 and mine["moderator"] is False
+        assert mine["groups"] == []
         vise = c.get("/leaderboard?scope=group&group=4", headers=auth("prof")).json()
         assert vise["group"] == 4 and vise["groups"] == [4, 6]
 
@@ -2384,7 +2384,7 @@ def test_report_a_message_or_a_name():
             assert r.status_code == 503, (body, r.text)
 
 
-def test_moderation_clears_a_reported_name_without_touching_the_rest_of_the_profile():
+def test_clearing_a_reported_name_keeps_the_profile():
     tokens = {"alice": "sub-alice", "prof": "sub-prof"}
     with context(tokens=tokens, moderators=["sub-prof"]) as (c, fake, _tmp):
         c.post("/forum/profile",
@@ -2947,9 +2947,8 @@ def test_oidc_json_announces_the_console():
 
 
 def test_the_console_announces_running_before_any_output():
-    """A program that reads before writing produces nothing until something is typed.
-    Without the "running" frame the page stays on "Compilation…" and suggests that
-    one must wait before answering."""
+    """A program that reads first prints nothing; without "running" the page would keep
+    showing "compiling" while it waits for input."""
     _requires_flock()
     from services import scratch as _scratch
     with context(tokens=TEAM_TOKENS) as (client, _, _):
@@ -2964,7 +2963,6 @@ def test_the_console_announces_running_before_any_output():
                 _scratch.fcntl.flock(claim, _scratch.fcntl.LOCK_EX)
                 assert socket.receive_json()["t"] == "ready"
 
-                # Compiling: nothing more to say.
                 _write_json(_output(job, "state.json"), {"state": "compiling"})
                 # Then the program starts, without having written anything yet.
                 _write_json(_output(job, "state.json"), {"state": "running"})
@@ -3066,7 +3064,7 @@ def test_no_team_route_opens_without_proven_membership():
         assert client.get("/team/context?assignment=devoir").status_code == 401
 
 
-def test_an_assignment_without_a_team_block_answers_that_it_is_not_team_work():
+def test_assignment_without_team_is_not_team_work():
     with assignment_deployment(team=False) as (client, _, _):
         r = client.get("/team/context?assignment=devoir",
                        headers=_headers("t-alice"))
@@ -3095,7 +3093,7 @@ def test_the_document_is_shared_by_the_team_and_only_the_team():
         assert fake.documents[("e2", "dev-a")] == {"main.c": "/* bob */\n"}
 
 
-def test_an_exercise_outside_the_assignment_does_not_resolve_even_for_a_member():
+def test_exercise_outside_the_assignment_does_not_resolve():
     with assignment_deployment() as (client, _, _):
         for ex in ("tp2-ex3", "../catalog", "", "quiz1"):
             r = client.get("/team/document?assignment=devoir&ex="
@@ -3137,7 +3135,7 @@ def test_the_team_document_is_canonicalized_on_both_sides():
         assert r.json()["sources"] == {"main.c": "int main(void){\n}\n\n"}, r.text
 
 
-def test_the_document_goes_through_the_same_allowlist_as_everything_else():
+def test_team_document_uses_the_file_allowlist():
     with assignment_deployment() as (client, _, _):
         r = client.put("/team/document", headers=_headers("t-alice"),
                        json={"assignment_id": "devoir", "exercise_id": "dev-a",

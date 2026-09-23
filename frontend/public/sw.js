@@ -22,8 +22,8 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// ponytail: a count, not a byte budget. Hashed names accumulate one set per release and
-// nothing ever evicts them; the Cache API cannot report sizes without reading every entry.
+// Hashed assets pile up one set per release. The Cache API cannot report sizes cheaply,
+// so the cap is a count.
 const KEEP_AT_MOST = 80;
 
 async function keep(cache, request, response) {

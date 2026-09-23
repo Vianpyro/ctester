@@ -148,11 +148,9 @@ impl Results {
         written
     }
 
-    /// One line per finished run, for the admin app to ingest. Every worker appends to the same
-    /// file: a single `write` to a regular file opened `O_APPEND` holds the inode lock for the
-    /// whole transfer, so lines never interleave. That is a local-filesystem guarantee -- it does
-    /// not hold over NFS, and `results/` must stay local. `write_all` would loop on a short write
-    /// and tear the line, so the line is built whole and written once, or dropped.
+    /// One line per finished run, for the admin app. Workers share the file: one `write` with
+    /// `O_APPEND` does not interleave on a local filesystem (not NFS), and `write_all` could
+    /// tear a line on a short write, so the line is written once or dropped.
     fn append_run(&self, job: &Job, verdict: &Value, run: &Run) {
         let field = |name: &str| verdict.get(name).and_then(Value::as_str).unwrap_or("");
         let seconds = SystemTime::now()

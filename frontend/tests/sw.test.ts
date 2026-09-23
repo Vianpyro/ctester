@@ -25,7 +25,7 @@ describe("the service worker", () => {
     }
   });
 
-  it("caches NOTHING that belongs to one account", () => {
+  it("caches nothing that belongs to one account", () => {
     for (const path of [
       "/states",
       "/practice",

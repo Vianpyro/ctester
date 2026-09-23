@@ -15,10 +15,8 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
 - `judge/`: the host judge in Rust (root). `grade.rs` holds the grading rules, `spool.rs` every access
   to the API-owned spool, `gate.rs` the judge's gate to an exercise.
 - `worker/`: `content_catalog.py`, `publish_content.py` and `typst_build.py` form the content
-  pipeline. `judge.py` calls the Rust
-  grading rules for the content tools. `build-*.sh` run inside the sandbox, and
-  `local_build.py` runs those same scripts on the host so the content tools compile
-  exactly like the sandbox instead of keeping a second recipe.
+  pipeline. `judge.py` calls the Rust grading rules for the content tools. `build-*.sh` run inside
+  the sandbox, and `local_build.py` runs the same scripts on the host for the content tools.
 - `admin/`: the teacher's dashboard, a separate read-only FastAPI app on the LAN. It imports
   `app/state.py` and `app/services/spool.py`; `journal.py` is stdlib-only so the checks can
   import it.
@@ -39,7 +37,8 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   and `demo_content.py` is the example base.
 
 - **One uvicorn worker.** Quotas, presence, the token cache and collaboration rooms live in memory.
-- **Endpoints are `def`, not `async def`,** and share one PostgreSQL connection behind a lock.
+- **Endpoints are `def`** (except WebSockets and the admin's event stream) and share one
+  PostgreSQL connection behind a lock.
 - **No identity in request bodies.** The account always comes from the validated token; a test scans
   `schemas.py` for this.
 - **Every word a student reads is in `frontend/src/locales/`**, `en.json` being the source and
@@ -60,10 +59,9 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares
   them. No inline scripts. The page names no host: `vite.config.ts` fills `%API_ORIGIN%`,
   `%API_WS%`, `%AUTH_ORIGIN%`, `%TITLE%`, `%TAGLINE%` and `%LANG%` at build time from
-  `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`, `CTESTER_TITLE` and `CTESTER_LANG` — the same variables the server reads, which is what
-  keeps the two copies comparable. **Only the `pages` job builds the deployed page**, because
-  those settings are variables of the `github-pages` environment and no other job enters it; it
-  refuses to publish a build whose CSP names no API origin.
+  `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`, `CTESTER_TITLE` and `CTESTER_LANG`, the variables
+  the server reads, so the two copies stay comparable. **Only the `pages` job builds the deployed
+  page**: those settings live in the `github-pages` environment, which no other job enters.
 - **The anonymous bundle stays small.** Anything that needs an account is loaded lazily, and
   `bundle.test.ts` checks the built output.
 - **Tables and grants live together** in `app/schema.sql`. Any table with an `account` column must be

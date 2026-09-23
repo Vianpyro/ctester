@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 
-"""The teacher's dashboard: a separate app on the LAN.
+"""The teacher's dashboard, a separate app on the LAN.
 
-Two boundaries, not one. The proxy host should carry an access list restricted to the
-LAN -- a hostname that only resolves on the LAN is a routing convenience, not a
-boundary, because the proxy routes on the Host header. On top of that, every /api route
-demands a moderator's OIDC token, because the page can show student identities and code.
-
-Nothing here writes to the service: the only table it fills is its own copy of the
-judge's run journal.
+Every /api route demands a moderator's OIDC token on top of the proxy's access list
+(see docs/operations.md). The only table it writes is its copy of the run journal.
 """
 
 import asyncio
@@ -137,14 +132,10 @@ def create_app():
 
     @app.get("/api/live")
     async def api_live(_: Moderator):
-        """Server-sent events, read by fetch() so the token rides in the header.
+        """Server-sent `queue` and `runs` events.
 
-        `queue` whenever the spool changes, `runs` whenever the drain stored new runs.
-        The stream ends after LIVE_MAX and the page reconnects: that is what makes the
-        token be checked again, since a stream is only authorized when it opens.
-
-        `async def`, unlike every other endpoint: it never touches the database, and a
-        `def` would hold a threadpool thread for as long as a tab stays open."""
+        The stream ends after LIVE_MAX so the reconnect checks the token again. It is
+        `async def` because a `def` would hold a threadpool thread per open tab."""
         return StreamingResponse(_live(), media_type="text/event-stream", headers={
             "Cache-Control": "no-cache",
             # Nginx buffers proxied responses by default; this header turns it off for
@@ -201,9 +192,8 @@ def _event(name, data):
 
 
 async def _live():
-    """A job waits under a second and runs in under a second: polling every few seconds
-    almost never sees one. Scanning the spool every LIVE_TICK does, for a few hundred
-    stat() calls, and only a change is sent."""
+    """Jobs last under a second, so a slow poll misses them; the spool is scanned every
+    LIVE_TICK and only changes are sent."""
     deadline = time.monotonic() + LIVE_MAX
     last_key = None
     last_sent = 0.0

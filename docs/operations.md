@@ -2,44 +2,42 @@
 
 ## Deployment model
 
-- **Everything needed to run CTester is in `deploy/`:** the Compose stack, the systemd units and the
-  two update scripts. The TCH009 instance is deployed by the `VHome` repository (`roles/ctester`),
-  which only adds gVisor, deploy keys, secrets and the PostgreSQL role.
-- **The API container** runs the stock `python:3.13-slim` image on read-only mounted code. The `deps`
+Everything needed to run CTester is in `deploy/`: the Compose stack, the systemd units and the
+two update scripts. The TCH009 instance is deployed by the `VHome` repository (`roles/ctester`),
+which only adds gVisor, deploy keys, secrets and the PostgreSQL role.
+
+- The API container runs the stock `python:3.13-slim` image on read-only mounted code. The `deps`
   service installs `requirements.txt` into a volume whenever the file changes. There is no Dockerfile.
-- **The page** is built by CI (`npm run build` → `frontend/dist`) and published to GitHub Pages.
-  It carries no hostname of its own: `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`,
-  `CTESTER_TITLE`, `CTESTER_LANG` and `CTESTER_PAGES_DOMAIN` are baked in at build time and are
-  variables of the
-  **`github-pages` environment**. Only the `pages` job enters it, so only that job builds the page
-  it deploys; the artifact the `tests` job uploads is deliberately generic, because Lighthouse
-  serves it from one local origin. Before deploying, `pages` refuses a build with no CNAME or with
-  no API origin in its CSP — unconfigured, the page asks its own origin for `/catalog.json` and the
-  site is down. `CTESTER_TITLE` is the instance's **name alone** (`TCH009`, not
-  `TCH009 — Tester mon code`): the header shows the tagline beside it and the tab joins the two,
-  so a title carrying the whole sentence prints it twice. The build refuses that value.
-  `CTESTER_LANG` (`fr` for ÉTS, `en` by default) is the language a student sees before choosing
-  one; the build refuses a language with no file in `frontend/src/locales/`. Set it in the `.env`
-  too: the content service renders the Typst statements with it. See
-  [translations.md](translations.md).
-  `CTESTER_API_ORIGIN` is also read by the server, which is what keeps the CSP in
-  `index.html` and the one in `app/csp.py` saying the same thing.
-  `CTESTER_PAGE` may still point at a `dist` directory to serve the page from the API; set it to an
-  empty string to disable that router.
-- **`ctester-pull.timer`** follows the application branch nightly, deploys only when
+- The judge (`judge/`, Rust) is built by CI into the release `judge-<commit>`. `ctester-pull`
+  installs it into `/opt/ctester/bin` after checking its SHA-256 and build attestation, and does not
+  deploy a commit whose judge is not published yet.
+- `ctester-pull.timer` follows the application branch nightly, deploys only when
   `tests/test_ctester.py` passes, and waits for an empty spool.
-- **The judge** (`judge/`, Rust) is built by CI into the release `judge-<commit>`. `ctester-pull` installs
-  it into `/opt/ctester/bin` only after checking its SHA-256 and its build attestation, and deploys no
-  commit whose judge is not published yet.
-- **`ctester-content.timer`** pulls the content every five minutes and republishes the catalog without
+- `ctester-content.timer` pulls the content every five minutes and republishes the catalog without
   restarting anything.
-- **The database schema and its grants** are both in `app/schema.sql`.
-- **The admin dashboard** (`admin/`) is a separate read-only app on the LAN; it publishes no
-  port and is reached through the proxy. See *The admin dashboard* below before exposing it.
+- The database schema and its grants are both in `app/schema.sql`.
+- The admin dashboard (`admin/`) is a separate read-only app on the LAN, reached through the proxy.
+  Read *The admin dashboard* below before exposing it.
+
+The page is built by CI (`npm run build` → `frontend/dist`) and published to GitHub Pages. It names
+no host of its own: `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`, `CTESTER_TITLE`, `CTESTER_LANG` and
+`CTESTER_PAGES_DOMAIN` are baked in at build time from variables of the `github-pages`
+environment. Only the `pages` job enters that environment, so it builds its own copy; the `tests`
+artifact stays generic for Lighthouse. `pages` refuses to deploy a build with no CNAME or no API
+origin in its CSP, since such a page would ask its own origin for `/catalog.json`.
+
+- `CTESTER_TITLE` is the instance's name alone (`TCH009`). The header and the tab add the tagline,
+  and the build refuses a title that already contains it.
+- `CTESTER_LANG` is the language a student sees before choosing one (`fr` for ÉTS, `en` by
+  default). Set it in `.env` as well, for the Typst statements. See [translations.md](translations.md).
+- `CTESTER_API_ORIGIN` is also read by the server, which keeps the CSP in `index.html` and the one
+  in `app/csp.py` identical.
+- `CTESTER_PAGE` may point at a `dist` directory to serve the page from the API; an empty string
+  disables that router.
 
 All settings are environment variables read in `app/config.py` (API) and `judge/src/config.rs`
-(judge). On a server they all live in
-one file, `/opt/ctester/.env`, read by Compose and by every systemd unit. The judge refuses to start
+(judge). On a server they all live in one file, `/opt/ctester/.env`, read by Compose and by every
+systemd unit. The judge refuses to start
 when they break an invariant, such as `CTESTER_LOCK_STALE` outside `JOB_TIMEOUT`..`SWEEP_AFTER`.
 
 ## Deploying
@@ -247,8 +245,7 @@ CTESTER_CONTENT=/opt/ctester/tests/content:/opt/ctester/tests-tch101/content
 ```
 
 **Exercise ids stay unique across every root.** Two repositories claiming `tp1-ex1` is a
-publication error naming both, not a silent winner — that rule is what lets an id stay a bare
-string everywhere else. The same goes for collection and assignment ids, and an exercise still
+publication error naming both, which is what lets an id stay a bare string everywhere else. The same goes for collection and assignment ids, and an exercise still
 belongs to at most one assignment across all roots. Prerequisites, collection items and
 assignment items resolve across roots, so one course may build on another's exercises.
 
@@ -261,10 +258,9 @@ which is sorted by id, so reordering `CTESTER_CONTENT` republishes nothing. The 
 would have changed is `shared/unity`: **only one root may hold it**, and the judge refuses to
 start otherwise, because that tree is hashed into every Unity verdict's cache key.
 
-**Publication is all-or-nothing.** One repository pushing a bad commit blocks the publication of
-*every* course — deliberately, since a half-published catalogue is worse than a slightly old
-one. The dashboard shows the revision actually being served, and `ctester-content` failing is
-worth an alert:
+**Publication is all-or-nothing.** A bad commit in one repository blocks the publication of
+every course, so students keep the last good catalogue. The dashboard shows the revision being
+served, and a failing `ctester-content` is worth an alert:
 
 ```sh
 systemctl status ctester-content
@@ -281,28 +277,27 @@ what was there before.
 
 ## The admin dashboard
 
-`admin/` is a second, small FastAPI app: the teacher's view of the service. It is read-only —
-it never writes a verdict, a grade or a student's row. The only table it fills is its own copy
-of the judge's run journal.
+`admin/` is a second, small FastAPI app: the teacher's view of the service. It never writes a
+verdict, a grade or a student's row; the only table it fills is its own copy of the judge's run
+journal.
 
-**Two boundaries, not one.**
+Every `/api` route demands a moderator's OIDC token, from the same `CTESTER_FORUM_MODERATORS`
+list the forum and the judge use. Without one the routes answer 401, and a signed-in student
+gets 403. The page itself is served to anyone, but shows a sign-in screen and fetches nothing
+until it has a token.
 
-Every `/api` route demands a **moderator's OIDC token** — the same
-`CTESTER_FORUM_MODERATORS` list the forum and the judge use. Without one the routes answer
-401, and a signed-in student gets 403. The page itself is served to anyone, but it shows an
-empty sign-in screen and fetches nothing until a token is in hand.
-
-> **Still put an access list on it.** The Nginx Proxy Manager host should carry one restricted
-> to the LAN (for example `192.168.0.0/16`). A hostname that only resolves on the LAN is **not**
-> a boundary: the proxy routes on the `Host` header, so anyone who can reach the proxy and knows
-> the name reaches the host. An IP check inside the app would be theatre — every request arrives
-> with the proxy's address, not the visitor's.
+Also put an access list on the Nginx Proxy Manager host, restricted to the LAN (for example
+`192.168.0.0/16`). A hostname that only resolves on the LAN does not protect anything, because the
+proxy routes on the `Host` header. An IP check inside the app would not help either: every
+request arrives with the proxy's address.
 
 To audit which proxy hosts carry a list:
 
 ```sh
 docker cp nginx-manager-npm-1:/data/database.sqlite /tmp/npm.sqlite
-sqlite3 /tmp/npm.sqlite "SELECT ph.domain_names, ph.access_list_id, al.name   FROM proxy_host ph LEFT JOIN access_list al ON al.id = ph.access_list_id   WHERE ph.is_deleted = 0;"
+sqlite3 /tmp/npm.sqlite "SELECT ph.domain_names, ph.access_list_id, al.name
+  FROM proxy_host ph LEFT JOIN access_list al ON al.id = ph.access_list_id
+  WHERE ph.is_deleted = 0;"
 rm /tmp/npm.sqlite
 ```
 
@@ -310,26 +305,23 @@ rm /tmp/npm.sqlite
 
 ### Student names and code
 
-Both are **hidden until asked for**, and the hiding is done by the server: without
-`?reveal=1` the account is simply absent from `/api/runs`, not merely absent from the table.
-The toggle protects against the projector and the shoulder, not against the teacher.
+Both are hidden until asked for, by the server: without `?reveal=1`, `/api/runs` does not send the
+account at all. The toggle is there for the projector and for people looking over a shoulder.
 
-`GET /api/code` answers from whichever of two existing sources still has the code. **Nothing
-new is stored for this.**
+`GET /api/code` answers from whichever of two existing sources still has the code; nothing new
+is stored for it.
 
 | Source | What it is | When it answers |
 |---|---|---|
 | the spool's `files.json` | the code of *that* run, even for a signed-out student | until the judge sweeps, `CTESTER_SWEEP_AFTER` (600 s) |
 | `exercise_state.sources` | the student's *latest* code for that exercise | any time, signed-in students only |
 
-The page says which one answered, because presenting today's code as a Tuesday run would
-mislead. Neither holds anything for a run the student never polled and that has since been
-swept: the poll is what writes the row.
+The page says which one answered. A run the student never polled has no row, so once it is
+swept its code is gone.
 
-Student code is inert text -- the dashboard never compiles or runs it -- but it is untrusted
-text rendered in a page that holds a moderator token. It is placed with `textContent`, never
-`innerHTML`, and the app sends a `Content-Security-Policy` that forbids inline scripts. A `.c`
-file full of HTML is therefore displayed, not executed.
+The dashboard never compiles or runs student code, but it does display it in a page that holds a
+moderator token. It is inserted with `textContent`, never `innerHTML`, and the app's
+`Content-Security-Policy` forbids inline scripts, so a `.c` file full of HTML is shown as text.
 
 ### Signing in
 
@@ -342,16 +334,15 @@ Two entries are needed on the IdP side, and neither lives in this repository:
 
 | What | Value |
 |---|---|
-| Redirect URI | the dashboard's own URL, `location.origin + location.pathname` — e.g. `https://tch999.thevhome.com/` |
+| Redirect URI | the dashboard's own URL, `location.origin + location.pathname`, e.g. `https://tch999.thevhome.com/` |
 | CORS origin | the same origin, because the browser posts the code to the IdP's token endpoint |
 
-**The dashboard must be served over HTTPS.** PKCE derives its challenge with
-`crypto.subtle`, which browsers expose only in a secure context; over plain HTTP the sign-in
-cannot work at all. The `*.thevhome.com` wildcard certificate covers this.
+The dashboard must be served over HTTPS: PKCE uses `crypto.subtle`, which browsers only expose in
+a secure context. The `*.thevhome.com` wildcard certificate covers this.
 
-The `admin` service publishes **no port**. It listens on `8001` on the `CTESTER_NETWORK`
-(`ctester-ingress` by default), which is how the proxy reaches it — point a proxy host at
-`admin:8001`. Confirm it is not exposed anywhere else:
+The `admin` service publishes no port. It listens on `8001` on `CTESTER_NETWORK`
+(`ctester-ingress` by default), so point a proxy host at `admin:8001`, and confirm it is not
+exposed anywhere else:
 
 ```sh
 docker compose ps admin                          # the PORTS column must stay empty
@@ -380,47 +371,43 @@ one is still out, so on a long period the dashboard slows to the database's real
 of queueing; a backgrounded tab asks for nothing at all. Measured on 720 000 runs, a full tick
 costs ~160 ms over 24 h and ~1 s over a full session.
 
-The window count comes from the API's own presence map over `CTESTER_ADMIN_WEB_URL`
-(`http://web:8000` by default, reached on the Compose network). `/live` counts windows *and*
-registers its caller, so the dashboard subtracts itself -- the same thing `ctester-pull` does.
-It counts **windows, not accounts**: a signed-out visitor is one too, and the count empties
-`CTESTER_PRESENCE_TTL` seconds (150) after the last request. If the API is down the tile shows
-`--` and nothing else on the page is affected.
+The window count comes from the API's presence map over `CTESTER_ADMIN_WEB_URL`
+(`http://web:8000` by default, on the Compose network). `/live` also registers its caller, so the
+dashboard subtracts itself, as `ctester-pull` does. It counts browser windows, signed in or not, and
+empties `CTESTER_PRESENCE_TTL` seconds (150) after the last request. If the API is down the tile
+shows `--` and the rest of the page is unaffected.
 
-"En file" counts jobs still waiting; a job a worker has already claimed is shown separately as
-"en cours de correction". Many waiting with none running means the workers are stuck, not busy.
+"En file" counts jobs still waiting; a job a worker has claimed is shown as "en cours de
+correction". Many waiting jobs with none running means the workers are stuck.
 
 ### The run journal
 
-The judge appends one JSON line per finished run to `results/runs-<YYYY-MM-DD>.jsonl` — every
-run, including the ones nothing else records: anonymous submissions, Console sessions, cache
-hits, jobs the student never polled, and jobs abandoned after a reclaim. Every worker appends
-to the same file; a single `write` to a file opened `O_APPEND` cannot interleave on a local
-filesystem, which is one more reason `results/` must never sit on NFS.
+The judge appends one JSON line per finished run to `results/runs-<YYYY-MM-DD>.jsonl`, including
+the runs nothing else records: anonymous submissions, Console sessions, cache hits, jobs the
+student never polled and jobs abandoned after a reclaim. All workers append to the same file,
+which only works on a local filesystem: keep `results/` off NFS.
 
 `CTESTER_WORKER_ID` names the instance in each line; the systemd unit passes `%i`, so
-`ctester-judge@2` writes `"worker_id": "2"`. A worker counts as alive when it has finished a
-run in the last five minutes — the judge keeps no other identity, and on a service students
-poll constantly a dead worker shows up within one job.
+`ctester-judge@2` writes `"worker_id": "2"`. A worker counts as alive when it has finished a run
+in the last five minutes; during a lab, a dead worker shows up within one job.
 
-The admin app ingests the journal into `judge_run` every 30 seconds, remembering a byte offset
-per file, and skips any job id it already stored — so a restart, a retry or a replay never
-duplicates a row. `results/` is read-only to it, so it never truncates a journal file.
+The admin app ingests the journal into `judge_run` every 30 seconds. It remembers a byte offset
+per file and skips job ids it already stored, so a restart never duplicates a row. `results/` is
+read-only to it.
 
-**If ingestion stalls, the page says so.** The drain refuses to advance its cursor when a
-write fails, so nothing is lost -- the journal files stay on disk and are replayed in full once
-the cause is fixed. The usual cause is a schema older than the code: the drain writes `account`,
-and a database that predates that column rejects every insert. The state line turns red with
-"Le journal ne s'ingère plus", and `docker logs ctester-admin-1` carries the same message once,
-not on every tick.
+If ingestion stalls, the page says so. The drain does not advance its cursor when a write fails,
+so the journal is replayed once the cause is fixed. The usual cause is a schema older than the
+code: the drain writes `account`, which an older database rejects. The state line turns red with
+"Le journal ne s'ingère plus", and `docker logs ctester-admin-1` logs the error once.
 
 ```sh
-docker exec ctester-postgres psql -U postgres -d ctester -tAc   "SELECT count(*) FROM information_schema.columns
+docker exec ctester-postgres psql -U postgres -d ctester -tAc \
+  "SELECT count(*) FROM information_schema.columns
    WHERE table_name='judge_run' AND column_name='account'"
 ```
 
-`0` means the schema is behind. Ansible applies `app/schema.sql` on every converge, so the fix
-is normally to converge -- check that the clone at `ctester_app_dir` carries the commit first.
+`0` means the schema is behind. Ansible applies `app/schema.sql` on every converge, so the fix is
+usually to converge, once the clone at `ctester_app_dir` has the commit.
 
 Nothing prunes the journal: one line per run is roughly 1 MB a day. If it ever matters:
 
@@ -428,8 +415,7 @@ Nothing prunes the journal: one line per run is roughly 1 MB a day. If it ever m
 find /opt/ctester/results -name 'runs-*.jsonl' -mtime +30 -delete
 ```
 
-`judge_run` carries **no account column**. It is the history of the service, not of a student,
-so "delete my data" leaves it alone.
+"Delete my data" also removes the student's rows from `judge_run`.
 
 ```sh
 ls /opt/ctester/results/runs-*.jsonl             # the journal, one file per day
@@ -438,7 +424,7 @@ docker logs ctester-admin-1                      # "drain failed" lines if inges
 ```
 
 If the dashboard says *Base de données injoignable*, the queue and the published revision still
-show: those come from the filesystem, not from SQL.
+show, since they are read from the filesystem.
 
 Team rosters: students pick teams themselves until the assignment opens. To move someone
 afterwards, load a CSV of `group_number,number,account`:

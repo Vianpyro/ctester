@@ -88,12 +88,13 @@ describe("normalize", () => {
     expect(model.catalog.filter((e) => e.id === "tp2-ex1")).toHaveLength(1);
   });
 
-  it("qualifies `label` and leaves `short` bare -- ten labs have an ex.1", () => {
+  // Ten labs have an ex.1.
+  it("qualifies `label` and leaves `short` bare", () => {
     expect(byId("tp2-ex1").short).toBe("ex.1 bonus vitesse");
     expect(byId("tp2-ex1").label).toBe("TP2 : ex.1 bonus vitesse");
   });
 
-  it("carries only file NAMES: a server path never crosses the publication", () => {
+  it("carries only file names: a server path never crosses the publication", () => {
     expect(byId("tp2-ex1").files).toEqual([{ name: "submission.c" }]);
   });
 
@@ -104,7 +105,7 @@ describe("normalize", () => {
 });
 
 describe("lockNote", () => {
-  it("says a DATE and not only that it is closed -- otherwise the student writes an email", () => {
+  it("says a date and not only that it is closed", () => {
     const note = lockNote({ access: "scheduled", available_from: SCHEDULED });
     expect(note).toMatch(/^ouvre le /);
     expect(note).toMatch(/18/);
@@ -123,7 +124,7 @@ describe("lockNote", () => {
 });
 
 describe("tileState", () => {
-  it("keeps PROGRESS and LOCATION as separate axes", () => {
+  it("keeps progress and location as separate axes", () => {
     expect(tileState(byId("tp2-ex1"), false, { "tp2-ex1": "solved" })).toEqual({
       cls: "solved",
       word: "réussi",

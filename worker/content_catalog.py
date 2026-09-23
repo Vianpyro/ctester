@@ -14,7 +14,7 @@ ASSIGNMENT_RE = EXERCISE_RE
 SKILL_RE = re.compile(r"\A[a-z][a-z0-9-]{0,47}\Z")
 # Card ids are persisted against the accounts that earned them.
 CARD_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{0,31}\Z")
-# Names one of the drawings the page ships; an unknown one simply draws nothing.
+# Names one of the drawings the page ships; an unknown one draws nothing.
 CARD_ART_RE = re.compile(r"\A[a-z][a-z0-9-]{0,31}\Z")
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 MODES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
@@ -551,12 +551,8 @@ def _label(root):
 
 
 def _cards(root, prefix, errors):
-    """cards.json is optional: a content base that wants no collection simply omits it.
-
-    Card ids are stored against the accounts that earned them, so they may never change;
-    and a card naming an exercise that does not exist would be quietly unobtainable, so
-    the reference is checked here instead, where it fails the publication.
-    """
+    """cards.json is optional. A card naming an unknown exercise fails the publication
+    here, rather than becoming quietly unobtainable."""
     path = os.path.join(root, "cards.json")
     if not os.path.isfile(path):
         return []
@@ -637,9 +633,8 @@ def _catalog_skills(root, prefix, errors):
 def discover(root):
     """One content root, or several merged into a single catalogue.
 
-    Exercise ids stay unique across roots, so nothing downstream ever names a source: the
-    duplicate checks below are the only thing stopping two repositories claiming one id.
-    Merging is all-or-nothing on purpose -- a half-published catalogue is worse than none.
+    Ids must be unique across roots; the duplicate checks below are what enforces it. Any
+    error rejects the whole merge, so nothing is published half-way.
     """
     roots = [root] if isinstance(root, (str, os.PathLike)) else list(root)
     if not roots:
@@ -750,10 +745,8 @@ def discover(root):
                 errors.append("%s: unknown prerequisite %r" % (entry["id"], prerequisite))
     if errors:
         raise ContentValidationError(errors)
-    # Sorted by id, not by root: the published revision is a hash of this model, and
-    # reordering CTESTER_CONTENT must not republish the whole catalogue. Each kind keeps
-    # the order it had with a single root -- exercises by directory name, the other two
-    # naturally, so tp9 still comes before tp10.
+    # Sorted by id, so reordering CTESTER_CONTENT does not change the revision hash.
+    # Collections and assignments sort naturally (tp9 before tp10).
     def _by(items, key):
         return dict(sorted(items.items(), key=lambda pair: key(pair[0])))
 

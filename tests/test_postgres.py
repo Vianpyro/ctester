@@ -11,7 +11,7 @@ sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app")]
 DSN = os.environ.get("CTESTER_DB_DSN", "")
 ADMIN_DSN = os.environ.get("CTESTER_DB_ADMIN_DSN", "") or DSN
 if not DSN:
-    print("CTESTER_DB_DSN empty: nothing to exercise here (see the header).")
+    print("CTESTER_DB_DSN is empty: skipped (see docs/operations.md).")
     raise SystemExit(0)
 
 import state       # noqa: E402 -- it reads CTESTER_DB_DSN at import
@@ -38,13 +38,8 @@ def count(table, user):
 
 
 def upgrade_from_an_older_database():
-    """A database that already holds the tables must still gain the columns added since.
-
-    `CREATE TABLE IF NOT EXISTS` does nothing to a table that exists, so a column added
-    only inside the CREATE block reaches a fresh database and never an old one. Every
-    other check here starts from an empty database, which is exactly why that slipped
-    through until the dashboard stopped ingesting in production.
-    """
+    """An existing database must gain the columns added since: `CREATE TABLE IF NOT
+    EXISTS` never alters a table, and every other check here starts from an empty one."""
     import psycopg
     with open(os.path.join(ROOT, "app", "schema.sql"), encoding="utf-8") as fh:
         sql = fh.read()
@@ -61,7 +56,7 @@ def upgrade_from_an_older_database():
         "judge_run: %s missing after an upgrade. A column added to the"
         " CREATE needs its ALTER TABLE ... ADD COLUMN IF NOT EXISTS."
         % ", ".join(sorted(missing)))
-    print("ok   schema.sql upgrades a database that already exists, not just a fresh one")
+    print("ok   schema.sql upgrades an existing database")
 
 
 def apply_schema():
@@ -75,7 +70,7 @@ def apply_schema():
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")}
     missing = set(TABLES) - found
     assert not missing, "missing tables: " + ", ".join(sorted(missing))
-    print("ok   schema.sql applies, and replays without breaking anything")
+    print("ok   schema.sql applies and replays")
 
 
 def schema_repairs_an_older_database():
@@ -147,7 +142,7 @@ def schema_repairs_an_older_database():
             (list(added), [n for names in added.values() for n in names]))}
         assert restored == {tuple(row) for row in privileges}, \
             "column grants were not restored: %r" % (restored,)
-    print("ok   schema.sql repairs an older database, and stays idempotent")
+    print("ok   schema.sql repairs an older database idempotently")
 
 
 def schema_renames_legacy_solve_events():
@@ -186,7 +181,7 @@ def schema_renames_legacy_solve_events():
         for table in ("progress_event", "xp_transaction", "achievement_unlocked"):
             cx.execute("DELETE FROM %s WHERE account IN (%%s, %%s)" % table,
                        (legacy, doubled))
-    print("ok   legacy 'reussite:' events are renamed, never duplicated")
+    print("ok   legacy 'reussite:' events are renamed once")
 
 
 def schema_migrates_a_roster_shaped_team_table():
@@ -225,12 +220,12 @@ def schema_migrates_a_roster_shaped_team_table():
             "SELECT count(*) FROM pg_indexes"
             " WHERE indexname = 'team_number_idx'").fetchone()[0] == 1
     _reset_teams()
-    print("ok   schema.sql migrates yesterday's `team` table without losing a row")
+    print("ok   the old `team` table migrates without losing a row")
 
 
 def append_only():
     if ADMIN_DSN == DSN:
-        print("--   append-only: NOT PLAYED (no distinct CTESTER_DB_ADMIN_DSN)")
+        print("--   append-only: skipped (no distinct CTESTER_DB_ADMIN_DSN)")
         return
     import psycopg
     refused = []
@@ -241,7 +236,7 @@ def append_only():
             except psycopg.errors.InsufficientPrivilege:
                 refused.append(table)
     assert len(refused) == 3, "UPDATE accepted somewhere: " + str(refused)
-    print("ok   Postgres refuses UPDATE on the three progression tables")
+    print("ok   the progression tables refuse UPDATE")
 
 
 def drafts_and_states():
@@ -252,7 +247,7 @@ def drafts_and_states():
     assert state.write_state(ALICE, "tp2-ex3", "attempted", {"submission.c": "broken"})
     assert state.read_states(ALICE) == [{"exercise_id": "tp2-ex3", "status": "solved"}]
     assert state.write_state(ALICE, "tp2-ex3", "perfect", {}) is False
-    print("ok   draft, state, and \"solved\" does not go backwards")
+    print("ok   drafts and states; solved never goes back")
 
 
 def practice_attempts():
@@ -287,7 +282,7 @@ def grants():
         ALICE, "tp7-ex1", "solved:tp7-ex1", 30, "first solve",
         "policy-1", {"job": "job-5"}, 20) == 0
     assert count("xp_transaction", ALICE) == 3
-    print("ok   grant: once per fact, cap applied within the same statement")
+    print("ok   grants: once per fact, cap in the same statement")
 
 
 def achievements_and_reading():
@@ -305,7 +300,7 @@ def achievements_and_reading():
     assert all(len(s["unlocked_at"]) == 10 for s in view["achievements"]), view["achievements"]
     assert len(view["transactions"]) == 3
     assert view["transactions"][0]["reason"] == "first solve"
-    print("ok   achievements without duplicates, and reading the facts (day-level dates)")
+    print("ok   achievements are unique; facts read back by day")
 
 
 def mastery_evidence():
@@ -339,7 +334,7 @@ def mastery_evidence():
     facts = state.read_events(ALICE, "VerificationEvaluated")
     corrupted = [f for f in facts if f["payload"] == {}]
     assert len(corrupted) == 1, facts
-    print("ok   mastery evidence: same journal, no XP, no extra GRANT")
+    print("ok   mastery evidence: no XP, no extra grant")
 
 
 def account_isolation():
@@ -350,7 +345,7 @@ def account_isolation():
     assert state.unlock(BOB, ["premiere-reussite"], "solved:tp2-ex3", "policy-1")
     assert state.read_progress(BOB)["xp"] == 15
     assert state.read_progress(ALICE)["xp"] == 20
-    print("ok   two accounts, the same fact, no mixing")
+    print("ok   two accounts with the same fact stay apart")
 
 
 def forum():
@@ -523,8 +518,7 @@ def stuck_and_helpful():
     days = state.read_practice_days(ALICE, 91)
     assert isinstance(days, list)
     assert all(set(d) == {"date", "attempts"} for d in days), days
-    print("ok   stuck/helpful: one-way transition, three refusals, "
-          "derived retention")
+    print("ok   stuck/helpful transitions and refusals")
 
 
 def leaderboard_rows():
@@ -543,12 +537,12 @@ def leaderboard_rows():
     assert state.forum_taken_aliases() == {"Rotor cuivre", "Palier lisse"}
     rates, cohort = state.read_unlock_rates()
     assert isinstance(rates, dict) and cohort >= 1, (rates, cohort)
-    print("ok   leaderboard: opt-in is the WHERE, a quiet week still counts")
+    print("ok   leaderboard: opt-in only, quiet weeks count")
 
 
 def forum_privileges():
     if ADMIN_DSN == DSN:
-        print("--   forum privileges: NOT PLAYED (no distinct CTESTER_DB_ADMIN_DSN)")
+        print("--   forum privileges: skipped (no distinct CTESTER_DB_ADMIN_DSN)")
         return
     import psycopg
     attempts = (
@@ -579,8 +573,7 @@ def forum_privileges():
         cx.execute("UPDATE forum_message SET hidden = hidden")
         cx.execute("UPDATE forum_message SET visibility = visibility")
         cx.execute("UPDATE forum_helpful SET value = value")
-    print("ok   forum: only `hidden` and `visibility` are writable, "
-          "the rest is append-only")
+    print("ok   forum: only `hidden` and `visibility` are writable")
 
 
 def preferences():
@@ -600,7 +593,7 @@ def preferences():
     assert state.write_preferences(ALICE, lang="fr'; --") is False
     assert state.write_preferences(BOB + "-new", lang="pt-BR"), "a language without a theme"
     assert state.read_preferences(BOB + "-new") == {"theme": "", "lang": "pt-BR"}
-    print("ok   the theme and the language write, overwrite, and stay this account's own")
+    print("ok   theme and language preferences")
 
 
 def deletion():
@@ -619,8 +612,7 @@ def deletion():
     assert _rows("SELECT count(*) FROM team WHERE team_id = 'g04-e01'") == 1
     assert _rows("SELECT count(*) FROM team_member"
                  " WHERE team_id = 'g04-e01' AND account = %s", (CLEO,)) == 1
-    print("ok   \"Delete my data\" empties the fifteen account tables, leaves "
-          "the team's work, and touches nobody else's")
+    print("ok   forget() clears the account tables and keeps the team's work")
 
 
 def _register(assignment_id, group, number, accounts):
@@ -704,8 +696,7 @@ def teams():
         "devoir": "g04-e01", "autre-devoir": "g06-e02"}, mine
     assert sorted(m["number"] for m in mine) == [1, 2]
     assert state.team_memberships("sub-personne") == []
-    print("ok   teams: a free seat is taken, the seat is counted in the "
-          "WHERE, and two groups each have their own \"Équipe 1\"")
+    print("ok   teams: seats are counted, team numbers are per group")
 
 
 def team_documents():
@@ -748,8 +739,7 @@ def team_documents():
                                      uuid.uuid4().hex, window_seconds)
     assert state.read_team_document("g04-e01", "dev-a") == {"main.c": "cinq\n"}
     assert state.read_team_document("g06-e01", "dev-a") == {"main.c": "bob\n"}
-    print("ok   team_document: an UPSERT and a coalesced revision in ONE "
-          "statement, isolated per team")
+    print("ok   team_document: upsert and revision in one statement, per team")
 
 
 def team_submissions():
@@ -771,7 +761,7 @@ def team_submissions():
 
 def team_privileges():
     if ADMIN_DSN == DSN:
-        print("--   team privileges: NOT PLAYED (no distinct CTESTER_DB_ADMIN_DSN)")
+        print("--   team privileges: skipped (no distinct CTESTER_DB_ADMIN_DSN)")
         return
     import psycopg
     refuses = (
@@ -797,8 +787,7 @@ def team_privileges():
         cx.execute("UPDATE team_document SET sources = sources")
         cx.execute("UPDATE team_submission SET files = files")
         cx.execute("DELETE FROM team_member WHERE account = 'sub-absent'")
-    print("ok   team: one joins and leaves, but nothing is modified -- neither a "
-          "team nor a membership")
+    print("ok   team and team_member rows cannot be modified")
 
 
 def _rows(sql, params=()):
@@ -833,7 +822,7 @@ def main():
     preferences()
     deletion()
     state.forget(BOB)
-    print("\nthe SQL holds up on a real PostgreSQL.")
+    print("\nall PostgreSQL checks passed")
 
 
 if __name__ == "__main__":

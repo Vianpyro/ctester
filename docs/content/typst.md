@@ -132,7 +132,7 @@ the error names the exercise, file and line. Other exercises are blocked too, so
 the server, the message shows up in `journalctl -u ctester-content -n 30`.
 
 If an element cannot be exported to HTML, students get the SVG version. The publication log then
-contains `rendu HTML incomplet`, naming the lost element.
+contains `incomplete HTML render`, naming the lost element.
 
 Only `@local/ctester` and the vendored `@preview/merman` packages are available, since the build has no
 network access. Fonts are DejaVu Sans and DejaVu Sans Mono.

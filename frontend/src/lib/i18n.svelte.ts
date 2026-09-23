@@ -1,7 +1,4 @@
-// Every string the page shows comes from frontend/src/locales/<lang>.json, in i18next v4
-// JSON (flat keys, {{name}} placeholders, _one/_other plural suffixes) so a translation
-// platform such as Weblate can edit the files directly. en.json is the source: complete,
-// and the fallback for any key another language has not translated yet.
+// The page's words, from locales/<lang>.json in i18next v4 JSON (docs/translations.md).
 import { localGet, localSet } from "./storage";
 
 declare const __LANG__: string;
@@ -22,7 +19,7 @@ const known = (lang: string | null | undefined): lang is string =>
   Boolean(lang) && LOADERS.has(lang!);
 
 // The instance's language (CTESTER_LANG), unless it names a file this build lacks.
-export const DEFAULT_LANG = known(typeof __LANG__ === "string" ? __LANG__ : "")
+const DEFAULT_LANG = known(typeof __LANG__ === "string" ? __LANG__ : "")
   ? __LANG__
   : SOURCE;
 
@@ -109,3 +106,7 @@ function pick(
 export const i18n = new I18nState();
 
 export const t = (key: string, params?: Params): string => i18n.translate(key, params);
+
+// For keys built from what a server or an older judge sent: an unknown one shows as sent.
+export const tOr = (key: string, fallback: string, params?: Params | null): string =>
+  i18n.has(key) || i18n.has(key + "_other") ? t(key, params ?? {}) : fallback;

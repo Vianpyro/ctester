@@ -72,7 +72,7 @@ describe("open", () => {
     expect(drafts.status).toBe("brouillon retrouvé");
   });
 
-  it("TELLS THE CHAT to follow, once its chunk has registered", async () => {
+  it("tells the chat to follow, once its chunk has registered", async () => {
     let followed = 0;
     whenChatReady(async () => {
       followed++;
@@ -97,7 +97,7 @@ describe("open", () => {
     expect(editor.exerciseId).toBe(later);
   });
 
-  it("lets the LAST open win when two are started quickly", async () => {
+  it("lets the last open win when two are started quickly", async () => {
     const first = next();
     const second = next();
     delays[first] = 30;
@@ -122,7 +122,7 @@ describe("open", () => {
     expect(editor.readOnly).toBe(false);
   });
 
-  it("saves the exercise being LEFT before switching", async () => {
+  it("saves the exercise being left before switching", async () => {
     const left = next();
     await exercise.open(left);
     editor.typed("// écrit puis quitté");

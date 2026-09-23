@@ -1,11 +1,7 @@
-"""Runs the sandbox build scripts on the host, for the content tools.
+"""Runs the sandbox's own build-*.sh on the host, so the content tools compile exactly
+like the service. `/in/` and `/work` are rewritten to a temporary tree.
 
-The tools that check content must compile a reference solution the way the service does.
-A second recipe written in Python is a second thing to keep in step, and the two had
-already drifted. So the real `build-*.sh` are copied with `/in/` and `/work` rewritten to
-a temporary tree: one recipe, here and in production.
-
-There is no isolation here. This runs content the moderator wrote, never a submission.
+No isolation: this only runs content the moderator wrote, never a submission.
 """
 
 import json

@@ -11,7 +11,7 @@ const dom = (html: string) => {
 };
 
 describe("prepareTypstHtml", () => {
-  it("adds a Copy button to code blocks, but NOT to the ones to retype by hand", () => {
+  it("adds a Copy button to code blocks, but not to the ones to retype by hand", () => {
     const { html } = prepareTypstHtml(
       page(
         `<pre><code data-lang="c">int x;</code></pre>` +

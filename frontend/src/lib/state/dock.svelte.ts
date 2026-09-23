@@ -4,12 +4,10 @@ const KEY = "ctester.chat.open";
 
 class Dock {
   open = $state(false);
-  // The dot in the top bar. Only the flag is eager: the polling that sets it comes with
-  // the account, in lib/state/unread.svelte.ts.
+  // The top bar's dot; lib/state/unread.svelte.ts sets it once signed in.
   unread = $state(false);
-  // Holds the third column from the first paint for someone who left the chat open: the
-  // dock itself arrives four chunks and a sign-in later, and the grid would recompose.
-  // App.svelte drops it if the dock turns out not to be coming.
+  // Keeps the chat column from the first paint, so the grid does not shift when the dock
+  // arrives. App.svelte drops it if the dock is not coming.
   reserved = $state(localGet(KEY) === "1");
 
   remembered(): boolean {

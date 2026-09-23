@@ -7,7 +7,7 @@ import headers
 import security
 import state
 from deps import Sub, throttle_write
-from fastapi import APIRouter, Query, Request, WebSocket
+from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from schemas import (TeamDocumentIn, TeamHandinIn, TeamJoinIn, TeamLeaveIn,
                      TeamRestoreIn)
 from services import collab
@@ -340,7 +340,7 @@ async def live(socket: WebSocket):
             frame["from"] = connection.handle
             frame.pop("token", None)
             await collab.broadcast(connection, frame)
-    except Exception:
+    except WebSocketDisconnect:
         pass
     finally:
         collab.leave(connection)

@@ -10,7 +10,7 @@ function parsed(source: string): HTMLElement {
 const text = (source: string) => parsed(source).textContent ?? "";
 
 describe("nothing a statement carries can become a tag", () => {
-  it("keeps `#include <stdio.h>` in a code block as TEXT, not as an element", () => {
+  it("keeps `#include <stdio.h>` in a code block as text, not as an element", () => {
     const host = parsed("\t#include <stdio.h>");
     expect(host.querySelector("pre code")).not.toBeNull();
     expect(host.textContent).toContain("#include <stdio.h>");
@@ -53,13 +53,13 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
     expect(host.textContent).toContain("mets *quotient et *reste a 0");
   });
 
-  it("leaves an INTRAWORD multiplication alone, which CommonMark would not", () => {
+  it("leaves an intraword multiplication alone, which CommonMark would not", () => {
     const host = parsed("mois >= 3 : (23*m/9 + d + 4) % 7 mois < 3 : (23*m/9 + d)");
     expect(host.querySelector("em")).toBeNull();
     expect(host.textContent).toContain("(23*m/9 + d + 4) % 7 mois < 3 : (23*m/9 + d)");
   });
 
-  it("leaves a SPACED multiplication alone: an asterisk before a space never opens", () => {
+  it("leaves a spaced multiplication alone: an asterisk before a space never opens", () => {
     const host = parsed("V = racine( 2mg / (0,5 * rho * pi * r^2) )");
     expect(host.querySelector("em")).toBeNull();
     expect(host.textContent).toContain("0,5 * rho * pi * r^2");
@@ -69,7 +69,7 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
     expect(parsed("et fixe alors double* maximum a 0").querySelector("em")).toBeNull();
   });
 
-  it("never reads emphasis INSIDE a code span", () => {
+  it("never reads emphasis inside a code span", () => {
     const host = parsed("* *Rappel* : `P = F * v`");
     expect(host.querySelector("li em")?.textContent).toBe("Rappel");
     expect(host.querySelector("li code")?.textContent).toBe("P = F * v");
@@ -87,7 +87,7 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
     expect(host.querySelector("em")).toBeNull();
   });
 
-  it("leaves a DOUBLE POINTER alone, which is what flanking the closer buys", () => {
+  it("leaves a double pointer alone, which is what flanking the closer buys", () => {
     const host = parsed("la fonction prend char **argv et double **tab en parametres");
     expect(host.querySelector("strong")).toBeNull();
     expect(host.querySelector("em")).toBeNull();
@@ -104,14 +104,14 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
   });
 });
 
-describe("`$...$` is a formula, and it is OPT-IN", () => {
+describe("`$...$` is a formula, and it is opt-in", () => {
   it("draws a fraction where the statement asks for one", () => {
     const host = parsed("* *Rappel* : $R = V * L / v$");
     expect(host.querySelector("li math mfrac")).not.toBeNull();
     expect(host.querySelector("li em")?.textContent).toBe("Rappel");
   });
 
-  it("leaves ZELLER alone: an unmarked `/` is C's integer division", () => {
+  it("leaves Zeller alone: an unmarked `/` is C's integer division", () => {
     const host = parsed("mois >= 3 : (23*m/9 + d + 4 + z/4 - z/100) % 7");
     expect(host.querySelector("math")).toBeNull();
     expect(host.textContent).toContain("(23*m/9 + d + 4 + z/4 - z/100) % 7");
@@ -123,13 +123,13 @@ describe("`$...$` is a formula, and it is OPT-IN", () => {
     expect(host.textContent).toContain("n/m");
   });
 
-  it("keeps a LONE `$` literal, for want of a closer", () => {
+  it("keeps a lone `$` literal, for want of a closer", () => {
     const host = parsed("le prix est de 5 $ par personne");
     expect(host.querySelector("math")).toBeNull();
     expect(host.textContent).toContain("5 $ par personne");
   });
 
-  it("never reads a formula INSIDE a code span, nor a code span inside a formula", () => {
+  it("never reads a formula inside a code span, nor a code span inside a formula", () => {
     expect(parsed("`$a/b$`").querySelector("math")).toBeNull();
     expect(parsed("`$a/b$`").querySelector("code")?.textContent).toBe("$a/b$");
     expect(parsed("$a/b$").querySelector("code")).toBeNull();
@@ -166,7 +166,7 @@ describe("code blocks", () => {
     expect(host.querySelector("pre code span.tk")?.textContent).toBe("int");
   });
 
-  it("does NOT colour prose: a paragraph carries no span at all", () => {
+  it("does not colour prose: a paragraph carries no span at all", () => {
     expect(parsed("Elle retourne un int et un return.").querySelector("span")).toBeNull();
   });
 
@@ -185,7 +185,7 @@ describe("code blocks", () => {
 });
 
 describe("prose reflows, and that is not `breaks: true`", () => {
-  it("joins the lines of a paragraph with a SPACE, never with a `<br>`", () => {
+  it("joins the lines of a paragraph with a space, never with a `<br>`", () => {
     const host = parsed("Elle fournit a l'appelant le quotient ET le reste de la\ndivision entiere.");
     expect(host.querySelector("br")).toBeNull();
     expect(host.textContent).toBe("Elle fournit a l'appelant le quotient ET le reste de la division entiere.");
@@ -219,7 +219,8 @@ describe("lists win over the indentation, because they are lists", () => {
 });
 
 describe("headings and inline code", () => {
-  it("reads a setext underline as a heading -- `verif-tp2` writes its four that way", () => {
+  // `verif-tp2` writes its four that way.
+  it("reads a setext underline as a heading", () => {
     const host = parsed("Programme A\n-----------");
     expect(host.querySelector("h2")?.textContent).toBe("Programme A");
     expect(host.textContent).not.toContain("---");

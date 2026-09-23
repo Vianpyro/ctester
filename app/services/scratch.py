@@ -141,8 +141,8 @@ def open_session(code, header_name="", header=""):
 
 
 def _lock_held(path):
-    # Read-only on purpose: flock needs no write access, `claim` sits on a read-only mount, and
-    # a missing lock file is simply not held.
+    # Read-only: `claim` sits on a read-only mount and flock does not need write access.
+    # A missing lock file is not held.
     try:
         fd = os.open(path, os.O_RDONLY)
     except OSError:

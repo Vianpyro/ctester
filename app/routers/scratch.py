@@ -8,7 +8,7 @@ import headers
 import security
 import state
 from deps import Sub, throttle_write
-from fastapi import APIRouter, Request, WebSocket
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from schemas import ScratchIn
 from services import scratch, spool
 from starlette.concurrency import run_in_threadpool
@@ -86,7 +86,7 @@ async def live(socket: WebSocket):
         session = await run_in_threadpool(scratch.open_session, code, header_name, header)
         reader = asyncio.create_task(_listen(socket, session))
         await _follow(socket, session, reader)
-    except Exception:
+    except WebSocketDisconnect:
         pass
     finally:
         with deps.lock:
@@ -95,7 +95,7 @@ async def live(socket: WebSocket):
             session.close()
         try:
             await socket.close()
-        except Exception:
+        except RuntimeError:
             pass
 
 

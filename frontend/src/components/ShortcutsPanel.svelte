@@ -1,6 +1,6 @@
 <script lang="ts">
   import { barPanel } from "../lib/barPanel";
-  import { i18n, t } from "../lib/i18n.svelte";
+  import { t, tOr } from "../lib/i18n.svelte";
   import { ALREADY, GROUPS, HELP, NATIVE, type HelpRow } from "../lib/domain/shortcutHelp";
 
   interface Props {
@@ -22,7 +22,7 @@
     { title: "shortcuts.native", rows: NATIVE },
   ];
 
-  const cap = (name: string) => (i18n.has("key." + name) ? t("key." + name) : name);
+  const cap = (name: string) => tOr("key." + name, name);
 </script>
 
 <div id="shortcuts" hidden={!open} use:barPanel>

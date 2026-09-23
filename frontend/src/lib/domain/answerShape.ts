@@ -1,15 +1,10 @@
 import { t } from "../i18n.svelte";
 
 /**
- * Whether an answer has the SHAPE its question asks for -- never whether it is right.
- * "seven bits out of eight" teaches nothing about the expected value, while a yes/no per
- * field would make an 8-bit answer findable in 256 free tries.
- *
- * These rules replay `norm_bin`, `norm_hex` and `norm_int` from judge/src/grade.rs, and
- * two drifting copies would have the page complain about an answer the judge accepts.
- * `tests/vectors/answer_shape.json` binds them, the way release_access.json binds the two
- * implementations of `access`. Everything here is therefore deliberately weak: the
- * characters allowed, and a length only where the judge fixes one.
+ * Whether an answer has the shape its question asks for, never whether it is right: a
+ * right/wrong hint per field would let an 8-bit answer be found in 256 tries.
+ * The rules replay the judge's `norm_bin`, `norm_hex` and `norm_int`, bound by
+ * `tests/vectors/answer_shape.json`.
  */
 
 /** Spaces and underscores are not part of an answer, exactly as `without_separators` says. */
@@ -29,7 +24,7 @@ export function shapeNote(type: string, given: string): string {
     case "bin8": {
       const s = bits(text);
       if (!s || !/^[01]+$/.test(s)) return t("shape.bits_only");
-      // The judge says the same thing once it has the value: "l'énoncé demande 8 bits".
+      // Same rule as the judge's needs_8_bits hint, shown before the answer is sent.
       return s.length === 8 ? "" : t("shape.bits_of_8", { count: s.length });
     }
     case "bin": {

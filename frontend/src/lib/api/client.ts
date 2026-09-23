@@ -1,5 +1,5 @@
 import { api } from "../config";
-import { i18n, t, type Params } from "../i18n.svelte";
+import { t, tOr, type Params } from "../i18n.svelte";
 
 export interface ApiResult<T> {
   ok: boolean;
@@ -64,7 +64,7 @@ export async function getPublic<T>(path: string): Promise<T | null> {
 export function serverMessage(body: unknown): string {
   const b = body as { error?: unknown; params?: Params } | null;
   if (!b || typeof b.error !== "string" || !b.error) return "";
-  return i18n.has("error." + b.error) ? t("error." + b.error, b.params ?? {}) : b.error;
+  return tOr("error." + b.error, b.error, b.params);
 }
 
 export function refusal(answer: ApiResult<unknown> | null, fallback: string): string {

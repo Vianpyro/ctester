@@ -22,12 +22,12 @@ import {
 import type { Verdict } from "../src/lib/api/types";
 
 describe("the three stages", () => {
-  it("agrees in gender and number with the stage -- `Tests pas atteinte` is gibberish", () => {
+  it("agrees in gender and number with the stage", () => {
     expect(stepState(0, "")).toBe("pas atteinte");
     expect(stepState(2, "")).toBe("pas atteints");
   });
 
-  it("names the stage NOT REACHED, which is what answers `did my program even run?`", () => {
+  it("names the stage not reached, which is what answers `did my program even run?`", () => {
     expect(OUTCOMES.compile_error!.steps).toEqual(["ko", "", ""]);
     expect(OUTCOMES.timeout!.steps).toEqual(["ok", "ko", ""]);
   });
@@ -52,7 +52,7 @@ describe("firstError", () => {
     "    9 | y = 2;",
   ].join("\n");
 
-  it("isolates the FIRST error and the excerpt that follows it", () => {
+  it("isolates the first error and the excerpt that follows it", () => {
     const first = firstError(gcc)!;
     expect(first).toContain("expected ';'");
     expect(first).toContain("^");
@@ -79,7 +79,7 @@ describe("caseNumbers", () => {
 });
 
 describe("caseClass", () => {
-  it("names the KIND of failure so three folded cases still scan at a glance", () => {
+  it("names the kind of failure so three folded cases still scan at a glance", () => {
     expect(caseClass("unfinished")).toBe("unfinished");
     expect(caseClass("interrupted")).toBe("unfinished");
     expect(caseClass("memory")).toBe("memory");
@@ -105,7 +105,7 @@ describe("caseClass", () => {
 });
 
 describe("showsContract", () => {
-  it("shows the grading contract only for a VALUE comparison", () => {
+  it("shows the grading contract only for a value comparison", () => {
     expect(showsContract({ case: 1, reason: "wrong_values" })).toBe(true);
     expect(showsContract({ case: 1, reason: "unfinished" })).toBe(false);
     expect(showsContract({ case: 1, reason: "missing_word" })).toBe(false);
@@ -133,7 +133,7 @@ describe("restrictToScope", () => {
     ],
   };
 
-  it("restricts the READING only -- the judge graded the whole quiz", () => {
+  it("restricts only the reading; the judge graded the whole quiz", () => {
     const shown = restrictToScope(graded, { title: "Exercice 1", ids: ["q1", "q2"] });
     expect(shown.total).toBe(2);
     expect(shown.passed).toBe(1);
@@ -187,7 +187,7 @@ describe("estimatedWait", () => {
     expect(estimatedWait(90)).toBe(" (environ 2 min)");
   });
 
-  it("says NOTHING rather than inventing a number", () => {
+  it("says nothing rather than inventing a number", () => {
     expect(estimatedWait(0)).toBe("");
     expect(estimatedWait(undefined)).toBe("");
   });

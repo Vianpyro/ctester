@@ -14,11 +14,9 @@ WEB = os.environ.get("CTESTER_ADMIN_WEB_URL", "http://web:8000")
 
 
 def windows():
-    """How many browser windows the API has seen lately.
+    """How many browser windows the API has seen lately, signed in or not.
 
-    `/live` counts them and registers its caller at the same time, so this call
-    subtracts itself -- exactly what ctester-pull does before deploying. It counts
-    windows, not accounts: a signed-out visitor is one too.
+    `/live` also registers its caller, so this call subtracts itself, as ctester-pull does.
     """
     try:
         with urllib.request.urlopen(WEB + "/live?id=ctester-admin", timeout=2) as fh:

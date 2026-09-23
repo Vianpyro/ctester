@@ -515,7 +515,7 @@ button:disabled {
 
 #excurrent .title {
   flex: 0 1 auto;
-  /* "à choisir" is shorter than any real name: reserve so the bar stops jumping. */
+  /* The placeholder is shorter than any real name: reserve so the bar stops jumping. */
   min-width: 8rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1434,10 +1434,8 @@ pre {
   flex: 1 1 20rem;
 }
 
-/* The judge's answer, beside the field it judges. The slot is always there, empty until
-   there is a verdict, so a tick landing never moves the field it belongs to.
-   More classes than `#quiz .qrow span` on purpose: that rule would otherwise hand these
-   `flex: 1 1 20rem` and push the whole column of fields across the panel. */
+/* The slot is always there, so a mark appearing never moves its field. The extra class
+   outranks `#quiz .qrow span`, whose `flex: 1 1 20rem` would push the fields over. */
 #quiz .qrow .qmark {
   flex: 0 0 1.25rem;
   text-align: center;
@@ -2182,11 +2180,8 @@ pre {
   }
 }
 
-/* An iPad in portrait is 810px, which fell into the stacked layout above: read the brief,
-   scroll down to code, scroll up to re-read. Here the statement stops being a block the
-   editor hangs below and becomes a panel over it, so the <details> that was already there
-   works as two full-height states, Consigne and Code, one tap apart. A statement that
-   grows as it loads now moves nothing, and "Tester" stays on screen. */
+/* Tablets in portrait (an iPad is 810px): the statement becomes a panel over the editor,
+   one tap away, instead of a block above it, so the Test button stays on screen. */
 @media (min-width: 701px) and (max-width: 1000px) {
   html,
   body {

@@ -1,21 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- THE C HIGHLIGHTING OF TYPST STATEMENTS, AND IT IS THE SAME AS THE EDITOR'S.
-     The seven rules below are exactly the seven classes of
-     `frontend/src/lib/domain/highlight.ts` (tc ts tp tk tn tf tu), with the
-     colours of `frontend/src/app.css`. Two highlightings of one language must
-     say the same thing, or the student reads an `int` that is blue in the
-     editor and green in the statement.
-
-     GENERATED, THEN COMMITTED: `test_the_typst_theme_carries_the_page_colors`
-     rereads `app.css` and this file and refuses any divergence. Editing one
-     without the other fails the suite.
-
-     MEASURED TRAP: a `.tmTheme` only colours SCOPED tokens. Bare identifiers
-     (`s`, `main`, `n`) take the `fill` of the surrounding Typst `text`, NOT
-     the `foreground` below -- without a `#set text(fill: ...)` next to it,
-     they come out black, invisible on a dark background. The `show raw` rule
-     in `lib.typ` sets it. -->
+<!-- The C highlighting of Typst statements: the seven classes of
+     frontend/src/lib/domain/highlight.ts with the colours of app.css, checked by
+     test_the_typst_theme_carries_the_page_colors. Unscoped identifiers take the
+     surrounding text fill, which the `show raw` rule in lib.typ sets. -->
 <plist version="1.0"><dict>
   <key>name</key><string>ctester-dark</string>
   <key>settings</key><array>

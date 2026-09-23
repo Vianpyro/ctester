@@ -22,13 +22,13 @@ describe("sanitizeDrafts", () => {
 });
 
 describe("the status line", () => {
-  it("says WHERE the work is, not only when", () => {
+  it("says where the work is, not only when", () => {
     drafts.put("tp2-ex1", { "submission.c": "int main(void){}" }, false);
     expect(drafts.status).toMatch(/cet appareil/);
     expect(drafts.statusFailed).toBe(false);
   });
 
-  it("says so LOUDLY when the write did not happen", () => {
+  it("says so loudly when the write did not happen", () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("plein");
     });
@@ -45,7 +45,7 @@ describe("the status line", () => {
     expect(drafts.status).toBe("brouillon retrouvé");
   });
 
-  it("keeps the export's message in its OWN slot", () => {
+  it("keeps the export's message in its own slot", () => {
     drafts.put("tp2-ex1", { "submission.c": "x" }, false);
     const saved = drafts.status;
     drafts.sayExport("main.c exporté — 2 exercices sur 2");
@@ -127,7 +127,7 @@ describe("the editor's own state", () => {
     expect(editor.text).toBe("");
   });
 
-  it("locks as a real STATE, not as a disabled button", () => {
+  it("locks as a real state, not as a disabled button", () => {
     editor.lock(true);
     expect(editor.readOnly).toBe(true);
     editor.lock(false);

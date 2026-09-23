@@ -10,7 +10,6 @@
     </linearGradient>
   </defs>
 
-  <!-- Outer hexagonal badge -->
   <path
     d="M256 28
        L447 138
@@ -29,7 +28,6 @@
     stroke-width="18"
     stroke-linejoin="round"/>
 
-  <!-- White inner border -->
   <path
     d="M256 67
        L414 158
@@ -43,7 +41,6 @@
     stroke-width="16"
     stroke-linejoin="round"/>
 
-  <!-- Left curly brace -->
   <path
     d="M174 157
        C151 157 145 169 145 188
@@ -58,7 +55,6 @@
     stroke-linecap="round"
     stroke-linejoin="round"/>
 
-  <!-- Right curly brace -->
   <path
     d="M338 157
        C361 157 367 169 367 188
@@ -73,7 +69,6 @@
     stroke-linecap="round"
     stroke-linejoin="round"/>
 
-  <!-- C -->
   <path
     d="M309 183
        C294 168 275 160 253 160
@@ -85,12 +80,10 @@
     stroke-width="42"
     stroke-linecap="round"/>
 
-  <!-- Verification badge -->
   <circle cx="390" cy="382" r="83" fill="#15222d"/>
   <circle cx="390" cy="382" r="69" fill="#ffffff"/>
   <circle cx="390" cy="382" r="58" fill="url(#red)"/>
 
-  <!-- Checkmark -->
   <path
     d="M358 382 L379 403 L424 352"
     fill="none"

@@ -85,7 +85,7 @@ describe("where the credentials live", () => {
 });
 
 describe("the renewal window Rauthy actually allows", () => {
-  it("keeps the margin strictly INSIDE that window, not on its edge", async () => {
+  it("keeps the margin strictly inside that window, not on its edge", async () => {
     const { REFRESH_MARGIN, ISSUER_NBF_OFFSET } = await import("../src/lib/auth/oidc");
     expect(ISSUER_NBF_OFFSET).toBe(60);
     expect(REFRESH_MARGIN).toBeLessThan(ISSUER_NBF_OFFSET);
@@ -107,14 +107,14 @@ describe("the renewal window Rauthy actually allows", () => {
 });
 
 describe("ensureValid", () => {
-  it("does NOT renew a token that is still good -- a request would be pure load", () => {
+  it("does not renew a token that is still good", () => {
     return ensureValid().then((ok) => {
       expect(ok).toBe(true);
       expect(tokenCalls()).toHaveLength(0);
     });
   });
 
-  it("renews BEFORE expiry rather than after a 401", async () => {
+  it("renews before expiry rather than after a 401", async () => {
     localStorage.setItem(EXPIRY_KEY, String(seconds() + 25));
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     expect(await ensureValid()).toBe(true);
@@ -122,7 +122,7 @@ describe("ensureValid", () => {
     expect(session.token).toBe("jeton-2");
   });
 
-  it("treats an UNKNOWN lifetime as usable, not as expired", async () => {
+  it("treats an unknown lifetime as usable, not as expired", async () => {
     localStorage.setItem(EXPIRY_KEY, "0");
     expect(await ensureValid()).toBe(true);
     expect(tokenCalls()).toHaveLength(0);
@@ -135,14 +135,14 @@ describe("ensureValid", () => {
 });
 
 describe("renew", () => {
-  it("makes ONE request out of five concurrent callers", async () => {
+  it("makes one request out of five concurrent callers", async () => {
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     const results = await Promise.all([renew(), renew(), renew(), renew(), renew()]);
     expect(results).toEqual([true, true, true, true, true]);
     expect(tokenCalls()).toHaveLength(1);
   });
 
-  it("FOLLOWS ROTATION: a fresh refresh token replaces the old one on the spot", async () => {
+  it("follows rotation: a fresh refresh token replaces the old one on the spot", async () => {
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     await renew();
     expect(localStorage.getItem(REFRESH_KEY)).toBe("refresh-2");
@@ -162,7 +162,7 @@ describe("renew", () => {
     expect(at).toBeLessThanOrEqual(seconds() + 120);
   });
 
-  it("sends the refresh token to the ISSUER and to nobody else", async () => {
+  it("sends the refresh token to the issuer and to nobody else", async () => {
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     await renew();
     apiStatuses = [200];
@@ -173,28 +173,28 @@ describe("renew", () => {
     expect(leaked).toEqual([]);
   });
 
-  it("signs out when the refresh is REFUSED -- there is nothing else to try", async () => {
+  it("signs out when the refresh is refused", async () => {
     grants = [null];
     expect(await renew()).toBe(false);
     expect(session.token).toBeNull();
     expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
   });
 
-  it("is not a refusal when there is nothing to renew WITH", async () => {
+  it("is not a refusal when there is nothing to renew with", async () => {
     localStorage.removeItem(REFRESH_KEY);
     expect(await renew()).toBe(false);
     expect(session.token).toBe("jeton-1");
     expect(tokenCalls()).toHaveLength(0);
   });
 
-  it("PUSHES THE DEADLINE BACK on every successful grant", async () => {
+  it("pushes the deadline back on every successful grant", async () => {
     localStorage.setItem(DEADLINE_KEY, String(seconds() + 120));
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     await renew();
     expect(Number(localStorage.getItem(DEADLINE_KEY))).toBeGreaterThan(seconds() + 9 * 86400);
   });
 
-  it("gives up on a session abandoned past its deadline, WITHOUT asking the issuer", async () => {
+  it("gives up on a session abandoned past its deadline, without asking the issuer", async () => {
     localStorage.setItem(DEADLINE_KEY, String(seconds() - 1));
     expect(await renew()).toBe(false);
     expect(tokenCalls()).toHaveLength(0);
@@ -202,7 +202,7 @@ describe("renew", () => {
     expect(localStorage.getItem(REFRESH_KEY)).toBeNull();
   });
 
-  it("drops a LATE result rather than resurrecting a closed session", async () => {
+  it("drops a late result rather than resurrecting a closed session", async () => {
     grants = [{ access_token: "jeton-2", refresh_token: "refresh-2", expires_in: 3600 }];
     const inFlight = renew();
     signOut();
@@ -212,7 +212,7 @@ describe("renew", () => {
 });
 
 describe("authRequest", () => {
-  it("carries the ACCESS token as a bearer header", async () => {
+  it("carries the access token as a bearer header", async () => {
     apiStatuses = [200];
     await authRequest("states");
     const call = calls.find((c) => c.url.endsWith("states"))!;
@@ -228,7 +228,7 @@ describe("authRequest", () => {
     expect(session.token).toBe("jeton-2");
   });
 
-  it("signs out on a SECOND 401, rather than spinning", async () => {
+  it("signs out on a second 401, rather than spinning", async () => {
     apiStatuses = [401, 401];
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     await authRequest("states");
@@ -299,13 +299,14 @@ describe("what a page load finds in storage", () => {
     expect((await freshSession()).token).toBe("jeton-garde");
   });
 
-  it("restores one with no deadline at all -- a session from before this existed", async () => {
+  // A session from before this existed.
+  it("restores one with no deadline at all", async () => {
     localStorage.setItem(TOKEN_KEY, "jeton-ancien");
     localStorage.removeItem(DEADLINE_KEY);
     expect((await freshSession()).token).toBe("jeton-ancien");
   });
 
-  it("ERASES an abandoned one instead of opening it", async () => {
+  it("erases an abandoned one instead of opening it", async () => {
     localStorage.setItem(TOKEN_KEY, "jeton-abandonne");
     localStorage.setItem(REFRESH_KEY, "refresh-abandonne");
     localStorage.setItem(DEADLINE_KEY, String(seconds() - 1));

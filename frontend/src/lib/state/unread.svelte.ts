@@ -6,8 +6,7 @@ import { dock } from "./dock.svelte";
 const KEY = "ctester.chat.seen";
 const EVERY = 60_000;
 
-// ponytail: a poll, not a push. /forum/live only rings the room of the thread a client is
-// watching; waking every tab on every message would need a global room and per-account memory.
+// Polled: /forum/live only rings the thread a tab is watching, and the unread dots cover all.
 class Unread {
   activity = $state<Record<string, string>>({});
   seen = $state<Record<string, string>>(read());

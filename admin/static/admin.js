@@ -65,8 +65,7 @@ function render(target, data, fill) {
   const top = target.scrollTop;
   fill();
   target.dataset.signature = signature;
-  // ponytail: rows inserted at the top shift what this position shows; anchoring
-  // on a row id would be exact and noticeably heavier.
+  // Approximate: rows added at the top still shift the view by their height.
   target.scrollTop = top;
 }
 
@@ -82,7 +81,6 @@ async function json(url) {
   const response = await fetch(url, {
     headers: { accept: "application/json", authorization: "Bearer " + bearer },
   });
-  // 401: the token died despite the renewal, a new login is needed.
   if (response.status === 401) {
     forget();
     loginScreen("Session expirée.");
@@ -190,14 +188,14 @@ function fillVitals(target, data) {
   }
 }
 
-// Ticks every second so the countdown looks live between two API responses; each response
-// re-syncs lastPulledAt above, so drift never accumulates beyond one refresh interval.
+// Ticks every second between two API responses; each response resets lastPulledAt, so the
+// countdown never drifts by more than one refresh.
 let lastPulledAt = null;
 
 function fillPullCountdown() {
   const note = document.getElementById("pull-countdown");
   if (!note || lastPulledAt === null) return;
-  // ponytail: 300 s mirrors OnUnitActiveSec in ctester-content.timer; keep them in step.
+  // 300 s is OnUnitActiveSec in ctester-content.timer (which adds up to 30 s of jitter).
   const left = Math.round(lastPulledAt + 300 - Date.now() / 1000);
   note.textContent = left >= 0
     ? "prochain dans " + Math.floor(left / 60) + ":" + String(left % 60).padStart(2, "0")
@@ -265,7 +263,7 @@ function fillTable(target, columns, lines, rendered, message) {
   target.append(table);
 }
 
-// [text, class, tooltip] -- the third item carries what truncation hides.
+// [text, class, tooltip]; the tooltip holds what truncation hides.
 function cells(values) {
   const tr = el("tr");
   for (const v of values) {
@@ -434,10 +432,8 @@ function fillActivity(target, data, days) {
   const byHour = cell.unit === "hour";
   note.textContent = byHour ? "par heure" : "par jour";
 
-  // The axis is the chosen period, not the span that happens to hold data: a week
-  // with one run must read as a quiet week, not as one busy day.
-  // A day is a calendar day here, not 86400 s of epoch: dividing the epoch would cut
-  // the days at UTC midnight and put the evening's runs on tomorrow's column.
+  // The axis covers the whole chosen period, so a quiet week looks quiet. Days are local
+  // calendar days; epoch days would cut at UTC midnight.
   const key = byHour
     ? (d) => Math.floor(d.getTime() / 3600e3)
     : (d) => d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
@@ -701,9 +697,7 @@ function periodLabel() {
   return (active ? active.textContent : "7 jours").toLowerCase();
 }
 
-// One request per batch at a time. The cost of /api/stats grows with the period, and
-// on the longest one a request can outlast the tick: the dashboard then slows to the
-// database's real speed instead of piling up requests.
+// One request per batch at a time: on long periods /api/stats can outlast the tick.
 let inFlight = { preview: false, stats: false };
 let lastOverview = null;
 
@@ -807,10 +801,8 @@ document.addEventListener("visibilitychange", () => {
 
 /* live */
 
-// The queue and the new runs arrive over /api/live the moment they change; the 5 s
-// tick stays for everything else, and is the fallback when the stream is down.
-// fetch() rather than EventSource: EventSource cannot send the Authorization header,
-// and a token in the URL would end up in the proxy's logs.
+// The queue and new runs come over /api/live; the 5 s tick covers the rest and stands in
+// when the stream is down. fetch() because EventSource cannot send the Authorization header.
 let live = null;
 let liveUp = false;
 
@@ -887,7 +879,6 @@ function liveEvent(block) {
 }
 
 $("reveal").addEventListener("change", () => {
-  // The signature changes with the column: the table must be rebuilt.
   $("runs").dataset.signature = "";
   void listRuns();
 });

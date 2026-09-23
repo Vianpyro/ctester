@@ -36,7 +36,7 @@ describe("a flash on its own", () => {
   });
 });
 
-describe("the banner is BORROWED, not taken", () => {
+describe("the banner is borrowed, not taken", () => {
   it("restores a persistent message it covered", () => {
     system.say("quota atteint, réessaie dans 40 s");
     system.flash("enregistré", 2000);
@@ -45,7 +45,7 @@ describe("the banner is BORROWED, not taken", () => {
     expect(system.text).toBe("quota atteint, réessaie dans 40 s");
   });
 
-  it("also restores its OUTAGE state, not only its text", () => {
+  it("also restores its outage state, not only its text", () => {
     system.say("le serveur ne répond pas", true);
     system.flash("enregistré", 2000);
     vi.advanceTimersByTime(2001);
@@ -53,7 +53,7 @@ describe("the banner is BORROWED, not taken", () => {
     expect(system.failed, "a covered outage is still an outage").toBe(true);
   });
 
-  it("restores an EMPTY banner when it found an empty one", () => {
+  it("restores an empty banner when it found an empty one", () => {
     system.flash("enregistré", 2000);
     vi.advanceTimersByTime(2001);
     expect(system.text).toBe("");
@@ -62,7 +62,7 @@ describe("the banner is BORROWED, not taken", () => {
 });
 
 describe("two overlapping flashes", () => {
-  it("restore the ORIGINAL text, never the first flash's", () => {
+  it("restore the original text, never the first flash's", () => {
     system.say("quota atteint");
     system.flash("premier", 2000);
     vi.advanceTimersByTime(500);
@@ -82,7 +82,7 @@ describe("two overlapping flashes", () => {
 });
 
 describe("a real message wins over a flash", () => {
-  it("takes over at once AND SURVIVES the flash's timer", () => {
+  it("takes over at once and survives the flash's timer", () => {
     system.flash("enregistré", 2000);
     vi.advanceTimersByTime(200);
     system.say("quota atteint", true);

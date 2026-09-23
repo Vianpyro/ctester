@@ -12,10 +12,9 @@ function apiOrigin(): string {
   return configured;
 }
 
-export const API_ORIGIN = apiOrigin();
+const API_ORIGIN = apiOrigin();
 
-// What this instance is called -- the name alone, not a sentence: the header shows the
-// tagline right next to it. A course sets it; the engine calls itself CTester.
+// The instance's name alone (see vite.config.ts).
 export const TITLE =
   (typeof __TITLE__ === "string" && __TITLE__) || "CTester";
 
