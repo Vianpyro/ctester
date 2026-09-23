@@ -1,10 +1,14 @@
-<script lang="ts">  import { catalog } from "../lib/state/catalog.svelte";
+<script lang="ts">
+  import { tick } from "svelte";
+  import { catalog } from "../lib/state/catalog.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import { session } from "../lib/auth/session.svelte";
   import { submission } from "../lib/state/submission.svelte";
   import { system } from "../lib/state/system.svelte";
   import { quiz } from "../lib/state/quiz.svelte";
-  import { t } from "../lib/i18n.svelte";
+  import { editor } from "../lib/state/editor.svelte";
+  import { lineSpan } from "../lib/domain/keys";
+  import { t, tOr } from "../lib/i18n.svelte";
   import {
     OUTCOMES,
     afterFailure,
@@ -13,6 +17,7 @@
     caseNumbers,
     caseReason,
     estimatedWait,
+    explainGcc,
     firstError,
     outcomeNext,
     outcomeTitle,
@@ -83,7 +88,7 @@
   const steps = $derived.by((): StepState[] | null => {
     if (phase.kind !== "done") return null;
     if (failed) return outcome!.steps;
-    return ["ok", "ok"];
+    return complete ? ["ok", "ok", "ok"] : ["ok", "ok", "ko"];
   });
 
   const nextAction = $derived.by(() => {
@@ -121,6 +126,27 @@
   });
 
   const quizGroup = (id: string): string => quiz.groupOf[id] ?? "";
+
+  const gccError = $derived(shown?.r.status === "compile_error" ? explainGcc(gcc) : null);
+  const gccHint = $derived(gccError?.hint ? tOr(`verdict.gcc.${gccError.hint}`, "") : "");
+  // The judge may compile under another name; a single file is still unambiguous.
+  const gccFile = $derived.by(() => {
+    if (!gccError) return null;
+    const names = Object.keys(editor.sources);
+    if (names.includes(gccError.file)) return gccError.file;
+    return names.length === 1 ? names[0]! : null;
+  });
+
+  async function goToError() {
+    if (!gccError || !gccFile) return;
+    if (gccFile !== editor.activeFile) editor.activate(gccFile);
+    await tick();
+    const zone = document.getElementById("code") as HTMLTextAreaElement | null;
+    if (!zone) return;
+    const span = lineSpan(zone.value, gccError.line);
+    zone.focus();
+    zone.setSelectionRange(span.from, span.to);
+  }
 
 </script>
 
@@ -167,6 +193,12 @@
     <div class="gcc">
       {#if firstError(shown.r.gcc)}
         <pre>{firstError(shown.r.gcc)}</pre>
+        {#if gccHint}<p class="explain">{gccHint}</p>{/if}
+        {#if gccError && gccFile}
+          <button type="button" class="nav" onclick={goToError}>
+            {t("verdict.goto_line", { n: gccError.line, file: gccFile })}
+          </button>
+        {/if}
         <details class="case">
           <summary>{t("verdict.full_compiler_output")}</summary>
           <pre>{gcc}</pre>
@@ -236,10 +268,9 @@
     <ul>
       {#each shown.r.wrong ?? [] as w}
         {@const group = quizGroup(w.id)}
-        {@const ex = group.match(/Exercice\s*\d+/i)}
         {@const empty = !(w.given && w.given.trim())}
         <li class={empty ? "nothing" : ""}>
-          {(ex ? ex[0] + " — " : "") +
+          {(group ? group + " — " : "") +
             w.label +
             (empty ? "" : t("verdict.you_answered", { given: w.given ?? "" })) +
             (w.hint ? " — " + quizHint(w.hint) : "")}

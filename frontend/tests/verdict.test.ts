@@ -8,6 +8,7 @@ import {
   caseInputs,
   caseNumbers,
   estimatedWait,
+  explainGcc,
   firstError,
   isJudgeFailure,
   outcomeNext,
@@ -217,5 +218,25 @@ describe("isJudgeFailure", () => {
     expect(
       verdictExplain({ state: "done", status: "compile_error", kind: "io", message: "vieux" }),
     ).toBe("vieux");
+  });
+});
+
+describe("explainGcc", () => {
+  it("finds the first error's file, line and a plain-language hint", () => {
+    const gcc = "main.c: In function 'main':\nmain.c:7:3: error: expected ';' before 'return'\nmain.c:9:1: error: 'y' undeclared";
+    expect(explainGcc(gcc)).toEqual({ file: "main.c", line: 7, hint: "semicolon" });
+  });
+
+  it("still gives the line when gcc speaks French or says something unknown", () => {
+    expect(explainGcc("main.c:4:5: erreur: « y » non déclaré")).toEqual({
+      file: "main.c",
+      line: 4,
+      hint: null,
+    });
+  });
+
+  it("ignores output with no error", () => {
+    expect(explainGcc("main.c:3:1: warning: unused variable 'x'")).toBeNull();
+    expect(explainGcc(undefined)).toBeNull();
   });
 });

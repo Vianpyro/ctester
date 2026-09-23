@@ -264,7 +264,7 @@ describe("the anonymous page", () => {
     await render();
     const out = document.getElementById("out")!;
     expect(out.className).toBe("idle");
-    expect(out.textContent).toContain("En attente d'une soumission.");
+    expect(out.textContent).toContain("Pas encore testé.");
     expect(out.querySelector(".steps")).toBeNull();
   });
 
