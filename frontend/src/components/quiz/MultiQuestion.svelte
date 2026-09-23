@@ -1,5 +1,6 @@
 <script lang="ts">
   import { quiz, type QuizQuestion } from "../../lib/state/quiz.svelte";
+  import { t } from "../../lib/i18n.svelte";
 
   const { q, onchange }: { q: QuizQuestion; onchange: () => void } = $props();
 
@@ -17,7 +18,7 @@
 </script>
 
 <fieldset class="qchoices qmulti">
-  <legend class="qlegend">{q.label} — plusieurs réponses possibles</legend>
+  <legend class="qlegend">{t("quiz.several", { label: q.label })}</legend>
   {#each q.options as option (option)}
     <label class="qchoice">
       <input

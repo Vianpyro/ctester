@@ -20,13 +20,13 @@ def forum_enabled():
 
 def forum_text(raw):
     if not isinstance(raw, str):
-        return None, "message manquant"
+        return None, "message_missing"
     text = raw.replace("\r\n", "\n")
     text = "".join(c for c in text if c in "\n\t" or c >= " ").strip()
     if not text:
-        return None, "un message vide n'aide personne"
+        return None, "message_empty"
     if len(text) > config.FORUM_MAX_CHARS:
-        return None, f"message trop long (maximum {config.FORUM_MAX_CHARS} caractères)"
+        return None, ("message_too_long", {"max": config.FORUM_MAX_CHARS})
     return text, None
 
 
@@ -39,14 +39,14 @@ def forum_display_name(raw):
     if raw is None:
         return None, None
     if not isinstance(raw, str):
-        return None, "nom invalide"
+        return None, "invalid_name"
     name = " ".join("".join(c if c >= " " else " " for c in raw).split())
     if not name:
         return None, None
     if len(name) > config.FORUM_PSEUDO_MAX:
-        return None, f"nom trop long (maximum {config.FORUM_PSEUDO_MAX} caractères)"
+        return None, ("name_too_long", {"max": config.FORUM_PSEUDO_MAX})
     if name.casefold() in _RESERVED_NAMES:
-        return None, "ce nom est réservé à l'interface, choisis-en un autre"
+        return None, "reserved_name"
     return name, None
 
 
@@ -54,31 +54,23 @@ def forum_group(raw):
     if raw is None or raw == "":
         return None, None
     if isinstance(raw, bool):
-        return None, "numéro de groupe invalide"
+        return None, "invalid_group"
     try:
         number = int(raw)
     except (TypeError, ValueError):
-        return None, "numéro de groupe invalide"
+        return None, "invalid_group"
     if config.FORUM_GROUPS:
         if number not in config.FORUM_GROUPS:
-            return None, "groupe inconnu pour cette session"
+            return None, "unknown_group"
     elif not 1 <= number <= 99:
-        return None, "le numéro de groupe va de 1 à 99"
+        return None, "group_range"
     return number, None
 
 
-STEPS = {
-    "statement": "l'énoncé",
-    "compilation": "la compilation",
-    "execution": "l'exécution",
-    "result": "le résultat",
-}
+# The page words them (forum.step.<id>, forum.blocked.<id>); stored ids never change.
+STEPS = ("statement", "compilation", "execution", "result")
 
-BLOCKED_KINDS = {
-    "statement-unclear": "Je ne comprends pas l'énoncé",
-    "wrong-result": "Ça compile mais le résultat est faux",
-    "unclear-error": "Je ne comprends pas le message d'erreur",
-}
+BLOCKED_KINDS = ("statement-unclear", "wrong-result", "unclear-error")
 
 VISIBILITIES = ("private", "group", "thread")
 
@@ -88,7 +80,7 @@ def forum_step(raw):
         return None, None
     value = str(raw)
     if value not in STEPS:
-        return None, "étape inconnue"
+        return None, "unknown_step"
     return value, None
 
 
@@ -97,24 +89,24 @@ def forum_blocked_kind(raw):
         return None, None
     value = str(raw)
     if value not in BLOCKED_KINDS:
-        return None, "type de blocage inconnu"
+        return None, "unknown_blocked_kind"
     return value, None
 
 
 def forum_visibility(raw, with_step, thread=None):
     if is_chat(thread):
         if raw not in (None, "", "thread"):
-            return None, "dans le chat, tous les messages sont publics"
+            return None, "chat_is_public"
         return "thread", None
     if raw is None or raw == "":
         return ("private" if with_step else "thread"), None
     value = str(raw)
     if value not in VISIBILITIES:
-        return None, "visibilité inconnue"
+        return None, "unknown_visibility"
     if with_step and value == "thread":
-        return None, "une demande d'aide est privée ou ouverte à ton groupe"
+        return None, "help_private_or_group"
     if not with_step and value != "thread":
-        return None, "une question ordinaire est visible du fil"
+        return None, "question_is_public"
     return value, None
 
 
@@ -135,29 +127,34 @@ def forum_frame(raw, unlocked):
         return None, None
     value = str(raw)
     if value not in {c["id"] for c in unlocked}:
-        return None, "ce cadre n'est pas débloqué"
+        return None, "frame_locked"
     return value, None
 
 
 def forum_identity(profile, sub, author, reader_is_moderator):
-    """Display name, group and reportability. Never an account id, even for moderators."""
+    """Display name, group, reportability and role. Never an account id, even for moderators.
+
+    The role ("me", "teacher" or "") is worded by the page; the name is only ever one the
+    student chose or was drawn, and empty when there is none.
+    """
     profile = profile or {}
     display_name = profile.get("display_name")
     alias = profile.get("alias")
     chosen = bool(display_name) and bool(profile.get("display_name_public"))
+    role = ""
     if author == sub:
-        name = "Vous (%s)" % alias if alias else "Vous"
+        name, role = alias or "", "me"
     elif is_moderator(author):
-        name = "Enseignant"
+        name, role = "", "teacher"
     elif chosen:
         name = display_name
     else:
-        name = alias or "Participant"
+        name = alias or ""
     group = profile.get("group_number")
     if group is not None and not (profile.get("group_number_public")
                                  or reader_is_moderator or author == sub):
         group = None
-    return name, group, chosen and author != sub
+    return name, group, chosen and author != sub, role
 
 
 def forum_view(messages, sub, moderator, profiles=None):
@@ -171,10 +168,10 @@ def forum_view(messages, sub, moderator, profiles=None):
             continue
         if not can_see(m, sub, moderator, my_group, groups):
             continue
-        name, group, reportable = forum_identity(
+        name, group, reportable, role = forum_identity(
             profiles.get(m["account"]), sub, m["account"], moderator)
         seen.append({"id": m["id"], "text": m["text"], "created_at": m["created_at"],
-                     "author": name, "group": group,
+                     "author": name, "role": role, "group": group,
                      "reportable_name": reportable,
                      "mine": m["account"] == sub,
                      "hidden": m["hidden"],
@@ -194,6 +191,6 @@ def thread_state(views):
         return {"unanswered": 0, "answered": 0, "resolved": 0}
     if any(v["retained"] for v in views):
         return {"unanswered": 0, "answered": 0, "resolved": 1}
-    if len(views) > 1 and len({v["author"] for v in views}) > 1:
+    if len(views) > 1 and len({(v["role"], v["author"]) for v in views}) > 1:
         return {"unanswered": 0, "answered": 1, "resolved": 0}
     return {"unanswered": 1, "answered": 0, "resolved": 0}

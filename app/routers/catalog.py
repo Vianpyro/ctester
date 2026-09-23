@@ -21,10 +21,10 @@ def catalog(request: Request):
 def detail(exercise_id: str, request: Request, preview: Preview):
     entry = find_exercise(exercise_id, preview)
     if entry is None:
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     base, name = published_source(entry, "detail")
     if base is None:
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     return headers.file_from_disk(request, base, name,
                                   "application/json; charset=utf-8",
                                   private=entry.get("access") != "available")
@@ -34,10 +34,10 @@ def detail(exercise_id: str, request: Request, preview: Preview):
 def quiz(exercise_id: str, request: Request, preview: Preview):
     entry = find_exercise(exercise_id, preview)
     if entry is None or entry.get("mode") != "quiz":
-        return headers.error(404, "pas un quiz")
+        return headers.error(404, "not_a_quiz")
     base, name = published_source(entry, "quiz")
     if base is None:
-        return headers.error(404, "pas un quiz")
+        return headers.error(404, "not_a_quiz")
     return headers.file_from_disk(request, base, name,
                                   "application/json; charset=utf-8",
                                   private=entry.get("access") != "available")
@@ -47,12 +47,12 @@ def quiz(exercise_id: str, request: Request, preview: Preview):
 def statement(exercise_id: str, name: str, request: Request, preview: Preview):
     entry = find_exercise(exercise_id, preview)
     if entry is None:
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     base, path = published_source(entry, "statement", name)
     if base is None:
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     if not os.path.isfile(os.path.join(base, path)):
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     ctype = ("text/plain; charset=utf-8" if name.endswith(".html")
              else "image/svg+xml")
     return headers.file_from_disk(request, base, path, ctype,

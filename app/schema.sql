@@ -144,7 +144,8 @@ CREATE TABLE IF NOT EXISTS forum_helpful (
 
 CREATE TABLE IF NOT EXISTS display_preference (
     account    TEXT        NOT NULL PRIMARY KEY,
-    theme      TEXT        NOT NULL CHECK (theme IN ('light', 'dark')),
+    theme      TEXT        CHECK (theme IN ('light', 'dark')),
+    lang       TEXT        CHECK (lang ~ '^[a-z]{2,3}(-[A-Z]{2})?$'),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -240,6 +241,10 @@ ALTER TABLE forum_helpful ADD COLUMN IF NOT EXISTS value SMALLINT NOT NULL
 ALTER TABLE forum_helpful DROP CONSTRAINT IF EXISTS forum_helpful_value_check;
 ALTER TABLE forum_helpful ADD  CONSTRAINT forum_helpful_value_check
     CHECK (value IN (-1, 1));
+
+ALTER TABLE display_preference ALTER COLUMN theme DROP NOT NULL;
+ALTER TABLE display_preference ADD COLUMN IF NOT EXISTS lang TEXT
+    CHECK (lang ~ '^[a-z]{2,3}(-[A-Z]{2})?$');
 
 ALTER TABLE scratch_draft ADD COLUMN IF NOT EXISTS header_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE scratch_draft ADD COLUMN IF NOT EXISTS header      TEXT NOT NULL DEFAULT '';

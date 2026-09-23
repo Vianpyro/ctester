@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Component } from "svelte";
+  import { t } from "../lib/i18n.svelte";
   import { quiz, type QuizQuestion } from "../lib/state/quiz.svelte";
   import { marksFor } from "../lib/domain/quizMarks";
   import { shapeNote } from "../lib/domain/answerShape";
@@ -58,7 +59,7 @@
 <div id="quizwrap">
   <div id="quiz">
     {#if quiz.loading && !quiz.pages.length}
-      <p>Chargement…</p>
+      <p>{t("statement.loading")}</p>
     {:else}
       {#each quiz.pages as page, n (page.key)}
         <div hidden={n !== quiz.page}>
@@ -75,7 +76,7 @@
                 >{mark ? (mark === "right" ? "✓" : "✗") : ""}</span
               >
               {#if mark}
-                <span class="offscreen">{mark === "right" ? "juste" : "faux"}</span>
+                <span class="offscreen">{mark === "right" ? t("quiz.right") : t("quiz.wrong")}</span>
               {/if}
               {#if note}
                 <span class="qshape">{note}</span>
@@ -93,15 +94,15 @@
         class="nav"
         id="qprev"
         disabled={quiz.page === 0}
-        onclick={() => quiz.showPage(quiz.page - 1)}>‹ Précédent</button
+        onclick={() => quiz.showPage(quiz.page - 1)}>{t("quiz.previous")}</button
       >
-      <span class="pos" id="qpos">page {quiz.page + 1} sur {quiz.pages.length}</span>
+      <span class="pos" id="qpos">{t("quiz.page", { n: quiz.page + 1, total: quiz.pages.length })}</span>
       <button
         type="button"
         class="nav"
         id="qnext"
         disabled={quiz.page === quiz.pages.length - 1}
-        onclick={() => quiz.showPage(quiz.page + 1)}>Suivant ›</button
+        onclick={() => quiz.showPage(quiz.page + 1)}>{t("quiz.next")}</button
       >
     {/if}
   </div>

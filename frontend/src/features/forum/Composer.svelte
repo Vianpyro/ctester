@@ -1,5 +1,6 @@
 <script lang="ts">
   import { catalog } from "../../lib/state/catalog.svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { sessionGet, sessionSet } from "../../lib/storage";
   import { thread } from "./thread.svelte";
   import Guidelines, { CHARTER_SEEN } from "./Guidelines.svelte";
@@ -27,28 +28,27 @@
     thread.isChat || thread.replyTo
       ? []
       : ([
-          ["question", "Poser une question"],
-          ["bloque", "Je suis bloqué ici"],
+          ["question", t("composer.ask")],
+          ["bloque", t("composer.stuck")],
         ] as const),
   );
 
   const label = $derived(
     (stuck
-      ? "Ce que tu as déjà essayé"
+      ? t("composer.tried")
       : thread.replyTo
-        ? "Ta réponse"
+        ? t("composer.reply")
         : thread.isChat
-          ? "Ta question — personne ne juge, et tu es masqué"
-          : "Ta question ou ton explication") +
-      (thread.max ? " (" + thread.max + " caractères au plus)" : ""),
+          ? t("composer.chat_question")
+          : t("composer.question")) + (thread.max ? t("composer.max", { max: thread.max }) : ""),
   );
 
   const hint = $derived(
     !thread.renderable
-      ? "Le rendu enrichi n'a pas pu être chargé : ton message part quand même, et il s'affiche en texte brut."
+      ? t("composer.plain")
       : compact
-        ? "Entrée pour envoyer, Maj+Entrée pour un saut de ligne."
-        : "Mise en forme simple : **gras**, *italique*, listes, > citation, `code court`. Le HTML n'est jamais interprété.",
+        ? t("composer.enter")
+        : t("composer.markdown"),
   );
 
   let duplicateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -115,7 +115,7 @@
   }
 
   const exerciseTitle = $derived(
-    catalog.catalog.find((t) => t.id === thread.currentExercise)?.short ?? "",
+    catalog.catalog.find((ex) => ex.id === thread.currentExercise)?.short ?? "",
   );
 </script>
 
@@ -126,9 +126,9 @@
 <div class={compact ? "chatsaisie" : "block"}>
   {#if thread.replyTo}
     <div class="row">
-      <span class="tag accent">Réponse à un message</span>
+      <span class="tag accent">{t("composer.replying")}</span>
       <button type="button" class="nav" onclick={() => (thread.replyTo = null)}>
-        Annuler la réponse
+        {t("composer.cancel_reply")}
       </button>
     </div>
   {/if}
@@ -145,12 +145,9 @@
   </div>
 
   {#if stuck}
-    <p class="help">
-      Ta question partira avec l'exercice et l'étape. Ton code, lui, ne part pas — décris
-      ce que tu observes.
-    </p>
+    <p class="help">{t("composer.context")}</p>
     <div class="choice">
-      <label for={prefix + "etape"}>Où ça coince</label>
+      <label for={prefix + "etape"}>{t("composer.where")}</label>
       {#each thread.steps as s (s.id)}
         <label class="check">
           <input
@@ -158,12 +155,12 @@
             name={prefix + "etape"}
             checked={step ? step === s.id : s === thread.steps[0]}
             onchange={() => (step = s.id)}
-          /><span>{s.title}</span>
+          /><span>{t(`forum.step.${s.id}`)}</span>
         </label>
       {/each}
     </div>
     <div class="choice">
-      <label for={prefix + "blocage"}>Ce qui bloque</label>
+      <label for={prefix + "blocage"}>{t("composer.what")}</label>
       {#each thread.blockedKinds as k (k.id)}
         <label class="check">
           <input
@@ -171,7 +168,7 @@
             name={prefix + "blocage"}
             checked={blockedKind ? blockedKind === k.id : k === thread.blockedKinds[0]}
             onchange={() => (blockedKind = k.id)}
-          /><span>{k.title}</span>
+          /><span>{t(`forum.blocked.${k.id}`)}</span>
         </label>
       {/each}
     </div>
@@ -182,7 +179,7 @@
     id={prefix + "text"}
     rows="4"
     bind:value={thread.typing}
-    placeholder={stuck ? "J'ai vérifié le type de ma variable, mais…" : undefined}
+    placeholder={stuck ? t("composer.placeholder") : undefined}
     oninput={watchForDuplicates}
     onkeydown={onKeydown}
   ></textarea>
@@ -190,7 +187,7 @@
   <p class="help">{hint}</p>
 
   {#if thread.renderable && !compact}
-    <h4 class="subtitle" id="forumpreviewtitle">Aperçu</h4>
+    <h4 class="subtitle" id="forumpreviewtitle">{t("identity.preview")}</h4>
     <div role="region" aria-labelledby="forumpreviewtitle">
       <Markdown source={thread.typing} class="md preview" />
     </div>
@@ -198,22 +195,22 @@
 
   {#if !thread.replyTo && !compact && thread.duplicates?.length}
     <div class="block second">
-      <h4 class="subtitle">Peut-être déjà demandé</h4>
+      <h4 class="subtitle">{t("composer.maybe_asked")}</h4>
       <SearchResults rows={thread.duplicates} empty="" />
-      <p class="help">Si ce n'est pas ta question, publie la tienne : c'est fait pour.</p>
+      <p class="help">{t("composer.post_yours")}</p>
     </div>
   {/if}
 
   {#if stuck}
     <div class="choice">
-      <label for={prefix + "visibilite"}>Qui la voit</label>
+      <label for={prefix + "visibilite"}>{t("composer.who")}</label>
       <label class="check">
         <input
           type="radio"
           name={prefix + "visibilite"}
           checked={visibility === "private"}
           onchange={() => (visibility = "private")}
-        /><span>Seulement le chargé de lab</span><span class="help">— par défaut</span>
+        /><span>{t("composer.lab_only")}</span><span class="help">{t("composer.default")}</span>
       </label>
       <label class="check">
         <input
@@ -221,13 +218,9 @@
           name={prefix + "visibilite"}
           checked={visibility === "group"}
           onchange={() => (visibility = "group")}
-        /><span>Aussi les autres de mon groupe</span><span class="help"
-          >— quelqu'un peut répondre tout de suite</span
-        >
+        /><span>{t("composer.group_too")}</span><span class="help">{t("composer.group_help")}</span>
       </label>
-      <p class="help">
-        Tu pourras la rendre visible au groupe plus tard, en un clic, sans la republier.
-      </p>
+      <p class="help">{t("composer.later")}</p>
     </div>
   {/if}
 
@@ -235,15 +228,12 @@
     <div class="chatprive">
       <label class="check" for={prefix + "prive"}>
         <input id={prefix + "prive"} type="checkbox" bind:checked={askPrivately} />
-        <span>Demander en privé à l'enseignant</span>
+        <span>{t("composer.private")}</span>
       </label>
       {#if askPrivately}
-        <p class="help">
-          Ton message n'ira pas dans le chat : seul l'enseignant le lira. Ton code, lui, ne
-          part pas — décris ce que tu observes.
-        </p>
+        <p class="help">{t("composer.private_help")}</p>
         <div class="choice">
-          <label for={prefix + "etapeprive"}>Où ça coince</label>
+          <label for={prefix + "etapeprive"}>{t("composer.where")}</label>
           {#each thread.steps as s (s.id)}
             <label class="check">
               <input
@@ -251,7 +241,7 @@
                 name={prefix + "etapeprive"}
                 checked={step ? step === s.id : s === thread.steps[0]}
                 onchange={() => (step = s.id)}
-              /><span>{s.title}</span>
+              /><span>{t(`forum.step.${s.id}`)}</span>
             </label>
           {/each}
         </div>
@@ -260,9 +250,9 @@
   {/if}
 
   <button type="button" onclick={send}>
-    {thread.replyTo ? "Répondre" : "Publier"}
+    {thread.replyTo ? t("composer.answer") : t("composer.post")}
   </button>
   {#if !compact && exerciseTitle}
-    <span class="offscreen">Canal : {exerciseTitle}</span>
+    <span class="offscreen">{t("composer.channel", { name: exerciseTitle })}</span>
   {/if}
 </div>

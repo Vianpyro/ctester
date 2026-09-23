@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 from datetime import timezone
 
@@ -17,6 +18,9 @@ _conn = None
 
 STATUSES = ("attempted", "solved")
 THEMES = ("light", "dark")
+# A language tag as the page names its locale files: fr, en, pt-BR. The page, not the
+# server, knows which ones exist, so the server checks only the shape.
+LANG_RE = re.compile(r"[a-z]{2,3}(-[A-Z]{2})?")
 SCRATCH_MAX = 65536
 
 
@@ -299,23 +303,33 @@ def _day(value):
         return str(value)[:10]
 
 
-def read_theme(user):
-    rows = _query("SELECT theme FROM display_preference WHERE account = %s",
+def valid_lang(lang):
+    return isinstance(lang, str) and LANG_RE.fullmatch(lang) is not None
+
+
+def read_preferences(user):
+    rows = _query("SELECT theme, lang FROM display_preference WHERE account = %s",
                   (user,), read=True)
     if rows is None:
         return None
-    return rows[0][0] if rows else ""
+    theme, lang = rows[0] if rows else ("", "")
+    return {"theme": theme or "", "lang": lang or ""}
 
 
-def write_theme(user, theme):
-    if theme not in THEMES:
+def write_preferences(user, theme="", lang=""):
+    """An empty field keeps what the row already holds."""
+    if (theme and theme not in THEMES) or (lang and not valid_lang(lang)):
+        return False
+    if not theme and not lang:
         return False
     return _query(
-        "INSERT INTO display_preference (account, theme, updated_at)"
-        " VALUES (%s, %s, now())"
-        " ON CONFLICT (account)"
-        " DO UPDATE SET theme = EXCLUDED.theme, updated_at = now()",
-        (user, theme),
+        "INSERT INTO display_preference (account, theme, lang, updated_at)"
+        " VALUES (%s, NULLIF(%s, ''), NULLIF(%s, ''), now())"
+        " ON CONFLICT (account) DO UPDATE SET"
+        " theme = COALESCE(EXCLUDED.theme, display_preference.theme),"
+        " lang = COALESCE(EXCLUDED.lang, display_preference.lang),"
+        " updated_at = now()",
+        (user, theme, lang),
     ) is not None
 
 

@@ -4,7 +4,8 @@ import { answered, quiz } from "./quiz.svelte";
 import { statuses } from "./statuses.svelte";
 import { submission } from "./submission.svelte";
 import { system } from "./system.svelte";
-import { MISSING_KEY_MESSAGE, sessionKey } from "./accesskey";
+import { sessionKey } from "./accesskey";
+import { t } from "../i18n.svelte";
 
 export async function afterVerdict(): Promise<void> {
   await statuses.load();
@@ -16,17 +17,17 @@ export async function afterVerdict(): Promise<void> {
 export async function runTest(scoped: boolean): Promise<void> {
   const here = catalog.selected;
   if (!here) {
-    system.say("Choisis un exercice dans le menu pour commencer.");
+    system.say(t("run.pick_exercise"));
     return;
   }
   if (!sessionKey()) {
-    system.say(MISSING_KEY_MESSAGE);
+    system.say(t("access.missing_key"));
     return;
   }
   if (here.mode === "quiz") {
     const answers = { ...quiz.answers };
     if (!Object.values(answers).some(answered)) {
-      system.say("Saisis au moins une réponse avant de tester.");
+      system.say(t("run.no_answer"));
       return;
     }
     quiz.snapshot();
@@ -35,7 +36,7 @@ export async function runTest(scoped: boolean): Promise<void> {
   }
   const files = { ...editor.sources };
   if (!Object.values(files).some((v) => v.trim())) {
-    system.say("Il n'y a encore rien à tester : écris ou colle ton code d'abord.");
+    system.say(t("run.empty"));
     return;
   }
   await submission.submit(here, sessionKey(), { files }, null, afterVerdict);

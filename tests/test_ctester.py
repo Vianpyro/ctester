@@ -136,7 +136,7 @@ def test_content_v2_discovery_and_public_projection():
         assert content_catalogue.public_detail(model, "surface-rectangle", opened) == {
             "statement": "Calcule la surface.",
             "files": [{"name": "submission.c", "template": "int main(void) {}"}]}
-        assert content_catalogue.public_detail(model, "inconnu", opened) is None
+        assert content_catalogue.public_detail(model, "unknown", opened) is None
         assert content_catalogue.find_exercise(model, "surface-rectangle", opened) is not None
     finally:
         shutil.rmtree(root)
@@ -1488,20 +1488,32 @@ def test_moodle_import_translates_what_it_can_and_names_what_it_cannot():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def _source_words():
+    with open(os.path.join(ROOT, "frontend", "src", "locales", "en.json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
 def test_policy_is_declarative():
     assert policy.VERSION
+    words = _source_words()
     thresholds = policy.POLICY["levels"]
     assert thresholds[0] == 0 and thresholds == sorted(thresholds) == list(dict.fromkeys(thresholds))
     ids = set()
     for achievement in policy.POLICY["achievements"]:
-        assert achievement["title"] and achievement["description"]
+        for part in ("title", "description"):
+            assert "achievement.%s.%s" % (achievement["id"], part) in words, achievement
         assert achievement["on"] and achievement["threshold"] >= 1
         assert achievement["id"] not in ids
         ids.add(achievement["id"])
     assert set(policy.ACHIEVEMENTS) == ids
     bands = policy.POLICY["mastery"]["bands"]
     for band in bands:
-        assert band["title"] and band["description"]
+        for part in ("title", "description"):
+            assert "band.%s.%s" % (band["id"], part) in words, band
+    for division in policy.divisions():
+        assert "division." + division["id"] in words, division
+    for frame in policy.POLICY["frames"]:
+        assert "frame." + frame["id"] in words, frame
     assert set(policy.BANDS) == {b["id"] for b in bands} == set(
         policy.mastery_band(r, t, n)
         for n in range(0, 4) for t in range(0, n + 1) for r in range(0, t + 1))
@@ -1509,6 +1521,25 @@ def test_policy_is_declarative():
     for amount in set(policy.POLICY["xp"].values()):
         assert not re.search(r"%d" % amount, progress), amount
     assert not re.search(r"%d" % policy.daily_cap(), progress)
+
+
+def test_every_api_refusal_is_a_key_the_page_words():
+    # The API sends keys, never sentences: each one must be in the source locale, or a
+    # student reads "db_down". A scan that finds too few means the patterns went stale.
+    words = _source_words()
+    patterns = (r'(?:error|Refusal)\(\s*\d{3},\s*\(?"([a-z][a-z_]*)"(?!,\s*key=)',
+                r'return None,(?: None,)? \(?"([a-z][a-z_]*)"',
+                r'\(\s*\d{3},\s*\(?"([a-z][a-z_]*)"(?!,\s*key=)')
+    found = set()
+    for folder, _dirs, names in os.walk(os.path.join(ROOT, "app")):
+        for name in names:
+            if name.endswith(".py"):
+                text = read_file(os.path.join(folder, name))
+                for pattern in patterns:
+                    found.update(re.findall(pattern, text))
+    assert len(found) >= 65, sorted(found)
+    missing = sorted(k for k in found if "error." + k not in words)
+    assert not missing, "refusals with no wording in en.json: " + ", ".join(missing)
 
 
 def test_level_derives_from_the_balance():
@@ -1530,7 +1561,7 @@ def test_achievements_derive_from_facts():
     assert set(many) == set(policy.ACHIEVEMENTS)
     assert "premiere-verification" not in policy.achievements_reached(
         {"solved": 10, "skills": 3})
-    assert policy.achievements_reached({"inconnu": 99}) == []
+    assert policy.achievements_reached({"unknown": 99}) == []
 
 
 CATALOGUE_DEMO = [
@@ -1597,7 +1628,7 @@ def test_progress_publishes_nothing_secret():
     assert payload["xp"] == 25 and payload["level"]["rank"] >= 1
     assert payload["exercises"] == {"total": 4, "practiced": 1, "solved": 1}
     assert [s["id"] for s in payload["achievements"]] == ["premiere-reussite"]
-    assert payload["achievements"][0]["title"] and payload["achievements"][0]["description"]
+    assert payload["achievements"][0]["id"] in policy.ACHIEVEMENTS
     assert [b["id"] for b in payload["mastery"]["bands"]] == list(policy.BANDS)
     assert payload["mastery"]["skills"] == []
     text = json.dumps(payload, ensure_ascii=False)
@@ -1817,9 +1848,9 @@ def test_progress_degrades_without_a_database():
     assert state.read_progress("u") is None
     assert state.record_event("u", "e", "T", "tp", "v", {}) is None
     assert state.read_events("u", "T") is None
-    assert state.read_theme("u") is None
-    assert state.write_theme("u", "light") is False
-    assert state.write_theme("u", "neon") is False
+    assert state.read_preferences("u") is None
+    assert state.write_preferences("u", "light") is False
+    assert state.write_preferences("u", "neon") is False
     assert state.forget("u") is False
     assert progress.progression_facts("u") is None
     assert progress.cards_to_grant("u") == []
@@ -2014,7 +2045,7 @@ def test_queue_position():
     assert spool.queue_position(jobs, "bbb") == 1
     assert spool.queue_position(jobs, "ccc") == 2
     assert spool.queue_position(jobs, "aaa") == 0
-    assert spool.queue_position(jobs, "inconnu") == 0
+    assert spool.queue_position(jobs, "unknown") == 0
 
 
 def test_quota():
@@ -2443,7 +2474,8 @@ def _deployed(page):
                 .replace(b"%API_WS%",
                          ("wss://" + api.split("://")[-1]).encode() if api else b"")
                 .replace(b"%AUTH_ORIGIN%", AUTH_ORIGIN.encode())
-                .replace(b"%TITLE%", (os.environ.get("CTESTER_TITLE") or "CTester").encode()))
+                .replace(b"%TITLE%", (os.environ.get("CTESTER_TITLE") or "CTester").encode())
+                .replace(b"%LANG%", (os.environ.get("CTESTER_LANG") or "en").encode()))
 
 
 def test_document_csp():
@@ -2502,8 +2534,8 @@ def test_forum_view_leaks_no_sub():
                {"id": "d" * 32, "account": "sub-bob", "text": "cache",
                 "hidden": True, "created_at": "2026-09-03 10:03"}]
         seen = forum.forum_view(thread, "sub-alice", False)
-        assert [m["author"] for m in seen] == [
-            "Vous", "Participant", "Enseignant"], seen
+        assert [(m["role"], m["author"]) for m in seen] == [
+            ("me", ""), ("", ""), ("teacher", "")], seen
         assert [m["mine"] for m in seen] == [True, False, False]
         assert len(seen) == 3
         text = json.dumps(seen, ensure_ascii=False)
@@ -2511,7 +2543,7 @@ def test_forum_view_leaks_no_sub():
             assert forbidden not in text, forbidden
         seen_by_moderator = forum.forum_view(thread, "sub-mod", True)
         assert len(seen_by_moderator) == 4 and seen_by_moderator[3]["hidden"] is True
-        assert seen_by_moderator[2]["author"] == "Vous"
+        assert seen_by_moderator[2]["role"] == "me"
         assert "sub-bob" not in json.dumps(seen_by_moderator, ensure_ascii=False)
     finally:
         config.FORUM_MODERATORS = saved
@@ -2519,7 +2551,7 @@ def test_forum_view_leaks_no_sub():
 
 def test_forum_identity_bounds_and_visibility():
     assert forum.forum_display_name(None) == (None, None)
-    assert forum.forum_display_name(42) == (None, "nom invalide")
+    assert forum.forum_display_name(42) == (None, "invalid_name")
     assert forum.forum_display_name("   ") == (None, None)
     assert forum.forum_display_name("  Lea   B ") == ("Lea B", None)
     assert forum.forum_display_name("Lea" + chr(10) + "B")[0] == "Lea B"
@@ -2548,15 +2580,15 @@ def test_forum_identity_bounds_and_visibility():
         cache = {"sub-bob": {"display_name": "Bob", "group_number": 7,
                              "display_name_public": False, "group_number_public": False}}
         seen = forum.forum_view(thread, "sub-alice", False, cache)[0]
-        assert seen["author"] == "Participant" and seen["group"] is None
+        assert seen["author"] == "" and seen["group"] is None
         assert seen["reportable_name"] is False
         seen_by_moderator = forum.forum_view(thread, "sub-mod", True, cache)[0]
-        assert seen_by_moderator["author"] == "Participant" and seen_by_moderator["group"] == 7
+        assert seen_by_moderator["author"] == "" and seen_by_moderator["group"] == 7
         shown = {"sub-bob": dict(cache["sub-bob"], display_name_public=True)}
         seen2 = forum.forum_view(thread, "sub-alice", False, shown)[0]
         assert seen2["author"] == "Bob" and seen2["reportable_name"] is True
         mine = forum.forum_view(thread, "sub-bob", False, shown)[0]
-        assert mine["author"] == "Vous" and mine["reportable_name"] is False
+        assert mine["role"] == "me" and mine["reportable_name"] is False
         assert "sub-bob" not in json.dumps(
             [seen, seen_by_moderator, seen2, mine], ensure_ascii=False)
     finally:
@@ -2584,10 +2616,10 @@ def test_both_lock_probes_open_READ_ONLY():
 
 def test_every_console_reason_has_a_message():
     judge = "".join(read_file(os.path.join(ROOT, "judge", "src", name)) for name in ("console.rs", "main.rs"))
-    page = read_file(os.path.join(ROOT, "frontend", "src", "features", "scratch",
-                             "session.svelte.ts"))
-    block = page.split("const REASONS: Record<string, string> = {")[1].split("};")[0]
-    known = set(re.findall("^\\s*(\\w+):", block, re.M)) | {"exited"}
+    with open(os.path.join(ROOT, "frontend", "src", "locales", "en.json"), encoding="utf-8") as fh:
+        words = json.load(fh)
+    prefix = "console.reason."
+    known = {k[len(prefix):] for k in words if k.startswith(prefix)} | {"exited"}
     pattern = r'(?:break |exited\([^)]*, |(?:== crate::grade::COMPILE_TIMEOUT|else) \{\s*|"reason": )"([a-z_]+)"'
     emitted = set(re.findall(pattern, judge))
     assert len(emitted) >= 9, emitted
@@ -2933,7 +2965,7 @@ def test_discover_rejects_each_assignment_defect():
         (lambda r: _write_json(assignment_path(r), with_fields(id="autre")), "must be named after the id"),
         (lambda r: _write_json(assignment_path(r), with_fields(title="  ")), "missing title"),
         (lambda r: _write_json(assignment_path(r), with_fields(items=[])), "non-empty list"),
-        (lambda r: _write_json(assignment_path(r), with_fields(items=["inconnu"])), "unknown exercise"),
+        (lambda r: _write_json(assignment_path(r), with_fields(items=["unknown"])), "unknown exercise"),
         (lambda r: _write_json(assignment_path(r), with_fields(deadline="pas une date")),
          "deadline must be an ISO date"),
         (lambda r: _write_json(assignment_path(r), with_fields(deadline="2026-12-05T23:59:00")),
@@ -3021,13 +3053,13 @@ def test_the_assignment_gate_distinguishes_three_refusals():
         _publish_assignment(root, dest)
         config.PUBLISHED = dest
         base = _TeamStore({("devoir", "sub-alice"): "e1"})
-        _, _, refusal = teams.workspace(base, "sub-alice", "inconnu")
+        _, _, refusal = teams.workspace(base, "sub-alice", "unknown")
         assert refusal[0] == 404
         _, team, refusal = teams.workspace(base, "sub-alice", "devoir")
         assert refusal is None and team["team_id"] == "e1"
         _, team, refusal = teams.workspace(base, "sub-bob", "devoir")
         assert team is None and refusal[0] == 403
-        assert "figées" in refusal[1] and "enseignant" in refusal[1], refusal
+        assert refusal[1] == "not_in_team_frozen", refusal
         assignment, _, _ = teams.workspace(base, "sub-alice", "devoir")
         assert teams.exercise_in(assignment, "dev-a") is True
         assert teams.exercise_in(assignment, "solo") is False
@@ -3048,7 +3080,7 @@ def test_an_assignment_without_a_team_is_refused_with_a_reason():
         config.PUBLISHED = dest
         _, team, refusal = teams.workspace(_TeamStore({}), "sub-alice", "devoir")
         assert team is None and refusal[0] == 400
-        assert "équipe" in refusal[1]
+        assert refusal[1] == "not_a_team_assignment", refusal
     finally:
         config.PUBLISHED = previous
         shutil.rmtree(root)
@@ -3065,7 +3097,7 @@ def test_the_team_view_leaks_no_sub():
     assert [m["id"] for m in view] == ["m1", "m2", "m3"]
     assert [m["you"] for m in view] == [True, False, False]
     assert view[1]["name"] == "Bob B"
-    assert view[2]["name"] == "Coéquipier 3"
+    assert view[2]["name"] == "" and view[2]["id"] == "m3"
     assert len({m["color"] for m in view}) == 3
     assert teams.member_handle(roster, "sub-cleo") == "m3"
     assert teams.member_handle(roster, "sub-etranger") == ""
@@ -3403,7 +3435,7 @@ def test_the_chat_forces_public_and_the_prefix_is_the_whole_distinction():
     assert forum.forum_visibility("thread", True, channel) == ("thread", None)
     for forbidden in ("private", "group"):
         value, message = forum.forum_visibility(forbidden, True, channel)
-        assert value is None and "publics" in message, forbidden
+        assert value is None and message == "chat_is_public", forbidden
 
     assert forum.forum_visibility(None, True) == ("private", None)
     assert forum.forum_visibility(None, False) == ("thread", None)
@@ -3429,7 +3461,7 @@ def test_a_hidden_author_stays_followable():
         names = [v["author"] for v in views]
         assert names[0] == "Rotor cuivré" and names[1] == "Piston lisse"
         assert names[0] != names[1]
-        assert names[2] == "Enseignant"
+        assert names[2] == "" and views[2]["role"] == "teacher"
         assert all(v["reportable_name"] is False for v in views)
 
         chosen = dict(profiles, **{"sub-bob": {"alias": "Rotor cuivré",
@@ -3439,9 +3471,9 @@ def test_a_hidden_author_stays_followable():
         assert seen["author"] == "Bob" and seen["reportable_name"] is True
 
         mine = forum.forum_view(thread, "sub-bob", False, profiles)[0]
-        assert mine["author"] == "Vous (Rotor cuivré)"
+        assert (mine["author"], mine["role"]) == ("Rotor cuivré", "me")
 
-        assert forum.forum_view(thread, "sub-alice", False, {})[0]["author"] == "Participant"
+        assert forum.forum_view(thread, "sub-alice", False, {})[0]["author"] == ""
 
         assert "sub-bob" not in json.dumps(views + [seen, mine], ensure_ascii=False)
     finally:

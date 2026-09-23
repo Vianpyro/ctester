@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { t } from "../../lib/i18n.svelte";
   import CodeSurface from "../../components/CodeSurface.svelte";
-  import { scratch, TEMPLATE } from "./session.svelte";
+  import { scratch, template } from "./session.svelte";
 
   let title: HTMLHeadingElement | undefined = $state();
   let terminal: HTMLPreElement | undefined = $state();
@@ -15,7 +16,7 @@
   onMount(() => {
     title?.focus();
     if (!scratch.loaded) void scratch.load();
-    else if (!scratch.code) scratch.code = TEMPLATE;
+    else if (!scratch.code) scratch.code = template();
   });
 
   onDestroy(() => scratch.stop());
@@ -64,14 +65,14 @@
   }
 </script>
 
-<h2 bind:this={title} id="scratchtitle" tabindex="-1">Console</h2>
-<p class="explain">Écris un programme C, lance-le, c'est un brouillon pour essayer.</p>
+<h2 bind:this={title} id="scratchtitle" tabindex="-1">{t("topbar.console")}</h2>
+<p class="explain">{t("console.explain")}</p>
 
 <div class="plan scratchpan">
   <div class="phead">
-    <span>Ton programme</span>
+    <span>{t("console.program")}</span>
     <!-- svelte-ignore a11y_interactive_supports_focus -->
-    <div class="scratchtabs" role="tablist" aria-label="Fichiers de la Console" onkeydown={onTabsKeydown}>
+    <div class="scratchtabs" role="tablist" aria-label={t("console.files")} onkeydown={onTabsKeydown}>
       <button
         type="button"
         id="scratchtabmain"
@@ -99,14 +100,14 @@
     {#if !asking}
       {#if scratch.headerName}
         <button type="button" id="scratchrename" class="nav" onclick={() => ask("rename")}>
-          Renommer l'en-tête
+          {t("console.rename_header")}
         </button>
         <button type="button" id="scratchremove" class="nav" onclick={() => ask("remove")}>
-          Retirer l'en-tête
+          {t("console.remove_header")}
         </button>
       {:else}
         <button type="button" id="scratchadd" class="nav" onclick={() => ask("add")}>
-          Ajouter un en-tête .h
+          {t("console.add_header")}
         </button>
       {/if}
     {/if}
@@ -120,14 +121,14 @@
       }}
     >
       <label for="scratchheadername">
-        {asking === "rename" ? "Nouveau nom de l'en-tête" : "Nom de l'en-tête"}
+        {asking === "rename" ? t("console.new_header_name") : t("console.header_name")}
       </label>
       <!-- svelte-ignore a11y_autofocus -->
       <input
         id="scratchheadername"
         type="text"
         bind:value={proposed}
-        placeholder="pile.h"
+        placeholder={t("console.header_placeholder")}
         autocomplete="off"
         spellcheck="false"
         autofocus
@@ -137,30 +138,34 @@
           if (e.key === "Escape") asking = "";
         }}
       />
-      <button type="submit">{asking === "rename" ? "Renommer" : "Ajouter"}</button>
-      <button type="button" class="nav" onclick={() => (asking = "")}>Annuler</button>
+      <button type="submit">{asking === "rename" ? t("console.rename") : t("console.add")}</button>
+      <button type="button" class="nav" onclick={() => (asking = "")}>{t("consent.cancel")}</button>
       {#if refusal}<span id="scratchnamerefusal" class="scratchstate failed">{refusal}</span>{/if}
     </form>
   {:else if asking === "remove"}
-    <div class="scratchname" role="group" aria-label="Retirer l'en-tête">
-      <span>Retirer {scratch.headerName} ? Son contenu sera perdu.</span>
+    <div class="scratchname" role="group" aria-label={t("console.remove_header")}>
+      <span>{t("console.remove_confirm", { name: scratch.headerName })}</span>
       <button
         type="button"
         id="scratchremoveconfirm"
         onclick={() => {
           scratch.removeHeader();
           asking = "";
-        }}>Retirer</button
+        }}>{t("console.remove")}</button
       >
-      <button type="button" class="nav" onclick={() => (asking = "")}>Garder</button>
+      <button type="button" class="nav" onclick={() => (asking = "")}>{t("console.keep")}</button>
     </div>
   {/if}
   {#key scratch.active}
     <CodeSurface
       value={scratch.activeText}
       onInput={(text) => scratch.typed(text)}
-      label={(scratch.active === "main" ? "Fichier " : "En-tête ") + scratch.activeName + " de la Console"}
-      placeholder={scratch.active === "main" ? "// Écris ton programme C ici" : "// Écris ton en-tête ici"}
+      label={t(scratch.active === "main" ? "console.file_label" : "console.header_label", {
+        name: scratch.activeName,
+      })}
+      placeholder={scratch.active === "main"
+        ? t("console.main_placeholder")
+        : t("console.header_file_placeholder")}
       idPrefix="scratch"
       wrapClass="scratchedit"
       wrapRole="tabpanel"
@@ -170,13 +175,13 @@
 
 <div class="plan scratchpan">
   <div class="phead">
-    <span>Terminal</span>
+    <span>{t("console.terminal")}</span>
     <button type="button" id="scratchgo" disabled={scratch.running} onclick={() => scratch.start()}>
-      {scratch.running ? "En cours…" : "Lancer"}
+      {scratch.running ? t("console.busy") : t("console.run")}
     </button>
     {#if scratch.running}
       <button type="button" id="scratchstop" class="nav" onclick={() => scratch.stop()}>
-        Arrêter
+        {t("console.stop")}
       </button>
     {/if}
     <span class="grow"></span>
@@ -191,12 +196,12 @@
     id="scratchout"
     class="scratchterm"
     role="log"
-    aria-label="Terminal de ton programme"
+    aria-label={t("console.terminal_label")}
     onclick={() => {
       if (!getSelection()?.toString()) prompt?.focus();
     }}>{#each scratch.output as chunk, i (i)}<span class={chunk.kind}>{chunk.text}</span
       >{/each}{#if scratch.running}<label class="offscreen" for="scratchinput"
-        >Entrée pour ton programme</label
+        >{t("console.input_label")}</label
       ><input
         bind:this={prompt}
         id="scratchinput"
@@ -207,16 +212,16 @@
         spellcheck="false"
         onkeydown={onPromptKeydown}
       />{:else if !scratch.output.length}<span class="scratchecho"
-        >Appuie sur Lancer pour exécuter ton programme.</span
+        >{t("console.press_run")}</span
       >{/if}</pre>
   <div class="scratchhint">
-    <span>Entrée envoie la ligne · Ctrl+D termine l'entrée · Ctrl+C arrête le programme</span>
+    <span>{t("console.hint")}</span>
     <button
       type="button"
       id="scratcheof"
       class="nav"
       disabled={!scratch.running}
-      onclick={() => scratch.endInput()}>Fin d'entrée</button
+      onclick={() => scratch.endInput()}>{t("console.eof")}</button
     >
   </div>
 </div>

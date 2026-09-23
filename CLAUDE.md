@@ -2,6 +2,7 @@
 
 Operations, deployment and troubleshooting are in [docs/operations.md](docs/operations.md).
 The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
+Languages and how to add one are in [docs/translations.md](docs/translations.md).
 
 ## Layout
 
@@ -41,7 +42,11 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **Endpoints are `def`, not `async def`,** and share one PostgreSQL connection behind a lock.
 - **No identity in request bodies.** The account always comes from the validated token; a test scans
   `schemas.py` for this.
-- **Student-facing messages are French** and come from `services/`, not from Pydantic errors.
+- **Every word a student reads is in `frontend/src/locales/`**, `en.json` being the source and
+  the fallback. The API refuses with a key (`headers.error(400, "db_down")`, or
+  `(key, params)`) from `services/`, never with a sentence or a Pydantic error; the judge answers
+  with codes (`reason`, `hint`, `code`); `policy.py` holds ids and numbers only. Tests bind API
+  keys and policy ids to `en.json`, and every literal `t("...")` key to it.
 - **Exercise ids are unique across every content root.** `CTESTER_CONTENT` may list several
   repositories; `discover()` merges them into one flat namespace and a duplicate id fails the
   publication. Only one root may hold `shared/unity`.
@@ -54,8 +59,8 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
   the Dell. The same goes for `csp.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares
   them. No inline scripts. The page names no host: `vite.config.ts` fills `%API_ORIGIN%`,
-  `%API_WS%`, `%AUTH_ORIGIN%` and `%TITLE%` at build time from `CTESTER_API_ORIGIN`,
-  `CTESTER_AUTH_ORIGIN` and `CTESTER_TITLE` — the same variables the server reads, which is what
+  `%API_WS%`, `%AUTH_ORIGIN%`, `%TITLE%`, `%TAGLINE%` and `%LANG%` at build time from
+  `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`, `CTESTER_TITLE` and `CTESTER_LANG` — the same variables the server reads, which is what
   keeps the two copies comparable. **Only the `pages` job builds the deployed page**, because
   those settings are variables of the `github-pages` environment and no other job enters it; it
   refuses to publish a build whose CSP names no API origin.
@@ -64,7 +69,8 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 - **Tables and grants live together** in `app/schema.sql`. Any table with an `account` column must be
   cleared by `state.forget()`, and tests enforce both rules.
 - **Persisted ids never change:** achievement, card and frame ids, event ids (`solved:<exercise>`), and
-  status values. Card ids come from the content's `cards.json`, so renaming one there orphans what
+  status values. The same goes for locale keys, the API's error keys and the judge's codes: a
+  translation platform tracks them. Card ids come from the content's `cards.json`, so renaming one there orphans what
   students already earned; a card naming an unknown exercise fails the publication instead of
   becoming quietly unobtainable.
 - **The page never declares a result.** XP, solved states and verdicts are derived by the server.
@@ -83,7 +89,7 @@ The Typst authoring guide is [docs/content/typst.md](docs/content/typst.md).
 
 ## Style
 
-- English identifiers and comments. French only in text shown to students.
+- English identifiers and comments. Text shown to students only in the locale files.
 - Comments only where a constraint is not visible in the code: one or two plain sentences.
 
 ## Checks

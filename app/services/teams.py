@@ -9,7 +9,6 @@ from services.catalog import load_catalog, validate_files
 COLORS = ("#e0533d", "#2f8fd8", "#7d57c1", "#1f9d6a", "#c9821b", "#c2418f",
           "#3f7f8f", "#8a6b3d")
 
-ANONYMOUS_LABEL = "Coéquipier %d"
 
 
 def assignments(now=None):
@@ -54,6 +53,7 @@ def deadline_passed(assignment, now=None):
     return (now or dt.datetime.now(dt.timezone.utc)) > moment
 
 
+# Only the stored label, which the teacher's dashboard shows; the page words its own.
 TEAM_NAME = "Équipe %d"
 
 
@@ -84,7 +84,6 @@ def available_teams(assignment, group_number, existing):
         members = int(row.get("members") or 0)
         items.append({
             "number": number,
-            "name": TEAM_NAME % number,
             "members": members,
             "max": high,
             "full": members >= high,
@@ -95,14 +94,12 @@ def available_teams(assignment, group_number, existing):
 def workspace(state, sub, assignment_id):
     assignment = find_assignment(assignment_id)
     if assignment is None:
-        return None, None, (404, "devoir inconnu")
+        return None, None, (404, "unknown_assignment")
     if not is_team_assignment(assignment):
-        return assignment, None, (400, "ce devoir n'est pas un travail d'équipe")
+        return assignment, None, (400, "not_a_team_assignment")
     team = state.team_of(sub, assignment_id)
     if team is None:
-        return assignment, None, (
-            403, "tu n'es dans aucune équipe pour ce devoir, et les équipes "
-                 "sont figées depuis son ouverture — vois avec ton enseignant")
+        return assignment, None, (403, "not_in_team_frozen")
     return assignment, team, None
 
 
@@ -119,7 +116,7 @@ def members_view(roster, sub, profiles):
         chosen = bool(name) and bool(profile.get("display_name_public"))
         out.append({
             "id": "m%d" % (index + 1),
-            "name": name if chosen else ANONYMOUS_LABEL % (index + 1),
+            "name": name if chosen else "",
             "color": COLORS[index % len(COLORS)],
             "you": account == sub,
         })

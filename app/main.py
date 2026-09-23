@@ -31,13 +31,13 @@ def create_app():
     # FastAPI's default 422 body echoes the rejected input, which may hold code or a token.
     @app.exception_handler(RequestValidationError)
     async def _validation(request, exc):
-        return headers.error(400, "requête malformée")
+        return headers.error(400, "malformed_request")
 
     @app.exception_handler(HTTPException)
     async def _http(request, exc):
         detail = exc.detail
         if exc.status_code == 404 and detail == "Not Found":
-            detail = "inconnu"
+            detail = "unknown"
         return headers.error(exc.status_code, detail)
 
     app.include_router(health.router)

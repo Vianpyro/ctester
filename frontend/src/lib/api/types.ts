@@ -99,9 +99,12 @@ export type VerdictStatus =
   | "timeout"
   | "error";
 
+// The judge's reasons, hints and codes are keys the page words (verdict.reason.<code>,
+// verdict.hint.<code>, verdict.code.<code>); params carry the values they need.
 export interface FailedCase {
   case: number;
   reason: string;
+  params?: Record<string, string | number> | null;
   stdin?: string;
   stdout?: string;
   stderr?: string;
@@ -121,9 +124,13 @@ export interface Verdict {
   state: "done";
   status: VerdictStatus;
   kind: ExerciseMode;
+  code?: string;
+  params?: Record<string, string | number> | null;
+  /** Free text from judges older than the codes. */
   message?: string;
   gcc?: string;
   warnings?: string;
+  long_source?: { size: number; limit: number };
   passed?: number;
   total?: number;
   cases?: FailedCase[];
@@ -161,6 +168,7 @@ export interface DraftPayload {
 
 export interface PreferencesPayload {
   theme: string;
+  lang?: string;
 }
 
 export interface MasterySkill {
@@ -178,13 +186,11 @@ export interface ProgressPayload {
   exercises: { total: number; practiced: number; solved: number };
   skills: { id: string; practiced: number; solved: number; total: number }[];
   mastery: {
-    bands: { id: string; title: string; description: string }[];
+    bands: { id: string }[];
     skills: MasterySkill[];
   };
   achievements: {
     id: string;
-    title: string;
-    description: string;
     unlocked_at: string;
   }[];
   cards: number;
@@ -229,7 +235,7 @@ export interface LeaderboardPayload {
   moderator?: boolean;
   groups?: number[];
   division?: { id: string };
-  divisions?: { id: string; title: string; accounts: number }[];
+  divisions?: { id: string; accounts: number }[];
 }
 
 export type Visibility = "thread" | "group" | "private";
@@ -239,6 +245,7 @@ export interface ForumMessage {
   text: string;
   created_at: string;
   author: string;
+  role?: "me" | "teacher" | "";
   group: number | null;
   reportable_name: boolean;
   mine: boolean;
@@ -255,7 +262,6 @@ export interface ForumMessage {
 
 export interface Legend {
   id: string;
-  title: string;
 }
 
 export interface ThreadState {
@@ -290,7 +296,7 @@ export interface ForumProfile {
   alias: string | null;
   max_display_name: number;
   group_numbers: number[];
-  frames: { id: string; title: string }[];
+  frames: { id: string }[];
   suggestion: string;
 }
 
@@ -378,7 +384,6 @@ export interface TeamContext {
   assignment: AssignmentView;
   team: {
     id: string;
-    label: string;
     number: number;
     group_number: number;
     members: TeamMember[];
@@ -390,7 +395,6 @@ export interface MyTeam {
   assignment_id: string;
   assignment_title: string;
   team_id: string;
-  label: string;
   number: number;
   group_number: number;
   members: TeamMember[];
@@ -405,7 +409,6 @@ export interface AvailableTeams {
   mine: number | null;
   teams: {
     number: number;
-    name: string;
     members: number;
     max: number;
     full: boolean;

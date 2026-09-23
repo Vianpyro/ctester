@@ -1,5 +1,6 @@
 import { fetchPresence } from "../api/public";
 import { randomId, sessionGet, sessionSet } from "../storage";
+import { t } from "../i18n.svelte";
 
 const BEAT = 60_000;
 const ID_KEY = "ctester.live";
@@ -18,7 +19,7 @@ class Presence {
   get label(): string {
     const n = this.count;
     if (n === null) return "";
-    return n > 1 ? n + " personnes en ligne" : "1 personne en ligne";
+    return t("presence.online", { count: n });
   }
 
   async beat(): Promise<void> {

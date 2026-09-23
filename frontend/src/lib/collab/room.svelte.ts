@@ -1,4 +1,6 @@
 import * as Y from "yjs";
+import { t } from "../i18n.svelte";
+import { serverMessage } from "../api/client";
 import { socketUrl } from "../config";
 import { ensureValid, renew, session } from "../auth/session.svelte";
 import { fetchContext, fetchDocument, saveDocument } from "../api/team";
@@ -18,12 +20,9 @@ const SYNC_DEADLINE = 3000;
 
 const UNAUTHORIZED = 4401;
 
-const CLOSED: Record<number, string> = {
-  4401: "Ta session a expiré. Reconnecte-toi pour retrouver l'espace d'équipe.",
-  4403: "Tu n'es pas inscrit à une équipe pour ce devoir.",
-  4429: "Trop d'onglets ouverts sur cet exercice. Ferme-en un et réessaie.",
-  4400: "L'espace d'équipe n'a pas pu démarrer. Recharge la page.",
-};
+const CLOSED = [4401, 4403, 4429, 4400];
+const closedMessage = (code: number): string =>
+  CLOSED.includes(code) ? t(`team.closed.${code}`) : "";
 
 interface Live {
   assignment: string;
@@ -71,15 +70,13 @@ class Room {
     if (this.fatal) return { text: this.fatal, bad: true };
     if (!this.connected) {
       return {
-        text: "hors ligne — tes changements repartiront tout seuls dès que la connexion revient",
+        text: t("team.offline"),
         bad: true,
       };
     }
     const others = collaborators.online.filter((h) => h !== collaborators.me).length;
     return {
-      text: others
-        ? others + " coéquipier" + (others > 1 ? "s" : "") + " en ligne"
-        : "tu es seul sur cet exercice pour l'instant",
+      text: others ? t("team.online", { count: others }) : t("team.alone"),
       bad: false,
     };
   }
@@ -90,19 +87,11 @@ class Room {
     if (!session.signedIn) return;
     const answer = await fetchContext(ex.assignment);
     if (answer.status === 0 || (!answer.ok && !answer.body)) {
-      this.#refuse(
-        "L'espace d'équipe n'est pas joignable pour l'instant. Tu peux écrire et " +
-          "tester : ton brouillon est enregistré sur cet appareil.",
-      );
+      this.#refuse(t("team.unreachable"));
       return;
     }
     if (!answer.ok) {
-      const said = (answer.body as { error?: string } | null)?.error ?? "";
-      this.#refuse(
-        (said || "Tu n'as pas accès à l'espace d'équipe de ce devoir.") +
-          " Tu peux quand même travailler l'exercice de ton côté : ton brouillon " +
-          "est enregistré comme d'habitude.",
-      );
+      this.#refuse((serverMessage(answer.body) || t("team.no_access")) + t("team.work_alone"));
       return;
     }
     const context = answer.body!;
@@ -239,14 +228,14 @@ class Room {
       if (this.#live !== live) return;
       this.connected = false;
       collaborators.setOnline([]);
-      const said = CLOSED[event.code];
+      const said = closedMessage(event.code);
       if (said) {
         if (event.code === UNAUTHORIZED && !live.reauth) {
           live.reauth = true;
           void renew().then((ok) => {
             if (this.#live !== live) return;
             if (ok) return this.#connect(live);
-            this.fatal = CLOSED[UNAUTHORIZED]!;
+            this.fatal = closedMessage(UNAUTHORIZED);
             editor.lock(true);
           });
           return;
@@ -342,7 +331,7 @@ class Room {
       this.#arm(live, false);
       return;
     }
-    this.note = "synchronisation avec ton équipe…";
+    this.note = t("team.syncing");
     live.armTimer = setTimeout(() => this.#arm(live, true), SYNC_DEADLINE);
   }
 
@@ -429,8 +418,8 @@ class Room {
     this.saved = answer.ok;
     drafts.say(
       answer.ok
-        ? "partagé avec ton équipe · " + clockNow()
-        : "NON enregistré — garde une copie de ton code",
+        ? t("team.shared", { time: clockNow() })
+        : t("drafts.not_saved"),
       !answer.ok,
     );
   }

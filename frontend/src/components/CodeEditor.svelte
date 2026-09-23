@@ -3,6 +3,7 @@
   import { drafts } from "../lib/state/drafts.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import CodeSurface from "./CodeSurface.svelte";
+  import { t } from "../lib/i18n.svelte";
   import RemoteCarets from "./RemoteCarets.svelte";
 
   let zone: HTMLTextAreaElement | null = $state(null);
@@ -32,7 +33,7 @@
     <div
       id="tabs"
       role="tablist"
-      aria-label="Fichiers de la soumission"
+      aria-label={t("editor.files")}
       hidden={editor.files.length <= 1}
       onkeydown={onTabsKeydown}
     >
@@ -60,8 +61,8 @@
     onCaret={() => editor.notify("onCaret")}
     onScrolled={() => editor.notify("onScroll")}
     readOnly={editor.readOnly}
-    label={"Code de " + (editor.activeFile ?? "")}
-    placeholder="// Écris ton code ici"
+    label={t("editor.code_of", { file: editor.activeFile ?? "" })}
+    placeholder={t("editor.placeholder")}
     wrapRole="tabpanel"
   >
     {#snippet overlay(scroll)}

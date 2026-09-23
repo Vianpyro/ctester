@@ -1,5 +1,6 @@
 <script lang="ts">
   import { readableThread } from "./labels";
+  import { t } from "../../lib/i18n.svelte";
   import { thread } from "./thread.svelte";
   import type { SearchResult } from "../../lib/api/types";
 
@@ -21,15 +22,15 @@
         <p class="who">
           <span class="author">{readableThread(r.exercise_id)}</span>
           {#if r.replies}
-            <span class="tag accent">{r.replies > 1 ? r.replies + " réponses" : "1 réponse"}</span>
+            <span class="tag accent">{t("moderation.replies", { count: r.replies })}</span>
           {:else}
-            <span class="tag">sans réponse</span>
+            <span class="tag">{t("moderation.no_reply")}</span>
           {/if}
-          {#if r.upvotes}<span class="tag">{r.upvotes} × même question</span>{/if}
+          {#if r.upvotes}<span class="tag">{t("search.same_question", { n: r.upvotes })}</span>{/if}
         </p>
         <p class="excerpt">{r.excerpt}</p>
         <button type="button" class="nav" onclick={() => thread.openPermalink(r.id)}>
-          Ouvrir
+          {t("search.open")}
         </button>
       </li>
     {/each}

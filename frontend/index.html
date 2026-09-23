@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="%LANG%">
 <head>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- The API is a different origin from the page: warm it while the HTML is still parsing,
@@ -15,7 +15,7 @@
 <!-- %TITLE% is the instance's NAME alone (CTESTER_TITLE, e.g. "TCH009"): the tagline
      is already beside it in the header, and putting the whole sentence in the variable
      prints it twice. -->
-<title>%TITLE% — Tester mon code</title>
+<title>%TITLE% — %TAGLINE%</title>
 <!-- Blocking on purpose: the theme is applied before the first paint. -->
 <script src="/theme.js"></script>
 <script type="module" src="/src/main.ts"></script>

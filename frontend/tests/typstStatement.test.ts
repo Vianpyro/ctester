@@ -74,7 +74,7 @@ describe("a Typst statement is a stack of pre-rendered pages", () => {
   it("labels the block and each page", () => {
     render({ id: "x", pages: 2, staff: false, title: "TP2 : ex.3" });
     const figure = host.querySelector("figure")!;
-    expect(figure.getAttribute("aria-label")).toBe("Consigne de TP2 : ex.3, 2 page(s)");
+    expect(figure.getAttribute("aria-label")).toBe("Consigne de TP2 : ex.3, 2 pages");
     expect(images().map((img) => img.getAttribute("alt"))).toEqual([
       "Consigne, page 1 sur 2",
       "Consigne, page 2 sur 2",

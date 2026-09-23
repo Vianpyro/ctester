@@ -1,3 +1,4 @@
+import { i18n, t } from "../i18n.svelte";
 import type {
   Access,
   ExerciseMode,
@@ -82,10 +83,10 @@ export function normalize(release: PublishedRelease, staff = false): CatalogMode
   const orphans = [...byId.keys()].filter((id) => !classified.has(id));
   if (orphans.length) {
     collections.push({
-      title: "Autres",
+      title: t("catalog.others"),
       access: "available",
       available_from: "",
-      items: orphans.map((id) => catalogEntry(byId.get(id)!, "Autres")),
+      items: orphans.map((id) => catalogEntry(byId.get(id)!, t("catalog.others"))),
     });
   }
   const seen = new Set<string>();
@@ -102,12 +103,13 @@ export function normalize(release: PublishedRelease, staff = false): CatalogMode
 
 export function lockNote(entry: { access?: Access; available_from?: string } | null): string {
   if (!entry || entry.access === "available") return "";
-  if (entry.access === "archived") return "archivé";
+  if (entry.access === "archived") return t("catalog.archived");
   const when = new Date(entry.available_from ?? "");
   return isNaN(when.getTime())
-    ? "à venir"
-    :
-      "ouvre le " + when.toLocaleDateString("fr-CA", { day: "numeric", month: "long" });
+    ? t("catalog.upcoming")
+    : t("catalog.opens_on", {
+        date: when.toLocaleDateString(i18n.lang, { day: "numeric", month: "long" }),
+      });
 }
 
 export function tileState(
@@ -115,12 +117,12 @@ export function tileState(
   locked: boolean,
   statuses: Record<string, ExerciseStatus | undefined>,
 ): { cls: string; word: string } {
-  if (locked) return { cls: "todo", word: "pas encore ouvert" };
+  if (locked) return { cls: "todo", word: t("catalog.not_open") };
   const status = statuses[ex.id] ?? "";
-  if (status === "solved") return { cls: "solved", word: "réussi" };
-  if (ex.verification) return { cls: "verification", word: "vérification" };
-  if (status === "attempted") return { cls: "todo", word: "essayé" };
-  return { cls: "todo", word: "à faire" };
+  if (status === "solved") return { cls: "solved", word: t("status.solved") };
+  if (ex.verification) return { cls: "verification", word: t("catalog.verification") };
+  if (status === "attempted") return { cls: "todo", word: t("status.attempted") };
+  return { cls: "todo", word: t("catalog.todo") };
 }
 
 // The collection prefix ("TP 3: ") is noise once the exercise is shown inside its collection.
@@ -134,7 +136,7 @@ export function stripLabel(ex: Exercise): string {
 }
 
 export function gridLabel(ex: Exercise): string {
-  if (ex.verification) return "vérif";
+  if (ex.verification) return t("catalog.verification_short");
   const bare = bareLabel(ex);
   const number = bare.match(/^ex\.?\s*(\d+)/i);
   if (number) return number[1]!;

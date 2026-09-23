@@ -20,7 +20,7 @@ def get_progress(sub: Sub):
     days = state.read_practice_days(sub, CALENDAR_DAYS)
     if (facts is None or statuses is None or practice is None
             or evidences is None or days is None):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return progress.progress_payload(open_exercises(), facts,
                                      statuses, practice, evidences, days)
 
@@ -30,7 +30,7 @@ def collection(sub: Sub):
     facts = state.read_progress(sub)
     unlock_rates = state.read_unlock_rates()
     if facts is None or unlock_rates is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     rates, cohort = unlock_rates
     return {"policy": policy.VERSION,
             "cards": progress.collection_view(facts["achievements"], rates, cohort),

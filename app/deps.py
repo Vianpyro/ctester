@@ -64,23 +64,23 @@ class Refusal(Exception):
 
 def user(request: Request) -> str:
     if not security.oidc_enabled():
-        raise Refusal(503, "la persistance n'est pas configurée")
+        raise Refusal(503, "no_persistence")
     sub = security.current_user(request.headers)
     if sub is None:
-        raise Refusal(401, "connexion requise ou expirée")
+        raise Refusal(401, "sign_in_required")
     return sub
 
 
 def forum_user(request: Request) -> str:
     if not forum_service.forum_enabled():
-        raise Refusal(503, "les discussions ne sont pas activées sur ce déploiement")
+        raise Refusal(503, "forum_disabled")
     return user(request)
 
 
 def moderator(request: Request) -> str:
     sub = forum_user(request)
     if not security.is_moderator(sub):
-        raise Refusal(403, "réservé à l'enseignant")
+        raise Refusal(403, "teachers_only")
     return sub
 
 
@@ -100,7 +100,7 @@ def throttle_write(request: Request) -> None:
     with lock:
         wait = state_quota.check(who, time.time())
     if wait:
-        raise Refusal(429, f"trop d'écritures -- réessaie dans {wait} s",
+        raise Refusal(429, "too_many_writes", params={"wait": wait},
                       retry_after=wait)
 
 
@@ -108,7 +108,7 @@ def throttle_forum(sub: str) -> None:
     with lock:
         wait = forum_quota.check(sub, time.time())
     if wait:
-        raise Refusal(429, f"trop de messages d'un coup -- réessaie dans {wait} s",
+        raise Refusal(429, "too_many_messages", params={"wait": wait},
                       retry_after=wait)
 
 

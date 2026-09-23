@@ -1,4 +1,5 @@
 import { localDrop, localGet, localSet } from "../storage";
+import { t } from "../i18n.svelte";
 import { clockNow } from "../domain/labels";
 import { fetchDraft, saveDraft } from "../api/account";
 import { session } from "../auth/session.svelte";
@@ -42,7 +43,7 @@ class DraftStore {
   #timer: ReturnType<typeof setTimeout> | null = null;
 
   #initialStatus(): string {
-    return "enregistrement automatique";
+    return t("drafts.auto");
   }
 
   get(exerciseId: string): Record<string, string> | null {
@@ -61,10 +62,10 @@ class DraftStore {
 
   #persist(): boolean {
     if (!localSet(DRAFTS_KEY, JSON.stringify(this.#store))) {
-      this.say("NON enregistré — garde une copie de ton code", true);
+      this.say(t("drafts.not_saved"), true);
       return false;
     }
-    this.say("enregistré sur cet appareil · " + clockNow());
+    this.say(t("drafts.saved_device", { time: clockNow() }));
     this.hasAny = true;
     return true;
   }
@@ -87,8 +88,8 @@ class DraftStore {
     if (this.#current !== exerciseId) return;
     this.say(
       answer.ok
-        ? "enregistré sur ton compte · " + clockNow()
-        : "enregistré sur cet appareil seulement — pas sur ton compte",
+        ? t("drafts.saved_account", { time: clockNow() })
+        : t("drafts.device_only"),
     );
   }
 
@@ -96,7 +97,7 @@ class DraftStore {
 
   opened(exerciseId: string, found: boolean): void {
     this.#current = exerciseId;
-    this.say(found ? "brouillon retrouvé" : "enregistrement automatique");
+    this.say(found ? t("drafts.found") : t("drafts.auto"));
   }
 
   schedule(save: () => void): void {
@@ -113,7 +114,7 @@ class DraftStore {
     this.cancel();
     for (const id of Object.keys(this.#store)) delete this.#store[id];
     localDrop(DRAFTS_KEY);
-    this.say("brouillons effacés");
+    this.say(t("drafts.cleared"));
     this.hasAny = false;
   }
 

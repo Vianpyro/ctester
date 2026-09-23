@@ -17,6 +17,7 @@ It was built for [TCH009](https://www.etsmtl.ca/etudes/cours/TCH009) at ÉTS, wh
 - A moderated help forum and chat, optionally bridged to Discord
 - Team assignments with live collaborative editing, revision history and ZIP hand-in
 - Course content published independently of the application, with scheduled releases
+- Interface in English and French, chosen per student; a language is one JSON file ([docs/translations.md](docs/translations.md))
 
 ## Architecture
 

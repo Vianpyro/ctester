@@ -1,5 +1,6 @@
 <script lang="ts">
   import { thread } from "./thread.svelte";
+  import { t } from "../../lib/i18n.svelte";
   import MessageItem from "./MessageItem.svelte";
 
   const messages = $derived(thread.messages ?? []);
@@ -18,33 +19,31 @@
   });
 
   const STATE_WORDS: [keyof NonNullable<typeof thread.state>, string, string][] = [
-    ["resolved", "résolue", "accent"],
-    ["answered", "répondue", "outline"],
-    ["unanswered", "sans réponse", ""],
+    ["resolved", "thread.resolved", "accent"],
+    ["answered", "thread.answered", "outline"],
+    ["unanswered", "moderation.no_reply", ""],
   ];
 </script>
 
 <div class="block">
-  <h3 class="subtitle">{thread.permalink ? "Une conversation" : "Le fil"}</h3>
+  <h3 class="subtitle">{thread.permalink ? t("thread.conversation") : t("thread.thread")}</h3>
 
   {#if thread.permalink}
     <button type="button" class="nav" onclick={() => thread.backToThread()}>
-      Revenir au fil
+      {t("thread.back")}
     </button>
   {/if}
 
   {#if !messages.length}
     <p class="help">
-      {thread.isChat
-        ? "Personne n'a encore écrit ici. Une question, même « bête », en débloque souvent plusieurs."
-        : "Personne n'a encore écrit sur cet exercice. Une question bien posée en aide souvent plusieurs."}
+      {thread.isChat ? t("thread.empty_chat") : t("thread.empty_forum")}
     </p>
   {:else}
     {#if thread.state}
       <div class="threadstate">
         {#each STATE_WORDS as [field, word, extra]}
           {#if thread.state[field]}
-            <span class={"tag " + extra}>{word}</span>
+            <span class={"tag " + extra}>{t(word)}</span>
           {/if}
         {/each}
       </div>

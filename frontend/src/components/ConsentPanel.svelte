@@ -1,31 +1,18 @@
 <script lang="ts">  import { barPanel } from "../lib/barPanel";
   import { profile } from "../lib/state/profile.svelte";
+  import { t } from "../lib/i18n.svelte";
 </script>
 
 <div id="consent" use:barPanel hidden={!profile.consentOpen}>
-  <p>
-    Te connecter fait conserver, sur le serveur de ce site&nbsp;: un identifiant de
-    compte opaque (ni ton nom, ni ton courriel), le code que tu écris pour chaque
-    exercice, l'historique de tes tentatives et de leurs résultats, et tes préférences
-    d'affichage (le thème clair ou sombre, pour le retrouver sur tes autres appareils).
-  </p>
-  <p>
-    Si les discussions sont ouvertes sur ce site&nbsp;: les messages que tu y publies
-    sont visibles des autres comptes connectés, et ils sont lus par des personnes, pas
-    par un automate. Tu y apparais comme «&nbsp;Participant&nbsp;» — ni ton nom, ni un
-    pseudonyme stable.
-  </p>
-  <p>
-    Ce n'est pas une note, et rien n'est transmis à ton enseignant. Tu peux tout effacer
-    quand tu veux avec «&nbsp;Supprimer mes données&nbsp;», messages compris. Sans
-    connexion, la page continue de fonctionner exactement pareil.
-  </p>
+  <p>{t("consent.stored")}</p>
+  <p>{t("consent.forum")}</p>
+  <p>{t("consent.not_a_grade")}</p>
   <div class="row">
     <button type="button" id="consentok" onclick={() => profile.startSignIn()}>
-      Continuer vers la connexion
+      {t("consent.continue")}
     </button>
     <button type="button" id="consentno" class="nav" onclick={() => profile.cancelConsent()}>
-      Annuler
+      {t("consent.cancel")}
     </button>
   </div>
 </div>

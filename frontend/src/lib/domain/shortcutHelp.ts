@@ -1,50 +1,39 @@
 import type { ShortcutId } from "./shortcuts";
 
+// Each row names locale keys, not text: the panel words them in the current language.
+// A cap is printed as is unless key.<cap> exists (Shift reads "Maj" in French).
 export interface HelpRow {
   caps: string[];
   label: string;
   note?: string;
 }
 
+const row = (caps: string[], id: string, note = false): HelpRow => ({
+  caps,
+  label: `shortcuts.${id}`,
+  ...(note ? { note: `shortcuts.${id}.note` } : {}),
+});
+
 export const HELP: Record<ShortcutId, HelpRow> = {
-  commentLine: {
-    caps: ["Ctrl", "/"],
-    label: "Commenter ou décommenter la ligne",
-    note: "Sur un clavier canadien-français, « / » se tape Maj+3 : Ctrl+Maj+3.",
-  },
-  commentBlock: {
-    caps: ["Ctrl", "Maj", "/"],
-    label: "Commentaire de bloc /* … */",
-    note: "Canadien-français : Ctrl+Maj+6.",
-  },
-  duplicate: { caps: ["Ctrl", "D"], label: "Dupliquer la ligne ou la sélection" },
-  deleteLine: {
-    caps: ["Ctrl", "Maj", "K"],
-    label: "Supprimer la ligne",
-    note: "Ctrl+Maj+D fait la même chose — et c'est celui à utiliser sous Firefox, où Ctrl+Maj+K est pris par le navigateur.",
-  },
-  moveUp: { caps: ["Alt", "Maj", "↑"], label: "Déplacer la ligne vers le haut" },
-  moveDown: { caps: ["Alt", "Maj", "↓"], label: "Déplacer la ligne vers le bas" },
-  completeStatement: {
-    caps: ["Ctrl", "Maj", "Entrée"],
-    label: "Terminer l'instruction (« ; » et ligne suivante)",
-  },
-  nextIssue: { caps: ["F2"], label: "Aller à la faute suivante" },
-  gotoLine: { caps: ["Ctrl", "G"], label: "Aller à la ligne…" },
-  save: {
-    caps: ["Ctrl", "S"],
-    label: "Rien à faire : ton code est enregistré tout seul",
-    note: "Le raccourci le confirme et force l'enregistrement tout de suite, au lieu d'attendre.",
-  },
-  run: { caps: ["Ctrl", "Entrée"], label: "Tester l'exercice" },
-  help: { caps: ["F1"], label: "Ouvrir et fermer cet aide-mémoire" },
-  catalog: { caps: ["Ctrl", "K"], label: "Chercher un exercice" },
-  escape: { caps: ["Échap"], label: "Fermer un panneau, sinon revenir au code" },
+  commentLine: row(["Ctrl", "/"], "commentLine", true),
+  commentBlock: row(["Ctrl", "Shift", "/"], "commentBlock", true),
+  duplicate: row(["Ctrl", "D"], "duplicate"),
+  deleteLine: row(["Ctrl", "Shift", "K"], "deleteLine", true),
+  moveUp: row(["Alt", "Shift", "↑"], "moveUp"),
+  moveDown: row(["Alt", "Shift", "↓"], "moveDown"),
+  completeStatement: row(["Ctrl", "Shift", "Enter"], "completeStatement"),
+  nextIssue: row(["F2"], "nextIssue"),
+  gotoLine: row(["Ctrl", "G"], "gotoLine"),
+  save: row(["Ctrl", "S"], "save", true),
+  run: row(["Ctrl", "Enter"], "run"),
+  help: row(["F1"], "help"),
+  catalog: row(["Ctrl", "K"], "catalog"),
+  escape: row(["Esc"], "escape"),
 };
 
 export const GROUPS: { title: string; ids: ShortcutId[] }[] = [
   {
-    title: "Écrire du code",
+    title: "shortcuts.group.write",
     ids: [
       "commentLine",
       "commentBlock",
@@ -55,29 +44,21 @@ export const GROUPS: { title: string; ids: ShortcutId[] }[] = [
       "completeStatement",
     ],
   },
-  { title: "Se déplacer", ids: ["nextIssue", "gotoLine", "catalog", "escape"] },
-  { title: "Agir", ids: ["save", "run", "help"] },
+  { title: "shortcuts.group.move", ids: ["nextIssue", "gotoLine", "catalog", "escape"] },
+  { title: "shortcuts.group.act", ids: ["save", "run", "help"] },
 ];
 
 export const NATIVE: HelpRow[] = [
-  { caps: ["Ctrl", "Z"], label: "Annuler" },
-  { caps: ["Ctrl", "Maj", "Z"], label: "Refaire", note: "Ctrl+Y marche aussi." },
-  { caps: ["Ctrl", "F"], label: "Rechercher dans la page" },
-  { caps: ["Ctrl", "C"], label: "Copier, coller, couper, tout sélectionner" },
-  { caps: ["Ctrl", "←"], label: "Se déplacer d'un mot" },
+  row(["Ctrl", "Z"], "undo"),
+  row(["Ctrl", "Shift", "Z"], "redo", true),
+  row(["Ctrl", "F"], "find"),
+  row(["Ctrl", "C"], "clipboard"),
+  row(["Ctrl", "←"], "word"),
 ];
 
 export const ALREADY: HelpRow[] = [
-  { caps: ["Tab"], label: "Indenter la ligne ou le bloc sélectionné" },
-  { caps: ["Maj", "Tab"], label: "Désindenter" },
-  {
-    caps: ["(", "[", "{", "\""],
-    label: "Se ferment toutes seules",
-    note: "Taper le caractère fermant le survole au lieu d'en écrire un second.",
-  },
-  {
-    caps: ["Échap", "puis", "Tab"],
-    label: "Sortir du champ de code au clavier",
-    note: "Tab indente : sans ce geste, on ne pourrait plus quitter l'éditeur sans la souris.",
-  },
+  row(["Tab"], "indent"),
+  row(["Shift", "Tab"], "outdent"),
+  row(["(", "[", "{", "\""], "autoclose", true),
+  row(["Esc", "then", "Tab"], "leave", true),
 ];

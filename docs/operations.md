@@ -9,7 +9,8 @@
   service installs `requirements.txt` into a volume whenever the file changes. There is no Dockerfile.
 - **The page** is built by CI (`npm run build` → `frontend/dist`) and published to GitHub Pages.
   It carries no hostname of its own: `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`,
-  `CTESTER_TITLE` and `CTESTER_PAGES_DOMAIN` are baked in at build time and are variables of the
+  `CTESTER_TITLE`, `CTESTER_LANG` and `CTESTER_PAGES_DOMAIN` are baked in at build time and are
+  variables of the
   **`github-pages` environment**. Only the `pages` job enters it, so only that job builds the page
   it deploys; the artifact the `tests` job uploads is deliberately generic, because Lighthouse
   serves it from one local origin. Before deploying, `pages` refuses a build with no CNAME or with
@@ -17,6 +18,10 @@
   site is down. `CTESTER_TITLE` is the instance's **name alone** (`TCH009`, not
   `TCH009 — Tester mon code`): the header shows the tagline beside it and the tab joins the two,
   so a title carrying the whole sentence prints it twice. The build refuses that value.
+  `CTESTER_LANG` (`fr` for ÉTS, `en` by default) is the language a student sees before choosing
+  one; the build refuses a language with no file in `frontend/src/locales/`. Set it in the `.env`
+  too: the content service renders the Typst statements with it. See
+  [translations.md](translations.md).
   `CTESTER_API_ORIGIN` is also read by the server, which is what keeps the CSP in
   `index.html` and the one in `app/csp.py` saying the same thing.
   `CTESTER_PAGE` may still point at a `dist` directory to serve the page from the API; set it to an

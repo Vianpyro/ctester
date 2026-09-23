@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from "../lib/config";
+  import { t } from "../lib/i18n.svelte";
   import { authFetch } from "../lib/auth/session.svelte";
   import { prepareTypstHtml } from "../lib/typstHtml";
 
@@ -40,8 +41,8 @@
     if (!button || !pre) return;
     const code = pre.querySelector("code")?.textContent ?? "";
     void navigator.clipboard?.writeText(code).then(() => {
-      button.textContent = "Copié";
-      setTimeout(() => (button.textContent = "Copier"), 1500);
+      button.textContent = t("statement.copied");
+      setTimeout(() => (button.textContent = t("statement.copy")), 1500);
     });
   }
 

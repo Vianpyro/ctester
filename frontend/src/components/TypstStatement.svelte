@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from "../lib/config";
+  import { t } from "../lib/i18n.svelte";
   import { authFetch } from "../lib/auth/session.svelte";
   import { theme } from "../lib/state/theme.svelte";
 
@@ -56,14 +57,14 @@
     staff ? (blobs[number] ?? "") : path(number, theme.current);
 </script>
 
-<figure class="typst" aria-label={"Consigne de " + title + ", " + pages + " page(s)"}>
+<figure class="typst" aria-label={t("statement.typst_label", { title, count: pages })}>
   {#each numbers as number (number)}
     {#if missing.has(number)}
-      <p class="loadfailed">La page {number} de la consigne n'a pas pu être chargée.</p>
+      <p class="loadfailed">{t("statement.page_failed", { n: number })}</p>
     {:else if source(number)}
       <img
         src={source(number)}
-        alt={"Consigne, page " + number + " sur " + pages}
+        alt={t("statement.page_alt", { n: number, total: pages })}
         loading={number === 1 ? "eager" : "lazy"}
         decoding="async"
         onerror={() => markFailed(number)}

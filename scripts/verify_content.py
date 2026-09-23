@@ -15,8 +15,11 @@ NONCE = "verify0123456789abcdef0123456789a"
 
 
 def failure(result):
-    """The judge's own message, plus gcc's text when it is the compilation that failed."""
-    return (result.get("message", "") + "\n" + (result.get("gcc") or "")).strip()[:400]
+    """The judge's status and code (the page words them), plus gcc's text when it is the
+    compilation that failed."""
+    said = " ".join(str(v) for v in (result.get("status"), result.get("code"),
+                                     result.get("params")) if v)
+    return (said + "\n" + (result.get("gcc") or "")).strip()[:400]
 
 
 def validate_unity(entry, sol_dir, unity_dir):
@@ -44,7 +47,8 @@ def validate_io(entry, sol_dir):
     if bad:
         first = bad[0]
         return "case %s (%r): %s\n      output: %r" % (
-            first.get("case"), first.get("stdin", ""), first.get("reason", ""),
+            first.get("case"), first.get("stdin", ""),
+            " ".join(str(v) for v in (first.get("reason"), first.get("params")) if v),
             first.get("stdout", "")[:200])
     return ""
 

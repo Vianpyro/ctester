@@ -584,17 +584,23 @@ def forum_privileges():
 
 
 def preferences():
-    assert state.read_theme(ALICE) == "", "a fresh account has no theme"
-    assert state.write_theme(ALICE, "light")
-    assert state.read_theme(ALICE) == "light"
-    assert state.write_theme(ALICE, "dark")
-    assert state.read_theme(ALICE) == "dark"
+    theme = lambda user: state.read_preferences(user)["theme"]
+    assert state.read_preferences(ALICE) == {"theme": "", "lang": ""}, "a fresh account"
+    assert state.write_preferences(ALICE, "light")
+    assert theme(ALICE) == "light"
+    assert state.write_preferences(ALICE, "dark")
+    assert theme(ALICE) == "dark"
     assert count("display_preference", ALICE) == 1
-    assert state.write_theme(ALICE, "neon") is False
-    assert state.read_theme(ALICE) == "dark"
-    assert state.write_theme(BOB, "light")
-    assert state.read_theme(ALICE) == "dark" and state.read_theme(BOB) == "light"
-    print("ok   the theme writes, overwrites, and stays this account's own")
+    assert state.write_preferences(ALICE, "neon") is False
+    assert theme(ALICE) == "dark"
+    assert state.write_preferences(BOB, "light")
+    assert theme(ALICE) == "dark" and theme(BOB) == "light"
+    assert state.write_preferences(ALICE, lang="en")
+    assert state.read_preferences(ALICE) == {"theme": "dark", "lang": "en"}, "each field alone"
+    assert state.write_preferences(ALICE, lang="fr'; --") is False
+    assert state.write_preferences(BOB + "-new", lang="pt-BR"), "a language without a theme"
+    assert state.read_preferences(BOB + "-new") == {"theme": "", "lang": "pt-BR"}
+    print("ok   the theme and the language write, overwrite, and stay this account's own")
 
 
 def deletion():

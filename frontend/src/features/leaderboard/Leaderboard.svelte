@@ -2,7 +2,7 @@
   import { fetchLeaderboard } from "../../lib/api/leaderboard";
   import { redrawAlias } from "../../lib/api/forum";
   import { whenSignedOut } from "../../lib/auth/session.svelte";
-  import { plural } from "../../lib/domain/labels";
+  import { t } from "../../lib/i18n.svelte";
   import type { LeaderboardPayload } from "../../lib/api/types";
 
   let title: HTMLHeadingElement | undefined = $state();
@@ -16,9 +16,7 @@
     const answer = await fetchLeaderboard(scope, targetGroup);
     if (!answer || typeof answer.participating !== "boolean") {
       payload = null;
-      error =
-        "Le classement n'est pas disponible pour l'instant. L'exercice et le bouton " +
-        "« Tester », eux, fonctionnent normalement.";
+      error = t("leaderboard.unavailable");
       return;
     }
     payload = answer;
@@ -43,7 +41,7 @@
 
   async function newAlias() {
     const answer = await redrawAlias();
-    said = answer.ok ? "Nouveau pseudonyme." : "Le pseudonyme n'a pas pu être changé.";
+    said = answer.ok ? t("leaderboard.new_alias") : t("leaderboard.alias_failed");
     await load();
   }
 
@@ -54,11 +52,8 @@
   }
 </script>
 
-<h2 bind:this={title} id="leaderboardtitle" tabindex="-1">Classement</h2>
-<p class="help">
-  Facultatif. Tu y participes parce que tu l'as coché, et tu peux te retirer à tout moment
-  : ta pratique et tes progrès ne changent pas.
-</p>
+<h2 bind:this={title} id="leaderboardtitle" tabindex="-1">{t("leaderboard.title")}</h2>
+<p class="help">{t("leaderboard.intro")}</p>
 
 {#if said}<p class="notice" aria-live="polite">{said}</p>{/if}
 
@@ -66,16 +61,10 @@
   <p class="failed">{error}</p>
 {:else if !payload.participating && !payload.moderator}
   <div class="block plan">
-    <div class="kicker">Tu n'y participes pas</div>
-    <p>
-      Le classement est facultatif, et tu n'y es pas. Rien de ce que tu fais n'y apparaît
-      tant que tu ne l'as pas coché.
-    </p>
-    <p class="help">
-      Tu y apparaîtrais sous un pseudonyme tiré au hasard, jamais sous ton nom, et tu
-      pourrais te retirer à tout moment sans que ta pratique ni tes progrès changent.
-    </p>
-    <button type="button" onclick={openIdentity}>Ouvrir « Mon identité »</button>
+    <div class="kicker">{t("leaderboard.out.kicker")}</div>
+    <p>{t("leaderboard.out.body")}</p>
+    <p class="help">{t("leaderboard.out.help")}</p>
+    <button type="button" onclick={openIdentity}>{t("leaderboard.open_identity")}</button>
   </div>
 {:else}
   {#if payload.moderator && (payload.groups ?? []).length}
@@ -84,20 +73,21 @@
         type="button"
         class={"nav" + (targetGroup === null ? " on" : "")}
         aria-pressed={targetGroup === null}
-        onclick={() => pick("course", null)}>Tous les groupes</button
+        onclick={() => pick("course", null)}>{t("leaderboard.all_groups")}</button
       >
       {#each payload.groups ?? [] as g (g)}
         <button
           type="button"
           class={"nav" + (targetGroup === g ? " on" : "")}
           aria-pressed={targetGroup === g}
-          onclick={() => pick("group", g)}>Groupe {String(g).padStart(2, "0")}</button
+          onclick={() => pick("group", g)}
+          >{t("leaderboard.group", { n: String(g).padStart(2, "0") })}</button
         >
       {/each}
     </div>
   {:else}
     <div class="tabs">
-      {#each [["group", "Mon groupe"], ["course", "Cours entier"]] as const as [id, label]}
+      {#each [["group", t("leaderboard.my_group")], ["course", t("leaderboard.whole_course")]] as const as [id, label]}
         <button
           type="button"
           class={"nav" + (scope === id ? " on" : "")}
@@ -110,19 +100,14 @@
 
   <div class="block">
     {#if payload.moderator}
-      <p>
-        Tu n'apparais pas au classement : il ne compte que les comptes étudiants qui s'y
-        sont inscrits.
-      </p>
+      <p>{t("leaderboard.moderator")}</p>
     {:else}
       <p class="aliasrow">
-        <span>Tu apparais sous</span>
+        <span>{t("leaderboard.you_appear_as")}</span>
         <b class="alias-value">{payload.alias || "—"}</b>
-        <button type="button" class="nav" onclick={newAlias}>Un autre nom</button>
+        <button type="button" class="nav" onclick={newAlias}>{t("leaderboard.another_name")}</button>
       </p>
-      <p class="help">
-        Tiré au hasard, jamais ton vrai nom, et rechangeable autant de fois que tu veux.
-      </p>
+      <p class="help">{t("leaderboard.alias_help")}</p>
     {/if}
   </div>
 
@@ -131,22 +116,22 @@
       <span class="figure">{payload.me.rank}</span>
       <div>
         <p>
-          sur {plural(payload.cohort, "compte")}{payload.scope === "course"
-            ? " du cours"
-            : " de ton groupe"}, ces {payload.window_days} derniers jours
+          {t(payload.scope === "course" ? "leaderboard.out_of_course" : "leaderboard.out_of_group", {
+            count: payload.cohort,
+            days: payload.window_days,
+          })}
         </p>
         {#if payload.gap}
           <p class="help">
             {payload.gap.solved > 0
-              ? plural(payload.gap.solved, "exercice") +
-                " de plus et tu passes " +
-                payload.gap.rank +
-                (payload.gap.rank === 1 ? "er" : "e") +
-                "."
-              : "Tu es à égalité avec la place au-dessus."}
+              ? t(payload.gap.rank === 1 ? "leaderboard.gap_first" : "leaderboard.gap", {
+                  count: payload.gap.solved,
+                  rank: payload.gap.rank,
+                })
+              : t("leaderboard.tied")}
           </p>
         {:else}
-          <p class="help">Personne devant toi cette semaine.</p>
+          <p class="help">{t("leaderboard.nobody_ahead")}</p>
         {/if}
       </div>
     </div>
@@ -157,57 +142,47 @@
       <table class="rank-table">
         <thead>
           <tr>
-            <th>#</th><th>Compte</th><th>Exercices réussis pour la première fois</th>
+            <th>#</th><th>{t("leaderboard.col.account")}</th><th>{t("leaderboard.col.solved")}</th>
           </tr>
         </thead>
         <tbody>
           {#each payload.rows as row (row.rank)}
             <tr class={row.mine ? "mine" : ""}>
               <td class="num">{row.rank}</td>
-              <td>{row.mine ? "Toi — " + row.alias : row.alias}</td>
+              <td>
+                {row.mine
+                  ? t("leaderboard.you", { alias: row.alias || t("identity.participant") })
+                  : row.alias || t("identity.participant")}
+              </td>
               <td class="num">{row.solved}</td>
             </tr>
           {/each}
         </tbody>
       </table>
-      <p class="help">
-        Refaire un exercice déjà réussi ne compte pas : la colonne ne bouge qu'à la
-        première réussite. Les rangs suivants ne sont pas affichés — chaque personne voit
-        sa propre ligne.
-      </p>
+      <p class="help">{t("leaderboard.table_help")}</p>
     </div>
   {:else}
     <div class="block">
-      <p>
-        Vous êtes {plural(payload.cohort, "compte")} à participer ici. Il en faut au moins
-        {payload.minimum} pour afficher un tableau.
-      </p>
-      <p class="help">
-        En dessous, un classement nomme tout le monde — y compris la dernière personne. Tu
-        vois donc ta ligne, et rien d'autre.
-      </p>
+      <p>{t("leaderboard.too_few", { count: payload.cohort, minimum: payload.minimum })}</p>
+      <p class="help">{t("leaderboard.too_few_help")}</p>
     </div>
   {/if}
 
   {#if (payload.divisions ?? []).length}
     <div class="block">
-      <h3 class="subtitle">Divisions du cours</h3>
+      <h3 class="subtitle">{t("leaderboard.divisions")}</h3>
       <div class="divisions">
         {#each payload.divisions ?? [] as d (d.id)}
           <div class={"division" + (d.id === payload.division?.id ? " on" : "")}>
-            <span class="name">{d.title}</span>
+            <span class="name">{t(`division.${d.id}`)}</span>
             <span class="what">
-              {d.id === payload.division?.id
-                ? "tu es ici — " + plural(d.accounts, "compte")
-                : plural(d.accounts, "compte")}
+              {(d.id === payload.division?.id ? t("leaderboard.you_are_here") : "") +
+                t("leaderboard.accounts", { count: d.accounts })}
             </span>
           </div>
         {/each}
       </div>
-      <p class="help">
-        Les divisions montent, jamais ne descendent en cours de session : un mauvais mois
-        ne fait rien perdre.
-      </p>
+      <p class="help">{t("leaderboard.divisions_help")}</p>
     </div>
   {/if}
 {/if}

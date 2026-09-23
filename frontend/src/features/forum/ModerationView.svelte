@@ -1,6 +1,7 @@
 <script lang="ts">  import { onMount } from "svelte";
   import { catalog } from "../../lib/state/catalog.svelte";
-  import { localTime } from "../../lib/domain/labels";
+  import { groupNumber, localTime } from "../../lib/domain/labels";
+  import { t } from "../../lib/i18n.svelte";
   import { readableThread } from "./labels";
   import { chat } from "./chat.svelte";
   import { thread } from "./thread.svelte";
@@ -12,10 +13,10 @@
     title?.focus();
   });
 
-  const stepLabel = (id: string) => thread.steps.find((s) => s.id === id)?.title ?? id;
-  const blockedLabel = (id: string) => thread.blockedKinds.find((b) => b.id === id)?.title ?? id;
+  const stepLabel = (id: string) => t(`forum.step.${id}`);
+  const blockedLabel = (id: string) => t(`forum.blocked.${id}`);
   const exerciseLabel = (id: string) => {
-    const found = catalog.catalog.find((t) => t.id === id);
+    const found = catalog.catalog.find((ex) => ex.id === id);
     return found ? found.label || found.short || id : id;
   };
   const topRows = $derived((thread.top?.rows ?? []).filter((r) => r.upvotes || !r.replies));
@@ -26,62 +27,57 @@
   }
 </script>
 
-<h2 bind:this={title} id="moderationtitle" tabindex="-1">Modération</h2>
+<h2 bind:this={title} id="moderationtitle" tabindex="-1">{t("moderation.title")}</h2>
 <p class="notice" aria-live="polite">{thread.said}</p>
 
 {#if !thread.moderator}
-  <p class="failed">Cette page est réservée à la modération.</p>
+  <p class="failed">{t("moderation.only")}</p>
 {:else}
   <div class="block">
-    <h3 class="subtitle">Questions du moment</h3>
+    <h3 class="subtitle">{t("moderation.top")}</h3>
     {#if !thread.top}
-      <p class="failed">Le classement des questions n'a pas pu être lu.</p>
+      <p class="failed">{t("moderation.top_failed")}</p>
     {:else if !topRows.length}
-      <p class="help">Rien qui ressorte sur les dernières {thread.top.hours} heures.</p>
+      <p class="help">{t("moderation.top_empty", { hours: thread.top.hours })}</p>
     {:else}
       <ul class="thread">
         {#each topRows.slice(0, 10) as r (r.id)}
           <li class="message">
             <p class="who">
               <span class="author">{readableThread(r.exercise_id)}</span>
-              {#if r.upvotes}<span class="tag accent">{r.upvotes} × « moi aussi »</span>{/if}
+              {#if r.upvotes}<span class="tag accent">{t("moderation.me_too", { n: r.upvotes })}</span>{/if}
               <span class="tag">
-                {r.replies ? (r.replies > 1 ? r.replies + " réponses" : "1 réponse") : "sans réponse"}
+                {r.replies ? t("moderation.replies", { count: r.replies }) : t("moderation.no_reply")}
               </span>
-              {#if r.visibility !== "thread"}<span class="tag">privée</span>{/if}
+              {#if r.visibility !== "thread"}<span class="tag">{t("moderation.private")}</span>{/if}
               {#if r.step}<span class="tag">{stepLabel(r.step)}</span>{/if}
             </p>
             <p class="excerpt">{r.text}</p>
             <button type="button" class="nav" onclick={() => openConversation(r.id)}>
-              Ouvrir la conversation
+              {t("moderation.open")}
             </button>
           </li>
         {/each}
       </ul>
-      <p class="help">
-        Sur les dernières {thread.top.hours} heures. Aucun nom, aucun compte : un nombre par
-        question.
-      </p>
+      <p class="help">{t("moderation.top_help", { hours: thread.top.hours })}</p>
     {/if}
   </div>
 
   <div class="block">
-    <h3 class="subtitle">Qui a besoin d'aide</h3>
+    <h3 class="subtitle">{t("moderation.help")}</h3>
     {#if thread.help === null}
-      <p class="failed">Le tableau d'aide n'a pas pu être lu.</p>
+      <p class="failed">{t("moderation.help_failed")}</p>
     {:else}
-      <p class="help">
-        Agrégé par exercice et par étape sur les {thread.help.hours} dernières heures. Aucun
-        code, aucun nom : un compte de personnes suffit pour savoir où aller dans le local.
-      </p>
+      <p class="help">{t("moderation.help_intro", { hours: thread.help.hours })}</p>
       {#if !thread.help.rows.length}
-        <p class="help">Personne n'a signalé être bloqué pour l'instant.</p>
+        <p class="help">{t("moderation.nobody_stuck")}</p>
       {:else}
         <table class="rank-table">
           <thead>
             <tr>
-              <th>Exercice</th><th>Où ça coince</th><th>Personnes</th>
-              <th>Ouvertes au groupe</th><th>Depuis</th>
+              <th>{t("moderation.col.exercise")}</th><th>{t("moderation.col.where")}</th>
+              <th>{t("moderation.col.people")}</th>
+              <th>{t("moderation.col.opened")}</th><th>{t("moderation.col.since")}</th>
             </tr>
           </thead>
           <tbody>
@@ -92,26 +88,23 @@
                 {stepLabel(row.step) + (row.blocked_kind ? " — " + blockedLabel(row.blocked_kind) : "")}
               </td>
               <td class="num">{row.people}</td>
-                <td class="num">{row.opened} sur {row.people}</td>
+                <td class="num">{t("moderation.opened", { opened: row.opened, people: row.people })}</td>
                 <td>{localTime(row.since)}</td>
               </tr>
             {/each}
           </tbody>
         </table>
-        <p class="help">
-          Une question privée reste privée : seul son auteur peut l'ouvrir à son groupe. Ce
-          tableau les compte toutes, parce que c'est le compte qui dit où aller.
-        </p>
+        <p class="help">{t("moderation.help_note")}</p>
       {/if}
     {/if}
   </div>
 
   <div class="block second">
-    <h3 class="subtitle">Signalements</h3>
+    <h3 class="subtitle">{t("moderation.reports")}</h3>
     {#if thread.reports === null}
-      <p class="failed">La file de signalements n'a pas pu être lue.</p>
+      <p class="failed">{t("moderation.reports_failed")}</p>
     {:else if !thread.reports.length}
-      <p class="help">Aucun signalement en attente.</p>
+      <p class="help">{t("moderation.no_reports")}</p>
     {:else}
       <ul class="thread">
         {#each thread.reports as s (s.id)}
@@ -120,20 +113,19 @@
               <span class="author">{s.exercise_id}</span>
               <time class="when">{localTime(s.created_at)}</time>
               <span class="state">
-                {s.report_count} signalement{s.report_count > 1 ? "s" : ""}{s.hidden
-                  ? " — masqué"
-                  : ""}
+                {t("moderation.report_count", { count: s.report_count }) +
+                  (s.hidden ? t("moderation.hidden") : "")}
               </span>
             </p>
             <Markdown source={s.text} />
             <div class="row">
               {#if s.hidden}
                 <button type="button" class="nav" onclick={() => thread.moderate(s.id, "restore")}>
-                  Rétablir
+                  {t("moderation.restore")}
                 </button>
               {:else}
                 <button type="button" class="nav" onclick={() => thread.moderate(s.id, "hide")}>
-                  Masquer
+                  {t("moderation.hide")}
                 </button>
               {/if}
             </div>
@@ -144,24 +136,24 @@
   </div>
 
   <div class="block second">
-    <h3 class="subtitle">Noms signalés</h3>
+    <h3 class="subtitle">{t("moderation.names")}</h3>
     {#if thread.reportedNames === null}
-      <p class="failed">La file des noms n'a pas pu être lue.</p>
+      <p class="failed">{t("moderation.names_failed")}</p>
     {:else if !thread.reportedNames.length}
-      <p class="help">Aucun nom signalé.</p>
+      <p class="help">{t("moderation.no_names")}</p>
     {:else}
       <ul class="thread">
         {#each thread.reportedNames as n (n.id)}
           <li class="message">
             <p class="who">
-              <span class="author">{n.display_name || "(nom déjà effacé)"}</span>
-              {#if n.group_number}<span class="group">groupe {n.group_number}</span>{/if}
+              <span class="author">{n.display_name || t("moderation.name_erased")}</span>
+              {#if n.group_number}<span class="group">{groupNumber(n.group_number)}</span>{/if}
               <time class="when">{localTime(n.created_at)}</time>
-              <span class="state">{n.report_count} signalement{n.report_count > 1 ? "s" : ""}</span>
+              <span class="state">{t("moderation.report_count", { count: n.report_count })}</span>
             </p>
             <div class="row">
               <button type="button" class="nav" onclick={() => thread.clearName(n.id)}>
-                Effacer le nom
+                {t("moderation.clear_name")}
               </button>
             </div>
           </li>

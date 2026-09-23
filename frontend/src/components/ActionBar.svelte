@@ -9,6 +9,7 @@
   import { decodeImported } from "../lib/domain/source";
   import { exportGroup } from "../lib/state/export";
   import { session } from "../lib/auth/session.svelte";
+  import { t } from "../lib/i18n.svelte";
 
   let { openConsole }: { openConsole: () => void } = $props();
 
@@ -16,11 +17,11 @@
   const isQuiz = $derived(here?.mode === "quiz");
   const exportable = $derived(!!here && isGroupExportable(catalog.catalog, here.group));
 
-  const goLabel = $derived(isQuiz ? "Tester tout le quiz" : "Tester");
+  const goLabel = $derived(isQuiz ? t("actions.test_quiz") : t("actions.test"));
   const busyLabel = $derived(
     submission.phase.kind === "cooldown"
-      ? "Nouveau test dans " + submission.phase.seconds + " s"
-      : "Test en cours…",
+      ? t("actions.cooldown", { seconds: submission.phase.seconds })
+      : t("actions.running"),
   );
 
   const working = $derived(
@@ -43,13 +44,7 @@
     if (
       replaced &&
       typeof confirm === "function" &&
-      !confirm(
-        "Remplacer le contenu de « " +
-          target +
-          " » par « " +
-          file.name +
-          " » ? Ce qui est écrit dans cet onglet sera perdu.",
-      )
+      !confirm(t("actions.replace_confirm", { target, file: file.name }))
     ) {
       input.value = "";
       return;
@@ -71,23 +66,23 @@
 <div id="actions">
   <span id="filewrap" hidden={isQuiz}>
     <input type="file" id="file" accept=".c,.txt" onchange={onFile} />
-    <label for="file" class="btn">Importer un fichier</label>
+    <label for="file" class="btn">{t("actions.import")}</label>
   </span>
   <span id="draft" class={drafts.exportFailed ? "failed" : ""} aria-live="polite"
     >{drafts.exportNote}</span
   >
   <button type="button" id="purge" class="nav" hidden={!drafts.hasAny} onclick={() => drafts.clearAll()}>
-    Effacer mes brouillons
+    {t("actions.clear_drafts")}
   </button>
   <button
     type="button"
     id="exporttp"
     class="nav"
     hidden={!exportable}
-    title="Assemble tous les exercices de ce TP dans un seul main.c"
+    title={t("actions.export_title")}
     onclick={doExport}
   >
-    Réunir le TP dans un seul main.c
+    {t("actions.export")}
   </button>
   <span class="grow"></span>
   {#if !isQuiz && session.signedIn && session.scratchOffered}
@@ -95,10 +90,10 @@
       type="button"
       id="toconsole"
       class="nav"
-      title="Lance ton code avec tes propres valeurs"
+      title={t("actions.console_title")}
       onclick={openConsole}
     >
-      Essayer dans la Console
+      {t("actions.console")}
     </button>
   {/if}
   <button
@@ -118,7 +113,7 @@
     aria-busy={working ? "true" : "false"}
     onclick={() => runTest(true)}
   >
-    {submission.busy ? busyLabel : "Tester l'exercice"}
+    {submission.busy ? busyLabel : t("actions.test_exercise")}
     {#if !submission.busy}<span class="shortcut">Ctrl+↵</span>{/if}
   </button>
 </div>

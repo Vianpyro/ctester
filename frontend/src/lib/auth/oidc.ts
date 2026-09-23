@@ -1,4 +1,5 @@
 import { dropCredentials, session, signOut, whenSignedOut } from "./session.svelte";
+import { t } from "../i18n.svelte";
 import { localGet, localSet, sessionGet, sessionSet, sessionDrop } from "../storage";
 import {
   DEADLINE_KEY,
@@ -29,7 +30,7 @@ interface Discovery {
 function config(): { issuer: string; client_id: string } {
   const c = session.deployment;
   if (!c || !c.issuer || !c.client_id) {
-    throw new Error("la configuration de connexion n'est pas disponible");
+    throw new Error(t("oidc.unconfigured"));
   }
   return { issuer: c.issuer, client_id: c.client_id };
 }

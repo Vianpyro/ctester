@@ -2,24 +2,29 @@ import { describe, expect, it } from "vitest";
 import {
   AFTER_FAILURE,
   OUTCOMES,
-  STEPS,
-  STEP_STATE,
+  afterFailure,
   caseClass,
+  caseReason,
   caseInputs,
   caseNumbers,
   estimatedWait,
   firstError,
   isJudgeFailure,
+  outcomeNext,
+  outcomeTitle,
+  quizHint,
   restrictToScope,
   showsContract,
+  stepState,
+  verdictExplain,
   verdictHeadline,
 } from "../src/lib/domain/verdict";
 import type { Verdict } from "../src/lib/api/types";
 
 describe("the three stages", () => {
   it("agrees in gender and number with the stage -- `Tests pas atteinte` is gibberish", () => {
-    expect(STEP_STATE[STEPS[0]![1]][""]).toBe("pas atteinte");
-    expect(STEP_STATE[STEPS[2]![1]][""]).toBe("pas atteints");
+    expect(stepState(0, "")).toBe("pas atteinte");
+    expect(stepState(2, "")).toBe("pas atteints");
   });
 
   it("names the stage NOT REACHED, which is what answers `did my program even run?`", () => {
@@ -28,12 +33,12 @@ describe("the three stages", () => {
   });
 
   it("gives every failure exactly one next action", () => {
-    for (const [status, outcome] of Object.entries(OUTCOMES)) {
-      expect(outcome.title, status).toBeTruthy();
-      expect(outcome.suite, status).toBeTruthy();
+    for (const status of Object.keys(OUTCOMES)) {
+      expect(outcomeTitle(status), status).not.toContain("verdict.");
+      expect(outcomeNext(status), status).not.toContain("verdict.");
     }
-    for (const mode of ["io", "unity", "quiz"]) {
-      expect(AFTER_FAILURE[mode], mode).toBeTruthy();
+    for (const mode of AFTER_FAILURE) {
+      expect(afterFailure(mode), mode).not.toContain("verdict.");
     }
   });
 });
@@ -75,19 +80,35 @@ describe("caseNumbers", () => {
 
 describe("caseClass", () => {
   it("names the KIND of failure so three folded cases still scan at a glance", () => {
-    expect(caseClass("ton programme n'a pas terminé")).toBe("n'a pas fini");
-    expect(caseClass("il a débordé de la mémoire réservée")).toBe("débordement mémoire");
-    expect(caseClass("il s'est terminé anormalement")).toBe("a planté");
-    expect(caseClass("la valeur attendue n'y est pas")).toBe("mauvaise sortie");
-    expect(caseClass(undefined)).toBe("mauvaise sortie");
+    expect(caseClass("unfinished")).toBe("unfinished");
+    expect(caseClass("interrupted")).toBe("unfinished");
+    expect(caseClass("memory")).toBe("memory");
+    expect(caseClass("crashed")).toBe("crashed");
+    expect(caseClass("wrong_values")).toBe("wrong");
+    expect(caseClass(undefined)).toBe("wrong");
+  });
+
+  it("words the judge's reason with its values, and shows an unknown one as sent", () => {
+    expect(caseReason({ case: 1, reason: "crashed", params: { code: 139 } })).toBe(
+      "le programme s'est terminé anormalement (code 139)",
+    );
+    expect(
+      caseReason({
+        case: 1,
+        reason: "out_of_range",
+        params: { count: 1, low: "1", high: "6", needed: 5 },
+      }),
+    ).toBe("ta sortie contient 1 valeur entre 1 et 6, il en faut au moins 5");
+    expect(caseReason({ case: 1, reason: "une vieille phrase" })).toBe("une vieille phrase");
+    expect(quizHint("needs_8_bits")).toBe("bonne valeur, mais l'énoncé demande 8 bits");
   });
 });
 
 describe("showsContract", () => {
   it("shows the grading contract only for a VALUE comparison", () => {
-    expect(showsContract({ case: 1, reason: "la valeur attendue n'y est pas" })).toBe(true);
-    expect(showsContract({ case: 1, reason: "ton programme n'a pas terminé" })).toBe(false);
-    expect(showsContract({ case: 1, reason: "le mot attendu n'apparaît pas" })).toBe(false);
+    expect(showsContract({ case: 1, reason: "wrong_values" })).toBe(true);
+    expect(showsContract({ case: 1, reason: "unfinished" })).toBe(false);
+    expect(showsContract({ case: 1, reason: "missing_word" })).toBe(false);
   });
 });
 
@@ -153,10 +174,10 @@ describe("verdictHeadline", () => {
   it("uses the outcome's short title on a failure, and falls back for an unknown status", () => {
     expect(
       verdictHeadline({ state: "done", status: "compile_error", kind: "io" }, null),
-    ).toBe(OUTCOMES.compile_error!.title);
+    ).toBe("Ton fichier ne compile pas.");
     expect(
       verdictHeadline({ state: "done", status: "n_importe_quoi" as never, kind: "io" }, null),
-    ).toBe(OUTCOMES.error!.title);
+    ).toBe(outcomeTitle("error"));
   });
 });
 
@@ -175,15 +196,26 @@ describe("estimatedWait", () => {
 describe("isJudgeFailure", () => {
   it("tells a crashed student program from a broken judge", () => {
     expect(
-      isJudgeFailure({ state: "done", status: "error", kind: "io", message: "Erreur interne du juge" }),
+      isJudgeFailure({ state: "done", status: "error", kind: "io", code: "judge_internal" }),
     ).toBe(true);
     expect(
-      isJudgeFailure({
-        state: "done",
-        status: "error",
-        kind: "io",
-        message: "ton programme s'est arrêté avant la fin",
-      }),
+      isJudgeFailure({ state: "done", status: "error", kind: "io", code: "tests_stopped" }),
     ).toBe(false);
+  });
+
+  it("explains a verdict by its code, then its status, then an old judge's text", () => {
+    expect(verdictExplain({ state: "done", status: "error", kind: "io", code: "tests_stopped" }))
+      .toContain("Les tests se sont arrêtés");
+    expect(
+      verdictExplain({
+        state: "done",
+        status: "forbidden_include",
+        kind: "io",
+        params: { headers: "stdlib.h" },
+      }),
+    ).toContain("stdlib.h");
+    expect(
+      verdictExplain({ state: "done", status: "compile_error", kind: "io", message: "vieux" }),
+    ).toBe("vieux");
   });
 });

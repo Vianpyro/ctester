@@ -26,6 +26,8 @@ _VERSION_RE = re.compile(r"\btypst\s+(\d+\.\d+\.\d+)")
 
 # An SVG cannot follow prefers-color-scheme, so each statement is rendered twice.
 THEMES = ("dark", "light")
+# The instance's language: hyphenation and the package's default block titles.
+LANG = os.environ.get("CTESTER_LANG", "") or "en"
 
 # Never copied next to the source, so typst cannot read the tests or the reference
 # solution even through --root.
@@ -99,7 +101,7 @@ def fingerprint(exercise_dir, version=None):
     _hash_tree(h, PACKAGES)
     h.update(b"\0")
     _hash_tree(h, FONTS)
-    h.update(b"\0")
+    h.update(b"\0" + LANG.encode() + b"\0")
     _hash_tree(h, exercise_dir, EXCLUDED)
     return h.hexdigest()[:16]
 
@@ -140,7 +142,8 @@ def _argv(workdir, theme):
 
 
 def _command(workdir, options, output):
-    common = ["compile", "--ignore-system-fonts", "--root", "."] + options
+    common = ["compile", "--ignore-system-fonts", "--root", ".", "--input", "lang=" + LANG]
+    common += options
     if BIN:
         return [BIN] + common + ["--font-path", FONTS,
                                  "main.typ", output], dict(

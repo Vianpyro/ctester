@@ -31,7 +31,7 @@ def _gate(sub, assignment_id, exercise_id=None):
     if refusal:
         return None, None, headers.error(*refusal)
     if exercise_id is not None and not team_service.exercise_in(assignment, exercise_id):
-        return None, None, headers.error(404, "exercice inconnu pour ce devoir")
+        return None, None, headers.error(404, "unknown_assignment_exercise")
     return assignment, team, None
 
 
@@ -42,15 +42,14 @@ def context(sub: Sub, assignment: str = Query("", alias="assignment")):
         return refused
     roster = state.team_roster(entry["id"], team["team_id"])
     if roster is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     profiles = state.forum_profiles(roster) or {}
     submission = state.read_team_submission(entry["id"], team["team_id"])
     if submission is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {
         "assignment": team_service.assignment_view(entry),
         "team": {"id": team["team_id"],
-                 "label": team["label"] or team_service.TEAM_NAME % team["number"],
                  "number": team["number"], "group_number": team["group_number"],
                  "members": team_service.members_view(roster, sub, profiles)},
         "submission": submission,
@@ -60,19 +59,17 @@ def context(sub: Sub, assignment: str = Query("", alias="assignment")):
 def _team_choice(sub, assignment_id):
     entry = team_service.published_assignment(assignment_id)
     if entry is None:
-        return None, None, headers.error(404, "devoir inconnu")
+        return None, None, headers.error(404, "unknown_assignment")
     if not team_service.is_team_assignment(entry):
         return None, None, headers.error(
-            400, "ce devoir n'est pas un travail d'équipe")
+            400, "not_a_team_assignment")
     if not team_service.joinable(entry):
         return None, None, headers.error(
-            409, "les équipes sont figées : le devoir est ouvert")
+            409, "teams_frozen")
     profile = state.forum_profile(sub) or {}
     group = profile.get("group_number")
     if group is None:
-        return None, None, headers.error(
-            409, "choisis d'abord ton groupe dans « Mon identité » : les "
-                 "équipes sont numérotées par groupe")
+        return None, None, headers.error(409, "pick_group_first")
     return entry, int(group), None
 
 
@@ -83,7 +80,7 @@ def available(sub: Sub, assignment: str = Query("")):
         return refused
     existing = state.team_counts(entry["id"], group)
     if existing is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     own_team = state.team_of(sub, entry["id"])
     return {"assignment_id": entry["id"], "group_number": group,
             "mine": own_team["number"] if own_team else None,
@@ -97,17 +94,17 @@ def join(sub: Sub, body: TeamJoinIn, request: Request):
         return refused
     if state.team_of(sub, entry["id"]) is not None:
         return headers.error(
-            409, "tu es déjà dans une équipe : quitte-la d'abord")
+            409, "already_in_team")
     _low, high, count = team_service.team_size(entry)
     if not 1 <= body.number <= count:
         return headers.error(
-            404, "cette équipe n'existe pas (il y en a %d)" % count)
+            404, ("no_such_team", {"count": count}))
     team_id = team_service.team_handle(group, body.number)
     throttle_write(request)
     if not state.team_join(sub, entry["id"], team_id, group, body.number,
                            team_service.TEAM_NAME % body.number, high):
         return headers.error(
-            409, "cette équipe est complète (%d places)" % high)
+            409, ("team_full", {"max": high}))
     return available(sub, entry["id"])
 
 
@@ -117,10 +114,10 @@ def leave(sub: Sub, body: TeamLeaveIn, request: Request):
     if refused is not None:
         return refused
     if state.team_of(sub, entry["id"]) is None:
-        return headers.error(404, "tu n'es dans aucune équipe pour ce devoir")
+        return headers.error(404, "not_in_team")
     throttle_write(request)
     if not state.team_leave(sub, entry["id"]):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return available(sub, entry["id"])
 
 
@@ -128,7 +125,7 @@ def leave(sub: Sub, body: TeamLeaveIn, request: Request):
 def mine(sub: Sub):
     rows = state.team_memberships(sub)
     if rows is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     out = []
     for row in rows:
         entry = team_service.published_assignment(row["assignment_id"])
@@ -136,7 +133,7 @@ def mine(sub: Sub):
             continue
         roster = state.team_roster(row["assignment_id"], row["team_id"])
         if roster is None:
-            return headers.error(503, "la base ne répond pas")
+            return headers.error(503, "db_down")
         profiles = state.forum_profiles(roster) or {}
         out.append({
             "assignment_id": entry["id"],
@@ -146,7 +143,6 @@ def mine(sub: Sub):
             "deadline": entry.get("deadline"),
             "joinable": team_service.joinable(entry),
             "number": row["number"],
-            "label": row["label"] or team_service.TEAM_NAME % row["number"],
             "group_number": row["group_number"],
             "members": team_service.members_view(roster, sub, profiles),
         })
@@ -160,7 +156,7 @@ def read_document(sub: Sub, assignment: str = Query(""), ex: str = Query("")):
         return refused
     sources = state.read_team_document(team["team_id"], ex)
     if sources is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     catalog_entry = find_exercise(ex)
     if catalog_entry is not None and sources:
         checked, message, _ = validate_files(catalog_entry, sources)
@@ -175,7 +171,7 @@ def write_document(sub: Sub, body: TeamDocumentIn, request: Request):
         return refused
     catalog_entry = find_exercise(body.exercise_id)
     if catalog_entry is None:
-        return headers.error(404, "exercice inconnu pour ce devoir")
+        return headers.error(404, "unknown_assignment_exercise")
     files, message, code = validate_files(catalog_entry, body.files)
     if message:
         return headers.error(code, message)
@@ -183,7 +179,7 @@ def write_document(sub: Sub, body: TeamDocumentIn, request: Request):
     if not state.write_team_document(team["team_id"], body.exercise_id, sub,
                                      files, uuid.uuid4().hex,
                                      config.TEAM_REVISION_WINDOW):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"ok": True}
 
 
@@ -196,7 +192,7 @@ def revisions(sub: Sub, assignment: str = Query(""), ex: str = Query("")):
     rows = state.read_team_revisions(team["team_id"], ex,
                                      config.TEAM_REVISIONS_MAX)
     if rows is None or roster is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"exercise_id": ex,
             "revisions": team_service.revisions_view(rows, roster)}
 
@@ -209,9 +205,9 @@ def revision(sub: Sub, assignment: str = Query(""), ex: str = Query(""),
         return refused
     sources = state.read_team_revision(team["team_id"], id)
     if sources is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if not sources:
-        return headers.error(404, "révision inconnue")
+        return headers.error(404, "unknown_revision")
     return {"revision_id": id, "sources": sources}
 
 
@@ -222,19 +218,19 @@ def restore(sub: Sub, body: TeamRestoreIn, request: Request):
         return refused
     catalog_entry = find_exercise(body.exercise_id)
     if catalog_entry is None:
-        return headers.error(404, "exercice inconnu pour ce devoir")
+        return headers.error(404, "unknown_assignment_exercise")
     sources = state.read_team_revision(team["team_id"], body.revision_id)
     if sources is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if not sources:
-        return headers.error(404, "révision inconnue")
+        return headers.error(404, "unknown_revision")
     files, message, code = validate_files(catalog_entry, sources)
     if message:
         return headers.error(code, message)
     throttle_write(request)
     if not state.write_team_document(team["team_id"], body.exercise_id, sub,
                                      files, uuid.uuid4().hex, 0):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"ok": True, "sources": files}
 
 
@@ -244,11 +240,11 @@ def _handin(sub, assignment_id):
         return None, None, None, None, refused
     if not (entry.get("handin") or {}).get("files"):
         return None, None, None, None, headers.error(
-            400, "ce devoir ne déclare pas de remise")
+            400, "no_handin")
     files, missing = team_service.handin_files(state, entry, team["team_id"],
                                                find_exercise)
     if files is None:
-        return None, None, None, None, headers.error(503, "la base ne répond pas")
+        return None, None, None, None, headers.error(503, "db_down")
     return entry, team, files, missing, None
 
 
@@ -258,7 +254,7 @@ def handin_zip(sub: Sub, assignment: str = Query("")):
     if refused is not None:
         return refused
     if not files:
-        return headers.error(400, "il n'y a encore rien à remettre")
+        return headers.error(400, "nothing_to_hand_in")
     body = team_service.build_zip(files)
     return Response(body, media_type="application/zip", headers={
         "Content-Disposition": 'attachment; filename="%s"'
@@ -273,13 +269,13 @@ def handin(sub: Sub, body: TeamHandinIn, request: Request):
     if refused is not None:
         return refused
     if team_service.deadline_passed(entry):
-        return headers.error(403, "la date de remise est passée")
+        return headers.error(403, "deadline_passed")
     if missing:
         return headers.error(
-            400, "remise incomplète : " + ", ".join(m["name"] for m in missing))
+            400, ("handin_incomplete", {"files": ", ".join(m["name"] for m in missing)}))
     throttle_write(request)
     if not state.write_team_submission(entry["id"], team["team_id"], sub, files):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     submission = state.read_team_submission(entry["id"], team["team_id"])
     return {"ok": True, "submission": submission or {},
             "files": sorted(files)}
@@ -354,11 +350,11 @@ async def live(socket: WebSocket):
 @router.get("/team/roster")
 def roster_view(sub: Sub, assignment: str = Query("")):
     if not security.is_moderator(sub):
-        return headers.error(403, "réservé à l'enseignant")
+        return headers.error(403, "teachers_only")
     entry = team_service.find_assignment(assignment)
     if entry is None:
-        return headers.error(404, "devoir inconnu")
+        return headers.error(404, "unknown_assignment")
     rows = state.read_teams(entry["id"])
     if rows is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"assignment_id": entry["id"], "teams": rows}

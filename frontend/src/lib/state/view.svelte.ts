@@ -1,3 +1,5 @@
+import { t } from "../i18n.svelte";
+
 export type ViewName =
   | ""
   | "progress"
@@ -15,7 +17,7 @@ class ViewState {
   }
 
   label(name: ViewName, closed: string): string {
-    return this.current === name ? "Retour à l'exercice" : closed;
+    return this.current === name ? t("view.back") : closed;
   }
 }
 

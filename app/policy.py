@@ -1,5 +1,6 @@
 # Every balancing number lives here. Achievement, card and frame ids are stored
-# in the database: renaming one orphans what students already earned.
+# in the database: renaming one orphans what students already earned. Their wording
+# is the page's, under achievement.<id>, division.<id>, frame.<id> and band.<id>.
 POLICY = {
     "version": "pilote-1",
 
@@ -16,34 +17,21 @@ POLICY = {
     "levels": [0, 30, 80, 150, 250, 400, 600],
 
     "achievements": [
-        {"id": "premiere-reussite", "on": "solved", "threshold": 1,
-         "title": "Premier exercice réussi",
-         "description": "Tu as fait passer tous les tests d'un exercice."},
-        {"id": "cinq-reussites", "on": "solved", "threshold": 5,
-         "title": "Cinq exercices réussis",
-         "description": "Cinq exercices différents, tous tests passés."},
-        {"id": "dix-reussites", "on": "solved", "threshold": 10,
-         "title": "Dix exercices réussis",
-         "description": "Dix exercices différents, tous tests passés."},
-        {"id": "premiere-competence", "on": "skills", "threshold": 1,
-         "title": "Première compétence pratiquée",
-         "description": "Tu as pratiqué un exercice qui annonce une compétence."},
-        {"id": "trois-competences", "on": "skills", "threshold": 3,
-         "title": "Trois compétences pratiquées",
-         "description": "Ta pratique touche trois compétences différentes."},
-        {"id": "premiere-verification", "on": "verifications", "threshold": 1,
-         "title": "Première vérification réussie",
-         "description": "Tu as réussi une activité de vérification, pas seulement "
-                        "un exercice de pratique."},
+        {"id": "premiere-reussite", "on": "solved", "threshold": 1},
+        {"id": "cinq-reussites", "on": "solved", "threshold": 5},
+        {"id": "dix-reussites", "on": "solved", "threshold": 10},
+        {"id": "premiere-competence", "on": "skills", "threshold": 1},
+        {"id": "trois-competences", "on": "skills", "threshold": 3},
+        {"id": "premiere-verification", "on": "verifications", "threshold": 1},
     ],
 
     "leaderboard": {
         "minimum_cohort": 5,
         "visible_rows": 5,
         "divisions": [
-            {"id": "atelier", "title": "Atelier", "threshold": 0},
-            {"id": "machiniste", "title": "Machiniste", "threshold": 8},
-            {"id": "ingenierie", "title": "Ingénierie", "threshold": 20},
+            {"id": "atelier", "threshold": 0},
+            {"id": "machiniste", "threshold": 8},
+            {"id": "ingenierie", "threshold": 20},
         ],
     },
 
@@ -105,23 +93,17 @@ POLICY = {
     },
 
     "frames": [
-        {"id": "simple", "title": "Trait simple", "threshold": 1},
-        {"id": "coupe", "title": "Trait de coupe", "threshold": 3},
-        {"id": "tolerance", "title": "Cote de tolérance", "threshold": 6},
+        {"id": "simple", "threshold": 1},
+        {"id": "coupe", "threshold": 3},
+        {"id": "tolerance", "threshold": 6},
     ],
 
     "mastery": {
         "bands": [
-            {"id": "verifie", "title": "Vérifié",
-             "description": "Toutes les vérifications ouvertes de cette compétence "
-                            "sont réussies. C'est une capacité démontrée, pas une note."},
-            {"id": "en-progression", "title": "En progression",
-             "description": "Au moins une vérification réussie ; il en reste à faire."},
-            {"id": "a-consolider", "title": "À consolider",
-             "description": "Tu as tenté une vérification sans la réussir. "
-                            "Pratique encore, puis réessaie -- rien n'est retiré."},
-            {"id": "non-verifie", "title": "Pas encore vérifié",
-             "description": "Aucune vérification tentée pour cette compétence."},
+            {"id": "verifie"},
+            {"id": "en-progression"},
+            {"id": "a-consolider"},
+            {"id": "non-verifie"},
         ],
     },
 }

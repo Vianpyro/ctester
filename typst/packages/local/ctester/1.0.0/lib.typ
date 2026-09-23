@@ -1,10 +1,11 @@
 #import "theme.typ": palette, page-width, body-font, mono-font, body-size, mono-size, theme-name
 #import "blocks.typ": attention, example, note, retype, signature
 #import "mermaid.typ": mermaid
+#import "lang.typ": lang
 
 #let statement(body) = context if target() == "html" { body } else {
   set page(width: page-width, height: auto, margin: 5.5pt, fill: palette.bg)
-  set text(font: body-font, size: body-size, fill: palette.fg, lang: "fr")
+  set text(font: body-font, size: body-size, fill: palette.fg, lang: lang)
   set par(justify: false, leading: 0.65em, spacing: 0.9em)
 
   show heading: it => block(

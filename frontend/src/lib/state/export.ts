@@ -1,4 +1,5 @@
 import { UTF8_BOM, build, codeOf, type Built } from "../domain/mainc";
+import { t } from "../i18n.svelte";
 import { exportableExercises, type Exercise } from "../domain/catalog";
 import { fetchDraft } from "../api/account";
 import { fetchProfile } from "../api/forum";
@@ -52,31 +53,26 @@ export async function exportGroup(
 ): Promise<Built | null> {
   const exercises = exportableExercises(catalog, group);
   if (!exercises.length) {
-    say("rien à exporter pour " + group, true);
+    say(t("export.nothing", { group }), true);
     return null;
   }
-  say("assemblage de " + group + "…");
+  say(t("export.building", { group }));
   const sources = await gather(exercises);
   const built = build(exercises, sources, await author(), group);
   if (built.empty.length === built.total) {
-    say("aucun code enregistré pour " + group + " : rien à exporter", true);
+    say(t("export.no_code", { group }), true);
     return built;
   }
   try {
     download("main.c", built.text);
   } catch {
-    say("le téléchargement a échoué — copie ton code à la main", true);
+    say(t("export.download_failed"), true);
     return built;
   }
   const written = built.total - built.empty.length;
   say(
-    "main.c exporté — " +
-      written +
-      " exercice" +
-      (written > 1 ? "s" : "") +
-      " sur " +
-      built.total +
-      (built.empty.length ? " (rien pour : " + built.empty.join(", ") + ")" : ""),
+    t("export.done", { count: written, total: built.total }) +
+      (built.empty.length ? t("export.empty", { names: built.empty.join(", ") }) : ""),
   );
   return built;
 }

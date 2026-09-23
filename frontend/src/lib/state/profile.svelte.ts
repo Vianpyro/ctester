@@ -1,4 +1,5 @@
 import { forgetMe } from "../api/account";
+import { t } from "../i18n.svelte";
 import { session, signOut, whenSignedOut } from "../auth/session.svelte";
 import { system } from "./system.svelte";
 import type { ForumProfile } from "../api/types";
@@ -28,9 +29,7 @@ class ProfileState {
       await startSignIn();
     } catch (e) {
       system.say(
-        "La connexion n'a pas pu démarrer : " +
-          (e instanceof Error ? e.message : String(e)) +
-          ". Tu peux continuer sans compte : tout fonctionne pareil.",
+        t("profile.signin_failed", { reason: e instanceof Error ? e.message : String(e) }),
         true,
       );
     }
@@ -48,8 +47,8 @@ class ProfileState {
     if (answer.ok) signOut();
     system.say(
       answer.ok
-        ? "Tes données ont été supprimées du serveur."
-        : "Suppression impossible pour l'instant : réessaie plus tard.",
+        ? t("profile.deleted")
+        : t("profile.delete_failed"),
       !answer.ok,
     );
   }

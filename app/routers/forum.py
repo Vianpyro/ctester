@@ -60,7 +60,7 @@ def _to_discord(entry, sub, text):
     if not discord.enabled() or not forum_service.is_chat(entry["id"]):
         return
     profiles = state.forum_profiles([sub]) or {}
-    author, _group, _reportable = forum_service.forum_identity(
+    author, _group, _reportable, _role = forum_service.forum_identity(
         profiles.get(sub), None, sub, False)
     discord.announce(entry["id"], sub, author, text,
                      entry.get("label", ""))
@@ -75,10 +75,10 @@ def _message_id(raw):
 def get_thread(sub: SubForum, ex: str = Query("")):
     entry = _thread_entry(ex)
     if entry is None:
-        return headers.error(400, "TP inconnu")
+        return headers.error(400, "unknown_exercise")
     messages = state.forum_thread(entry["id"], config.FORUM_MAX_THREAD, sub)
     if messages is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     moderator = security.is_moderator(sub)
     profiles = state.forum_profiles(
         [m["account"] for m in messages] + [sub]) or {}
@@ -90,9 +90,8 @@ def get_thread(sub: SubForum, ex: str = Query("")):
         "max": config.FORUM_MAX_CHARS,
         "messages": views,
         "state": forum_service.thread_state(views),
-        "steps": [{"id": k, "title": v} for k, v in forum_service.STEPS.items()],
-        "blocked_kinds": [{"id": k, "title": v}
-                          for k, v in forum_service.BLOCKED_KINDS.items()],
+        "steps": [{"id": k} for k in forum_service.STEPS],
+        "blocked_kinds": [{"id": k} for k in forum_service.BLOCKED_KINDS],
     }
 
 
@@ -100,7 +99,7 @@ def get_thread(sub: SubForum, ex: str = Query("")):
 def post_message(sub: SubForum, body: ForumMessageIn):
     entry = _thread_entry(body.exercise_id)
     if entry is None:
-        return headers.error(400, "TP inconnu")
+        return headers.error(400, "unknown_exercise")
     text, message = forum_service.forum_text(body.text)
     if message:
         return headers.error(400, message)
@@ -109,10 +108,10 @@ def post_message(sub: SubForum, body: ForumMessageIn):
     if body.reply_to:
         reply_to = _message_id(body.reply_to)
         if reply_to is None:
-            return headers.error(400, "identifiant invalide")
+            return headers.error(400, "invalid_id")
         if body.visibility:
             return headers.error(
-                400, "une réponse hérite de la visibilité de sa question")
+                400, "reply_inherits_visibility")
 
     throttle_forum(sub)
     _ensure_alias(sub)
@@ -121,9 +120,9 @@ def post_message(sub: SubForum, body: ForumMessageIn):
         written = state.forum_reply(uuid.uuid4().hex, entry["id"], sub,
                                     text, reply_to)
         if written is None:
-            return headers.error(503, "la base ne répond pas")
+            return headers.error(503, "db_down")
         if not written:
-            return headers.error(404, "message introuvable")
+            return headers.error(404, "message_not_found")
         forum_live.notify(entry["id"])
         _to_discord(entry, sub, text)
         return {"ok": True}
@@ -140,7 +139,7 @@ def post_message(sub: SubForum, body: ForumMessageIn):
         return headers.error(400, message)
     if not state.forum_post(uuid.uuid4().hex, entry["id"], sub, text,
                             step, blocked_kind, visibility):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     forum_live.notify(entry["id"])
     _to_discord(entry, sub, text)
     return {"ok": True}
@@ -152,20 +151,20 @@ _DISCORD_ID_RE = re.compile(r"\A[0-9]{1,24}\Z")
 @router.post("/forum/bridge")
 def discord_bridge(body: DiscordBridgeIn, request: Request):
     if not config.DISCORD_BRIDGE_KEY:
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     presented = request.headers.get("authorization", "")
     expected = "Bearer " + config.DISCORD_BRIDGE_KEY
     if not hmac.compare_digest(presented, expected):
-        return headers.error(401, "clé du pont invalide")
+        return headers.error(401, "invalid_bridge_key")
 
     entry = _thread_entry(body.exercise_id)
     if entry is None:
-        return headers.error(400, "TP inconnu")
+        return headers.error(400, "unknown_exercise")
     if not forum_service.is_chat(entry["id"]):
-        return headers.error(400, "le pont n'écrit que dans le chat public")
+        return headers.error(400, "bridge_public_only")
 
     if not _DISCORD_ID_RE.match(str(body.discord_id or "")):
-        return headers.error(400, "identifiant Discord invalide")
+        return headers.error(400, "invalid_discord_id")
     text, message = forum_service.forum_text(body.text)
     if message:
         return headers.error(400, message)
@@ -179,7 +178,7 @@ def discord_bridge(body: DiscordBridgeIn, request: Request):
 
     profile = state.forum_profile(account)
     if profile is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if (display_name or None) != profile.get("display_name"):
         state.forum_write_profile(
             uuid.uuid4().hex, account, display_name, profile.get("group_number"),
@@ -190,7 +189,7 @@ def discord_bridge(body: DiscordBridgeIn, request: Request):
 
     if not state.forum_post(uuid.uuid4().hex, entry["id"], account, text,
                             None, None, "thread"):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     forum_live.notify(entry["id"])
     return {"ok": True}
 
@@ -202,7 +201,7 @@ def get_activity(sub: SubForum):
     threads = state.forum_activity(
         sub, security.is_moderator(sub), config.FORUM_ACTIVITY_DAYS)
     if threads is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"threads": threads}
 
 
@@ -210,7 +209,7 @@ def get_activity(sub: SubForum):
 def search(sub: SubForum, q: str = Query("")):
     results = state.forum_search(q, sub, config.FORUM_SEARCH_MAX)
     if results is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"results": results}
 
 
@@ -218,18 +217,18 @@ def search(sub: SubForum, q: str = Query("")):
 def permalink(sub: SubForum, id: str = Query("")):
     message_id = _message_id(id)
     if message_id is None:
-        return headers.error(400, "identifiant invalide")
+        return headers.error(400, "invalid_id")
     thread, messages = state.forum_conversation(message_id, sub)
     if messages is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if not messages:
-        return headers.error(404, "message introuvable")
+        return headers.error(404, "message_not_found")
     moderator = security.is_moderator(sub)
     profiles = state.forum_profiles(
         [m["account"] for m in messages] + [sub]) or {}
     views = forum_service.forum_view(messages, sub, moderator, profiles)
     if not views:
-        return headers.error(404, "message introuvable")
+        return headers.error(404, "message_not_found")
     return {"exercise_id": thread, "chat": forum_service.is_chat(thread),
             "moderator": moderator, "messages": views}
 
@@ -238,13 +237,13 @@ def permalink(sub: SubForum, id: str = Query("")):
 def open_to_group(sub: SubForum, body: ForumTargetIn):
     message_id = _message_id(body.id)
     if message_id is None:
-        return headers.error(400, "identifiant invalide")
+        return headers.error(400, "invalid_id")
     throttle_forum(sub)
     opened = state.forum_open_to_group(message_id, sub)
     if opened is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if not opened:
-        return headers.error(404, "message introuvable")
+        return headers.error(404, "message_not_found")
     return {"ok": True}
 
 
@@ -252,16 +251,16 @@ def open_to_group(sub: SubForum, body: ForumTargetIn):
 def vote(sub: SubForum, body: ForumVoteIn):
     message_id = _message_id(body.id)
     if message_id is None:
-        return headers.error(400, "identifiant invalide")
+        return headers.error(400, "invalid_id")
     throttle_forum(sub)
     if int(body.value) == 0:
         marked = state.forum_unvote(message_id, sub)
     else:
         marked = state.forum_vote(message_id, sub, body.value)
     if marked is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if not marked:
-        return headers.error(404, "message introuvable")
+        return headers.error(404, "message_not_found")
     return {"ok": True}
 
 
@@ -269,13 +268,13 @@ def vote(sub: SubForum, body: ForumVoteIn):
 def delete_message(sub: SubForum, id: str = Query("")):
     message_id = _message_id(id)
     if message_id is None:
-        return headers.error(400, "identifiant invalide")
+        return headers.error(400, "invalid_id")
     thread = state.forum_thread_of(message_id)
     cleared = state.forum_delete(message_id, sub)
     if cleared is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if not cleared:
-        return headers.error(404, "message introuvable")
+        return headers.error(404, "message_not_found")
     forum_live.notify(thread)
     return {"ok": True}
 
@@ -284,14 +283,14 @@ def delete_message(sub: SubForum, id: str = Query("")):
 def report(sub: SubForum, body: ForumReportIn):
     message_id = _message_id(body.id)
     if message_id is None:
-        return headers.error(400, "identifiant invalide")
+        return headers.error(400, "invalid_id")
     throttle_forum(sub)
     if body.kind == "name":
         if state.forum_report_name(message_id, sub) is None:
-            return headers.error(503, "la base ne répond pas")
+            return headers.error(503, "db_down")
         return {"ok": True}
     if state.forum_report(message_id, sub) is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"ok": True}
 
 
@@ -300,7 +299,7 @@ def moderation_queue(sub: SubModerator):
     reported = state.forum_reports(config.FORUM_MAX_THREAD)
     names = state.forum_reported_names(config.FORUM_MAX_THREAD)
     if reported is None or names is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"reports": reported, "reported_names": [
         {"id": n["id"], "display_name": n["display_name"], "group_number": n["group_number"],
          "created_at": n["created_at"], "report_count": n["report_count"]}
@@ -311,17 +310,17 @@ def moderation_queue(sub: SubModerator):
 def moderate(sub: SubModerator, body: ForumModerationIn):
     message_id = _message_id(body.id)
     if message_id is None:
-        return headers.error(400, "identifiant invalide")
+        return headers.error(400, "invalid_id")
     if body.action == "clear-name":
         return _clear_name(message_id)
     if body.action not in ("hide", "restore", "retain", "unretain"):
-        return headers.error(400, "action inconnue")
+        return headers.error(400, "unknown_action")
     thread = state.forum_thread_of(message_id)
     done = state.forum_moderate(uuid.uuid4().hex, message_id, sub, body.action)
     if done is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if not done:
-        return headers.error(404, "message introuvable")
+        return headers.error(404, "message_not_found")
     forum_live.notify(thread)
     return {"ok": True}
 
@@ -333,35 +332,34 @@ HELP_WINDOW_HOURS = 8
 def who_needs_help(sub: SubModerator):
     rows = state.forum_help_rows(config.FORUM_MAX_THREAD, HELP_WINDOW_HOURS)
     if rows is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"rows": rows, "hours": HELP_WINDOW_HOURS,
-            "steps": [{"id": k, "title": v} for k, v in forum_service.STEPS.items()],
-            "blocked_kinds": [{"id": k, "title": v}
-                              for k, v in forum_service.BLOCKED_KINDS.items()]}
+            "steps": [{"id": k} for k in forum_service.STEPS],
+            "blocked_kinds": [{"id": k} for k in forum_service.BLOCKED_KINDS]}
 
 
 @router.get("/forum/top")
 def top(sub: SubModerator):
     rows = state.forum_top(HELP_WINDOW_HOURS, config.FORUM_MAX_THREAD)
     if rows is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"rows": rows, "hours": HELP_WINDOW_HOURS}
 
 
 def _clear_name(message_id):
     author = state.forum_author(message_id)
     if not author:
-        return headers.error(404, "message introuvable")
+        return headers.error(404, "message_not_found")
     profile = state.forum_profile(author)
     if profile is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     if not state.forum_write_profile(
             uuid.uuid4().hex, author, None, profile.get("group_number"), False,
             bool(profile.get("group_number_public")), set_by_moderator=True,
             alias=profile.get("alias"), plate_frame=profile.get("plate_frame"),
             badges_public=profile.get("badges_public"),
             leaderboard_opt_in=profile.get("leaderboard_opt_in")):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"ok": True}
 
 
@@ -369,7 +367,7 @@ def _clear_name(message_id):
 def get_profile(sub: SubForum, request: Request):
     profile = state.forum_profile(sub)
     if profile is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     facts = state.read_progress(sub)
     rank = policy.level(facts["xp"])["rank"] if facts else 1
     return dict(profile, max_display_name=config.FORUM_PSEUDO_MAX,
@@ -389,7 +387,7 @@ def put_profile(sub: SubForum, body: ForumProfileIn):
         return headers.error(400, message)
     previous = state.forum_profile(sub)
     if previous is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     facts = state.read_progress(sub)
     frame, message = forum_service.forum_frame(
         body.plate_frame,
@@ -400,7 +398,7 @@ def put_profile(sub: SubForum, body: ForumProfileIn):
     if body.leaderboard_opt_in and not alias:
         taken = state.forum_taken_aliases()
         if taken is None:
-            return headers.error(503, "la base ne répond pas")
+            return headers.error(503, "db_down")
         alias = leaderboard.draw_alias(taken, secrets.randbelow(1 << 32))
     throttle_forum(sub)
     if not state.forum_write_profile(
@@ -410,7 +408,7 @@ def put_profile(sub: SubForum, body: ForumProfileIn):
             alias=alias, plate_frame=frame,
             badges_public=body.badges_public,
             leaderboard_opt_in=body.leaderboard_opt_in):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"ok": True}
 
 

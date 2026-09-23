@@ -17,7 +17,7 @@ def read_leaderboard(sub: Sub, scope: str = Query("group"),
                      group: int | None = Query(None)):
     profile = state.forum_profile(sub)
     if profile is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     moderator = security.is_moderator(sub)
     if scope == "course":
         wanted = None
@@ -28,7 +28,7 @@ def read_leaderboard(sub: Sub, scope: str = Query("group"),
     staff = config.FORUM_MODERATORS
     rows = state.leaderboard_rows(wanted, leaderboard.WINDOW_DAYS, staff)
     if rows is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     payload = leaderboard.leaderboard_view(rows, sub, wanted, reader=moderator)
     payload["scope"] = "course" if wanted is None else "group"
     payload["group"] = wanted
@@ -46,12 +46,12 @@ def redraw_alias(sub: Sub):
     profile = state.forum_profile(sub)
     taken = state.forum_taken_aliases()
     if profile is None or taken is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     alias = leaderboard.draw_alias(taken, secrets.randbelow(1 << 32))
     if alias is None:
-        return headers.error(503, "plus de pseudonyme disponible")
+        return headers.error(503, "no_alias_left")
     if not _write(sub, profile, alias=alias):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"alias": alias}
 
 

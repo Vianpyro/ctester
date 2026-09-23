@@ -16,6 +16,7 @@ import {
   vote as voteCall,
   type PostExtra,
 } from "../../lib/api/forum";
+import { t } from "../../lib/i18n.svelte";
 import { refusal, type ApiResult } from "../../lib/api/client";
 import { session, whenSignedOut } from "../../lib/auth/session.svelte";
 import { catalog } from "../../lib/state/catalog.svelte";
@@ -35,9 +36,6 @@ import type {
 
 export type ChannelMode = "chat-general" | "chat-ex" | "forum";
 
-const UNREACHABLE =
-  "Les discussions ne sont pas disponibles pour l'instant. L'exercice et le bouton " +
-  "« Tester », eux, fonctionnent normalement.";
 
 class Thread {
   key = $state("");
@@ -99,16 +97,16 @@ class Thread {
     }
     this.key = key;
     if (!session.signedIn) {
-      this.error = "Reconnecte-toi pour ouvrir le chat.";
+      this.error = t("forum.sign_in");
       return false;
     }
     if (!key) {
-      this.error = "Aucun exercice n'est publié pour l'instant.";
+      this.error = t("progress.none_published");
       return false;
     }
     const answer = await fetchThread(key);
     if (!answer || !Array.isArray(answer.messages)) {
-      this.error = UNREACHABLE;
+      this.error = t("forum.unreachable");
       return false;
     }
     this.messages = answer.messages;
@@ -154,12 +152,14 @@ class Thread {
 
   async #write(
     call: () => Promise<ApiResult<{ ok: boolean }>>,
-    good: string,
+    good: string, // locale keys
     bad: string,
   ): Promise<boolean> {
     const answer = await call();
     const ok = !!answer?.ok;
-    this.said = ok ? good : bad + " : " + refusal(answer, "refusé");
+    this.said = ok
+      ? t(good)
+      : t("forum.failed", { what: t(bad), reason: refusal(answer, t("identity.refused")) });
     if (ok) await this.load(this.key);
     return ok;
   }
@@ -167,53 +167,53 @@ class Thread {
   async post(text: string, extra: PostExtra = {}): Promise<boolean> {
     const ok = await this.#write(
       () => postCall(this.key, text, extra),
-      "Message publié.",
-      "Message non publié",
+      "forum.posted",
+      "forum.not_posted",
     );
     if (ok) this.typing = "";
     return ok;
   }
 
   remove = (id: string) =>
-    this.#write(() => removeCall(id), "Ton message a été supprimé.", "Suppression impossible");
+    this.#write(() => removeCall(id), "forum.removed", "forum.remove_failed");
 
   report = (id: string) =>
     this.#write(
       () => reportCall(id),
-      "Signalé. Un responsable du cours va le lire.",
-      "Signalement impossible",
+      "forum.reported",
+      "forum.report_failed",
     );
 
   reportName = (id: string) =>
     this.#write(
       () => reportCall(id, "name"),
-      "Nom signalé. Un responsable du cours va le lire.",
-      "Signalement impossible",
+      "forum.name_reported",
+      "forum.report_failed",
     );
 
   openToGroup = (id: string) =>
     this.#write(
       () => openToGroupCall(id),
-      "Ta question est maintenant visible par ton groupe.",
-      "Impossible de l'ouvrir à ton groupe",
+      "forum.opened",
+      "forum.open_failed",
     );
 
   vote = (id: string, value: -1 | 0 | 1) =>
     this.#write(
       () => voteCall(id, value),
-      value === 0 ? "Vote retiré." : "Merci — ça aide les suivants.",
-      "Impossible de voter",
+      value === 0 ? "forum.vote_removed" : "forum.thanks",
+      "forum.vote_failed",
     );
 
   moderate = (id: string, action: "hide" | "restore" | "retain" | "unretain") =>
     this.#write(
       () => moderateCall(id, action),
-      action === "hide" ? "Message masqué." : action === "restore" ? "Message rétabli." : "C'est noté.",
-      "Action impossible",
+      action === "hide" ? "forum.hidden" : action === "restore" ? "forum.restored" : "forum.noted",
+      "forum.action_failed",
     );
 
   clearName = (id: string) =>
-    this.#write(() => moderateCall(id, "clear-name"), "Nom effacé.", "Action impossible");
+    this.#write(() => moderateCall(id, "clear-name"), "forum.name_cleared", "forum.action_failed");
 
   async search(terms: string): Promise<SearchResult[]> {
     return await searchCall(terms);
@@ -226,7 +226,7 @@ class Thread {
   async openPermalink(id: string): Promise<void> {
     const answer = await fetchConversation(id);
     if (!answer || !Array.isArray(answer.messages)) {
-      this.said = "Cette conversation n'est pas disponible.";
+      this.said = t("forum.conversation_gone");
       return;
     }
     this.messages = answer.messages;

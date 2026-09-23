@@ -9,7 +9,7 @@ def _ranked(rows):
 
 
 def _row(entry, rank, mine):
-    return {"rank": rank, "alias": entry["alias"] or "Participant",
+    return {"rank": rank, "alias": entry["alias"] or "",
             "solved": entry["recent"], "mine": mine}
 
 

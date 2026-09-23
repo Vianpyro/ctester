@@ -1,4 +1,5 @@
 import { fetchCatalog, fetchDetail } from "../api/public";
+import { t } from "../i18n.svelte";
 import { setSkillLabels } from "../domain/labels";
 import {
   EMPTY_CATALOG,
@@ -79,18 +80,14 @@ class CatalogState {
     const published = await fetchCatalog();
     this.loaded = true;
     if (!published || !Array.isArray(published.exercises)) {
-      system.say(
-        "La liste des exercices n'a pas pu être chargée. Recharge la page ; si ça " +
-          "recommence, préviens ton enseignant.",
-        true,
-      );
+      system.say(t("catalog.load_failed"), true);
       return "";
     }
     this.#published = published;
     setSkillLabels(published.skill_labels ?? {});
     this.model = normalize(published, this.staff);
     if (!this.collections.length) {
-      system.say("Aucun exercice n'est publié pour l'instant.");
+      system.say(t("progress.none_published"));
       return "";
     }
     const openable = this.catalog.some((t) => t.id === deepLink);

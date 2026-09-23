@@ -24,7 +24,7 @@ TIC = 0.05
 def get_scratch_draft(sub: Sub):
     draft = state.read_scratch(sub)
     if draft is None:
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return draft
 
 
@@ -38,7 +38,7 @@ def put_scratch_draft(sub: Sub, body: ScratchIn, request: Request):
         return headers.error(status, message)
     throttle_write(request)
     if not state.write_scratch(sub, code, name, header):
-        return headers.error(503, "la base ne répond pas")
+        return headers.error(503, "db_down")
     return {"ok": True}
 
 

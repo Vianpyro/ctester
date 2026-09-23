@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { t } from "../lib/i18n.svelte";
   import { highlight } from "../lib/domain/highlight";
   import { commandEdit, keyEdit, lineSpan, parseLine, type Edit } from "../lib/domain/keys";
   import { EDITOR_COMMANDS, TEXT_COMMANDS, matchShortcut, type ShortcutId } from "../lib/domain/shortcuts";
@@ -102,7 +103,7 @@
       return;
     }
     if (readOnly && TEXT_COMMANDS.has(id)) {
-      system.flash("Ce document est en lecture seule : c'est un coéquipier qui écrit.");
+      system.flash(t("editor.read_only"));
       return;
     }
     const edit = commandEdit(id, zone.value, zone.selectionStart, zone.selectionEnd);
@@ -242,24 +243,24 @@
 </div>
 {#if going !== null}
   <div class="goto">
-    <label class="offscreen" for={idPrefix + "goto"}>Aller à la ligne</label>
+    <label class="offscreen" for={idPrefix + "goto"}>{t("editor.goto")}</label>
     <input
       bind:this={goField}
       bind:value={going}
       id={idPrefix + "goto"}
       type="text"
       inputmode="numeric"
-      placeholder="Aller à la ligne…"
+      placeholder={t("editor.goto_placeholder")}
       onkeydown={onGoKeydown}
       onblur={() => (going = null)}
     />
-    <span class="gotohint">Entrée pour y aller, Échap pour annuler</span>
+    <span class="gotohint">{t("editor.goto_hint")}</span>
   </div>
 {/if}
 <div class="diags" aria-live="polite" hidden={issues.length === 0}>
   {#each issues as issue (issue.from + ":" + issue.message)}
     <button type="button" class={"diag " + issue.level} onclick={() => goTo(issue)}>
-      <span class="diagline">ligne {rowColumn(value, issue.from).row + 1}</span>
+      <span class="diagline">{t("editor.line", { n: rowColumn(value, issue.from).row + 1 })}</span>
       <span class="diagtext">{issue.message}</span>
     </button>
   {/each}

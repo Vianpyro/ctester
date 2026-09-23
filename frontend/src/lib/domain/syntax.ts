@@ -1,3 +1,5 @@
+import { t } from "../i18n.svelte";
+
 export type Level = "error" | "hint";
 
 export interface Issue {
@@ -59,7 +61,7 @@ function scan(src: string): Scanned {
           from: i,
           to: i + 2,
           level: "error",
-          message: "Ce commentaire /* n'est jamais fermé : tout ce qui suit est ignoré.",
+          message: t("syntax.open_comment"),
         });
         blank(i, src.length);
         return derailed(chars, literals, issues);
@@ -85,9 +87,7 @@ function scan(src: string): Scanned {
           to: i + 1,
           level: "error",
           message:
-            c === '"'
-              ? 'Ce guillemet " n\'est jamais refermé sur cette ligne.'
-              : "Cette apostrophe ' n'est jamais refermée sur cette ligne.",
+            c === '"' ? t("syntax.open_string") : t("syntax.open_char"),
         });
         blank(i, lineEnd(i));
         return derailed(chars, literals, issues);
@@ -107,14 +107,14 @@ function scan(src: string): Scanned {
           from: i,
           to: i + 1,
           level: "error",
-          message: "« " + c + " » ne ferme aucune « " + CLOSERS[c] + " ».",
+          message: t("syntax.stray_closer", { closer: c, opener: CLOSERS[c]! }),
         });
       } else if (top.ch !== CLOSERS[c]) {
         issues.push({
           from: i,
           to: i + 1,
           level: "error",
-          message: "« " + c + " » ferme une « " + top.ch + " » : les délimiteurs se croisent.",
+          message: t("syntax.crossed", { closer: c, opener: top.ch }),
         });
       }
     }
@@ -126,7 +126,7 @@ function scan(src: string): Scanned {
       from: open.at,
       to: open.at + 1,
       level: "error",
-      message: "« " + open.ch + " » ouverte ici n'est jamais fermée.",
+      message: t("syntax.unclosed", { opener: open.ch }),
     });
   }
 
@@ -162,7 +162,7 @@ function assignmentInCondition(blanked: string, issues: Issue[]): void {
           from: i,
           to: i + 1,
           level: "hint",
-          message: "« = » affecte une valeur ; pour comparer, il faut « == ».",
+          message: t("syntax.assign_in_test"),
         });
       }
     }
@@ -180,7 +180,7 @@ function emptyIfBody(blanked: string, issues: Issue[]): void {
       from: close + 1 + gap,
       to: close + 2 + gap,
       level: "hint",
-      message: "Ce « ; » termine le if : le bloc qui suit s'exécute toujours.",
+      message: t("syntax.empty_if"),
     });
   }
 }
@@ -228,7 +228,7 @@ function scanfWithoutAmpersand(blanked: string, literals: Literal[], issues: Iss
         from: arg.from + slice.indexOf(name),
         to: arg.to,
         level: "hint",
-        message: "Il manque peut-être « & » devant « " + name + " » dans scanf.",
+        message: t("syntax.scanf_ampersand", { name }),
       });
     }
   }
@@ -267,7 +267,7 @@ function missingSemicolon(blanked: string, issues: Issue[]): void {
       from: offset + code.length - 1,
       to: offset + code.length,
       level: "hint",
-      message: "Il manque peut-être « ; » à la fin de cette ligne.",
+      message: t("syntax.missing_semicolon"),
     });
   }
 }

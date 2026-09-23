@@ -1,5 +1,6 @@
 <script lang="ts">
   import { collaborators } from "../lib/state/collaborators.svelte";
+  import { memberName } from "../lib/domain/labels";
   import { editor } from "../lib/state/editor.svelte";
   import { measure, place, rowColumn, selectionBands, type Metrics } from "../lib/collab/carets";
 
@@ -31,7 +32,7 @@
         style={place(metrics, scroll, at.column, at.row) +
           "height:" + metrics.line + "px;background:" + member.color}
       >
-        <b class="caretname" style={"background:" + member.color}>{member.name}</b>
+        <b class="caretname" style={"background:" + member.color}>{memberName(member)}</b>
       </i>
       {#each selectionBands(text, caret.anchor, caret.head, metrics, scroll) as band}
         <i class="sel" style={band + "background:" + member.color}></i>

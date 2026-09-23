@@ -1,5 +1,6 @@
 import { localSet } from "../storage";
 import { fetchPreferences, savePreferences } from "../api/account";
+import { i18n } from "../i18n.svelte";
 
 export type Theme = "light" | "dark";
 
@@ -31,16 +32,19 @@ class ThemeState {
     const next: Theme = this.current === "light" ? "dark" : "light";
     this.apply(next);
     this.remember(next);
-    if (signedIn) void savePreferences(next);
+    if (signedIn) void savePreferences({ theme: next });
   }
 
+  // The language rides along: both are display preferences kept in the same row.
   async loadFromAccount(): Promise<void> {
     const prefs = await fetchPreferences();
     if (!prefs) return;
-    if (!prefs.theme) {
-      await savePreferences(this.current);
-      return;
+    if (prefs.lang) await i18n.choose(prefs.lang);
+    const lang = prefs.lang ? undefined : i18n.chosen() || undefined;
+    if (!prefs.theme || lang) {
+      await savePreferences({ theme: prefs.theme || this.current, lang });
     }
+    if (!prefs.theme) return;
     const named: Theme = prefs.theme === "light" ? "light" : "dark";
     this.apply(named);
     this.remember(named);

@@ -1,11 +1,12 @@
 import { fetchProfile, redrawAlias, saveProfile } from "../../lib/api/forum";
+import { t } from "../../lib/i18n.svelte";
 import {
   fetchAvailable,
   fetchMyTeams,
   joinTeam,
   leaveTeam,
 } from "../../lib/api/team";
-import { refusal } from "../../lib/api/client";
+import { refusal, serverMessage } from "../../lib/api/client";
 import { session, whenSignedOut } from "../../lib/auth/session.svelte";
 import { catalog } from "../../lib/state/catalog.svelte";
 import { profile as bar } from "../../lib/state/profile.svelte";
@@ -39,7 +40,7 @@ class Identity {
       return;
     }
     this.available = null;
-    this.teamWord = (answer.body as { error?: string } | null)?.error ?? "";
+    this.teamWord = serverMessage(answer.body);
   }
 
   teamFor(assignmentId: string): MyTeam | null {
@@ -57,11 +58,9 @@ class Identity {
   async #teamAction(call: () => ReturnType<typeof joinTeam>): Promise<void> {
     const answer = await call();
     if (answer.status === 0) {
-      this.teamWord = "Le serveur ne répond pas. Réessaie dans un instant.";
+      this.teamWord = t("identity.server_down");
     } else if (!answer.ok) {
-      this.teamWord =
-        (answer.body as { error?: string } | null)?.error ??
-        "Ça n'a pas marché. Réessaie dans un instant.";
+      this.teamWord = serverMessage(answer.body) || t("identity.failed");
     } else {
       this.teamWord = "";
       this.available = answer.body;
@@ -73,15 +72,15 @@ class Identity {
     const answer = await saveProfile(form);
     const ok = answer.ok;
     this.said = ok
-      ? "Identité enregistrée."
-      : "Identité non enregistrée : " + refusal(answer, "refusé");
+      ? t("identity.saved")
+      : t("identity.not_saved", { reason: refusal(answer, t("identity.refused")) });
     await this.load();
     return ok;
   }
 
   async redraw(): Promise<void> {
     const answer = await redrawAlias();
-    this.said = answer.ok ? "Nouveau pseudonyme." : "Le pseudonyme n'a pas pu être changé.";
+    this.said = answer.ok ? t("leaderboard.new_alias") : t("leaderboard.alias_failed");
     await this.load();
   }
 

@@ -36,10 +36,10 @@ def index(request: Request):
 @router.api_route("/assets/{name}", methods=["GET", "HEAD"])
 def asset(name: str, request: Request):
     if not ASSET_RE.match(name):
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     path = os.path.join(config.PAGE, "assets", name)
     if not os.path.isfile(path):
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     # The build puts the content hash in the name, so these bytes never change under it.
     return _serve(request, os.path.join("assets", name),
                   ASSET_TYPES[name.rsplit(".", 1)[1]], cache=headers.IMMUTABLE)
@@ -48,7 +48,7 @@ def asset(name: str, request: Request):
 @router.api_route("/{name:path}", methods=["GET", "HEAD"])
 def static_file(name: str, request: Request):
     if name not in SERVED:
-        return headers.error(404, "inconnu")
+        return headers.error(404, "unknown")
     return _serve(request, name, SERVED[name])
 
 

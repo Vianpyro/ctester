@@ -47,6 +47,7 @@ def _stateful_modules():
 class FakeDatabase:
     STATUSES = ("attempted", "solved")
     THEMES = ("light", "dark")
+    valid_lang = staticmethod(state.valid_lang)
     enabled = staticmethod(lambda: True)
 
     EMPTY_PROFILE = {"display_name": None, "group_number": None,
@@ -93,11 +94,12 @@ class FakeDatabase:
         self.notepads[user] = {"code": code, "header_name": header_name, "header": header}
         return True
 
-    def read_theme(self, user):
-        return self.themes.get(user, "")
+    def read_preferences(self, user):
+        return dict({"theme": "", "lang": ""}, **self.themes.get(user, {}))
 
-    def write_theme(self, user, theme):
-        self.themes[user] = theme
+    def write_preferences(self, user, theme="", lang=""):
+        row = self.themes.setdefault(user, {})
+        row.update({k: v for k, v in (("theme", theme), ("lang", lang)) if v})
         return True
 
     def forget(self, user):
@@ -937,7 +939,7 @@ def test_preflight_on_every_route_even_unknown():
 def test_unknown_path_stays_a_404():
     r = client.get("/pas-une-route")
     assert r.status_code == 404, r.status_code
-    assert r.json() == {"error": "inconnu"}, r.json()
+    assert r.json() == {"error": "unknown"}, r.json()
 
 
 def test_automatic_documentation_is_off():
@@ -997,7 +999,7 @@ def test_a_malformed_body_does_not_echo_the_input():
         r = c.post("/submit", content=json.dumps([secret]).encode(),
                    headers={"Content-Type": "application/json"})
         assert r.status_code == 400, (r.status_code, r.text)
-        assert r.json() == {"error": "requête malformée"}, r.json()
+        assert r.json() == {"error": "malformed_request"}, r.json()
         assert secret not in r.text, r.text
 
 
@@ -1033,7 +1035,7 @@ def test_file_size_on_both_sides():
         assert code == 413 and message, (code, message)
 
         _, message, code = catalogue.validate_files(entry, ["pas", "un", "dict"])
-        assert code == 400 and message == "fichiers manquants", (code, message)
+        assert code == 400 and message == "files_missing", (code, message)
 
 
 def test_an_unexpected_file_is_refused_not_ignored():
@@ -1043,7 +1045,7 @@ def test_an_unexpected_file_is_refused_not_ignored():
             "files": {"calendrier.h": "x", "calendrier.c": "y",
                       "secret.c": "z"}})
         assert r.status_code == 400, (r.status_code, r.text)
-        assert "secret.c" in r.json()["error"], r.json()
+        assert r.json()["params"]["files"] == "secret.c", r.json()
 
 
 def test_an_entirely_blank_submission_is_refused():
@@ -1051,7 +1053,7 @@ def test_an_entirely_blank_submission_is_refused():
         r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "tp2-ex3",
                                     "files": {"submission.c": "   \n\t  "}})
         assert r.status_code == 400, (r.status_code, r.text)
-        assert r.json()["error"] == "soumission vide", r.json()
+        assert r.json()["error"] == "empty_submission", r.json()
 
 
 def test_quiz_bounds_the_number_and_length_of_answers():
@@ -1104,7 +1106,7 @@ def test_quiz_refuses_a_payload_too_long_to_be_a_quiz():
         r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1",
                                     "answers": flood})
         assert r.status_code == 413, (r.status_code, r.text)
-        assert "trop longues" in r.json()["error"]
+        assert r.json()["error"] == "answers_too_long"
 
 
 def test_quiz_with_no_answer_entered():
@@ -1116,7 +1118,7 @@ def test_quiz_with_no_answer_entered():
                                     "answers": {}})
         assert r.status_code == 400, (r.status_code, r.text)
         r = c.post("/submit", json={"key": "cle-de-session", "exercise_id": "quiz1"})
-        assert r.status_code == 400 and r.json() == {"error": "réponses manquantes"}, r.text
+        assert r.status_code == 400 and r.json() == {"error": "answers_missing"}, r.text
 
 
 def test_malformed_exercise_id():
@@ -1207,7 +1209,7 @@ def test_quota_consumes_nothing_on_a_refused_request():
     with context(tokens={"alice": "sub-alice"}) as (c, _, _tmp):
         deps.state_quota = quotas.Quota(cooldown=0, hourly=2)
         for _ in range(5):
-            r = c.put("/draft", json={"exercise_id": "inconnu", "files": {}},
+            r = c.put("/draft", json={"exercise_id": "unknown", "files": {}},
                       headers=auth("alice"))
             assert r.status_code == 400, r.status_code
         for _ in range(2):
@@ -1270,7 +1272,7 @@ def test_refusal_order_forum_off_before_missing_token():
     with context(forum_enabled=False) as (c, _, _tmp):
         r = c.get("/forum?ex=tp2-ex3")
         assert r.status_code == 503, (r.status_code, r.text)
-        assert "discussions" in r.json()["error"], r.json()
+        assert r.json()["error"] == "forum_disabled", r.json()
     with context(moderators=["sub-prof"]) as (c, _, _tmp):
         r = c.get("/forum?ex=tp2-ex3")
         assert r.status_code == 401, (r.status_code, r.text)
@@ -1353,7 +1355,7 @@ def test_forum_text_on_both_sides_of_the_limit():
     assert forum.forum_text("a")[0] == "a"
     assert forum.forum_text("a" * config.FORUM_MAX_CHARS)[0] is not None
     too_many, message = forum.forum_text("a" * (config.FORUM_MAX_CHARS + 1))
-    assert too_many is None and str(config.FORUM_MAX_CHARS) in message, message
+    assert too_many is None and message == ("message_too_long", {"max": config.FORUM_MAX_CHARS})
 
 
 def test_forum_pseudonym_bounds_and_reserved_names():
@@ -1420,16 +1422,16 @@ def test_a_silent_database_never_becomes_a_zero():
 def test_an_empty_theme_is_a_200_and_an_outage_a_503():
     with context(tokens={"alice": "sub-alice"}) as (c, _, _tmp):
         r = c.get("/preferences", headers=auth("alice"))
-        assert r.status_code == 200 and r.json() == {"theme": ""}, r.text
+        assert r.status_code == 200 and r.json() == {"theme": "", "lang": ""}, r.text
     base = FakeDatabase()
-    base.read_theme = lambda user: None
+    base.read_preferences = lambda user: None
     with context(tokens={"alice": "sub-alice"}, base=base) as (c, _, _tmp):
         assert c.get("/preferences", headers=auth("alice")).status_code == 503
 
 
 def test_a_failed_write_does_not_answer_200():
     base = FakeDatabase()
-    base.write_theme = lambda user, theme: False
+    base.write_preferences = lambda user, theme="", lang="": False
     with context(tokens={"alice": "sub-alice"}, base=base) as (c, _, _tmp):
         r = c.put("/preferences", json={"theme": "dark"}, headers=auth("alice"))
         assert r.status_code == 503, (r.status_code, r.text)
@@ -1439,14 +1441,19 @@ def test_write_preferences_succeeds_and_says_so():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
         r = c.put("/preferences", json={"theme": "dark"}, headers=auth("alice"))
         assert r.status_code == 200 and r.json() == {"ok": True}, r.text
-        assert base.themes["sub-alice"] == "dark", base.themes
+        assert base.themes["sub-alice"] == {"theme": "dark"}, base.themes
+        r = c.put("/preferences", json={"lang": "en"}, headers=auth("alice"))
+        assert r.status_code == 200, r.text
+        r = c.get("/preferences", headers=auth("alice"))
+        assert r.json() == {"theme": "dark", "lang": "en"}, r.text
 
 
-def test_an_unknown_theme_is_refused():
+def test_an_unknown_theme_or_language_is_refused():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
-        for bad in ("", "sepia", "DARK", "light; DROP TABLE"):
-            r = c.put("/preferences", json={"theme": bad},
-                      headers=auth("alice"))
+        for bad in ({}, {"theme": ""}, {"theme": "sepia"}, {"theme": "DARK"},
+                    {"theme": "light; DROP TABLE"}, {"lang": "français"},
+                    {"lang": "FR"}, {"lang": "fr'; --"}, {"theme": "dark", "lang": "x"}):
+            r = c.put("/preferences", json=bad, headers=auth("alice"))
             assert r.status_code == 400, (bad, r.status_code)
         assert not base.themes, base.themes
 
@@ -1504,9 +1511,9 @@ def test_detail_and_quiz_survive_a_rollback_mid_request():
         with context() as (c, _base, _tmp):
             catalog_router.published_source = lambda entry, what: (None, None)
             r = c.get("/exercise/tp2-ex3.json")
-            assert r.status_code == 404 and r.json() == {"error": "inconnu"}, r.text
+            assert r.status_code == 404 and r.json() == {"error": "unknown"}, r.text
             r = c.get("/quiz/quiz1.json")
-            assert r.status_code == 404 and r.json() == {"error": "pas un quiz"}, r.text
+            assert r.status_code == 404 and r.json() == {"error": "not_a_quiz"}, r.text
     finally:
         catalog_router.published_source = guard
 
@@ -1532,7 +1539,7 @@ def test_states_and_practice_during_a_database_outage():
 def test_read_draft_refuses_an_unknown_exercise_and_distinguishes_absence():
     with context(tokens={"alice": "sub-alice"}) as (c, _base, _tmp):
         r = c.get("/draft?ex=inconnu", headers=auth("alice"))
-        assert r.status_code == 400 and r.json() == {"error": "TP inconnu"}, r.text
+        assert r.status_code == 400 and r.json() == {"error": "unknown_exercise"}, r.text
 
         r = c.get("/draft?ex=tp2-ex3", headers=auth("alice"))
         assert r.status_code == 200 and r.json() == {"sources": None}, r.text
@@ -1563,7 +1570,7 @@ def test_write_draft_refuses_a_file_outside_the_allow_list_before_the_quota():
                       json={"exercise_id": "tp2-ex3", "files": {"hack.c": "x"}},
                       headers=auth("alice"))
             assert r.status_code == 400, r.text
-            assert "fichier inattendu" in r.json()["error"], r.text
+            assert r.json()["error"] == "unexpected_file", r.text
         assert not base.drafts
         r = c.put("/draft",
                   json={"exercise_id": "tp2-ex3", "files": {"submission.c": "x"}},
@@ -1967,7 +1974,7 @@ def test_the_chat_is_a_separate_thread_and_everything_in_it_is_public():
         r = c.post("/forum", json={"exercise_id": "@chat:general",
                                    "text": "j'ose demander", "step": "statement",
                                    "visibility": "private"}, headers=auth("alice"))
-        assert r.status_code == 400 and "publics" in r.json()["error"], r.text
+        assert r.status_code == 400 and r.json()["error"] == "chat_is_public", r.text
         assert c.post("/forum", json={"exercise_id": "@chat:general",
                                       "text": "j'ose demander"},
                       headers=auth("alice")).status_code == 200
@@ -1999,7 +2006,7 @@ def test_the_discord_bridge_does_not_exist_without_a_key_and_refuses_everything_
 
         private = dict(body, exercise_id="tp2-ex3")
         r = c.post("/forum/bridge", json=private, headers=bon)
-        assert r.status_code == 400 and "chat public" in r.json()["error"], r.text
+        assert r.status_code == 400 and r.json()["error"] == "bridge_public_only", r.text
         assert c.post("/forum/bridge", json=dict(body, exercise_id="@chat:inconnu"),
                       headers=bon).status_code == 400
 
@@ -2051,7 +2058,7 @@ def test_a_reply_targets_its_root_and_has_no_visibility_of_its_own():
         r = c.post("/forum", json={"exercise_id": "@chat:general", "text": "r",
                                    "reply_to": root, "visibility": "private"},
                    headers=auth("bob"))
-        assert r.status_code == 400 and "hérite" in r.json()["error"], r.text
+        assert r.status_code == 400 and r.json()["error"] == "reply_inherits_visibility", r.text
 
         assert c.post("/forum", json={"exercise_id": "@chat:general",
                                       "text": "ma réponse", "reply_to": root},
@@ -2325,7 +2332,7 @@ def test_forum_id_based_routes_reject_an_invalid_form():
         ]
         for call in calls:
             r = call()
-            assert r.status_code == 400 and r.json() == {"error": "identifiant invalide"}, r.text
+            assert r.status_code == 400 and r.json() == {"error": "invalid_id"}, r.text
 
 
 def test_delete_ones_own_message_never_someone_elses():
@@ -2428,14 +2435,14 @@ def test_moderation_refuses_an_unknown_action():
     with context(tokens=tokens, moderators=["sub-prof"]) as (c, _fake, _tmp):
         r = c.post("/forum/moderation", json={"id": "0" * 32, "action": "edit"},
                    headers=auth("prof"))
-        assert r.status_code == 400 and r.json() == {"error": "action inconnue"}, r.text
+        assert r.status_code == 400 and r.json() == {"error": "unknown_action"}, r.text
 
 
 def test_thread_refuses_an_unknown_exercise():
     with context(tokens={"alice": "sub-alice"},
                  moderators=["sub-prof"]) as (c, _fake, _tmp):
         r = c.get("/forum?ex=inconnu", headers=auth("alice"))
-        assert r.status_code == 400 and r.json() == {"error": "TP inconnu"}, r.text
+        assert r.status_code == 400 and r.json() == {"error": "unknown_exercise"}, r.text
 
 
 def test_visibility_and_helpful_report_a_database_outage():
@@ -2502,9 +2509,9 @@ def test_forum_reports_a_database_outage_on_each_read_route():
 def test_post_validates_each_field_then_reports_an_outage():
     with context(tokens={"alice": "sub-alice"},
                  moderators=["sub-prof"]) as (c, _fake, _tmp):
-        r = c.post("/forum", json={"exercise_id": "inconnu", "text": "x"},
+        r = c.post("/forum", json={"exercise_id": "unknown", "text": "x"},
                    headers=auth("alice"))
-        assert r.status_code == 400 and r.json() == {"error": "TP inconnu"}, r.text
+        assert r.status_code == 400 and r.json() == {"error": "unknown_exercise"}, r.text
 
         r = c.post("/forum", json={"exercise_id": "tp2-ex3", "text": ""},
                    headers=auth("alice"))
@@ -2578,7 +2585,7 @@ def test_oidc_json_is_empty_when_sign_in_is_disabled():
 
 def test_sub_responds_503_outside_oidc_configuration():
     r = client.get("/states", headers=auth("alice"))
-    assert r.status_code == 503 and "persistance" in r.json()["error"], r.text
+    assert r.status_code == 503 and r.json()["error"] == "no_persistence", r.text
 
 
 def test_forum_throttle_blocks_a_burst_of_messages():
@@ -2626,7 +2633,7 @@ def test_redraw_alias_exhausts_the_vocabulary():
         for i, alias in enumerate(every_alias):
             fake.profiles["sub-%d" % i] = dict(FakeDatabase.EMPTY_PROFILE, alias=alias)
         r = c.post("/leaderboard/alias", json={}, headers=auth("alice"))
-        assert r.status_code == 503 and "pseudonyme" in r.json()["error"], r.text
+        assert r.status_code == 503 and r.json()["error"] == "no_alias_left", r.text
 
 
 def test_warn_reports_each_incomplete_configuration_independently():
@@ -2683,7 +2690,7 @@ def test_http_exception_handler_only_rewrites_the_generic_404():
     handler = main.app.exception_handlers[StarletteHTTPException]
     response = asyncio.run(handler(
         None, StarletteHTTPException(status_code=404, detail="Not Found")))
-    assert json.loads(response.body) == {"error": "inconnu"}
+    assert json.loads(response.body) == {"error": "unknown"}
     response = asyncio.run(handler(
         None, StarletteHTTPException(status_code=404, detail="exercice retiré")))
     assert json.loads(response.body) == {"error": "exercice retiré"}
@@ -2893,7 +2900,7 @@ def test_the_notepad_keeps_its_header_and_refuses_a_bad_name():
             r = client.put("/scratch/draft", json={"code": "", "header_name": name,
                                                    "header": text},
                            headers=_headers("t-alice"))
-            assert r.status_code == 400 and "en-tête" in r.text, (name, r.text)
+            assert r.status_code == 400 and "header" in r.json()["error"], (name, r.text)
         too_many = client.put("/scratch/draft",
                           json={"code": "", "header_name": "pile.h",
                                 "header": "x" * (config.MAX_CODE + 1)},
@@ -3052,7 +3059,7 @@ def test_no_team_route_opens_without_proven_membership():
                        "/team/handin.zip?assignment=devoir"):
             r = client.get(path, headers=_headers("t-bob"))
             assert r.status_code == 403, (path, r.status_code)
-            assert "équipe" in r.json()["error"]
+            assert r.json()["error"] == "not_in_team_frozen", r.text
         r = client.get("/team/context?assignment=inconnu",
                        headers=_headers("t-alice"))
         assert r.status_code == 404
@@ -3064,7 +3071,7 @@ def test_an_assignment_without_a_team_block_answers_that_it_is_not_team_work():
         r = client.get("/team/context?assignment=devoir",
                        headers=_headers("t-alice"))
         assert r.status_code == 400
-        assert "travail d'équipe" in r.json()["error"]
+        assert r.json()["error"] == "not_a_team_assignment"
 
 
 def test_the_document_is_shared_by_the_team_and_only_the_team():
@@ -3135,7 +3142,7 @@ def test_the_document_goes_through_the_same_allowlist_as_everything_else():
         r = client.put("/team/document", headers=_headers("t-alice"),
                        json={"assignment_id": "devoir", "exercise_id": "dev-a",
                              "files": {"secret.c": "x"}})
-        assert r.status_code == 400 and "inattendu" in r.json()["error"]
+        assert r.status_code == 400 and r.json()["error"] == "unexpected_file"
         pile = "a" * (config.MAX_CODE - len(json.dumps({"main.c": ""})))
         assert client.put("/team/document", headers=_headers("t-alice"),
                           json={"assignment_id": "devoir",
@@ -3215,7 +3222,7 @@ def test_the_zip_archive_is_built_by_the_server_and_deterministic():
     with assignment_deployment() as (client, fake, _):
         empty = client.get("/team/handin.zip?assignment=devoir",
                           headers=_headers("t-alice"))
-        assert empty.status_code == 400 and "rien à remettre" in empty.json()["error"]
+        assert empty.status_code == 400 and empty.json()["error"] == "nothing_to_hand_in"
         fake.documents[("e1", "dev-a")] = {"main.c": "int main(void){return 0;}\n"}
         fake.documents[("e1", "dev-b")] = {"lib.h": "#pragma once\n",
                                            "lib.c": "double f(void){return 1;}\n"}
@@ -3243,7 +3250,7 @@ def test_the_handin_is_one_per_team_and_refuses_a_gap():
         incomplete = client.post("/team/handin", headers=_headers("t-alice"),
                                 json={"assignment_id": "devoir"})
         assert incomplete.status_code == 400
-        assert "matrac_lib.c" in incomplete.json()["error"]
+        assert "matrac_lib.c" in incomplete.json()["params"]["files"]
         assert fake.handins == {}
 
         fake.documents[("e1", "dev-b")] = {"lib.c": "double f(void){return 1;}\n"}
@@ -3270,7 +3277,7 @@ def test_the_handin_closes_at_the_deadline():
         fake.documents[("e1", "dev-b")] = {"lib.c": "y\n"}
         r = client.post("/team/handin", headers=_headers("t-alice"),
                         json={"assignment_id": "devoir"})
-        assert r.status_code == 403 and "date de remise" in r.json()["error"]
+        assert r.status_code == 403 and r.json()["error"] == "deadline_passed"
         assert fake.handins == {}
         assert client.get("/team/handin.zip?assignment=devoir",
                           headers=_headers("t-alice")).status_code == 200
@@ -3310,7 +3317,7 @@ def test_a_silent_database_returns_503_and_no_document():
         fake.read_team_document = lambda *_: None
         r = client.get("/team/document?assignment=devoir&ex=dev-a",
                        headers=_headers("t-alice"))
-        assert r.status_code == 503 and r.json() == {"error": "la base ne répond pas"}
+        assert r.status_code == 503 and r.json() == {"error": "db_down"}
         fake.team_roster = lambda *_: None
         assert client.get("/team/context?assignment=devoir",
                           headers=_headers("t-alice")).status_code == 503
@@ -3458,7 +3465,7 @@ def test_my_team_is_readable_before_the_assignment_opens():
         r = client.get("/team/mine", headers=_headers("t-alice"))
         assert r.status_code == 200, r.text
         [team] = r.json()["teams"]
-        assert team["label"] == "Équipe 1" and team["group_number"] == 4
+        assert "label" not in team and team["group_number"] == 4
         assert team["number"] == 1
         assert team["access"] == "scheduled"
         assert team["available_from"].startswith("2099-10-16")
@@ -3477,7 +3484,7 @@ def test_my_team_reports_an_outage_instead_of_inventing_an_absence():
     with assignment_deployment() as (client, fake, _):
         fake.team_memberships = lambda *_: None
         r = client.get("/team/mine", headers=_headers("t-alice"))
-        assert r.status_code == 503 and r.json() == {"error": "la base ne répond pas"}
+        assert r.status_code == 503 and r.json() == {"error": "db_down"}
 
 
 @contextlib.contextmanager
@@ -3504,8 +3511,7 @@ def test_teams_are_chosen_from_a_numbered_list():
         body = view.json()
         assert body["group_number"] == 4 and body["mine"] is None
         assert [e["number"] for e in body["teams"]] == [1, 2, 3, 4, 5, 6]
-        assert body["teams"][0] == {"number": 1, "name": "Équipe 1",
-                                     "members": 0, "max": 4, "full": False}
+        assert body["teams"][0] == {"number": 1, "members": 0, "max": 4, "full": False}
         assert "sub-" not in view.text and "Coéquipier" not in view.text
 
         joined = client.post("/team/join", headers=_headers("t-alice"),
@@ -3517,13 +3523,13 @@ def test_teams_are_chosen_from_a_numbered_list():
 
         again = client.post("/team/join", headers=_headers("t-alice"),
                              json={"assignment_id": "devoir", "number": 4})
-        assert again.status_code == 409 and "quitte-la" in again.json()["error"]
+        assert again.status_code == 409 and again.json()["error"] == "already_in_team"
 
         for number in (0, 7, 999):
             r = client.post("/team/join", headers=_headers("t-bob"),
                             json={"assignment_id": "devoir", "number": number})
             assert r.status_code == 404, (number, r.status_code)
-            assert "il y en a 6" in r.json()["error"]
+            assert r.json() == {"error": "no_such_team", "params": {"count": 6}}, r.text
 
 
 def test_a_full_team_refuses_the_next_seat():
@@ -3533,7 +3539,7 @@ def test_a_full_team_refuses_the_next_seat():
         r = client.post("/team/join", headers=_headers("t-alice"),
                         json={"assignment_id": "devoir", "number": 2})
         assert r.status_code == 409, r.text
-        assert "complète (4 places)" in r.json()["error"]
+        assert r.json() == {"error": "team_full", "params": {"max": 4}}, r.text
         view = client.get("/team/available?assignment=devoir",
                          headers=_headers("t-alice")).json()
         assert view["teams"][1]["full"] is True
@@ -3563,12 +3569,12 @@ def test_opening_the_assignment_freezes_the_teams():
                               ("/team/leave", {"assignment_id": "devoir"})):
             r = client.post(path, headers=_headers("t-alice"), json=body)
             assert r.status_code == 409, (path, r.text)
-            assert "figées" in r.json()["error"]
+            assert r.json()["error"] == "teams_frozen", r.text
         assert client.get("/team/available?assignment=devoir",
                           headers=_headers("t-alice")).status_code == 409
         r = client.get("/team/document?assignment=devoir&ex=dev-a",
                        headers=_headers("t-alice"))
-        assert r.status_code == 403 and "enseignant" in r.json()["error"]
+        assert r.status_code == 403 and r.json()["error"] == "not_in_team_frozen"
 
     with choice_deployment() as (client, fake, _):
         assert client.post("/team/join", headers=_headers("t-alice"),
@@ -3584,7 +3590,7 @@ def test_without_a_profile_group_the_list_says_what_to_do():
         r = client.get("/team/available?assignment=devoir",
                        headers=_headers("t-bob"))
         assert r.status_code == 409, r.text
-        assert "Mon identité" in r.json()["error"]
+        assert r.json()["error"] == "pick_group_first"
 
 
 def test_two_groups_each_have_their_own_team_number_1():

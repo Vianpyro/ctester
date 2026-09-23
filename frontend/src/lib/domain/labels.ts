@@ -1,3 +1,5 @@
+import { i18n, t } from "../i18n.svelte";
+
 let SKILL_LABELS: Record<string, string> = {};
 
 /** The published catalogue carries a label per skill; an unnamed one shows its id. */
@@ -7,26 +9,27 @@ export function setSkillLabels(labels: Record<string, string>): void {
 
 export const skillLabel = (id: string): string => SKILL_LABELS[id] ?? id;
 
-export const EXPECTED: Record<string, string> = {
-  quiz: "réponses à saisir",
-  io: "programme complet, avec son main()",
-  unity: "module seul, sans main()",
-};
+const MODES = ["quiz", "io", "unity"];
 
-export const UNITS: Record<string, string> = {
-  quiz: "réponses justes",
-  io: "cas réussis",
-  unity: "tests réussis",
-};
+export const expectedOf = (mode: string): string =>
+  MODES.includes(mode) ? t(`mode.${mode}.expected`) : "";
 
-export const STATUS_WORD: Record<string, string> = { solved: "réussi", attempted: "essayé" };
+export const unitsOf = (mode: string): string =>
+  t(`mode.${MODES.includes(mode) ? mode : "io"}.units`);
+
+export const statusWord = (status: string): string =>
+  status === "solved" || status === "attempted" ? t(`status.${status}`) : status;
 export const STATUS_MARK: Record<string, string> = { solved: "✓", attempted: "•" };
 export const STATUS_CLASS: Record<string, string> = { solved: "valid", attempted: "tryit" };
 
-export const plural = (n: number, word: string): string => n + " " + word + (n > 1 ? "s" : "");
+// A teammate who shows no name is "Teammate <n>", n from the handle the server gives (m1, m2…).
+export const memberName = (member: { id: string; name: string }): string =>
+  member.name || t("team.mate", { n: member.id.replace(/^m/, "") });
+
+export const teamLabel = (number: number): string => t("team.label", { n: number });
 
 export const groupNumber = (n: number | string): string =>
-  "groupe " + String(n).padStart(2, "0");
+  t("group.number", { n: String(n).padStart(2, "0") });
 
 export function initialsOf(name: string): string {
   const words = String(name || "")
@@ -48,5 +51,5 @@ export function clockNow(at: Date = new Date()): string {
 export function localTime(instant: string): string {
   const d = new Date(instant);
   if (isNaN(d.getTime())) return String(instant);
-  return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+  return d.toLocaleString(i18n.lang, { dateStyle: "short", timeStyle: "short" });
 }

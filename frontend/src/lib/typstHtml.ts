@@ -1,4 +1,5 @@
 import { highlight } from "./domain/highlight";
+import { t } from "./i18n.svelte";
 
 const STRIPPED = "script, style, link, meta, base, iframe, object, embed, form";
 
@@ -39,7 +40,7 @@ export function prepareTypstHtml(source: string): Prepared {
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "copy";
-    button.textContent = "Copier";
+    button.textContent = t("statement.copy");
     pre.prepend(button);
   }
   return { html: body.innerHTML, blobs };

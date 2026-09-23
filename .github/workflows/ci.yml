@@ -216,6 +216,7 @@ jobs:
           CTESTER_API_ORIGIN: ${{ vars.CTESTER_API_ORIGIN }}
           CTESTER_AUTH_ORIGIN: ${{ vars.CTESTER_AUTH_ORIGIN }}
           CTESTER_TITLE: ${{ vars.CTESTER_TITLE }}
+          CTESTER_LANG: ${{ vars.CTESTER_LANG }}
           CTESTER_PAGES_DOMAIN: ${{ vars.CTESTER_PAGES_DOMAIN }}
       # An unconfigured build looks fine and bricks the site: it asks its own origin for
       # /catalog.json and gets a 404. Never publish one.

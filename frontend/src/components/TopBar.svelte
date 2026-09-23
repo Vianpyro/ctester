@@ -1,5 +1,7 @@
 <script lang="ts">
   import { TITLE } from "../lib/config";
+  import { i18n, languageName, LANGUAGES, t } from "../lib/i18n.svelte";
+  import { savePreferences } from "../lib/api/account";
   import { catalog } from "../lib/state/catalog.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import { presence } from "../lib/state/presence.svelte";
@@ -33,6 +35,14 @@
     if (target) exercise.open(target.id);
   };
   const index = $derived(catalog.catalog.findIndex((t) => t.id === catalog.selectedId));
+
+  $effect(() => {
+    document.title = TITLE + " — " + t("app.tagline");
+  });
+
+  const chooseLanguage = async (lang: string) => {
+    if ((await i18n.choose(lang)) && signedIn) void savePreferences({ lang });
+  };
 </script>
 
 <div id="top">
@@ -40,13 +50,13 @@
     <button
       type="button"
       id="home"
-      title="Revenir à l'exercice"
+      title={t("topbar.home")}
       onclick={() => view.show("")}
     >
-      {TITLE}<span class="tagline">Tester mon code</span>
+      {TITLE}<span class="tagline">{t("app.tagline")}</span>
     </button>
   </h1>
-  <span class="tagline credit">par <a href="https://www.linkedin.com/in/vianney-veremme-1b88a5177" target="_blank">Vianney Veremme</a></span>
+  <span class="tagline credit">{t("topbar.by")} <a href="https://www.linkedin.com/in/vianney-veremme-1b88a5177" target="_blank">Vianney Veremme</a></span>
   <span id="live" class="tagline" aria-live="polite" hidden={presence.count === null}>
     {presence.label}
   </span>
@@ -59,8 +69,8 @@
       type="button"
       id="prev"
       class="nav"
-      aria-label="Exercice précédent"
-      title="Exercice précédent"
+      aria-label={t("topbar.prev")}
+      title={t("topbar.prev")}
       disabled={index <= 0}
       onclick={() => step(-1)}>‹</button
     >
@@ -68,8 +78,8 @@
       type="button"
       id="next"
       class="nav"
-      aria-label="Exercice suivant"
-      title="Exercice suivant"
+      aria-label={t("topbar.next")}
+      title={t("topbar.next")}
       disabled={index < 0 || index >= catalog.catalog.length - 1}
       onclick={() => step(1)}>›</button
     >
@@ -79,19 +89,19 @@
   <span class="group">
     {#if signedIn}
       <button type="button" id="myprogress" class="nav" onclick={() => openView("progress")}>
-        {view.label("progress", "Mes progrès")}
+        {view.label("progress", t("topbar.progress"))}
       </button>
       {#if session.forumOffered}
         <button type="button" id="discussions" class="nav" onclick={openChat}>
           {view.current === "forum" || view.current === "moderation"
-            ? "Retour à l'exercice"
-            : "Chat"}
-          {#if dock.unread}<span class="pill" aria-label="Des messages non lus"></span>{/if}
+            ? t("view.back")
+            : t("topbar.chat")}
+          {#if dock.unread}<span class="pill" aria-label={t("topbar.unread")}></span>{/if}
         </button>
       {/if}
       {#if session.scratchOffered}
         <button type="button" id="scratch" class="nav" onclick={() => openView("scratch")}>
-          {view.label("scratch", "Console")}
+          {view.label("scratch", t("topbar.console"))}
         </button>
       {/if}
     {/if}
@@ -104,29 +114,43 @@
     class="nav"
     aria-expanded={helpOpen}
     aria-controls="shortcuts"
-    title="Les raccourcis clavier de la page"
+    title={t("topbar.shortcuts_title")}
     onclick={openHelp}
   >
-    Raccourcis<span class="shortcut">F1</span>
+    {t("topbar.shortcuts")}<span class="shortcut">F1</span>
   </button>
   <button
     type="button"
     id="theme"
     class="nav"
-    title={light ? "Passer au thème sombre" : "Passer au thème clair"}
-    aria-label={light ? "Passer au thème sombre" : "Passer au thème clair"}
+    title={light ? t("topbar.to_dark") : t("topbar.to_light")}
+    aria-label={light ? t("topbar.to_dark") : t("topbar.to_light")}
     onclick={() => theme.toggle(signedIn)}>{light ? "☾" : "☀"}</button
   >
+  {#if LANGUAGES.length > 1}
+    <select
+      id="language"
+      class="nav"
+      aria-label={t("topbar.language")}
+      title={t("topbar.language")}
+      value={i18n.lang}
+      onchange={(e) => chooseLanguage(e.currentTarget.value)}
+    >
+      {#each LANGUAGES as lang (lang)}
+        <option value={lang}>{languageName(lang)}</option>
+      {/each}
+    </select>
+  {/if}
 
   {#if !signedIn && session.oidcOffered}
     <button
       type="button"
       id="login"
       class="nav"
-      title="Crée un compte pour débloquer la Console (code libre) et le chat"
+      title={t("topbar.login_title")}
       onclick={() => profile.askConsent()}
     >
-      Se connecter
+      {t("topbar.login")}
     </button>
   {/if}
 
@@ -136,7 +160,7 @@
         <span class="initials" id="initials" aria-hidden="true">
           {initialsOf(plate?.display_name ?? "")}
         </span>
-        <span id="whoami">{plate?.display_name || "Compte"}</span>
+        <span id="whoami">{plate?.display_name || t("topbar.account")}</span>
         {#if plate?.group_number}
           <span class="group" id="mygroup">
             g.{String(plate.group_number).padStart(2, "0")}
@@ -144,7 +168,7 @@
         {/if}
       </summary>
       <div class="menupanel">
-        <span id="me">connecté</span>
+        <span id="me">{t("topbar.signed_in")}</span>
         <AccountMenu {openView} />
       </div>
     </details>

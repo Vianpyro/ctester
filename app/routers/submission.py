@@ -51,30 +51,30 @@ router = APIRouter(tags=["submission"])
 def submit(body: SubmissionIn, request: Request):
     # First and in constant time: nothing else may be observable without the key.
     if not config.KEY or not hmac.compare_digest(body.key, config.KEY):
-        return headers.error(403, "clé de session invalide ou expirée")
+        return headers.error(403, "invalid_session_key")
 
     sub = security.current_user(request.headers)
     entry = find_exercise(body.exercise_id, security.is_moderator(sub))
     if entry is None:
-        return headers.error(400, "TP inconnu")
+        return headers.error(400, "unknown_exercise")
 
     if entry.get("mode") == "quiz":
         if not isinstance(body.answers, dict):
-            return headers.error(400, "réponses manquantes")
+            return headers.error(400, "answers_missing")
         trimmed = {str(k)[:MAX_KEY]: _one(v)
                    for k, v in list(body.answers.items())[:MAX_ANSWERS]}
         if not any(_filled(v) for v in trimmed.values()):
-            return headers.error(400, "aucune réponse saisie")
+            return headers.error(400, "no_answer")
         blob = json.dumps(trimmed).encode()
         if len(blob) > MAX_ANSWERS_BYTES:
-            return headers.error(413, "réponses trop longues")
+            return headers.error(413, "answers_too_long")
         name = "answers.json"
     else:
         files, message, code = validate_files(entry, body.files)
         if message:
             return headers.error(code, message)
         if not any(v.strip() for v in files.values()):
-            return headers.error(400, "soumission vide")
+            return headers.error(400, "empty_submission")
         name, blob = "files.json", json.dumps(files).encode()
 
     station = request.query_params.get("station", "")[:64]
@@ -83,12 +83,12 @@ def submit(body: SubmissionIn, request: Request):
         wait = (deps.signed_in_quota if sub else deps.quota).check(who, time.time())
         if wait:
             return headers.error(
-                429, f"trop de soumissions -- réessaie dans {wait} s",
+                429, "too_many_submissions", params={"wait": wait},
                 retry_after=wait)
         # Counting and writing under the same lock, or concurrent requests overrun QUEUE_MAX.
         pending = sum(1 for _, _, finished in spool.scan_jobs() if not finished)
         if pending >= config.QUEUE_MAX:
-            return headers.error(503, "file pleine -- réessaie dans une minute")
+            return headers.error(503, "queue_full")
         job_id = spool.write_job(entry["id"], name, blob, sub,
                                  station=None if sub else security.station_tag(station))
     return {"id": job_id}
@@ -97,7 +97,7 @@ def submit(body: SubmissionIn, request: Request):
 @router.get("/r/{job_id}")
 def get_result(job_id: str):
     if not JOB_RE.match(job_id):
-        return headers.error(400, "identifiant invalide")
+        return headers.error(400, "invalid_id")
     exercise_id, owner = spool.job_metadata(job_id)
     path = os.path.join(config.RESULTS, job_id, "result.json")
     try:
@@ -106,7 +106,7 @@ def get_result(job_id: str):
     except OSError:
         result = None
     except ValueError:
-        return headers.error(500, "verdict illisible", key="message",
+        return headers.error(500, "verdict_unreadable", key="message",
                              state="error")
 
     if result is not None:

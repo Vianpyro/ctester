@@ -86,12 +86,12 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     const source = eagerSource();
     for (const sentence of [
       "openid profile offline_access",
-      "Ce qui se publie ici",
-      "Historique partagé",
-      "Maîtrise vérifiée",
-      "Réponds à ton programme",
-      "Divisions du cours",
-      "privée par défaut",
+      "forum.rules",
+      "team.shared_history",
+      "progress.mastery",
+      "console.input_label",
+      "leaderboard.divisions",
+      "collection.held",
     ]) {
       expect(source, sentence).not.toContain(sentence);
     }
@@ -101,12 +101,23 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     const source = eagerSource();
     for (const sentence of [
       "catalog.json",
-      "En attente d'une soumission.",
-      "Il manque ta clé d'accès",
-      "personnes en ligne",
-      "Importer un fichier",
+      "verdict.idle",
+      "access.missing_key",
+      "presence.online",
+      "actions.import",
     ]) {
       expect(source, sentence).toContain(sentence);
+    }
+  });
+
+  it("keeps every language in its own chunk, fetched before mount but never eager", () => {
+    const source = eagerSource();
+    for (const lang of readdirSync(join(import.meta.dirname, "..", "src", "locales"))) {
+      const tagline = JSON.parse(
+        readFileSync(join(import.meta.dirname, "..", "src", "locales", lang), "utf8"),
+      )["app.tagline"];
+      expect(source, lang).not.toContain(tagline);
+      expect(allChunks().some((name) => name.startsWith(lang.replace(".json", ""))), lang).toBe(true);
     }
   });
 
@@ -119,22 +130,22 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
   });
 
   it("keeps the QUIZ widgets out: most exercises are not a quiz", () => {
-    expect(eagerSource(), "the quiz nav is only for a quiz").not.toContain("‹ Précédent");
+    expect(eagerSource(), "the quiz nav is only for a quiz").not.toContain("quiz.previous");
     const panel = allChunks().find((name) => name.startsWith("QuizPanel"));
     expect(panel, "the quiz panel must exist as its own chunk").toBeTruthy();
-    expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("‹ Précédent");
+    expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("quiz.previous");
   });
 
   it("keeps the shortcuts WORKING but the cheat sheet DEFERRED", () => {
     const source = eagerSource();
     expect(source, "the matcher runs on every keystroke").toContain("commentBlock");
     expect(source, "so do the transforms").toContain("completeStatement");
-    for (const prose of ["Dupliquer la ligne", "clavier canadien-français", "Désindenter"]) {
-      expect(source, prose).not.toContain(prose);
+    for (const key of ["shortcuts.group.write", "shortcuts.already", "outdent"]) {
+      expect(source, key).not.toContain(key);
     }
     const panel = allChunks().find((name) => name.startsWith("ShortcutsPanel"));
     expect(panel, "the cheat sheet must exist as its own chunk").toBeTruthy();
-    expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("Dupliquer la ligne");
+    expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("shortcuts.group.write");
   });
 
   it("really did split: the deferred screens exist as their own chunks", () => {

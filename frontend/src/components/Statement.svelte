@@ -4,6 +4,7 @@
   import { lockNote } from "../lib/domain/catalog";
   import { renderStatement } from "../lib/domain/statement";
   import TypstStatement from "./TypstStatement.svelte";
+  import { t } from "../lib/i18n.svelte";
   import TypstHtml from "./TypstHtml.svelte";
 
   const current = $derived(exercise.statement);
@@ -13,12 +14,12 @@
 </script>
 
 <details id="statement" open>
-  <summary class="phead">Consigne</summary>
+  <summary class="phead">{t("statement.title")}</summary>
   {#if closed}
-    <p class="preview">🔒 Invisible pour les étudiants — {closed}.</p>
+    <p class="preview">{t("statement.hidden", { note: closed })}</p>
   {/if}
   {#if current.kind === "loading"}
-    <pre id="statementtext" class="empty">Chargement…</pre>
+    <pre id="statementtext" class="empty">{t("statement.loading")}</pre>
   {:else if current.kind === "text"}
     <div id="statementtext" class="md">{@html renderStatement(current.text)}</div>
   {:else if current.kind === "typst" && current.html && htmlFailedFor !== current.id}
@@ -36,12 +37,12 @@
       />
     </div>
   {:else if current.kind === "none"}
-    <pre id="statementtext" class="empty">Cet exercice n'a pas de consigne en ligne. Reporte-toi à l'énoncé remis par ton enseignant : les noms de fichiers et de fonctions attendus y sont.</pre>
+    <pre id="statementtext" class="empty">{t("statement.none")}</pre>
   {:else}
-    <pre id="statementtext" class="empty">La consigne n'a pas pu être chargée. Tu peux quand même écrire et tester : les noms de fichiers attendus, eux, sont déjà là.<button
+    <pre id="statementtext" class="empty">{t("statement.failed")}<button
         type="button"
         class="nav"
-        onclick={() => exercise.retryStatement()}>Réessayer</button
+        onclick={() => exercise.retryStatement()}>{t("statement.retry")}</button
       ></pre>
   {/if}
 </details>

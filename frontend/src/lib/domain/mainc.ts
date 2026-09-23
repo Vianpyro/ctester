@@ -1,4 +1,5 @@
 import { TITLE } from "../config";
+import { t } from "../i18n.svelte";
 import type { Exercise } from "./catalog";
 
 // Without a BOM, Visual Studio reads the file in the system code page and mangles accents.
@@ -11,10 +12,6 @@ const OPEN_RE = /^[ \t]*#[ \t]*(if|ifdef|ifndef)\b/;
 const CLOSE_RE = /^[ \t]*#[ \t]*endif\b/;
 const CRT_RE = /^[ \t]*#[ \t]*define[ \t]+_CRT_SECURE_NO_WARNINGS\b/;
 
-const NO_CODE =
-  "    /* Aucun code enregistré pour cet exercice dans CTester :\n" +
-  "       rien n'y a été écrit, ou le brouillon est resté sur un autre poste\n" +
-  "       parce qu'il n'était pas connecté. */";
 
 const twoDigits = (n: number) => String(n).padStart(2, "0");
 
@@ -30,12 +27,12 @@ export function numberOf(ex: Exercise, rank: number): number {
 }
 
 export function labelForNumbers(numbers: number[]): string {
-  if (!numbers.length) return "Aucun exercice";
-  if (numbers.length === 1) return "Exercice " + numbers[0];
+  if (!numbers.length) return t("mainc.none");
+  if (numbers.length === 1) return t("mainc.one", { n: numbers[0]! });
   const contiguous = numbers.every((n, i) => i === 0 || n === numbers[i - 1]! + 1);
   return contiguous
-    ? "Exercices " + numbers[0] + " à " + numbers[numbers.length - 1]
-    : "Exercices " + numbers.join(", ");
+    ? t("mainc.range", { first: numbers[0]!, last: numbers[numbers.length - 1]! })
+    : t("mainc.list", { list: numbers.join(", ") });
 }
 
 export interface Disassembled {
@@ -86,17 +83,16 @@ export function codeOf(ex: Exercise, sources: Record<string, string> | undefined
 function header(name: string, group: string, numbers: number[], first: number, at?: Date): string {
   return [
     "/*",
-    "Fichier : main.c",
-    "Auteur : " + name,
-    "Date : " + today(at),
-    "Description : " + labelForNumbers(numbers) + " — " + group + " — " + TITLE,
+    t("mainc.file"),
+    t("mainc.author", { name }),
+    t("mainc.date", { date: today(at) }),
+    t("mainc.description", { what: labelForNumbers(numbers) + " — " + group + " — " + TITLE }),
     "*/",
     "/* *******************************************************",
-    "* Commande de preprocesseur",
+    t("mainc.preprocessor"),
     "******************************************************* */",
     "#define _CRT_SECURE_NO_WARNINGS",
-    "/* Ce numéro choisit l'exercice qui sera compilé : change-le pour tester",
-    "   un autre exercice de ce fichier. */",
+    t("mainc.choose"),
     "#define exercice " + first,
   ].join("\n");
 }
@@ -123,10 +119,10 @@ export function build(
     const number = numberOf(ex, rank + 1);
     numbers.push(number);
     const code = codeOf(ex, sources[ex.id]);
-    const title = "/* Exercice " + number + " — " + (ex.short || ex.id) + " */";
+    const title = t("mainc.block", { n: number, name: ex.short || ex.id });
     if (!code) {
       empty.push(number);
-      blocks.push(title + "\n#if exercice == " + number + "\n" + NO_CODE + "\n#endif");
+      blocks.push(title + "\n#if exercice == " + number + "\n" + t("mainc.no_code") + "\n#endif");
       return;
     }
     if (first === null) first = number;

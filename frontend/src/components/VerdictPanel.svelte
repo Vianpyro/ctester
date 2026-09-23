@@ -4,20 +4,25 @@
   import { submission } from "../lib/state/submission.svelte";
   import { system } from "../lib/state/system.svelte";
   import { quiz } from "../lib/state/quiz.svelte";
-  import { UNITS } from "../lib/domain/labels";
+  import { t } from "../lib/i18n.svelte";
   import {
-    AFTER_FAILURE,
-    CONTRACT,
     OUTCOMES,
-    STEPS,
-    STEP_STATE,
+    afterFailure,
     caseClass,
     caseInputs,
     caseNumbers,
+    caseReason,
     estimatedWait,
     firstError,
+    outcomeNext,
+    outcomeTitle,
+    quizHint,
     restrictToScope,
     showsContract,
+    stepLabel,
+    stepState,
+    verdictCount,
+    verdictExplain,
     type Scope,
     type StepState,
   } from "../lib/domain/verdict";
@@ -43,25 +48,25 @@
   const complete = $derived(!!shown && !failed && shown.r.passed === shown.r.total);
 
   const headline = $derived.by(() => {
-    if (phase.kind === "sending") return "Envoi…";
-    if (phase.kind === "running") return "Test en cours…";
+    if (phase.kind === "sending") return t("verdict.sending");
+    if (phase.kind === "running") return t("verdict.running");
     if (phase.kind === "queued") {
       return (
-        `En file d'attente — ${phase.position}${phase.position === 1 ? "er" : "e"}` +
-        estimatedWait(phase.eta)
+        (phase.position === 1
+          ? t("verdict.queued_first")
+          : t("verdict.queued", { position: phase.position })) + estimatedWait(phase.eta)
       );
     }
     if (phase.kind === "idle" || phase.kind === "lost" || phase.kind === "cooldown") {
-      return catalog.catalog.length
-        ? "En attente d'une soumission."
-        : "Aucun exercice n'est encore ouvert.";
+      return catalog.catalog.length ? t("verdict.idle") : t("verdict.nothing_open");
     }
     if (!shown) return "";
-    if (failed) return outcome!.title;
+    if (failed) return outcomeTitle(shown.r.status);
     const frame = shown.scope && shown.r.kind === "quiz" ? " — " + shown.scope.title : "";
-    return `${passed} / ${total} ${UNITS[shown.r.kind] ?? "réussis"}${frame}`;
+    return verdictCount(passed, total, shown.r.kind) + frame;
   });
 
+  const explanation = $derived(shown ? verdictExplain(shown.r) : "");
   const passed = $derived(shown?.r.passed ?? 0);
   const total = $derived(shown?.r.total ?? 0);
   const failedNames = $derived(shown?.r.failed ?? []);
@@ -83,12 +88,12 @@
 
   const nextAction = $derived.by(() => {
     if (phase.kind !== "done") return null;
-    if (failed) return { text: outcome!.suite, next: null };
-    if (!complete) return { text: AFTER_FAILURE[shown!.r.kind] ?? "", next: null };
+    if (failed) return { text: outcomeNext(shown!.r.status), next: null };
+    if (!complete) return { text: afterFailure(shown!.r.kind), next: null };
     const next = catalog.nextOpen();
     return next
-      ? { text: "Tu peux passer à la suite.", next }
-      : { text: "C'est le dernier exercice ouvert pour l'instant.", next: null };
+      ? { text: t("verdict.move_on"), next }
+      : { text: t("verdict.last_open"), next: null };
   });
 
   const offersHelp = $derived(cls === "bad" && session.signedIn && session.forumOffered);
@@ -117,19 +122,14 @@
 
   const quizGroup = (id: string): string => quiz.groupOf[id] ?? "";
 
-  const idleHelp =
-    "Écris ton code, puis clique sur « Tester ». Les résultats ne sont pas une " +
-    "note : ces tests t'aident à trouver tes erreurs, ils ne remplacent pas la " +
-    "correction.";
 </script>
 
 <div bind:this={box} id="out" class={cls} tabindex="-1">
   {#if steps}
     <div class="steps">
       {#each steps as state, i}
-        {@const [name, gender] = STEPS[i]!}
         <span class={"step " + (state || "empty")}>
-          <b>{name}</b><i>{STEP_STATE[gender][state]}</i>
+          <b>{stepLabel(i)}</b><i>{stepState(i, state)}</i>
         </span>
       {/each}
     </div>
@@ -156,11 +156,11 @@
       <!-- Also the text shown before /catalog.json answers: swapping it afterwards
            reflows the panel and pushes the editor up. -->
       {!catalog.loaded || catalog.catalog.length
-        ? idleHelp
-        : "Le menu « Exercices » donne la date d'ouverture de chacun."}
+        ? t("verdict.idle_help")
+        : t("verdict.opening_dates")}
     </p>
-  {:else if shown?.r.message && shown.r.message !== headline}
-    <p class="explain">{shown.r.message}</p>
+  {:else if explanation && explanation !== headline}
+    <p class="explain">{explanation}</p>
   {/if}
 
   {#if shown && shown.r.status === "compile_error"}
@@ -168,7 +168,7 @@
       {#if firstError(shown.r.gcc)}
         <pre>{firstError(shown.r.gcc)}</pre>
         <details class="case">
-          <summary>Voir toute la sortie du compilateur</summary>
+          <summary>{t("verdict.full_compiler_output")}</summary>
           <pre>{gcc}</pre>
         </details>
       {:else}
@@ -184,37 +184,35 @@
         {@const inputs = caseInputs(c.stdin)}
         {@const numbers = caseNumbers(c)}
         <details class="case" open={i === 0}>
-          <summary>Cas {c.case} — {kind}</summary>
+          <summary>{t("verdict.case", { n: c.case, kind: t(`verdict.case.${kind}`) })}</summary>
           <div class="body">
             <div class="case-field">
               <span class="what"
-                >{inputs.length === 1
-                  ? "Ton programme reçoit :"
-                  : "Ton programme reçoit, dans cet ordre :"}</span
+                >{t("verdict.receives", { count: inputs.length })}</span
               >
               <pre class="value">{inputs.length
-                  ? inputs.join("   puis   ")
-                  : "rien — ce cas ne lui fournit aucune entrée"}</pre>
+                  ? inputs.join(t("verdict.then"))
+                  : t("verdict.no_input")}</pre>
             </div>
             <div class="case-field">
-              <span class="what">Ce qu'il a affiché :</span>
-              <pre class="value">{c.stdout || "(rien)"}</pre>
+              <span class="what">{t("verdict.printed")}</span>
+              <pre class="value">{c.stdout || t("verdict.nothing")}</pre>
             </div>
             {#if numbers}
               <div class="case-field">
-                <span class="what">Les nombres que le juge y a lus :</span>
-                <pre class="value">{numbers.length ? numbers.join(", ") : "aucun"}</pre>
+                <span class="what">{t("verdict.numbers_read")}</span>
+                <pre class="value">{numbers.length ? numbers.join(", ") : t("verdict.no_numbers")}</pre>
               </div>
             {/if}
             {#if c.stderr}
               <div class="case-field">
-                <span class="what">Sa sortie d'erreur :</span>
+                <span class="what">{t("verdict.stderr")}</span>
                 <pre class="value">{c.stderr}</pre>
               </div>
             {/if}
-            <p class="why">{c.reason}</p>
+            <p class="why">{caseReason(c)}</p>
             {#if showsContract(c)}
-              <p class="contract">{CONTRACT}</p>
+              <p class="contract">{t("verdict.contract")}</p>
             {/if}
           </div>
         </details>
@@ -225,16 +223,12 @@
   {#if shown && !failed && !complete && shown.r.kind === "unity" && failedNames.length}
     <div class="failures">
       <p class="what">
-        {failedNames.length === 1
-          ? "Cette vérification a échoué. Son nom décrit le cas qu'elle teste :"
-          : "Ces vérifications ont échoué. Leur nom décrit le cas qu'elles testent :"}
+        {t("verdict.failed_checks", { count: failedNames.length })}
       </p>
       <ul>
         {#each failedNames as name (name)}<li>{name}</li>{/each}
       </ul>
-      <p class="contract">
-        Les valeurs attendues ne sont pas montrées : les trouver EST l'exercice.
-      </p>
+      <p class="contract">{t("verdict.hidden_values")}</p>
     </div>
   {/if}
 
@@ -247,8 +241,8 @@
         <li class={empty ? "nothing" : ""}>
           {(ex ? ex[0] + " — " : "") +
             w.label +
-            (empty ? "" : ` (tu as répondu « ${w.given} »)`) +
-            (w.hint ? " — " + w.hint : "")}
+            (empty ? "" : t("verdict.you_answered", { given: w.given ?? "" })) +
+            (w.hint ? " — " + quizHint(w.hint) : "")}
         </li>
       {/each}
     </ul>
@@ -259,25 +253,29 @@
       <span>{nextAction.text}</span>
       {#if nextAction.next}
         <button type="button" class="nav" onclick={() => exercise.open(nextAction.next!.id)}>
-          Ouvrir « {nextAction.next.short} »
+          {t("verdict.open_next", { name: nextAction.next.short })}
         </button>
       {/if}
       {#if offersHelp}
         <button type="button" class="nav help" onclick={openDiscussions}>
-          En parler dans les discussions
+          {t("verdict.discuss")}
         </button>
       {/if}
     </div>
   {/if}
 
-  {#if shown?.r.warnings}
+  {#if shown?.r.warnings || shown?.r.long_source}
     <div class="warn">
-      <div class="title">Avertissements du compilateur</div>
-      <div class="what">
-        Ce n'est pas une erreur : ton programme compile. Mais gcc a remarqué ceci, et
-        ça vaut le coup d'œil.
-      </div>
-      <pre>{shown.r.warnings}</pre>
+      <div class="title">{t("verdict.warnings")}</div>
+      <div class="what">{t("verdict.warnings_explain")}</div>
+      <pre
+        >{[
+          shown.r.warnings ?? "",
+          shown.r.long_source ? t("verdict.long_source", shown.r.long_source) : "",
+        ]
+          .filter(Boolean)
+          .join("\n")}</pre
+      >
     </div>
   {/if}
 </div>

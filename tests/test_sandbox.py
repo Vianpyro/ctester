@@ -330,7 +330,7 @@ rc, out, cases, _ = run("io", {"submission.c": buggy}, "io-demo")
 res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 4. overflow in io mode: the report is returned ---")
 case = res["cases"][0] if res["cases"] else {}
-check("debord" in case.get("reason", "") or "débord" in case.get("reason", ""),
+check(case.get("reason") == "memory",
       "the judge names the error class: " + case.get("reason", "(no failing case)")[:60])
 check("AddressSanitizer" in case.get("stderr", ""),
       "and the ASan report reaches the student")
@@ -367,8 +367,8 @@ res = judge.verdict(rc, out, "io", NONCE, cases, 0.005)
 print("\n--- 6a. infinite loop in io mode ---")
 case = res["cases"][0] if res.get("cases") else {}
 check(res.get("passed") == 0, "no case passes (status %r)" % res["status"])
-check("boucle infinie" in case.get("reason", ""),
-      "the message names the infinite loop: " + case.get("reason", "(none)")[:80])
+check(case.get("reason") == "interrupted",
+      "the reason names the interruption: " + case.get("reason", "(none)")[:80])
 
 files = module_files()
 name = "module.c"
@@ -380,8 +380,6 @@ res = judge.verdict(rc, out, "unity", NONCE)
 print("\n--- 6b. infinite loop in unity mode ---")
 show(res)
 check(res["status"] == "timeout", "the verdict is a timeout, not a crash")
-check("boucle infinie" in res.get("message", ""),
-      "and the message names the infinite loop")
 
 print()
 print("%d CHECK(S) FAILED" % len(failures) if failures

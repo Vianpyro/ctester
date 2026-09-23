@@ -1,5 +1,7 @@
 import { poll as pollJob, submit as postSubmission } from "../api/submission";
-import { verdictHeadline, type Scope } from "../domain/verdict";
+import { t } from "../i18n.svelte";
+import { serverMessage } from "../api/client";
+import { isJudgeFailure, verdictExplain, verdictHeadline, type Scope } from "../domain/verdict";
 import { canonicalizeFiles } from "../domain/source";
 import type { PollResult, SubmissionBody, Verdict } from "../api/types";
 import { session, ensureValid } from "../auth/session.svelte";
@@ -78,10 +80,7 @@ class SubmissionState {
       // A second click resends: a test fixed since then can make the kept verdict wrong.
       this.#forcedResend = submissionKey;
       this.#record(held.verdict, scope, exercise.id);
-      system.say(
-        "Même code que ta dernière soumission — voici son verdict, sans reprendre " +
-          "de place dans la file. Clique encore pour le renvoyer au juge.",
-      );
+      system.say(t("submit.same_code"));
       return;
     }
     this.#forcedResend = null;
@@ -98,19 +97,13 @@ class SubmissionState {
       return;
     }
     if (answer.status === 0) {
-      system.say(
-        "Le serveur ne répond pas. Ton code est enregistré sur cet appareil ; " +
-          "réessaie dans un instant.",
-        true,
-      );
+      system.say(t("submit.no_answer"), true);
       this.idle();
       return;
     }
     if (!answer.ok || !answer.body?.id) {
       system.say(
-        answer.body?.error ||
-          `Le serveur a répondu ${answer.status} et n'a pas pris ta soumission. ` +
-            `Ton code est enregistré — réessaie dans un instant.`,
+        serverMessage(answer.body) || t("submit.refused", { status: answer.status }),
         true,
       );
       this.idle();
@@ -134,8 +127,8 @@ class SubmissionState {
     if (body.state === "done") {
       const verdict = body as Verdict;
       system.clear();
-      if (isJudgeOutage(verdict)) {
-        system.say((verdict.message ?? "") + " Ton code est enregistré.", true);
+      if (isJudgeFailure(verdict)) {
+        system.say(verdictExplain(verdict) + t("submit.saved"), true);
         this.idle();
         return;
       }
@@ -151,11 +144,7 @@ class SubmissionState {
       return;
     }
     if (answer.status === 404 || attempt >= POLL_TRIES) {
-      system.say(
-        "Le résultat de ce test s'est perdu. Ton code est enregistré — relance " +
-          "simplement le test.",
-        true,
-      );
+      system.say(t("submit.lost"), true);
       this.phase = { kind: "lost" };
       return;
     }
@@ -179,11 +168,7 @@ class SubmissionState {
         return;
       }
       this.phase = { kind: "cooldown", seconds: remaining };
-      system.say(
-        "Tu as lancé plusieurs tests coup sur coup. Le prochain part dans " +
-          remaining +
-          " s — ton code est enregistré, tu peux continuer à l'écrire.",
-      );
+      system.say(t("submit.cooldown", { seconds: remaining }));
       remaining--;
       this.#cooldownTimer = setTimeout(tick, 1000);
     };
@@ -191,6 +176,5 @@ class SubmissionState {
   }
 }
 
-const isJudgeOutage = (v: Verdict) => v.status === "error" && /juge/.test(v.message || "");
 
 export const submission = new SubmissionState();

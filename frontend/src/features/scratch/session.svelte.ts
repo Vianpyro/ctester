@@ -1,7 +1,8 @@
 import { fetchScratchDraft, saveScratchDraft } from "../../lib/api/scratch";
+import { i18n, t } from "../../lib/i18n.svelte";
 import {
-  HEADER_NAME_HINT,
   consoleFiles,
+  headerNameHint,
   headerTemplate,
   validHeaderName,
 } from "../../lib/domain/scratchHeader";
@@ -10,32 +11,18 @@ import { socketUrl } from "../../lib/config";
 import { ensureValid, renew, session, whenSignedOut } from "../../lib/auth/session.svelte";
 import type { ScratchFrame } from "../../lib/api/types";
 
-const CLOSED: Record<number, string> = {
-  4401: "Ta session a expiré. Reconnecte-toi pour utiliser la Console.",
-  4403: "Origine refusée.",
-  4429: "Tu as déjà une session ouverte, ou tu en as lancé beaucoup : attends un instant.",
-  4400: "La Console n'a pas pu démarrer. Recharge la page.",
-  4503: "La Console ne répond pas en ce moment. Réessaie dans une minute.",
-};
+// Close codes and exit reasons are words the judge and the API send; the page words them.
+const CLOSED = [4401, 4403, 4429, 4400, 4503];
+const closedMessage = (code: number): string =>
+  CLOSED.includes(code) ? t(`console.closed.${code}`) : "";
 
 const UNAUTHORIZED = 4401;
 
-const REASONS: Record<string, string> = {
-  cpu: "Ton programme a utilisé tout son temps de calcul — boucle infinie ?",
-  timeout: "La session a atteint sa durée maximale.",
-  idle: "Session fermée : plus rien ne se passait.",
-  output: "Ton programme a écrit beaucoup trop de texte — boucle infinie ?",
-  compile_error: "La compilation a échoué (voir ci-dessus).",
-  compile_timeout: "La compilation a été trop longue.",
-  worker: "Le service de compilation s'est interrompu. Réessaie.",
-  build_missing:
-    "La Console n'est pas complètement installée sur le serveur. Préviens ton enseignant" +
-    " — réessayer n'y changera rien.",
-  api: "Session interrompue.",
-};
-
-export const TEMPLATE =
-  '#include <stdio.h>\n\nint main(void)\n{\n    printf("Bonjour !\\n");\n    return 0;\n}\n';
+// The untouched program, in the language the page is in.
+export const template = (): string =>
+  '#include <stdio.h>\n\nint main(void)\n{\n    printf("' +
+  t("console.hello") +
+  '\\n");\n    return 0;\n}\n';
 
 export interface Chunk {
   text: string;
@@ -71,12 +58,12 @@ class Scratch {
     const answer = await fetchScratchDraft();
     this.loaded = true;
     if (!answer || answer.error) {
-      this.say("Ton bloc-notes n'a pas pu être chargé — ce qui est à l'écran reste là.", true);
+      this.say(t("console.load_failed"), true);
       return;
     }
     const name = answer.header_name ?? "";
     const valid = validHeaderName(name);
-    this.code = answer.code || TEMPLATE;
+    this.code = answer.code || template();
     this.headerName = valid ? name : "";
     this.header = valid ? (answer.header ?? "") : "";
     this.active = "main";
@@ -102,7 +89,7 @@ class Scratch {
   }
 
   addHeader(name: string): string {
-    if (!validHeaderName(name)) return HEADER_NAME_HINT;
+    if (!validHeaderName(name)) return headerNameHint();
     this.headerName = name;
     this.header = headerTemplate(name);
     this.active = "header";
@@ -111,7 +98,7 @@ class Scratch {
   }
 
   renameHeader(name: string): string {
-    if (!validHeaderName(name)) return HEADER_NAME_HINT;
+    if (!validHeaderName(name)) return headerNameHint();
     this.headerName = name;
     this.scheduleSave();
     return "";
@@ -133,7 +120,7 @@ class Scratch {
       return false;
     }
     if (!this.loaded) await this.load();
-    const held = (this.code.trim() && this.code !== TEMPLATE) || this.header.trim();
+    const held = (this.code.trim() && this.code !== template()) || this.header.trim();
     const same =
       this.code === moved.code &&
       this.headerName === moved.headerName &&
@@ -142,10 +129,7 @@ class Scratch {
       held &&
       !same &&
       typeof confirm === "function" &&
-      !confirm(
-        "Remplacer le programme de la Console par le code de cet exercice ? " +
-        "Ce qui y est écrit sera perdu.",
-      )
+      !confirm(t("console.replace_confirm"))
     ) {
       return false;
     }
@@ -155,7 +139,7 @@ class Scratch {
     this.header = moved.header;
     this.active = "main";
     this.output = [];
-    this.say("Code de l'exercice copié : mets tes propres valeurs, puis Lancer.");
+    this.say(t("console.copied"));
     this.scheduleSave();
     return true;
   }
@@ -180,11 +164,11 @@ class Scratch {
     if (!resumed) this.#reauth = false;
     const { code, header_name, header } = this.#draft();
     if (!code.trim()) {
-      this.say("Il n'y a encore rien à exécuter : écris ou colle ton programme.", true);
+      this.say(t("console.nothing_to_run"), true);
       return;
     }
     this.output = [];
-    this.say("Connexion…");
+    this.say(t("console.connecting"));
     this.running = true;
 
     await ensureValid();
@@ -194,7 +178,7 @@ class Scratch {
     try {
       socket = new WebSocket(socketUrl("/scratch/live"));
     } catch {
-      this.say("La Console n'a pas pu s'ouvrir.", true);
+      this.say(t("console.open_failed"), true);
       this.running = false;
       return;
     }
@@ -218,23 +202,25 @@ class Scratch {
       if (frame.t === "queued") {
         this.say(
           frame.position
-            ? "Dans la file : " +
-            frame.position +
-            (frame.eta ? " — environ " + Math.ceil((frame.eta / 60) * 10) / 10 + " min" : "")
-            : "En attente…",
+            ? t("console.queued", { position: frame.position }) +
+                (frame.eta
+                  ? t("console.queued_eta", { minutes: Math.ceil((frame.eta / 60) * 10) / 10 })
+                  : "")
+            : t("console.waiting"),
         );
       } else if (frame.t === "ready") {
-        this.say("Compilation…");
+        this.say(t("console.compiling"));
       } else if (frame.t === "running") {
-        this.say("En cours — tu peux répondre à ton programme.");
+        this.say(t("console.running"));
       } else if (frame.t === "build") {
         this.write(frame.d, "gccoutput");
       } else if (frame.t === "out") {
-        this.say("En cours — tu peux répondre à ton programme.");
+        this.say(t("console.running"));
         this.write(frame.d);
       } else if (frame.t === "exit") {
-        const why = REASONS[frame.reason];
-        this.say(why ?? "Terminé (code " + frame.code + ").", !!why && frame.reason !== "exited");
+        const reason = `console.reason.${frame.reason}`;
+        const why = i18n.has(reason) ? t(reason) : null;
+        this.say(why ?? t("console.finished", { code: frame.code }), !!why);
       }
     };
 
@@ -243,19 +229,19 @@ class Scratch {
       this.running = false;
       if (event.code === UNAUTHORIZED && !this.#reauth) {
         this.#reauth = true;
-        this.say("Reconnexion…");
+        this.say(t("console.reconnecting"));
         void renew().then((ok) => {
           if (ok) return this.start(true);
-          this.say(CLOSED[UNAUTHORIZED]!, true);
+          this.say(closedMessage(UNAUTHORIZED), true);
         });
         return;
       }
-      const said = CLOSED[event.code];
+      const said = closedMessage(event.code);
       if (said) this.say(said, true);
     };
 
     socket.onerror = () => {
-      this.say("La connexion à la Console a été perdue.", true);
+      this.say(t("console.lost"), true);
     };
   }
 
@@ -267,7 +253,7 @@ class Scratch {
 
   endInput(): void {
     this.#socket?.send(JSON.stringify({ t: "eof" }));
-    this.write("(fin de l'entrée)\n", "scratchecho");
+    this.write(t("console.eof_echo") + "\n", "scratchecho");
   }
 
   stop(): void {

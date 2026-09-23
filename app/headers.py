@@ -86,6 +86,11 @@ class JSON(JSONResponse):
 
 
 def error(code, message, key="error", **extra):
+    """message is a key the page words (frontend/src/locales), or (key, params) when the
+    wording needs values: the API sends no sentence in any language."""
+    if isinstance(message, tuple):
+        message, params = message
+        extra = dict(extra, params=params)
     return JSON(dict({key: message}, **extra), status_code=code)
 
 

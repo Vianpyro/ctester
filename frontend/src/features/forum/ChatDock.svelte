@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { chat } from "./chat.svelte";
   import { thread } from "./thread.svelte";
   import { readableThread } from "./labels";
@@ -18,15 +19,15 @@
   <button
     type="button"
     class="nav"
-    title="Ouvrir en grand (recherche, historique)"
-    aria-label="Ouvrir le chat en grand"
+    title={t("chat.wide_title")}
+    aria-label={t("chat.wide")}
     onclick={() => chat.toggleWide()}>⤢</button
   >
   <button
     type="button"
     class="nav"
-    title="Fermer le chat"
-    aria-label="Fermer le chat"
+    title={t("chat.close")}
+    aria-label={t("chat.close")}
     onclick={() => chat.toggleDock()}>✕</button
   >
 </div>

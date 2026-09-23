@@ -89,7 +89,8 @@ fn grade_request() -> Result<Value, String> {
         }
         "check_case" => {
             let case = request.get("case").ok_or("case is required")?;
-            Ok(json!({"reason": grade::check_case(case, text("output"), tolerance)?}))
+            let (reason, params) = grade::check_case(case, text("output"), tolerance)?;
+            Ok(json!({"reason": reason, "params": params}))
         }
         "grade_quiz" => {
             let field = |key| request.get(key).ok_or(format!("{key} is required"));
@@ -137,7 +138,7 @@ mod runner {
     }
 
     fn internal_error() -> Value {
-        json!({"status": "error", "message": "Erreur interne du juge. Réessaie."})
+        json!({"status": "error", "code": "judge_internal"})
     }
 
     impl Runner {
@@ -329,7 +330,7 @@ mod runner {
                     self.job_path(job),
                     attempt - 1
                 );
-                let verdict = json!({"status": "error", "message": "Le juge a été interrompu pendant ce test. Relance-le."});
+                let verdict = json!({"status": "error", "code": "judge_interrupted"});
                 let exercise_id = self.spool.job_field(job, "exercise_id");
                 let mut run = self.record(job, &exercise_id, None, false);
                 run.reprises = attempt - 1;
@@ -427,7 +428,7 @@ mod runner {
             let owner = self.spool.job_field(job, "owner");
             let Some(exercise) = gate::find(&self.config, &exercise_id, &owner, gate::now()) else {
                 return Ok((
-                    json!({"status": "error", "message": "Exercice inconnu."}),
+                    json!({"status": "error", "code": "unknown_exercise"}),
                     false,
                 ));
             };
@@ -486,11 +487,10 @@ mod runner {
             });
             let bad = grade::forbidden_includes(&code, allowed.as_ref());
             if !bad.is_empty() {
-                let message = format!(
-                    "En-têtes non autorisés pour ce TP : {}. Utilise seulement ce qui a été vu en cours.",
-                    bad.join(", ")
-                );
-                return Ok(json!({"status": "forbidden_include", "message": message}));
+                return Ok(json!({
+                    "status": "forbidden_include",
+                    "params": {"headers": bad.join(", ")},
+                }));
             }
             let nonce = spool::random_hex(16);
             let name = format!("ctester-{}", &job.as_str()[..16]);
@@ -735,7 +735,7 @@ mod runner {
                 &[("files.json", &files("x"))],
             );
             w.runner.run(true);
-            assert_eq!(w.result(&closed)["message"], "Exercice inconnu.");
+            assert_eq!(w.result(&closed)["code"], "unknown_exercise");
             let owner = r#"{"exercise_id": "tp-ferme", "owner": "sub-prof"}"#;
             let moderated = w.submit(owner, &[("files.json", &files("x"))]);
             w.runner.run(true);

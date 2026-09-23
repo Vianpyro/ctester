@@ -1,7 +1,8 @@
 #import "@preview/merman:0.3.0": mermaid as _mermaid
 #import "theme.typ": palette, theme-name, body-font, body-size
+#import "lang.typ": word
 
-#let mermaid(source, alt: "Diagramme", ..args) = _mermaid(
+#let mermaid(source, alt: word("diagram"), ..args) = _mermaid(
   source,
   alt: alt,
   width: 100%,

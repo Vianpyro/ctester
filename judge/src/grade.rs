@@ -293,8 +293,8 @@ fn as_bool(v: &Value) -> Option<bool> {
         return Some(*b);
     }
     match fold(strip(&as_text(v))).as_str() {
-        "vrai" | "v" | "true" | "oui" | "1" => Some(true),
-        "faux" | "f" | "false" | "non" | "0" => Some(false),
+        "vrai" | "v" | "true" | "t" | "oui" | "yes" | "1" => Some(true),
+        "faux" | "f" | "false" | "non" | "no" | "0" => Some(false),
         _ => None,
     }
 }
@@ -326,20 +326,20 @@ pub fn check_answer(kind: &str, given: &str, expected: &str) -> (bool, &'static 
         "bin8" => {
             let (got, want) = (norm_bin(given), norm_bin(expected));
             let Some(got) = got else {
-                return (false, "ce n'est pas une suite de 0 et de 1");
+                return (false, "not_binary");
             };
             if want.as_ref() == Some(&got) {
                 return (true, "");
             }
             if want.is_some_and(|want| parse_int(&want, 2) == parse_int(&got, 2)) {
-                return (false, "bonne valeur, mais l'énoncé demande 8 bits");
+                return (false, "needs_8_bits");
             }
             (false, "")
         }
         // A binary field written short: trailing zeros carry no value (an IEEE 754 mantissa).
         "bin" => {
             let Some(got) = norm_bin(given) else {
-                return (false, "ce n'est pas une suite de 0 et de 1");
+                return (false, "not_binary");
             };
             let trim = |s: &str| s.trim_end_matches('0').to_string();
             (
@@ -348,19 +348,19 @@ pub fn check_answer(kind: &str, given: &str, expected: &str) -> (bool, &'static 
             )
         }
         "hex8" => match norm_hex(given) {
-            None => (false, "ce n'est pas un nombre hexadécimal"),
+            None => (false, "not_hex"),
             Some(got) => (norm_hex(expected) == Some(got), ""),
         },
         // The only kind compared verbatim: the answer is one of the question's own options,
         // so accents and case are part of it and no normalisation may soften them.
         "choice" => (given == expected, ""),
         "int" => match norm_int(given) {
-            None => (false, "ce n'est pas un nombre entier"),
+            None => (false, "not_integer"),
             Some(got) => (norm_int(expected) == Some(got), ""),
         },
         // A missing type already reads as "int" in grade_quiz, so this is a name nobody
         // knows. Loud rather than fatal: one staff typo must not break a whole exercise.
-        _ => (false, "type de question inconnu -- préviens ton enseignant"),
+        _ => (false, "unknown_type"),
     }
 }
 
@@ -378,15 +378,15 @@ pub fn check_question(kind: &str, given: &Value, expected: &Value) -> (bool, &'s
                 return (true, "");
             }
             if got.is_subset(&want) {
-                return (false, "il manque au moins une bonne réponse");
+                return (false, "missing_choice");
             }
             if want.is_subset(&got) {
-                return (false, "une des cases cochées est de trop");
+                return (false, "extra_choice");
             }
             (false, "")
         }
         "bool" => match as_bool(given) {
-            None => (false, "réponds par vrai ou faux"),
+            None => (false, "true_or_false"),
             Some(got) => (as_bool(expected) == Some(got), ""),
         },
         "text" => {
@@ -394,10 +394,7 @@ pub fn check_question(kind: &str, given: &Value, expected: &Value) -> (bool, &'s
             if accepts(expected, &typed, is_strict(expected)) {
                 (true, "")
             } else if is_strict(expected) && accepts(expected, &typed, false) {
-                (
-                    false,
-                    "l'orthographe exacte compte ici (majuscules et accents)",
-                )
+                (false, "exact_spelling")
             } else {
                 (false, "")
             }
@@ -405,9 +402,9 @@ pub fn check_question(kind: &str, given: &Value, expected: &Value) -> (bool, &'s
         "number" => {
             let numbers = extract_numbers(&as_text(given));
             let got = match numbers.len() {
-                0 => return (false, "ce n'est pas un nombre"),
+                0 => return (false, "not_number"),
                 1 => numbers[0],
-                _ => return (false, "donne un seul nombre"),
+                _ => return (false, "one_number"),
             };
             let (value, margin) = match expected {
                 Value::Object(_) => (
@@ -440,8 +437,8 @@ pub fn check_question(kind: &str, given: &Value, expected: &Value) -> (bool, &'s
                 }
             }
             match (blank, missed) {
-                (true, _) => (false, "il reste une association vide"),
-                (false, true) => (false, "au moins une association n'est pas la bonne"),
+                (true, _) => (false, "empty_pair"),
+                (false, true) => (false, "wrong_pair"),
                 (false, false) => (true, ""),
             }
         }
@@ -453,9 +450,9 @@ pub fn check_question(kind: &str, given: &Value, expected: &Value) -> (bool, &'s
             let same = got.len() == want.len()
                 && got.iter().collect::<BTreeSet<_>>() == want.iter().collect::<BTreeSet<_>>();
             if same {
-                return (false, "les bons éléments, mais pas dans le bon ordre");
+                return (false, "wrong_order");
             }
-            (false, "place tous les éléments, chacun une seule fois")
+            (false, "place_all")
         }
         "cloze" => {
             let gaps: &[Value] = match expected {
@@ -474,7 +471,7 @@ pub fn check_question(kind: &str, given: &Value, expected: &Value) -> (bool, &'s
                 }
             }
             match (blank, missed) {
-                (true, _) => (false, "il reste un trou à remplir"),
+                (true, _) => (false, "empty_gap"),
                 (false, true) => (false, ""),
                 (false, false) => (true, ""),
             }
@@ -503,11 +500,7 @@ pub fn grade_quiz(quiz: &Value, answers: &Value) -> Result<Value> {
         if !ok {
             let label = get(question, "label")?.map_or_else(|| qid.clone(), as_text);
             let shown = shown_answer(given);
-            let hint = if is_blank(given) {
-                "non répondu"
-            } else {
-                hint
-            };
+            let hint = if is_blank(given) { "unanswered" } else { hint };
             wrong.push(
                 json!({"id": qid, "label": label, "given": head(&shown, MAX_GIVEN), "hint": hint}),
             );
@@ -535,7 +528,7 @@ pub fn quiz_key(quiz: &Value) -> Result<Value> {
     let mut key = Map::new();
     for question in questions {
         let Some(answer) = get(question, "answer")? else {
-            // No answer at all: left out, so the question grades as "non répondu" instead
+            // No answer at all: left out, so the question grades as "unanswered" instead
             // of making the whole check explode.
             continue;
         };
@@ -650,7 +643,11 @@ pub fn has_nonfinite(text: &str) -> bool {
     false
 }
 
-pub fn check_case(case: &Value, output: &str, tol: f64) -> Result<String> {
+/// Why a case failed, as a code the page words (verdict.reason.<code>) and the values it
+/// needs; ("", null) when the case passes.
+pub type Reason = (&'static str, Value);
+
+pub fn check_case(case: &Value, output: &str, tol: f64) -> Result<Reason> {
     let folded = fold(output);
     if let Some(absent) = get(case, "absent")? {
         let Value::Array(words) = absent else {
@@ -659,16 +656,14 @@ pub fn check_case(case: &Value, output: &str, tol: f64) -> Result<String> {
         for word in words {
             let word = as_str(word, "absent")?;
             if folded.contains(&fold(word)) {
-                return Ok(format!(
-                    "la sortie mentionne « {word} », qui ne devrait pas y etre"
-                ));
+                return Ok(("forbidden_word", json!({ "word": word })));
             }
         }
     }
     if let Some(wanted) = get(case, "contains")?.filter(|v| truthy(v))
         && !folded.contains(&fold(as_str(wanted, "contains")?))
     {
-        return Ok("la sortie ne contient pas le mot attendu".into());
+        return Ok(("missing_word", Value::Null));
     }
     if let Some(bounds) = get(case, "in_range")?.filter(|v| truthy(v)) {
         let count = get(case, "count")?.map_or(Ok(1), |v| py_int(v, "count"))?;
@@ -681,11 +676,9 @@ pub fn check_case(case: &Value, output: &str, tol: f64) -> Result<String> {
             .filter(|n| low <= *n && *n <= high)
             .count() as i64;
         if inside < count {
-            return Ok(format!(
-                "ta sortie contient {inside} valeur{} entre {} et {}, il en faut au moins {count}",
-                if inside == 1 { "" } else { "s" },
-                format_g(low),
-                format_g(high),
+            return Ok((
+                "out_of_range",
+                json!({"count": inside, "low": format_g(low), "high": format_g(high), "needed": count}),
             ));
         }
     }
@@ -698,31 +691,22 @@ pub fn check_case(case: &Value, output: &str, tol: f64) -> Result<String> {
             .collect::<Result<Vec<f64>>>()?;
         let numbers = extract_numbers(output);
         if match_subsequence(&numbers, &expected, tol) {
-            return Ok(String::new());
+            return Ok(("", Value::Null));
         }
-        let reason = if has_nonfinite(output) {
-            "ta sortie contient inf ou nan : division par zéro, ou une variable utilisée alors que \
-             sa lecture a échoué. Vérifie que ton programme lit exactement autant de valeurs que le \
-             cas lui en fournit"
-                .to_string()
+        return Ok(if has_nonfinite(output) {
+            ("nonfinite", Value::Null)
         } else if numbers.is_empty() {
-            "ta sortie ne contient aucun nombre : vérifie que tu affiches bien le résultat, et que \
-             c'est le bon exercice"
-                .to_string()
+            ("no_numbers", Value::Null)
         } else if numbers.len() < expected.len() {
-            format!(
-                "ta sortie ne contient que {} nombre{}, or ce cas en attend {} : vérifie que tu \
-                 affiches TOUTES les valeurs demandées par l'énoncé",
-                numbers.len(),
-                if numbers.len() == 1 { "" } else { "s" },
-                expected.len(),
+            (
+                "too_few_numbers",
+                json!({"count": numbers.len(), "expected": expected.len()}),
             )
         } else {
-            "la sortie ne contient pas les valeurs attendues, dans l'ordre".to_string()
-        };
-        return Ok(reason);
+            ("wrong_values", Value::Null)
+        });
     }
-    Ok(String::new())
+    Ok(("", Value::Null))
 }
 
 /// One program run per case: (stdout, stderr, exit code).
@@ -809,20 +793,14 @@ pub fn verdict_io(rc: i64, output: &str, cases: &[Value], nonce: &str, tol: f64)
         let stdin = get(case, "stdin")?.unwrap_or(&blank);
         let Some((text, err, code)) = runs.get(&format!("{number:02}")) else {
             failed.push(json!({"case": number, "stdin": stdin, "stdout": "",
-                               "reason": "le programme n'a pas terminé"}));
+                               "reason": "unfinished"}));
             continue;
         };
-        let reason = match *code {
-            TIMED_OUT | KILLED => {
-                "le programme a été interrompu : boucle infinie, ou il attend plus de \
-                          valeurs qu'il n'en reçoit"
-                    .to_string()
-            }
-            ASAN_EXIT => "le programme a débordé de la mémoire qu'il a réservée (voir le rapport \
-                          ci-dessous : il nomme la ligne)"
-                .to_string(),
+        let (reason, params) = match *code {
+            TIMED_OUT | KILLED => ("interrupted", Value::Null),
+            ASAN_EXIT => ("memory", Value::Null),
             0 => check_case(case, text, tol)?,
-            code => format!("le programme s'est terminé anormalement (code {code})"),
+            code => ("crashed", json!({ "code": code })),
         };
         if !reason.is_empty() {
             let numbers: Vec<f64> = extract_numbers(text)
@@ -836,6 +814,7 @@ pub fn verdict_io(rc: i64, output: &str, cases: &[Value], nonce: &str, tol: f64)
                 "numbers": numbers,
                 "stderr": head(err, MAX_STDERR),
                 "reason": reason,
+                "params": params,
             }));
         }
     }
@@ -872,37 +851,14 @@ pub fn verdict(rc: i64, out: &str) -> Value {
     match rc {
         COMPILE_FAILED => json!({
             "status": "compile_error",
-            "message": "Ton fichier ne compile pas.",
             "gcc": head(out, MAX_GCC_CHARS),
         }),
-        LINK_FAILED => json!({
-            "status": "link_error",
-            "message": "Ton code compile, mais l'édition de liens avec les tests a échoué. \
-                        Vérifie que les fonctions demandées ont exactement le nom et la signature \
-                        de l'énoncé, et que tu ne définis pas de fonction main().",
-        }),
-        COMPILE_TIMEOUT => json!({
-            "status": "compile_timeout",
-            "message": "La compilation a été trop longue et a été abandonnée.",
-        }),
-        ASAN_EXIT => json!({
-            "status": "memory_error",
-            "message": "Ton code sort des limites de la mémoire qu'il a le droit d'utiliser : un \
-                        indice hors des bornes d'un tableau, une chaîne sans son '\\0', ou un \
-                        pointeur qui ne pointe plus sur rien. Revois tes conditions de boucle (< \
-                        et non <=) et la taille que tu réserves.",
-        }),
-        TIMED_OUT | KILLED => json!({
-            "status": "timeout",
-            "message": "Le programme a été interrompu : boucle infinie, attente d'une entrée, ou \
-                        trop de processus créés.",
-        }),
+        LINK_FAILED => json!({"status": "link_error"}),
+        COMPILE_TIMEOUT => json!({"status": "compile_timeout"}),
+        ASAN_EXIT => json!({"status": "memory_error"}),
+        TIMED_OUT | KILLED => json!({"status": "timeout"}),
         _ => match parse_unity(out) {
-            None => json!({
-                "status": "error",
-                "message": "Les tests se sont arrêtés avant la fin (plantage probable : segfault, \
-                            débordement, pointeur invalide).",
-            }),
+            None => json!({"status": "error", "code": "tests_stopped"}),
             Some(mut parsed) => {
                 parsed.insert("status".into(), json!("ok"));
                 parsed.insert("kind".into(), json!("unity"));
@@ -936,20 +892,8 @@ pub fn note_long_source(mut result: Value, conf: &Value, code: &str) -> Value {
     if size <= limit || result.get("status").and_then(Value::as_str) == Some("compile_error") {
         return result;
     }
-    let note = format!(
-        "Ta solution compte {size} caractères (les espaces ne comptent pas), alors que          l'exercice s'écrit en moins de {limit} : ça marche, mais ce n'est pas ce qui est          demandé. Relis l'énoncé et cherche l'écriture courte."
-    );
     if let Some(map) = result.as_object_mut() {
-        let before = map.get("warnings").and_then(Value::as_str).unwrap_or("");
-        let joined = if before.is_empty() {
-            note
-        } else {
-            format!(
-                "{before}
-{note}"
-            )
-        };
-        map.insert("warnings".into(), json!(joined));
+        map.insert("long_source".into(), json!({"size": size, "limit": limit}));
     }
     result
 }
@@ -1051,8 +995,7 @@ mod tests {
 
         let asan = verdict(ASAN_EXIT, "peu importe ce qu'il a imprime");
         assert_eq!(asan["status"], "memory_error");
-        assert!(asan["message"].as_str().unwrap().contains("tableau"));
-        assert_eq!(asan.as_object().unwrap().len(), 2);
+        assert_eq!(asan.as_object().unwrap().len(), 1);
         assert!(!asan.to_string().contains("peu importe"));
     }
 
@@ -1064,7 +1007,7 @@ mod tests {
         let out = format!("n BEGIN 01\nn ERR 01\n{report}\nn END 01 {ASAN_EXIT}\n");
         let result = verdict_io(0, &out, &cases, "n", DEFAULT_TOLERANCE).unwrap();
         let case = &result["cases"][0];
-        assert!(case["reason"].as_str().unwrap().contains("débordé"));
+        assert_eq!(case["reason"], "memory");
         assert!(case["stderr"].as_str().unwrap().contains("tableaux.c:12"));
 
         let long = format!(
@@ -1088,7 +1031,7 @@ mod tests {
         assert!(check_answer("bin8", "0001 0111", "00010111").0);
         assert!(check_answer("bin8", "0b0001_0111", "00010111").0);
         let (right, hint) = check_answer("bin8", "10111", "00010111");
-        assert!(!right && hint.contains("8 bits"));
+        assert!(!right && hint == "needs_8_bits");
         assert_eq!(check_answer("bin8", "00010110", "00010111"), (false, ""));
         assert!(!check_answer("bin8", "quarante-deux", "00010111").0);
 
@@ -1144,8 +1087,8 @@ mod tests {
             (json!(1), json!(3))
         );
         let wrong = partial["wrong"].as_array().unwrap();
-        assert!(wrong[0]["hint"].as_str().unwrap().contains("8 bits"));
-        assert_eq!(wrong[1]["hint"], "non répondu");
+        assert_eq!(wrong[0]["hint"], "needs_8_bits");
+        assert_eq!(wrong[1]["hint"], "unanswered");
         assert_eq!(wrong[1]["label"], "10110001 en complément à 2");
         assert!(!partial.to_string().contains("-79"));
 
@@ -1172,20 +1115,22 @@ mod tests {
             .0
         );
         let (ok, hint) = q("multi", json!(["int a;"]), options.clone());
-        assert!(!ok && hint.contains("manque"));
+        assert!(!ok && hint == "missing_choice");
         let (ok, hint) = q(
             "multi",
             json!(["int a;", "char b[4];", "float d;", "x"]),
             options,
         );
-        assert!(!ok && hint.contains("de trop"));
+        assert!(!ok && hint == "extra_choice");
 
-        // bool: the page sends French words, the file holds a JSON boolean.
+        // bool: the page sends words in its language, the file holds a JSON boolean.
         assert!(q("bool", json!("vrai"), json!(true)).0);
+        assert!(q("bool", json!("Yes"), json!(true)).0);
+        assert!(q("bool", json!("no"), json!(false)).0);
         assert!(q("bool", json!("Faux"), json!(false)).0);
         assert!(!q("bool", json!("vrai"), json!(false)).0);
         let (ok, hint) = q("bool", json!("peut-être"), json!(true));
-        assert!(!ok && hint.contains("vrai ou faux"));
+        assert!(!ok && hint == "true_or_false");
 
         // text: case and accents are forgiven unless the author asks otherwise.
         let free = json!({"accept": ["free", "free()"]});
@@ -1195,7 +1140,7 @@ mod tests {
         assert!(q("text", json!("Réservé"), json!("reserve")).0);
         let exact = json!({"accept": ["Réservé"], "strict": true});
         let (ok, hint) = q("text", json!("reserve"), exact.clone());
-        assert!(!ok && hint.contains("orthographe"));
+        assert!(!ok && hint == "exact_spelling");
         assert!(q("text", json!("Réservé"), exact).0);
 
         // number: a margin, and a unit typed beside the value does not spoil it.
@@ -1204,9 +1149,9 @@ mod tests {
         assert!(q("number", json!("12.6255"), value.clone()).0);
         assert!(!q("number", json!("12.7"), value.clone()).0);
         let (ok, hint) = q("number", json!("beaucoup"), value.clone());
-        assert!(!ok && hint.contains("pas un nombre"));
+        assert!(!ok && hint == "not_number");
         let (ok, hint) = q("number", json!("1/2"), value);
-        assert!(!ok && hint.contains("un seul nombre"));
+        assert!(!ok && hint == "one_number");
         assert!(q("number", json!("4"), json!(4)).0);
 
         // match: every prompt of the key must be answered, and answered right.
@@ -1220,9 +1165,9 @@ mod tests {
             .0
         );
         let (ok, hint) = q("match", json!({"malloc": "réserve"}), pairs.clone());
-        assert!(!ok && hint.contains("vide"));
+        assert!(!ok && hint == "empty_pair");
         let (ok, hint) = q("match", json!({"malloc": "rend", "free": "réserve"}), pairs);
-        assert!(!ok && hint.contains("pas la bonne"));
+        assert!(!ok && hint == "wrong_pair");
 
         // order: same items in the wrong order is told apart from a broken list.
         let steps = json!(["déclarer", "allouer", "vérifier", "libérer"]);
@@ -1232,21 +1177,21 @@ mod tests {
             json!(["allouer", "déclarer", "vérifier", "libérer"]),
             steps.clone(),
         );
-        assert!(!ok && hint.contains("pas dans le bon ordre"));
+        assert!(!ok && hint == "wrong_order");
         let (ok, hint) = q("order", json!(["déclarer", "allouer"]), steps);
-        assert!(!ok && hint.contains("chacun une seule fois"));
+        assert!(!ok && hint == "place_all");
 
         // cloze: one entry per gap, by index.
         let gaps = json!([{"accept": ["0"]}, {"accept": ["<"]}, {"accept": ["+=", "= somme +"]}]);
         assert!(q("cloze", json!(["0", "<", "+="]), gaps.clone()).0);
         assert!(q("cloze", json!(["0", "<", "= somme +"]), gaps.clone()).0);
         let (ok, hint) = q("cloze", json!(["0", "<", ""]), gaps.clone());
-        assert!(!ok && hint.contains("trou"));
+        assert!(!ok && hint == "empty_gap");
         assert!(!q("cloze", json!(["1", "<", "+="]), gaps).0);
 
         // An unknown type is loud instead of being read as an integer.
         let (ok, hint) = q("essai", json!("un texte"), json!("autre"));
-        assert!(!ok && hint.contains("inconnu"));
+        assert!(!ok && hint == "unknown_type");
     }
 
     #[test]
@@ -1302,10 +1247,10 @@ mod tests {
             json!("déclarer, allouer, libérer")
         );
 
-        // Nothing filled in reads as "non répondu", whatever shape the answer has.
+        // Nothing filled in reads as "unanswered", whatever shape the answer has.
         let empty = grade_quiz(&quiz, &json!({"m": [], "p": {}, "o": [], "c": [""]})).unwrap();
         for entry in empty["wrong"].as_array().unwrap() {
-            assert_eq!(entry["hint"], "non répondu", "{entry}");
+            assert_eq!(entry["hint"], "unanswered", "{entry}");
         }
     }
 
@@ -1371,51 +1316,43 @@ mod tests {
     #[test]
     fn words_match_without_case_or_accents() {
         let tol = DEFAULT_TOLERANCE;
+        let why = |case: &Value, out: &str| check_case(case, out, tol).unwrap().0;
         let case = json!({"contains": "laminaire", "absent": ["turbulent", "transitoire"]});
+        assert_eq!(why(&case, "L'ecoulement est LAMINAIRE"), "");
+        assert_eq!(why(&case, "écoulement laminaire"), "");
         assert_eq!(
-            check_case(&case, "L'ecoulement est LAMINAIRE", tol).unwrap(),
-            ""
+            check_case(&case, "ecoulement turbulent", tol).unwrap(),
+            ("forbidden_word", json!({"word": "turbulent"}))
         );
-        assert_eq!(check_case(&case, "écoulement laminaire", tol).unwrap(), "");
-        assert_ne!(check_case(&case, "ecoulement turbulent", tol).unwrap(), "");
         let prompt = "laminaire, turbulent ou transitoire ? -> laminaire";
-        assert_ne!(check_case(&case, prompt, tol).unwrap(), "");
-        assert!(
-            check_case(&case, "l'ecoulement est calme", tol)
-                .unwrap()
-                .contains("ne contient pas le mot attendu")
-        );
+        assert_ne!(why(&case, prompt), "");
+        assert_eq!(why(&case, "l'ecoulement est calme"), "missing_word");
         assert_eq!(fold("ÉCOULEMENT ﬁn"), "ecoulement fin");
     }
 
     #[test]
     fn in_range_counts_values_and_prints_its_bounds() {
         let tol = DEFAULT_TOLERANCE;
+        let why = |case: &Value, out: &str| check_case(case, out, tol).unwrap();
         let dice = json!({"in_range": [1, 6], "count": 5});
-        assert_eq!(check_case(&dice, "3 1 6 2 4", tol).unwrap(), "");
+        assert_eq!(why(&dice, "3 1 6 2 4").0, "");
+        assert_eq!(why(&dice, "Lancer 100 fois : 3 1 6 2 4").0, "");
         assert_eq!(
-            check_case(&dice, "Lancer 100 fois : 3 1 6 2 4", tol).unwrap(),
-            ""
+            why(&dice, "3 1 6"),
+            (
+                "out_of_range",
+                json!({"count": 3, "low": "1", "high": "6", "needed": 5})
+            )
         );
-        let short = check_case(&dice, "3 1 6", tol).unwrap();
-        assert!(
-            short.contains("3 valeurs entre 1 et 6") && short.contains("au moins 5"),
-            "{short}"
-        );
-        assert_ne!(check_case(&dice, "0 7 8 9 10", tol).unwrap(), "");
+        assert_ne!(why(&dice, "0 7 8 9 10").0, "");
         let mean = json!({"in_range": [3.4, 3.6]});
-        assert_eq!(check_case(&mean, "Moyenne : 3.4997", tol).unwrap(), "");
-        assert!(
-            check_case(&mean, "Moyenne : 2.9", tol)
-                .unwrap()
-                .contains("0 valeurs entre 3.4 et 3.6")
+        assert_eq!(why(&mean, "Moyenne : 3.4997").0, "");
+        assert_eq!(
+            why(&mean, "Moyenne : 2.9").1,
+            json!({"count": 0, "low": "3.4", "high": "3.6", "needed": 1})
         );
         let text_count = json!({"in_range": [1, 6], "count": "2"});
-        assert!(
-            check_case(&text_count, "1", tol)
-                .unwrap()
-                .contains("1 valeur entre")
-        );
+        assert_eq!(why(&text_count, "1").1["count"], 1);
         for (value, printed) in [
             (0.00001, "1e-05"),
             (0.0001, "0.0001"),
@@ -1433,32 +1370,20 @@ mod tests {
     #[test]
     fn diagnostics_say_why_the_values_are_missing() {
         let tol = DEFAULT_TOLERANCE;
+        let why = |case: &Value, out: &str| check_case(case, out, tol).unwrap();
         let case = json!({"expect": [23.88459]});
-        let inf = check_case(
-            &case,
-            "Entrez la tension (V) : L'intensite est : inf A",
-            tol,
-        )
-        .unwrap();
-        assert!(inf.contains("inf ou nan") && inf.contains("autant de valeurs"));
-        let none = check_case(&case, "Entrez la tension (V) : ", tol).unwrap();
-        assert!(none.contains("aucun nombre") && none.contains("bon exercice"));
-        let wrong = "la sortie ne contient pas les valeurs attendues, dans l'ordre";
-        assert_eq!(check_case(&case, "resultat : 42.0", tol).unwrap(), wrong);
-        let few = check_case(
+        let inf = why(&case, "Entrez la tension (V) : L'intensite est : inf A");
+        assert_eq!(inf.0, "nonfinite");
+        assert_eq!(why(&case, "Entrez la tension (V) : ").0, "no_numbers");
+        assert_eq!(why(&case, "resultat : 42.0").0, "wrong_values");
+        let few = why(
             &json!({"expect": [4, 3, 4]}),
             "Entrez le nombre de pennys : On obtient ainsi 4 livre(s) et 3 shilling(s).",
-            tol,
-        )
-        .unwrap();
-        assert!(
-            few.contains("que 2 nombres")
-                && few.contains("en attend 3")
-                && !few.contains("[4, 3, 4]")
         );
+        assert_eq!(few, ("too_few_numbers", json!({"count": 2, "expected": 3})));
         assert_eq!(
-            check_case(&json!({"expect": [4, 3, 4]}), "9 puis 9 puis 9", tol).unwrap(),
-            wrong
+            why(&json!({"expect": [4, 3, 4]}), "9 puis 9 puis 9").0,
+            "wrong_values"
         );
 
         for word in [
@@ -1530,12 +1455,7 @@ mod tests {
             (json!(2), json!("12\n7\n"), json!("Surface = 9"))
         );
         assert_eq!(second["numbers"], json!([9.0]));
-        assert!(
-            got["cases"][1]["reason"]
-                .as_str()
-                .unwrap()
-                .contains("interrompu")
-        );
+        assert_eq!(got["cases"][1]["reason"], "interrupted");
 
         assert_eq!(
             verdict_io(
@@ -1555,22 +1475,19 @@ mod tests {
         let cut = verdict_io(137, "", &cases, "abc123", 0.005).unwrap();
         assert!(cut["status"] == "timeout" && cut.get("cases").is_none());
         let missing = verdict_io(0, "", &cases[..1], "abc123", 0.005).unwrap();
-        assert_eq!(
-            missing["cases"][0]["reason"],
-            "le programme n'a pas terminé"
-        );
+        assert_eq!(missing["cases"][0]["reason"], "unfinished");
 
         let crash = format!("{}n BEGIN 02\nSurface = 84\nn END 02 0\n", run(139, "01"));
         let got = verdict_io(0, &crash, &cases[..2], "n", DEFAULT_TOLERANCE).unwrap();
-        let reason = got["cases"][0]["reason"].as_str().unwrap();
-        assert!(reason.contains("anormalement") && reason.contains("code 139"));
+        assert_eq!(got["cases"][0]["reason"], "crashed");
+        assert_eq!(got["cases"][0]["params"], json!({"code": 139}));
     }
 
     #[test]
     fn an_over_long_solution_passes_with_a_note() {
         let conf = json!({"max_source_chars": 50});
         let short = note_long_source(json!({"status": "ok"}), &conf, "int main(void){}");
-        assert!(short.get("warnings").is_none());
+        assert!(short.get("long_source").is_none());
 
         let long = "int main(void) { /* the very long way round */ return 0; }".repeat(3);
         let noted = note_long_source(
@@ -1578,20 +1495,15 @@ mod tests {
             &conf,
             &long,
         );
-        let text = noted["warnings"].as_str().unwrap();
-        assert!(
-            text.starts_with(
-                "gcc a parlé
-"
-            ) && text.contains("caractères"),
-            "{text}"
-        );
+        assert_eq!(noted["warnings"], "gcc a parlé");
+        assert_eq!(noted["long_source"]["limit"], 50);
+        assert!(noted["long_source"]["size"].as_u64().unwrap() > 50);
 
         let broken = note_long_source(json!({"status": "compile_error"}), &conf, &long);
-        assert!(broken.get("warnings").is_none());
+        assert!(broken.get("long_source").is_none());
         assert!(
             note_long_source(json!({"status": "ok"}), &json!({}), &long)
-                .get("warnings")
+                .get("long_source")
                 .is_none()
         );
     }

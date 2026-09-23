@@ -3,7 +3,8 @@
   import { exercise } from "../lib/state/exercise.svelte";
   import { statuses } from "../lib/state/statuses.svelte";
   import { lockNote, stripLabel, tileState } from "../lib/domain/catalog";
-  import { STATUS_MARK, plural } from "../lib/domain/labels";
+  import { STATUS_MARK } from "../lib/domain/labels";
+  import { t } from "../lib/i18n.svelte";
 
   interface Props {
     openMenu: (focusSearch?: boolean) => void;
@@ -16,7 +17,7 @@
   const solved = $derived(neighbors.filter((e) => statuses.of(e.id) === "solved").length);
 </script>
 
-<nav id="labband" aria-label="Exercices de ce laboratoire, et accès au catalogue" hidden={!shown}>
+<nav id="labband" aria-label={t("lab.label")} hidden={!shown}>
   {#if shown}
     {#each neighbors as ex (ex.id)}
       {@const note = lockNote(ex)}
@@ -25,8 +26,8 @@
       {@const current = ex.id === catalog.selectedId}
       {@const said =
         (note || state.word) +
-        (ex.bonus ? ", bonus facultatif" : "") +
-        (current ? ", ouvert dans l'éditeur" : "")}
+        (ex.bonus ? t("lab.bonus") : "") +
+        (current ? t("lab.current") : "")}
       <button
         type="button"
         class={"tile " + state.cls + (ex.bonus ? " bonus" : "") + (current ? " current" : "")}
@@ -42,19 +43,19 @@
         {#if statuses.of(ex.id)}
           <i class="mark">{STATUS_MARK[statuses.of(ex.id)!] ?? ""}</i>
         {/if}
-        {#if ex.verification}<i class="what">vérif</i>{/if}
-        {#if ex.bonus}<i class="what">bonus</i>{/if}
+        {#if ex.verification}<i class="what">{t("catalog.verification_short")}</i>{/if}
+        {#if ex.bonus}<i class="what">{t("lab.bonus_tag")}</i>{/if}
         {#if note}<span class="padlock">🔒</span>{/if}
       </button>
     {/each}
 
     <span class="grow"></span>
-    <span class="tag">{plural(neighbors.length, "exercice")}</span>
+    <span class="tag">{t("lab.exercises", { count: neighbors.length })}</span>
     <span class={"tag" + (solved ? " accent" : "")}>
-      {solved} réussi{solved > 1 ? "s" : ""}
+      {t("lab.solved", { count: solved })}
     </span>
     <button type="button" class="nav" onclick={() => openMenu(true)}>
-      Tous les exercices<span class="shortcut">Ctrl+K</span>
+      {t("lab.all")}<span class="shortcut">Ctrl+K</span>
     </button>
   {/if}
 </nav>

@@ -195,10 +195,7 @@ def progress_payload(entries, facts, states, practice, evidences,
             "bands": [dict(band) for band in policy.BANDS.values()],
             "skills": mastery_view(entries, evidences),
         },
-        "achievements": [{"id": row["id"],
-                    "title": policy.ACHIEVEMENTS[row["id"]]["title"],
-                    "description": policy.ACHIEVEMENTS[row["id"]]["description"],
-                    "unlocked_at": row["unlocked_at"]}
+        "achievements": [{"id": row["id"], "unlocked_at": row["unlocked_at"]}
                    for row in facts["achievements"] if row["id"] in policy.ACHIEVEMENTS],
         "cards": sum(1 for row in facts["achievements"]
                      if row["id"] in policy.cards_by_key(published_cards())),

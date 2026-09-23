@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, type Component } from "svelte";
-  import { MISSING_KEY_MESSAGE, captureAccessKey, sessionKey } from "./lib/state/accesskey";
+  import { captureAccessKey, sessionKey } from "./lib/state/accesskey";
+  import { t } from "./lib/i18n.svelte";
   import { catalog } from "./lib/state/catalog.svelte";
   import { dock } from "./lib/state/dock.svelte";
   import { lastExercise, exercise } from "./lib/state/exercise.svelte";
@@ -18,7 +19,7 @@
   import { RETURN_KEY } from "./lib/auth/keys";
   import { ensureValid, session } from "./lib/auth/session.svelte";
   import { sessionGet } from "./lib/storage";
-  import { EXPECTED } from "./lib/domain/labels";
+  import { expectedOf } from "./lib/domain/labels";
 
   import ActionBar from "./components/ActionBar.svelte";
   import CodeEditor from "./components/CodeEditor.svelte";
@@ -48,10 +49,7 @@
     try {
       return await load();
     } catch {
-      system.say(
-        "Impossible de charger " + what + ". Vérifie ta connexion, puis recharge la page.",
-        true,
-      );
+      system.say(t("app.load_failed", { what: t(`app.load.${what}`) }), true);
       return null;
     }
   }
@@ -62,7 +60,7 @@
       return;
     }
     if (name === "progress") {
-      const parts = await bring("« Mes progrès »", () =>
+      const parts = await bring("progress", () =>
         Promise.all([
           import("./features/progress/Progress.svelte"),
           import("./features/progress/projection.svelte"),
@@ -73,15 +71,15 @@
       await projection.load();
       Progress = mod.default as Component;
     } else if (name === "leaderboard") {
-      const mod = await bring("le classement", () => import("./features/leaderboard/Leaderboard.svelte"));
+      const mod = await bring("leaderboard", () => import("./features/leaderboard/Leaderboard.svelte"));
       if (!mod) return;
       Leaderboard = mod.default as Component;
     } else if (name === "collection") {
-      const mod = await bring("la collection", () => import("./features/collection/Collection.svelte"));
+      const mod = await bring("collection", () => import("./features/collection/Collection.svelte"));
       if (!mod) return;
       CollectionView = mod.default as Component;
     } else {
-      const mod = await bring("la console", () => import("./features/scratch/Console.svelte"));
+      const mod = await bring("console", () => import("./features/scratch/Console.svelte"));
       if (!mod) return;
       ConsoleView = mod.default as Component;
     }
@@ -89,14 +87,14 @@
   }
 
   async function tryInConsole() {
-    const mod = await bring("la console", () => import("./features/scratch/session.svelte"));
+    const mod = await bring("console", () => import("./features/scratch/session.svelte"));
     if (mod && catalog.selected && (await mod.scratch.adopt(catalog.selected.files, editor.sources)))
       await openDestination("scratch");
   }
 
   async function bringChat(): Promise<boolean> {
     if (ChatDock) return true;
-    const parts = await bring("le chat", () =>
+    const parts = await bring("chat", () =>
       Promise.all([
         import("./features/forum/ChatDock.svelte"),
         import("./features/forum/ForumView.svelte"),
@@ -126,7 +124,7 @@
 
   $effect(() => {
     if (!showTeamBand || TeamBand) return;
-    void bring("l'espace d'équipe", () => import("./features/team/TeamBand.svelte")).then((mod) => {
+    void bring("team", () => import("./features/team/TeamBand.svelte")).then((mod) => {
       if (mod) TeamBand = mod.default as Component;
     });
   });
@@ -137,7 +135,7 @@
     const authState = params.get("state");
     if (authCode) history.replaceState({}, "", location.pathname + sessionGet(RETURN_KEY));
     captureAccessKey(location.search);
-    if (!sessionKey()) system.say(MISSING_KEY_MESSAGE);
+    if (!sessionKey()) system.say(t("access.missing_key"));
     theme.apply(theme.current);
     const stopBeating = presence.start();
     void start(params.get("tp") ?? "", authCode, authState);
@@ -166,11 +164,7 @@
       const { finishSignIn } = await import("./lib/auth/oidc");
       const ok = await finishSignIn(authCode, authState ?? "");
       if (!ok && !session.token) {
-        system.say(
-          "La connexion a échoué. Tu peux continuer sans compte : la page fonctionne " +
-            "exactement pareil.",
-          true,
-        );
+        system.say(t("app.signin_failed"), true);
       }
     }
     if (!session.token) return;
@@ -223,7 +217,7 @@
   function saveNow() {
     drafts.cancel();
     exercise.saveNow();
-    system.flash("Pas besoin d'enregistrer : ton code est sauvegardé tout seul.");
+    system.flash(t("app.autosaved"));
   }
 
   async function toggleHelp() {
@@ -232,7 +226,7 @@
       return;
     }
     ShortcutsPanel ??= await bring(
-      "l'aide-mémoire des raccourcis",
+      "shortcuts",
       async () => (await import("./components/ShortcutsPanel.svelte")).default,
     );
     if (ShortcutsPanel) helpOpen = true;
@@ -277,7 +271,7 @@
 
   $effect(() => {
     if (!isQuiz || QuizPanel) return;
-    void bring("le questionnaire", () => import("./components/QuizPanel.svelte")).then((mod) => {
+    void bring("quiz", () => import("./components/QuizPanel.svelte")).then((mod) => {
       if (mod) QuizPanel = mod.default as Component;
     });
   });
@@ -315,9 +309,9 @@
       <div id="now" class="phead" aria-live="polite">
         {#if here}
           <b>{here.label}</b>
-          <span class="badge">{EXPECTED[here.mode] ?? ""}</span>
+          <span class="badge">{expectedOf(here.mode)}</span>
           {#if here.verification}
-            <span class="badge verification">vérification — sans XP</span>
+            <span class="badge verification">{t("app.verification")}</span>
           {/if}
         {/if}
       </div>
@@ -341,7 +335,7 @@
       <VerdictPanel />
     </div>
 
-    <aside id="chatdock" aria-label="Chat du cours" hidden={!dock.open}>
+    <aside id="chatdock" aria-label={t("app.course_chat")} hidden={!dock.open}>
       {#if ChatDock && dock.open}<ChatDock />{/if}
     </aside>
   </div>

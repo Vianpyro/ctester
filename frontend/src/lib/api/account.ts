@@ -23,8 +23,9 @@ export const saveDraft = (exerciseId: string, files: Record<string, string>) =>
 
 export const fetchPreferences = () => authGet<PreferencesPayload>("preferences");
 
-export const savePreferences = (theme: string) =>
-  authRequest<{ ok: boolean }>("preferences", { method: "PUT", json: { theme } });
+// Either field alone: the server leaves the other one as it was.
+export const savePreferences = (prefs: { theme?: string; lang?: string }) =>
+  authRequest<{ ok: boolean }>("preferences", { method: "PUT", json: prefs });
 
 export const forgetMe = () => authRequest<{ ok: boolean }>("account", { method: "DELETE" });
 

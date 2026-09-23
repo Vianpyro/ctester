@@ -147,7 +147,7 @@ describe("a submission that does not", () => {
   it("keeps a JUDGE failure out of the verdict channel entirely", async () => {
     queue("h", {
       status: 200,
-      body: { state: "done", status: "error", kind: "io", message: "Erreur interne du juge." },
+      body: { state: "done", status: "error", kind: "io", code: "judge_internal" },
     });
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     expect(submission.phase.kind).toBe("idle");

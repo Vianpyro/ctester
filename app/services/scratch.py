@@ -22,24 +22,23 @@ def validate_scratch(code):
         return None, "bloc-notes manquant", 400
     code = canonicalize(code)
     if len(code.encode("utf-8")) > config.MAX_CODE:
-        return None, "bloc-notes > %d Ko" % (config.MAX_CODE // 1024), 413
+        return None, ("notepad_too_big", {"kb": config.MAX_CODE // 1024}), 413
     return code, None, 200
 
 
 def validate_header(name, text):
     """An empty name means no header, and then its text must be empty too."""
     if not isinstance(name, str) or not isinstance(text, str):
-        return None, None, "en-tête mal formé", 400
+        return None, None, "malformed_header", 400
     if not name:
         if text:
-            return None, None, "en-tête sans nom", 400
+            return None, None, "header_without_name", 400
         return "", "", None, 200
     if not HEADER_RE.match(name):
-        return None, None, ("nom d'en-tête invalide : lettres, chiffres ou _, "
-                            "puis .h (32 caractères au plus)"), 400
+        return None, None, "invalid_header_name", 400
     text = canonicalize(text)
     if len(text.encode("utf-8")) > config.MAX_CODE:
-        return None, None, "en-tête > %d Ko" % (config.MAX_CODE // 1024), 413
+        return None, None, ("header_too_big", {"kb": config.MAX_CODE // 1024}), 413
     return name, text, None, 200
 
 

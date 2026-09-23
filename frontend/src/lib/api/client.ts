@@ -1,4 +1,5 @@
 import { api } from "../config";
+import { i18n, t, type Params } from "../i18n.svelte";
 
 export interface ApiResult<T> {
   ok: boolean;
@@ -58,9 +59,17 @@ export async function getPublic<T>(path: string): Promise<T | null> {
   return answer.ok ? answer.body : null;
 }
 
+// The server answers {"error": "<key>", "params": {...}}; the page words it. A key this
+// page does not know (an API newer than the page) still shows, rather than nothing.
+export function serverMessage(body: unknown): string {
+  const b = body as { error?: unknown; params?: Params } | null;
+  if (!b || typeof b.error !== "string" || !b.error) return "";
+  return i18n.has("error." + b.error) ? t("error." + b.error, b.params ?? {}) : b.error;
+}
+
 export function refusal(answer: ApiResult<unknown> | null, fallback: string): string {
-  if (!answer || answer.status === OFFLINE) return "le serveur est injoignable";
-  const body = answer.body as { error?: string } | null;
-  if (body && typeof body.error === "string" && body.error) return body.error;
-  return fallback + " (réponse " + answer.status + ")";
+  if (!answer || answer.status === OFFLINE) return t("api.unreachable");
+  return (
+    serverMessage(answer.body) || t("api.status", { message: fallback, status: answer.status })
+  );
 }

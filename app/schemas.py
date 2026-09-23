@@ -36,6 +36,7 @@ class PreferencesIn(BaseModel):
     model_config = _CONFIG
 
     theme: str = ""
+    lang: str = ""
 
 
 class ForumMessageIn(_WithExercise):

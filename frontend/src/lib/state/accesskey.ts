@@ -15,7 +15,3 @@ export function sessionKey(): string {
   if (cached === null) cached = sessionGet(KEY_STORAGE);
   return cached;
 }
-
-export const MISSING_KEY_MESSAGE =
-  "Il manque ta clé d'accès. Rouvre le lien de CTester depuis ton cours pour pouvoir " +
-  "tester ton code. Tu peux écrire en attendant : ton brouillon est enregistré.";

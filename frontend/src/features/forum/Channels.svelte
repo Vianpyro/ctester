@@ -1,19 +1,20 @@
 <script lang="ts">
   import { catalog } from "../../lib/state/catalog.svelte";
+  import { t } from "../../lib/i18n.svelte";
   import { session } from "../../lib/auth/session.svelte";
   import { unread } from "../../lib/state/unread.svelte";
   import { CHAT_GENERAL, CHAT_PREFIX } from "../../lib/api/forum";
   import { thread } from "./thread.svelte";
 
-  const here = $derived(catalog.catalog.find((t) => t.id === thread.currentExercise));
+  const here = $derived(catalog.catalog.find((ex) => ex.id === thread.currentExercise));
   const entries = $derived([
-    ["chat-general", "# général", "Tout le cours, tous sujets.", CHAT_GENERAL] as const,
+    ["chat-general", t("forum.general"), t("channels.general_about"), CHAT_GENERAL] as const,
     ...(here
       ? [
           [
             "chat-ex",
-            "# " + (here.short || here.id),
-            "Le chat de l'exercice ouvert.",
+            t("forum.channel", { name: here.short || here.id }),
+            t("channels.exercise_about"),
             CHAT_PREFIX + here.id,
           ] as const,
         ]
@@ -33,7 +34,7 @@
         onclick={() => thread.openChannel(mode)}
         >{label}{#if unread.has(key)}<span
             class="pill"
-            aria-label="Des messages non lus"
+            aria-label={t("topbar.unread")}
           ></span>{/if}</button
       >
     </li>
@@ -46,15 +47,15 @@
     class="nav"
     onclick={() => thread.openChannel(isPrivate ? "chat-ex" : "forum")}
   >
-    {isPrivate ? "← Revenir au chat" : "Mes questions à l'enseignant"}
+    {isPrivate ? t("channels.back") : t("channels.mine")}
     {#if !isPrivate && unread.has(thread.currentExercise)}
-      <span class="pill" aria-label="Des messages non lus"></span>
+      <span class="pill" aria-label={t("topbar.unread")}></span>
     {/if}
   </button>
 {/if}
 
 {#if session.discordUrl}
   <a class="nav discordlink" href={session.discordUrl} target="_blank" rel="noopener noreferrer">
-    Discord du cours ↗
+    {t("channels.discord")}
   </a>
 {/if}

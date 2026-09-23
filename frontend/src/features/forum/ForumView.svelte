@@ -6,6 +6,7 @@
   import { identity } from "./identity.svelte";
   import { thread } from "./thread.svelte";
   import { CHARTER } from "./Guidelines.svelte";
+  import { t } from "../../lib/i18n.svelte";
   import Channels from "./Channels.svelte";
   import Composer from "./Composer.svelte";
   import SearchResults from "./SearchResults.svelte";
@@ -19,7 +20,7 @@
     return thread.watch();
   });
 
-  const masked = $derived(identity.profile?.alias || "un nom masqué");
+  const masked = $derived(identity.profile?.alias || t("forum.masked"));
   const recalled = $derived(
     submission.lastVerdict && submission.lastVerdict.exercise === thread.key
       ? submission.lastVerdict
@@ -36,16 +37,12 @@
   }
 </script>
 
-<h2 bind:this={title} id="forumtitle" tabindex="-1">Chat du cours</h2>
-<p class="help">
-  Visible par les autres comptes connectés du cours. Ce n'est pas une note, et ça n'a
-  aucun effet sur tes progrès. Tu y apparais sous « {masked} » — ton vrai nom n'apparaît
-  que si tu l'affiches dans Compte → Mon identité.
-</p>
+<h2 bind:this={title} id="forumtitle" tabindex="-1">{t("forum.title")}</h2>
+<p class="help">{t("forum.intro", { masked })}</p>
 
 {#if recalled}
   <p class="reminder">
-    <span class="what">Ton dernier test sur cet exercice : </span><b>{recalled.title}</b>
+    <span class="what">{t("forum.last_test")}</span><b>{recalled.title}</b>
   </p>
 {/if}
 
@@ -53,18 +50,16 @@
 
 <div class="column">
   <div class="block">
-    <h3 class="subtitle">Canaux</h3>
+    <h3 class="subtitle">{t("forum.channels")}</h3>
     <Channels />
     <p class="help">
-      {thread.isChat
-        ? "Ici tout est public : ton message est lisible par tous les comptes du cours, sous ton nom masqué."
-        : "Ce que tu as envoyé en privé. Seul l'enseignant le lit."}
+      {thread.isChat ? t("forum.public") : t("forum.private_help")}
     </p>
   </div>
 
   {#if catalog.catalog.length && thread.mode !== "chat-general"}
     <div class="block">
-      <label for="forumex">Exercice</label>
+      <label for="forumex">{t("forum.exercise")}</label>
       <select
         id="forumex"
         value={thread.currentExercise}
@@ -82,14 +77,11 @@
   {/if}
 
   <details class="block second">
-    <summary class="subtitle">Ce qui se publie ici</summary>
+    <summary class="subtitle">{t("forum.rules")}</summary>
     <ul class="rules">
-      {#each CHARTER as rule}<li>{rule}</li>{/each}
+      {#each CHARTER as rule}<li>{t(rule)}</li>{/each}
     </ul>
-    <p class="help">
-      Modération humaine : rien n'est vérifié automatiquement. Signale plutôt que de
-      répondre à une fuite.
-    </p>
+    <p class="help">{t("forum.rules_help")}</p>
   </details>
 </div>
 
@@ -98,19 +90,19 @@
     <p class="failed">{thread.error}</p>
   {:else}
     <div class="block">
-      <h3 class="subtitle">Chercher</h3>
+      <h3 class="subtitle">{t("forum.search")}</h3>
       <input
         type="search"
         id="forumsearch"
-        placeholder="un mot de la question…"
+        placeholder={t("forum.search_placeholder")}
         bind:value={terms}
         onkeydown={(e) => {
           if (e.key === "Enter") void runSearch();
         }}
       />
-      <button type="button" class="nav" onclick={runSearch}>Chercher</button>
+      <button type="button" class="nav" onclick={runSearch}>{t("forum.search")}</button>
       {#if thread.results !== null}
-        <SearchResults rows={thread.results} empty="Aucun message ne correspond." />
+        <SearchResults rows={thread.results} empty={t("forum.no_match")} />
       {/if}
     </div>
 
@@ -119,22 +111,18 @@
 
     {#if thread.moderator}
       <div class="block second">
-        <h3 class="subtitle">Modération</h3>
+        <h3 class="subtitle">{t("moderation.title")}</h3>
         <p>
           {reportsWaiting
-            ? reportsWaiting +
-              (reportsWaiting > 1 ? " éléments signalés" : " élément signalé") +
-              " à examiner."
-            : "Rien de signalé pour l'instant."}
+            ? t("forum.reports", { count: reportsWaiting })
+            : t("forum.no_reports")}
         </p>
         {#if stuckPeople}
           <p>
-            {stuckPeople > 1
-              ? stuckPeople + " personnes ont signalé être bloquées."
-              : "1 personne a signalé être bloquée."}
+            {t("forum.stuck", { count: stuckPeople })}
           </p>
         {/if}
-        <button type="button" onclick={() => chat.openModeration()}>Ouvrir la modération</button>
+        <button type="button" onclick={() => chat.openModeration()}>{t("forum.open_moderation")}</button>
       </div>
     {/if}
   {/if}

@@ -80,13 +80,13 @@ def find_exercise(exercise_id, preview=False):
 
 def validate_files(entry, sent):
     if not isinstance(sent, dict):
-        return None, "fichiers manquants", 400
+        return None, "files_missing", 400
     declared = [f["name"] for f in entry.get("files") or []] or ["submission.c"]
     unknown = sorted(k for k in sent if k not in declared)
     if unknown:
-        return None, "fichier inattendu : " + ", ".join(unknown[:3]), 400
+        return None, ("unexpected_file", {"files": ", ".join(unknown[:3])}), 400
     # Canonicalized before measuring, so the bound applies to the bytes actually stored.
     files = {n: canonicalize(str(sent.get(n, ""))) for n in declared}
     if len(json.dumps(files).encode()) > config.MAX_CODE:
-        return None, f"soumission > {config.MAX_CODE // 1024} Ko", 413
+        return None, ("submission_too_big", {"kb": config.MAX_CODE // 1024}), 413
     return files, None, 200

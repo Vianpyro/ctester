@@ -1,3 +1,4 @@
+#import "lang.typ": word
 #import "theme.typ": palette, mono-font, mono-size
 
 #let _frame(cls, accent, title, body) = context if target() == "html" {
@@ -23,11 +24,11 @@
   )
 }
 
-#let note(body, title: "Note") = _frame("note", palette.ink, title, body)
+#let note(body, title: word("note")) = _frame("note", palette.ink, title, body)
 
-#let attention(body, title: "Attention") = _frame("attention", palette.bad, title, body)
+#let attention(body, title: word("attention")) = _frame("attention", palette.bad, title, body)
 
-#let example(body, title: "Exemple") = _frame("example", palette.ok, title, body)
+#let example(body, title: word("example")) = _frame("example", palette.ok, title, body)
 
 #let _code(source, file, fill, cls) = context {
 let code = if type(source) == str { source } else { source.text }

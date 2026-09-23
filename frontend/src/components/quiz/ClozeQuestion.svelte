@@ -1,5 +1,6 @@
 <script lang="ts">
   import { quiz, type QuizQuestion } from "../../lib/state/quiz.svelte";
+  import { t } from "../../lib/i18n.svelte";
 
   const { q, onchange }: { q: QuizQuestion; onchange: () => void } = $props();
 
@@ -19,7 +20,7 @@
 
 <div class="qcloze">
   {#each runs as run, i (i)}<span class="qrun">{run}</span>{#if i < q.gaps.length}{#if q.gaps[i]!.length}<select
-        aria-label={"Trou " + (i + 1) + " sur " + q.gaps.length}
+        aria-label={t("quiz.gap", { n: i + 1, total: q.gaps.length })}
         value={filled[i] ?? ""}
         onchange={(event) => fill(i, event.currentTarget.value)}
       >
@@ -31,7 +32,7 @@
         type="text"
         spellcheck="false"
         autocomplete="off"
-        aria-label={"Trou " + (i + 1) + " sur " + q.gaps.length}
+        aria-label={t("quiz.gap", { n: i + 1, total: q.gaps.length })}
         value={filled[i] ?? ""}
         oninput={(event) => fill(i, event.currentTarget.value)}
       />{/if}{/if}{/each}

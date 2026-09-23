@@ -2,8 +2,10 @@
   import { collaborators } from "../../lib/state/collaborators.svelte";
   import { room } from "../../lib/collab/room.svelte";
   import { fetchArchive, fetchRevisions, handIn, restoreRevision } from "../../lib/api/team";
-  import { localTime } from "../../lib/domain/labels";
+  import { groupNumber, localTime, memberName, teamLabel } from "../../lib/domain/labels";
   import { system } from "../../lib/state/system.svelte";
+  import { serverMessage } from "../../lib/api/client";
+  import { i18n, t } from "../../lib/i18n.svelte";
   import type { TeamRevision } from "../../lib/api/types";
 
   let history = $state<{ rows: TeamRevision[]; failed: boolean } | null>(null);
@@ -13,8 +15,10 @@
   const assignment = $derived(context?.assignment);
   const status = $derived(room.status);
 
-  const memberName = (id: string) =>
-    collaborators.members.find((m) => m.id === id)?.name ?? "un ancien membre";
+  const authorName = (id: string) => {
+    const member = collaborators.members.find((m) => m.id === id);
+    return member ? memberName(member) : t("team.former_member");
+  };
 
   function say(text: string, bad = false) {
     room.note = text;
@@ -37,23 +41,19 @@
     if (
       typeof confirm === "function" &&
       !confirm(
-        "Remettre la version de " +
-          memberName(row.author) +
-          " du " +
-          row.created_at +
-          " ? Le code actuel de l'équipe sera remplacé — il reste dans l'historique.",
+        t("team.restore_confirm", { who: authorName(row.author), date: localTime(row.created_at) }),
       )
     ) {
       return;
     }
     const answer = await restoreRevision(room.assignmentId, room.exerciseId, row.id);
     if (!answer.ok) {
-      say((answer.body as { error?: string } | null)?.error ?? "La restauration n'a pas abouti.", true);
+      say(serverMessage(answer.body) || t("team.restore_failed"), true);
       return;
     }
     if (answer.body?.sources) room.applyRestored(answer.body.sources);
     history = null;
-    say("version restaurée");
+    say(t("team.restored"));
   }
 
   async function downloadArchive() {
@@ -62,17 +62,17 @@
     try {
       answer = await fetchArchive(room.assignmentId);
     } catch {
-      say("Le serveur ne répond pas. Réessaie dans un instant.", true);
+      say(t("submit.no_answer"), true);
       return;
     }
     if (!answer.ok) {
-      let body: { error?: string } | null = null;
+      let body: unknown = null;
       try {
-        body = (await answer.json()) as { error?: string };
+        body = await answer.json();
       } catch {
         body = null;
       }
-      say(body?.error ?? "L'archive n'a pas pu être construite.", true);
+      say(serverMessage(body) || t("team.archive_failed"), true);
       return;
     }
     const blob = await answer.blob();
@@ -84,45 +84,40 @@
     document.body.append(link);
     link.click();
     link.remove();
-    say("archive téléchargée");
+    say(t("team.archive_done"));
   }
 
   async function submit() {
     if (
       typeof confirm === "function" &&
-      !confirm(
-        "Remettre le devoir au nom de toute l'équipe ? Tes coéquipiers verront la remise, " +
-          "et vous pourrez la refaire jusqu'à la date limite.",
-      )
+      !confirm(t("team.handin_confirm"))
     ) {
       return;
     }
     const answer = await handIn(room.assignmentId);
     if (!answer.ok) {
-      say((answer.body as { error?: string } | null)?.error ?? "La remise n'a pas abouti.", true);
+      say(serverMessage(answer.body) || t("team.handin_failed"), true);
       return;
     }
     if (room.context) room.context.submission = answer.body?.submission ?? {};
-    say("devoir remis pour l'équipe");
+    say(t("team.handed_in"));
   }
 
   function deadlineWord(): string {
     if (!assignment?.deadline) return "";
     const when = new Date(assignment.deadline);
-    if (isNaN(when.getTime())) return "à remettre";
-    return (
-      (assignment.deadline_passed ? "remise close le " : "à remettre le ") +
-      when.toLocaleDateString(undefined, { day: "numeric", month: "long" }) +
-      " à " +
-      when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    );
+    if (isNaN(when.getTime())) return t("team.due");
+    return t(assignment.deadline_passed ? "team.closed_on" : "team.due_on", {
+      date: when.toLocaleDateString(i18n.lang, { day: "numeric", month: "long" }),
+      time: when.toLocaleTimeString(i18n.lang, { hour: "2-digit", minute: "2-digit" }),
+    });
   }
 </script>
 
 {#if room.refusal}
   <div class="teamhead">
-    <b class="teamtitle">Devoir</b>
-    <span class="tag failed">pas d'espace d'équipe</span>
+    <b class="teamtitle">{t("team.assignment")}</b>
+    <span class="tag failed">{t("team.no_space")}</span>
   </div>
   <p class="help">{room.refusal}</p>
 {:else if context && assignment}
@@ -131,16 +126,16 @@
     {#if assignment.deadline}
       <span class={"tag" + (assignment.deadline_passed ? " failed" : "")}>{deadlineWord()}</span>
     {/if}
-    <span class="tag">{context.team.label}</span>
-    <span class="tag">groupe {String(context.team.group_number).padStart(2, "0")}</span>
+    <span class="tag">{teamLabel(context.team.number)}</span>
+    <span class="tag">{groupNumber(context.team.group_number)}</span>
   </div>
 
   <div class="teamwho">
     {#each collaborators.members as member (member.id)}
       {@const online = member.you || collaborators.online.includes(member.id)}
-      <span class={"mate" + (online ? " on" : "")} title={online ? "en ligne" : "hors ligne"}>
+      <span class={"mate" + (online ? " on" : "")} title={online ? t("team.online") : t("team.offline_short")}>
         <i class="dot" style={"background:" + member.color}></i>
-        <span>{member.name}{member.you ? " (toi)" : ""}</span>
+        <span>{memberName(member)}{member.you ? t("team.you") : ""}</span>
       </span>
     {/each}
     <span class="grow"></span>
@@ -148,21 +143,26 @@
   </div>
 
   <div class="teamactions">
-    <button type="button" class="nav" onclick={toggleHistory}>Historique</button>
+    <button type="button" class="nav" onclick={toggleHistory}>{t("team.history")}</button>
     {#if assignment.handin.length}
-      <button type="button" class="nav" onclick={downloadArchive}>Télécharger le ZIP</button>
+      <button type="button" class="nav" onclick={downloadArchive}>{t("team.download")}</button>
       <button
         type="button"
         class="nav"
         disabled={assignment.deadline_passed}
-        title={assignment.deadline_passed ? "la date de remise est passée" : undefined}
+        title={assignment.deadline_passed ? t("team.deadline_passed") : undefined}
         onclick={submit}
       >
-        {context.submission?.submitted_at ? "Remettre à nouveau" : "Remettre le devoir"}
+        {context.submission?.submitted_at ? t("team.hand_in_again") : t("team.hand_in")}
       </button>
     {/if}
     {#if context.submission?.submitted_at}
-      <span class="tag ok">remis le {context.submission.submitted_at.replace("T", " à ")}</span>
+      <span class="tag ok"
+        >{t("team.handed_in_on", {
+          date: context.submission.submitted_at.split("T")[0] ?? "",
+          time: context.submission.submitted_at.split("T")[1] ?? "",
+        })}</span
+      >
     {/if}
     <span class="grow"></span>
     <span class="help">{room.note}</span>
@@ -170,25 +170,19 @@
 
   {#if history}
     <div class="teamhistory">
-      <h3>Historique partagé</h3>
+      <h3>{t("team.shared_history")}</h3>
       {#if history.failed}
-        <p class="help">
-          L'historique n'est pas disponible pour l'instant. Ton code, lui, continue d'être
-          enregistré.
-        </p>
+        <p class="help">{t("team.history_unavailable")}</p>
       {:else if !history.rows.length}
-        <p class="help">
-          Rien encore. Une version est gardée à chaque fois que l'un de vous travaille sur
-          cet exercice.
-        </p>
+        <p class="help">{t("team.history_empty")}</p>
       {:else}
         {#each history.rows as row (row.id)}
           <div class="revline">
-            <span class="who">{memberName(row.author)}</span>
+            <span class="who">{authorName(row.author)}</span>
             <time class="when">{localTime(row.created_at)}</time>
-            <span class="tag">{Math.round(row.bytes / 100) / 10} Ko</span>
+            <span class="tag">{t("team.kb", { n: Math.round(row.bytes / 100) / 10 })}</span>
             <span class="grow"></span>
-            <button type="button" class="nav" onclick={() => restore(row)}>Restaurer</button>
+            <button type="button" class="nav" onclick={() => restore(row)}>{t("team.restore")}</button>
           </div>
         {/each}
       {/if}

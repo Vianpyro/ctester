@@ -1,5 +1,6 @@
 <script lang="ts">
   import { profile } from "../lib/state/profile.svelte";
+  import { t } from "../lib/i18n.svelte";
   import { session } from "../lib/auth/session.svelte";
 
   interface Props {
@@ -21,19 +22,19 @@
 </script>
 
 {#if session.forumOffered}
-  <button type="button" id="identity" class="nav" onclick={openIdentity}>Mon identité</button>
+  <button type="button" id="identity" class="nav" onclick={openIdentity}>{t("account.identity")}</button>
 {/if}
-<span class="menutitle">Facultatif</span>
+<span class="menutitle">{t("account.optional")}</span>
 <button type="button" id="leaderboard" class="nav" onclick={() => go("leaderboard")}>
-  Classement
+  {t("leaderboard.title")}
 </button>
 <button type="button" id="collection" class="nav" onclick={() => go("collection")}>
-  Collection
+  {t("account.collection")}
 </button>
-<span class="menutitle">Ce compte</span>
+<span class="menutitle">{t("account.this_account")}</span>
 <button type="button" id="logout" class="nav" onclick={() => profile.signOut()}>
-  Se déconnecter
+  {t("account.sign_out")}
 </button>
 <button type="button" id="forget" class="nav" onclick={() => profile.deleteAccount()}>
-  Supprimer mes données
+  {t("account.delete")}
 </button>
