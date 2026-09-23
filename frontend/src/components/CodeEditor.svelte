@@ -12,6 +12,8 @@
     editor.element = zone;
     return () => {
       if (editor.element === zone) editor.element = null;
+      // A quiz has no editor: its verdict must not remind of code that is not on screen.
+      editor.issues = [];
     };
   });
 
@@ -60,6 +62,7 @@
     {onInput}
     onCaret={() => editor.notify("onCaret")}
     onScrolled={() => editor.notify("onScroll")}
+    onIssues={(issues) => (editor.issues = issues)}
     readOnly={editor.readOnly}
     label={t("editor.code_of", { file: editor.activeFile ?? "" })}
     placeholder={t("editor.placeholder")}

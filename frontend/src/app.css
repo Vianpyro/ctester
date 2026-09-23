@@ -963,14 +963,23 @@ main {
   background: color-mix(in srgb, var(--ink) 30%, transparent);
 }
 
-.gutter .error {
-  color: var(--bad);
+/* A filled pill, not just a colour: the shape still reads for someone who cannot tell red
+   from amber. box-shadow grows it without moving the numbers. */
+.gutter .error,
+.gutter .hint {
+  color: var(--card);
   font-weight: 600;
+  border-radius: 3px;
+}
+
+.gutter .error {
+  background: var(--bad);
+  box-shadow: 0 0 0 .2em var(--bad);
 }
 
 .gutter .hint {
-  color: var(--wait);
-  font-weight: 600;
+  background: var(--wait);
+  box-shadow: 0 0 0 .2em var(--wait);
 }
 
 .squiggles {
@@ -996,6 +1005,37 @@ main {
   background-image: repeating-linear-gradient(135deg, var(--wait) 0 1px, transparent 1px 3px);
 }
 
+.squiggles .rowflag {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: block;
+}
+
+.squiggles .rowflag.error {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
+
+.squiggles .rowflag.hint {
+  background: color-mix(in srgb, var(--wait) 12%, transparent);
+}
+
+/* The message sits after the code on its own line, where the student is already looking.
+   The list under the editor keeps the full text for the keyboard and screen readers. */
+.squiggles .lens {
+  position: absolute;
+  white-space: nowrap;
+  font: 500 var(--fs-label)/21px var(--sans);
+}
+
+.squiggles .lens.error {
+  color: var(--bad);
+}
+
+.squiggles .lens.hint {
+  color: var(--wait);
+}
+
 .diags {
   flex: 0 0 auto;
   display: flex;
@@ -1008,6 +1048,16 @@ main {
 
 .diags[hidden] {
   display: none;
+}
+
+.diagsum {
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: .35rem .75rem;
+  background: var(--panel);
+  font-size: var(--fs-ui);
+  font-weight: 600;
 }
 
 .diag {
@@ -1190,6 +1240,18 @@ main {
   border-top: 1px solid var(--line);
   border-left: 3px solid var(--muted);
   background: var(--panel);
+}
+
+#out .lintnote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem .75rem;
+  align-items: center;
+  margin: 0 0 .6rem;
+  padding: .35rem .6rem;
+  border-left: 3px solid var(--wait);
+  background: color-mix(in srgb, var(--wait) 10%, transparent);
+  font-size: var(--fs-ui);
 }
 
 #out.ok {

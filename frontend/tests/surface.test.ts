@@ -6,15 +6,21 @@ import { system } from "../src/lib/state/system.svelte";
 let host: HTMLDivElement;
 const mounted: ReturnType<typeof mount>[] = [];
 
-function surface(value: string, idPrefix = "") {
+// The checker is imported on the first pause in typing.
+async function settle() {
+  vi.advanceTimersByTime(700);
+  await vi.dynamicImportSettled();
+  flushSync();
+}
+
+async function surface(value: string, idPrefix = "") {
   const app = mount(CodeSurface, {
     target: host,
     props: { value, label: "Code", placeholder: "", idPrefix },
   });
   mounted.push(app);
   flushSync();
-  vi.advanceTimersByTime(700);
-  flushSync();
+  await settle();
   return app;
 }
 
@@ -31,13 +37,13 @@ afterEach(() => {
 });
 
 describe("the surface renders the editor", () => {
-  it("numbers the gutter one line at a time", () => {
-    surface("int a;\nint b;\nint c;\n");
+  it("numbers the gutter one line at a time", async () => {
+    await surface("int a;\nint b;\nint c;\n");
     expect(host.querySelector("#gutter")?.textContent).toBe("1\n2\n3\n4\n");
   });
 
-  it("puts the coloured layer and the textarea in the same pane", () => {
-    surface("int x;\n");
+  it("puts the coloured layer and the textarea in the same pane", async () => {
+    await surface("int x;\n");
     const pane = host.querySelector(".pane");
     expect(pane?.querySelector("pre.hl")).toBeTruthy();
     expect(pane?.querySelector("textarea.codein")).toBeTruthy();
@@ -45,14 +51,14 @@ describe("the surface renders the editor", () => {
 });
 
 describe("the checker reaches the screen", () => {
-  it("says nothing about correct code", () => {
-    surface("int main(void) {\n    return 0;\n}\n");
+  it("says nothing about correct code", async () => {
+    await surface("int main(void) {\n    return 0;\n}\n");
     expect(host.querySelector(".diags")?.hasAttribute("hidden")).toBe(true);
     expect(host.querySelector(".gutter .error")).toBeNull();
   });
 
-  it("flags the gutter line and lists the fault", () => {
-    surface("int main(void) {\n    return 0;\n");
+  it("flags the gutter line and lists the fault", async () => {
+    await surface("int main(void) {\n    return 0;\n");
     expect(host.querySelector(".diags")?.hasAttribute("hidden")).toBe(false);
     const flagged = host.querySelectorAll(".gutter .error");
     expect(flagged).toHaveLength(1);
@@ -60,10 +66,29 @@ describe("the checker reaches the screen", () => {
     expect(host.querySelector(".diag")?.textContent).toContain("ligne 1");
   });
 
-  it("tells a hint from a certain fault, because they are not equally sure", () => {
-    surface("int main(void) {\n    if (x = 3) return 1;\n    return 0;\n}\n");
+  it("tells a hint from a certain fault, because they are not equally sure", async () => {
+    await surface("int main(void) {\n    if (x = 3) return 1;\n    return 0;\n}\n");
     expect(host.querySelector(".diag.hint")).toBeTruthy();
     expect(host.querySelector(".diag.error")).toBeNull();
+  });
+
+  it("counts what it found above the list", async () => {
+    await surface("int main(void) {\n    int a = 1\n    return 0;\n}\n");
+    expect(host.querySelector(".diagsum")?.textContent).toContain("1 problème repéré");
+  });
+
+  it("tints the flagged row and writes its message after the code", async () => {
+    const style = { font: "", lineHeight: "21px", paddingTop: "8px", paddingLeft: "10px" };
+    vi.spyOn(window, "getComputedStyle").mockReturnValue(style as unknown as CSSStyleDeclaration);
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ width: 400 } as DOMRect);
+    await surface("int main(void) {\n    int a = 1\n    return 0;\n}\n");
+    const flags = host.querySelectorAll(".rowflag.hint");
+    expect(flags).toHaveLength(1);
+    expect((flags[0] as HTMLElement).style.top, "row 2, under 8px of padding").toBe("29px");
+    const lens = host.querySelector<HTMLElement>(".lens.hint")!;
+    expect(lens.textContent).toContain("« ; »");
+    expect(lens.style.left, "two columns after the 13 characters of the line").toBe("130px");
+    vi.restoreAllMocks();
   });
 
   it("says nothing until typing pauses", () => {
@@ -81,18 +106,18 @@ describe("the checker reaches the screen", () => {
 });
 
 describe("two editors, one document", () => {
-  it("keeps ids unique while `#work` is hidden", () => {
-    surface("int x;\n");
-    surface("int y;\n", "scratch");
+  it("keeps ids unique while `#work` is hidden", async () => {
+    await surface("int x;\n");
+    await surface("int y;\n", "scratch");
     for (const id of ["edwrap", "gutter", "pane", "hl", "hlcode", "code"]) {
       expect(host.querySelectorAll("#" + id)).toHaveLength(1);
       expect(host.querySelectorAll("#scratch" + id)).toHaveLength(1);
     }
   });
 
-  it("gives each its own underline layer, so the class is not an id", () => {
-    surface("int main(void) {\n", "");
-    surface("int main(void) {\n", "scratch");
+  it("gives each its own underline layer, so the class is not an id", async () => {
+    await surface("int main(void) {\n", "");
+    await surface("int main(void) {\n", "scratch");
     expect(host.querySelectorAll(".squiggles")).toHaveLength(2);
   });
 });
@@ -253,20 +278,18 @@ describe("go to line", () => {
 });
 
 describe("the next error (F2)", () => {
-  it("puts the caret on an error", () => {
+  it("puts the caret on an error", async () => {
     const { area } = typing("int a = 1\nint b = 2;\n");
-    vi.advanceTimersByTime(700);
-    flushSync();
+    await settle();
     area.setSelectionRange(0, 0);
     const event = press(area, "F2");
     expect(event.defaultPrevented).toBe(true);
     expect(area.selectionEnd, "the selection must have moved").toBeGreaterThan(0);
   });
 
-  it("leaves the selection alone when the code is correct", () => {
+  it("leaves the selection alone when the code is correct", async () => {
     const { area } = typing("int a = 1;\n");
-    vi.advanceTimersByTime(700);
-    flushSync();
+    await settle();
     area.setSelectionRange(3, 3);
     press(area, "F2");
     expect(area.selectionStart).toBe(3);

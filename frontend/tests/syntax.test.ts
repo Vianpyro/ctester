@@ -20,7 +20,7 @@ describe("nothing to say", () => {
 
 describe("what is blanked, and what it protects", () => {
   it("does not read the // of an URL as a comment", () => {
-    expect(check('int main(void) {\n    puts("http://exemple.com");\n    return 0;\n}\n')).toEqual(
+    expect(check('#include <stdio.h>\nint main(void) {\n    puts("http://exemple.com");\n    return 0;\n}\n')).toEqual(
       [],
     );
   });
@@ -32,7 +32,7 @@ describe("what is blanked, and what it protects", () => {
   });
 
   it("ignores braces and semicolons inside a string", () => {
-    expect(check('int main(void) {\n    puts("{ ; )");\n    return 0;\n}\n')).toEqual([]);
+    expect(check('#include <stdio.h>\nint main(void) {\n    puts("{ ; )");\n    return 0;\n}\n')).toEqual([]);
   });
 
   it("does not take a French apostrophe in a comment for a character literal", () => {
@@ -40,7 +40,7 @@ describe("what is blanked, and what it protects", () => {
   });
 
   it("does not take an apostrophe inside a string for a character literal", () => {
-    expect(check('int main(void) {\n    puts("aujourd\'hui");\n    return 0;\n}\n')).toEqual([]);
+    expect(check('#include <stdio.h>\nint main(void) {\n    puts("aujourd\'hui");\n    return 0;\n}\n')).toEqual([]);
   });
 });
 
@@ -84,7 +84,7 @@ describe("the certain faults", () => {
   });
 
   it("keeps an escaped quote inside a string", () => {
-    expect(check('int main(void) {\n    puts("il a dit \\"oui\\"");\n    return 0;\n}\n')).toEqual(
+    expect(check('#include <stdio.h>\nint main(void) {\n    puts("il a dit \\"oui\\"");\n    return 0;\n}\n')).toEqual(
       [],
     );
   });
@@ -100,7 +100,7 @@ describe("= instead of ==", () => {
 
   it("leaves the getchar idiom alone", () => {
     expect(
-      check("int main(void) {\n    while ((c = getchar()) != EOF) putchar(c);\n    return 0;\n}\n"),
+      check("#include <stdio.h>\nint main(void) {\n    while ((c = getchar()) != EOF) putchar(c);\n    return 0;\n}\n"),
     ).toEqual([]);
   });
 
@@ -125,29 +125,29 @@ describe("the if with an empty body", () => {
 
 describe("scanf without &", () => {
   it("flags a bare identifier read as a number", () => {
-    const issues = check('int main(void) {\n    scanf("%d", x);\n    return 0;\n}\n');
+    const issues = check('#include <stdio.h>\nint main(void) {\n    scanf("%d", x);\n    return 0;\n}\n');
     expect(issues).toHaveLength(1);
     expect(issues[0]!.message).toContain("« x »");
   });
 
   it("leaves %s alone: a char array needs no &", () => {
-    expect(check('int main(void) {\n    scanf("%s", nom);\n    return 0;\n}\n')).toEqual([]);
+    expect(check('#include <stdio.h>\nint main(void) {\n    scanf("%s", nom);\n    return 0;\n}\n')).toEqual([]);
   });
 
   it("says nothing when the & is there", () => {
-    expect(check('int main(void) {\n    scanf("%d %lf", &n, &x);\n    return 0;\n}\n')).toEqual([]);
+    expect(check('#include <stdio.h>\nint main(void) {\n    scanf("%d %lf", &n, &x);\n    return 0;\n}\n')).toEqual([]);
   });
 
   it("says nothing about an expression it cannot judge", () => {
-    expect(check('int main(void) {\n    scanf("%d", &tab[i]);\n    return 0;\n}\n')).toEqual([]);
+    expect(check('#include <stdio.h>\nint main(void) {\n    scanf("%d", &tab[i]);\n    return 0;\n}\n')).toEqual([]);
   });
 
   it("does not count %% as a conversion", () => {
-    expect(check('int main(void) {\n    scanf("100%% %d", &n);\n    return 0;\n}\n')).toEqual([]);
+    expect(check('#include <stdio.h>\nint main(void) {\n    scanf("100%% %d", &n);\n    return 0;\n}\n')).toEqual([]);
   });
 
   it("flags the second argument when only it is bare", () => {
-    expect(said('int main(void) {\n    scanf("%d %d", &a, b);\n    return 0;\n}\n')[0]).toContain(
+    expect(said('#include <stdio.h>\nint main(void) {\n    scanf("%d %d", &a, b);\n    return 0;\n}\n')[0]).toContain(
       "« b »",
     );
   });
@@ -162,7 +162,7 @@ describe("the missing semicolon", () => {
 
   it("says nothing about a call split over two lines", () => {
     expect(
-      check('int main(void) {\n    printf("%d %d\\n",\n           a, b);\n    return 0;\n}\n'),
+      check('#include <stdio.h>\nint main(void) {\n    printf("%d %d\\n",\n           a, b);\n    return 0;\n}\n'),
     ).toEqual([]);
   });
 
@@ -207,9 +207,9 @@ describe("the noise rules", () => {
     expect(issues[0]!.message).toContain("guillemet");
   });
 
-  it("never returns more than six", () => {
+  it("never returns more than eight", () => {
     const src = "int main(void) {\n" + "    int a = 1\n".repeat(20) + "    return 0;\n}\n";
-    expect(check(src)).toHaveLength(6);
+    expect(check(src)).toHaveLength(8);
   });
 
   it("returns them in reading order", () => {
@@ -240,5 +240,164 @@ describe("the next error (F2)", () => {
 
   it("moves past the error the caret is already on", () => {
     expect(nextIssue([at(10), at(30)], 10)?.from).toBe(30);
+  });
+});
+
+// A program the new rules must all leave alone, so each case below differs by one line.
+const inMain = (body: string, head = "#include <stdio.h>\n") =>
+  head + "int main(void) {\n" + body + "    return 0;\n}\n";
+const saysKey = (src: string, words: string): boolean => said(src).some((m) => m.includes(words));
+
+describe("pasted typography", () => {
+  it("flags a curly quote as a certain fault", () => {
+    const src = inMain("    printf(\u201cBonjour\u201d);\n");
+    expect(levels(src)).toContain("error");
+    expect(saysKey(src, "typographique")).toBe(true);
+  });
+
+  it("flags a non-breaking space in the code", () => {
+    expect(saysKey(inMain("    int\u00a0x = 1;\n"), "typographique")).toBe(true);
+  });
+
+  it("leaves them alone inside a string or a comment", () => {
+    expect(check(inMain('    printf("\u00ab Bonjour \u00bb\\n"); // \u2019\n'))).toEqual([]);
+  });
+});
+
+describe("the for with commas", () => {
+  it("flags a for whose parts are separated by commas", () => {
+    const src = inMain("    int i;\n    for (i = 0, i < 3, i++) {\n    }\n");
+    expect(levels(src)).toEqual(["error"]);
+    expect(saysKey(src, "« ; »")).toBe(true);
+  });
+
+  it("accepts a comma inside one part", () => {
+    expect(check(inMain("    int i, j;\n    for (i = 0, j = 3; i < j; i++, j--) {\n    }\n"))).toEqual([]);
+  });
+});
+
+describe("the struct without its semicolon", () => {
+  it("flags the closing brace", () => {
+    const src = "struct Point {\n    int x;\n}\n\nint f(void) {\n    return 0;\n}\n";
+    expect(levels(src)).toEqual(["error"]);
+    expect(saysKey(src, "struct")).toBe(true);
+  });
+
+  it("accepts a typedef name or a variable after the brace", () => {
+    expect(check("typedef struct {\n    int x;\n} Point;\nstruct P {\n    int y;\n} p;\n")).toEqual([]);
+  });
+});
+
+describe("the missing #include", () => {
+  it("names the header a function needs", () => {
+    const src = inMain('    printf("%d\\n", 1);\n', "");
+    expect(saysKey(src, "stdio.h")).toBe(true);
+  });
+
+  it("names math.h for sqrt, even with stdio.h there", () => {
+    expect(saysKey(inMain('    printf("%f\\n", sqrt(2.0));\n'), "math.h")).toBe(true);
+  });
+
+  it("says nothing in a file without main: its header may be elsewhere", () => {
+    expect(said('int f(void) {\n    printf("x");\n    return 0;\n}\n')).toEqual([]);
+  });
+
+  it("says nothing when the student includes a header of their own", () => {
+    expect(check(inMain('    printf("x");\n', '#include "outils.h"\n'))).toEqual([]);
+  });
+});
+
+describe("printf and scanf formats", () => {
+  it("counts the values the format announces", () => {
+    expect(saysKey(inMain('    int a = 1;\n    printf("%d %d\\n", a);\n'), "annonce 2 valeurs")).toBe(true);
+  });
+
+  it("does not count %% or a correct call", () => {
+    expect(check(inMain('    int a = 1;\n    printf("%d %%\\n", a);\n'))).toEqual([]);
+  });
+
+  it("asks for %lf to read a double", () => {
+    const src = inMain('    double d;\n    scanf("%f", &d);\n');
+    expect(saysKey(src, "« %lf »")).toBe(true);
+  });
+
+  it("accepts %lf for a double and %f for a float", () => {
+    expect(check(inMain('    double d;\n    float f;\n    scanf("%lf %f", &d, &f);\n'))).toEqual([]);
+  });
+
+  it("flags %d for a double in printf", () => {
+    expect(saysKey(inMain('    double d = 1.5;\n    printf("%d\\n", d);\n'), "« %f »")).toBe(true);
+  });
+
+  it("drops a name declared with two types", () => {
+    const src = inMain('    int x = 1;\n    {\n        double x = 2;\n        printf("%f\\n", x);\n    }\n');
+    expect(check(src)).toEqual([]);
+  });
+});
+
+describe("the empty loop", () => {
+  it("flags for (...); and while (...); followed by the block meant to repeat", () => {
+    expect(saysKey(inMain("    int i;\n    for (i = 0; i < 3; i++);\n    {\n    }\n"), "boucle")).toBe(true);
+    expect(saysKey(inMain("    int i = 0;\n    while (i < 3);\n    {\n        i++;\n    }\n"), "boucle")).toBe(
+      true,
+    );
+  });
+
+  it("leaves the empty loop that drains the input alone", () => {
+    expect(check(inMain("    int c;\n    while ((c = getchar()) != '\\n' && c != -1);\n"))).toEqual([]);
+  });
+
+  it("leaves the while of a do ... while alone", () => {
+    expect(check(inMain("    int i = 0;\n    do {\n        i++;\n    } while (i < 3);\n"))).toEqual([]);
+  });
+});
+
+describe("comparisons a beginner writes like in maths", () => {
+  it("flags == on a string", () => {
+    expect(saysKey(inMain('    char s[8] = "oui";\n    if (s == "oui") return 1;\n'), "strcmp")).toBe(
+      true,
+    );
+  });
+
+  it("flags 0 < x < 10", () => {
+    expect(saysKey(inMain("    int x = 3;\n    if (0 < x < 10) return 1;\n"), "&&")).toBe(true);
+  });
+
+  it("leaves two comparisons joined by && alone, and shifts too", () => {
+    expect(check(inMain("    int x = 3;\n    if (0 < x && x < 10) return x << 2;\n"))).toEqual([]);
+  });
+
+  it("flags ^ used as a power", () => {
+    expect(saysKey(inMain("    int x = 3;\n    int y = x ^ 2;\n"), "pow")).toBe(true);
+  });
+
+  it("flags a division that truncates, not one that is exact or real", () => {
+    expect(saysKey(inMain("    double v = 4 / 3 * 3.14;\n"), "4.0 / 3")).toBe(true);
+    expect(check(inMain("    double v = 4.0 / 3 + 10 / 2;\n"))).toEqual([]);
+  });
+});
+
+describe("arrays, keywords and literals", () => {
+  it("flags <= N on an array of N cells", () => {
+    expect(saysKey(inMain("    int t[5];\n    int i;\n    for (i = 0; i <= 5; i++) t[i] = 0;\n"), "< »")).toBe(
+      true,
+    );
+  });
+
+  it("leaves a loop from 1 to N alone: that is a sum, not an index", () => {
+    expect(check(inMain("    int t[5];\n    int i, s = 0;\n    for (i = 1; i <= 5; i++) s += i;\n"))).toEqual([]);
+  });
+
+  it("flags a capitalised keyword", () => {
+    expect(saysKey(inMain("    int x = 1;\n    If (x) return 1;\n"), "« if »")).toBe(true);
+  });
+
+  it("flags several characters between apostrophes, not an escape", () => {
+    expect(saysKey(inMain("    char c = 'oui';\n"), "guillemets")).toBe(true);
+    expect(check(inMain("    char c = '\\n';\n    char z = '\\0';\n"))).toEqual([]);
+  });
+
+  it("flags void main", () => {
+    expect(saysKey("#include <stdio.h>\nvoid main(void) {\n}\n", "int main")).toBe(true);
   });
 });

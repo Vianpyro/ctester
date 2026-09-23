@@ -1,3 +1,5 @@
+import type { Issue } from "../domain/syntax";
+
 export interface EditorSession {
   owns(exerciseId: string): boolean;
   onInput?(file: string): void;
@@ -22,6 +24,8 @@ class EditorState {
   activeFile = $state<string | null>(null);
   readOnly = $state(false);
   exerciseId = $state<string | null>(null);
+  // What the checker last found in the open file, for the reminder beside the verdict.
+  issues = $state<Issue[]>([]);
 
   element: HTMLTextAreaElement | null = null;
   session: EditorSession | null = null;

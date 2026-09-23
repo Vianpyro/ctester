@@ -6,6 +6,7 @@
   import { submission } from "../lib/state/submission.svelte";
   import { system } from "../lib/state/system.svelte";
   import { quiz } from "../lib/state/quiz.svelte";
+  import { editor } from "../lib/state/editor.svelte";
   import { t } from "../lib/i18n.svelte";
   import {
     OUTCOMES,
@@ -124,6 +125,18 @@
 
   const quizGroup = (id: string): string => quiz.groupOf[id] ?? "";
 
+  // Never a gate: gcc stays the judge, and a heuristic can be wrong.
+  const lintFirst = $derived(
+    (cls === "wait" || cls === "bad") && editor.issues.length ? editor.issues[0]! : null,
+  );
+
+  function showLint() {
+    const zone = editor.element;
+    if (!zone || !lintFirst) return;
+    zone.focus();
+    zone.setSelectionRange(lintFirst.from, lintFirst.to);
+  }
+
   // Only a failed compile needs gcc's help, so it stays out of the eager bundle.
   let GccHelp = $state<Component<{ output: string }> | null>(null);
   $effect(() => {
@@ -134,6 +147,14 @@
 </script>
 
 <div bind:this={box} id="out" class={cls} tabindex="-1">
+  {#if lintFirst}
+    <p class="lintnote">
+      <span>{t("verdict.lint_before", { count: editor.issues.length })}</span>
+      <button type="button" class="nav" onclick={showLint}>
+        {t("verdict.lint_show", { n: editor.text.slice(0, lintFirst.from).split("\n").length })}
+      </button>
+    </p>
+  {/if}
   {#if steps}
     <div class="steps">
       {#each steps as state, i}

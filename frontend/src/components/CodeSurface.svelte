@@ -5,8 +5,8 @@
   import { commandEdit, keyEdit, lineSpan, parseLine, type Edit } from "../lib/domain/keys";
   import { EDITOR_COMMANDS, TEXT_COMMANDS, matchShortcut, type ShortcutId } from "../lib/domain/shortcuts";
   import { system } from "../lib/state/system.svelte";
-  import { check, nextIssue, type Issue } from "../lib/domain/syntax";
-  import { measure, rowColumn, selectionBands, type Metrics } from "../lib/collab/carets";
+  import type { Issue } from "../lib/domain/syntax";
+  import { measure, place, rowColumn, selectionBands, type Metrics } from "../lib/collab/carets";
 
   interface Scroll {
     left: number;
@@ -18,6 +18,7 @@
     onInput?: (text: string) => void;
     onCaret?: () => void;
     onScrolled?: () => void;
+    onIssues?: (issues: Issue[]) => void;
     readOnly?: boolean;
     label: string;
     placeholder: string;
@@ -33,6 +34,7 @@
     onInput,
     onCaret,
     onScrolled,
+    onIssues,
     readOnly = false,
     label,
     placeholder,
@@ -65,23 +67,35 @@
   });
 
   let issues = $state<Issue[]>([]);
+  // The checker is loaded on the first pause in typing, so it stays out of the eager bundle.
+  let lint: typeof import("../lib/domain/syntax") | null = null;
 
   $effect(() => {
     const source = value;
     const timer = setTimeout(() => {
-      issues = check(source);
+      void import("../lib/domain/syntax").then((mod) => {
+        lint = mod;
+        if (source !== value) return;
+        issues = mod.check(source);
+        onIssues?.(issues);
+      }, () => {});
     }, 600);
     return () => clearTimeout(timer);
   });
 
+  // One issue per row, the surest first: the row is tinted and its message written after it.
   const flagged = $derived.by(() => {
-    const rows = new Map<number, string>();
+    const rows = new Map<number, Issue>();
     for (const issue of issues) {
       const row = rowColumn(value, issue.from).row + 1;
-      if (issue.level === "error" || !rows.has(row)) rows.set(row, issue.level);
+      if (!rows.has(row) || (issue.level === "error" && rows.get(row)!.level !== "error")) {
+        rows.set(row, issue);
+      }
     }
     return rows;
   });
+
+  const lineLengths = $derived(value.split("\n").map((line) => line.length));
 
   let metrics = $state<Metrics | null>(null);
 
@@ -94,7 +108,7 @@
   function command(id: ShortcutId) {
     if (!zone) return;
     if (id === "nextIssue") {
-      const issue = nextIssue(issues, zone.selectionEnd);
+      const issue = lint?.nextIssue(issues, zone.selectionEnd);
       if (issue) goTo(issue);
       return;
     }
@@ -209,7 +223,7 @@
 
 <div id={idPrefix + "edwrap"} class={"edwrap " + wrapClass} role={wrapRole}>
   <pre bind:this={gutter} id={idPrefix + "gutter"} class="gutter" aria-hidden="true">{#each { length: lines } as _, i}<span
-        class={flagged.get(i + 1) ?? ""}>{i + 1}</span>{"\n"}{/each}</pre>
+        class={flagged.get(i + 1)?.level ?? ""}>{i + 1}</span>{"\n"}{/each}</pre>
   <div id={idPrefix + "pane"} class="pane">
     <pre bind:this={painter} id={idPrefix + "hl"} class="hl" aria-hidden="true"><code
         id={idPrefix + "hlcode"}>{@html painted}</code
@@ -232,6 +246,15 @@
     {@render overlay?.(scroll)}
     <div class="squiggles" aria-hidden="true">
       {#if usable && metrics}
+        {#each flagged as [row, issue] (row)}
+          <i
+            class={"rowflag " + issue.level}
+            style={"top:" + (metrics.top + (row - 1) * metrics.line - scroll.top) + "px;height:" + metrics.line + "px;"}
+          ></i>
+          <span class={"lens " + issue.level} style={place(metrics, scroll, (lineLengths[row - 1] ?? 0) + 2, row - 1)}
+            >{issue.message}</span
+          >
+        {/each}
         {#each issues as issue (issue.from + ":" + issue.message)}
           {#each selectionBands(value, issue.from, issue.to, metrics, scroll) as band}
             <i class={"squig " + issue.level} style={band}></i>
@@ -258,6 +281,7 @@
   </div>
 {/if}
 <div class="diags" aria-live="polite" hidden={issues.length === 0}>
+  <p class="diagsum">{t("editor.issues", { count: issues.length })}</p>
   {#each issues as issue (issue.from + ":" + issue.message)}
     <button type="button" class={"diag " + issue.level} onclick={() => goTo(issue)}>
       <span class="diagline">{t("editor.line", { n: rowColumn(value, issue.from).row + 1 })}</span>
