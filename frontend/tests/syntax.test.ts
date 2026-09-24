@@ -190,6 +190,31 @@ describe("the missing semicolon", () => {
     ).toEqual([]);
   });
 
+  it("flags i++ at the end of a line: it ends a statement, it does not continue one", () => {
+    expect(said("int main(void) {\n    int i = 0;\n    i++\n    return i;\n}\n")).toHaveLength(1);
+  });
+
+  it("flags the last statement of a block, right before its brace", () => {
+    const issues = check("int main(void) {\n    return 0\n}\n");
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.from).toBe("int main(void) {\n    return ".length);
+  });
+
+  it("says nothing about the last item of an initializer or an enum", () => {
+    expect(check("int t[3] = {\n    1, 2,\n    3\n};\nenum Couleur {\n    ROUGE,\n    VERT\n};\n")).toEqual(
+      [],
+    );
+  });
+
+  it("flags every line of a program that forgot them all", () => {
+    const src =
+      '#include <stdio.h>\n\nint main(void) {\n    int n\n    int i = 1\n    int fact = 1\n\n' +
+      '    (void)scanf("%d", &n)\n\n    while (i <= n) {\n        fact *= i\n        i++\n    }\n\n' +
+      '    printf("Factorielle : %d", fact)\n\n    return 0\n}\n';
+    const rows = check(src).map((i) => src.slice(0, i.from).split("\n").length);
+    expect(rows).toEqual([4, 5, 6, 8, 11, 12, 15, 17]);
+  });
+
   it("says nothing about a continuation line starting with an operator", () => {
     expect(check("int main(void) {\n    int t = a\n          + b;\n    return 0;\n}\n")).toEqual([]);
   });
@@ -207,9 +232,9 @@ describe("the noise rules", () => {
     expect(issues[0]!.message).toContain("guillemet");
   });
 
-  it("never returns more than eight", () => {
+  it("never returns more than ten", () => {
     const src = "int main(void) {\n" + "    int a = 1\n".repeat(20) + "    return 0;\n}\n";
-    expect(check(src)).toHaveLength(8);
+    expect(check(src)).toHaveLength(10);
   });
 
   it("returns them in reading order", () => {

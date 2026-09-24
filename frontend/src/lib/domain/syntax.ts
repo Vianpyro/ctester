@@ -9,7 +9,7 @@ export interface Issue {
   message: string;
 }
 
-const MAX_ISSUES = 8;
+const MAX_ISSUES = 10;
 
 const OPENERS: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
 const CLOSERS: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
@@ -463,18 +463,34 @@ const NO_SEMICOLON =
   /^\s*(?:#|\/\/|(?:if|else|for|while|switch|do|case|default|struct|union|enum|typedef)\b)/;
 const CONTINUED = /^\s*[{})\].?:+\-*/%=<>&|,]/;
 
+// A "}" that closes an initializer or an enum ends a list, whose last item takes no ";".
+// One that closes a block ends statements, which do.
+function closesList(blanked: string, close: number): boolean {
+  let depth = 0;
+  for (let i = close; i >= 0; i--) {
+    if (blanked[i] === "}") depth++;
+    else if (blanked[i] === "{" && --depth === 0) {
+      return /(?:=|\benum\b[^;{}]*)\s*$/.test(blanked.slice(0, i));
+    }
+  }
+  return false;
+}
+
 function missingSemicolon(blanked: string, issues: Issue[]): void {
   const lines = blanked.split("\n");
+  const starts: number[] = [];
   let at = 0;
-  for (let n = 0; n < lines.length; n++) {
-    const line = lines[n]!;
-    const offset = at;
+  for (const line of lines) {
+    starts.push(at);
     at += line.length + 1;
-
-    const code = line.replace(/\s+$/, "");
+  }
+  for (let n = 0; n < lines.length; n++) {
+    const offset = starts[n]!;
+    const code = lines[n]!.replace(/\s+$/, "");
     if (!code.trim()) continue;
     if (NO_SEMICOLON.test(code)) continue;
-    if (UNFINISHED.test(code)) continue;
+    // i++ and i-- end a statement; a lone + or - leaves an expression open.
+    if (UNFINISHED.test(code) && !/(\+\+|--)$/.test(code)) continue;
     if (/^\s*[A-Za-z_]\w*\s*:\s*$/.test(code)) continue;
     let depth = 0;
     for (const c of code) {
@@ -485,7 +501,10 @@ function missingSemicolon(blanked: string, issues: Issue[]): void {
 
     let next = n + 1;
     while (next < lines.length && !lines[next]!.trim()) next++;
-    if (next < lines.length && CONTINUED.test(lines[next]!)) continue;
+    if (next < lines.length && CONTINUED.test(lines[next]!)) {
+      const brace = lines[next]!.search(/\S/);
+      if (lines[next]![brace] !== "}" || closesList(blanked, starts[next]! + brace)) continue;
+    }
 
     say(issues, "hint", offset + code.length - 1, offset + code.length, "missing_semicolon");
   }
