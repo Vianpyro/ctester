@@ -25,7 +25,7 @@ def read_leaderboard(sub: Sub, scope: str = Query("group"),
         wanted = group
     else:
         wanted = profile.get("group_number")
-    staff = config.FORUM_MODERATORS
+    staff = security.moderators()
     rows = state.leaderboard_rows(wanted, leaderboard.WINDOW_DAYS, staff)
     if rows is None:
         return headers.error(503, "db_down")

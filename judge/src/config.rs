@@ -1,14 +1,11 @@
 //! Every setting of the judge, read once from `CTESTER_*`.
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 pub struct Config {
     pub spool: PathBuf,
     pub results: PathBuf,
     pub work: PathBuf,
-    /// One or more content roots, searched in order. Ids stay unique across them, so the
-    /// first match is the only match.
     pub content: Vec<PathBuf>,
     pub build_unity: PathBuf,
     pub build_io: PathBuf,
@@ -32,13 +29,9 @@ pub struct Config {
     pub lock_stale: u64,
     pub lock_retries: u64,
     pub preview: bool,
-    pub moderators: BTreeSet<String>,
-    /// Passed to the sandbox in this order; unset variables are left out entirely, because an
-    /// empty CTESTER_SANITIZERS explicitly disables the sanitizers.
     pub sandbox_env: Vec<(String, String)>,
     pub cache_max: i64,
     pub cache_prune_every: u64,
-    /// Names this instance in the run journal; systemd passes `%i`.
     pub worker_id: String,
 }
 
@@ -103,11 +96,6 @@ impl Config {
             lock_stale: unsigned("CTESTER_LOCK_STALE", &(3 * job_timeout).to_string())?,
             lock_retries: unsigned("CTESTER_LOCK_RETRIES", "1")?,
             preview: !matches!(text("CTESTER_PREVIEW", "").as_str(), "" | "0"),
-            moderators: text("CTESTER_FORUM_MODERATORS", "")
-                .split(|c: char| c == ',' || c.is_whitespace())
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .collect(),
             sandbox_env: SANDBOX_KEYS
                 .iter()
                 .filter_map(|key| lookup(key).map(|value| (key.to_string(), value)))
@@ -314,11 +302,5 @@ mod tests {
             let id = with(&[("CTESTER_WORKER_ID", bad)]).unwrap().worker_id;
             assert_eq!(id, std::process::id().to_string(), "accepted {bad:?}");
         }
-    }
-
-    #[test]
-    fn moderators_split_on_commas_and_spaces() {
-        let config = with(&[("CTESTER_FORUM_MODERATORS", "sub-a, sub-b\tsub-c,,")]).unwrap();
-        assert_eq!(config.moderators.len(), 3);
     }
 }

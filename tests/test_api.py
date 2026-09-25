@@ -625,7 +625,7 @@ def context(*, tokens=None, moderators=(), forum_enabled=True, base=None,
     saved_state = [(m, m.state) for m in modules]
     saved_config = {n: getattr(config, n) for n in
                     ("PUBLISHED", "SPOOL", "RESULTS", "PAGE", "KEY", "OIDC_ISSUER",
-                     "OIDC_CLIENT_ID", "FORUM_MODERATORS", "FORUM_GROUPS",
+                     "OIDC_CLIENT_ID", "MODERATOR_GROUP", "MODERATORS_FILE", "FORUM_GROUPS",
                      "SCRATCH", "DISCORD_BRIDGE_KEY", "DISCORD_WEBHOOK")}
     saved_security = (security.current_user, security.current_name)
     saved_quotas = (deps.quota, deps.signed_in_quota, deps.state_quota,
@@ -638,7 +638,10 @@ def context(*, tokens=None, moderators=(), forum_enabled=True, base=None,
     config.KEY = "cle-de-session"
     config.OIDC_ISSUER = "https://auth.exemple.com"
     config.OIDC_CLIENT_ID = "ctester"
-    config.FORUM_MODERATORS = frozenset(moderators) if forum_enabled else frozenset()
+    config.MODERATOR_GROUP = "ctester_moderators"
+    config.MODERATORS_FILE = os.path.join(spool, "moderators.json")
+    with open(config.MODERATORS_FILE, "w", encoding="utf-8") as fh:
+        json.dump(sorted(moderators) if forum_enabled else [], fh)
     config.FORUM_GROUPS = tuple(groups)
     config.SCRATCH = console
     config.DISCORD_BRIDGE_KEY = bridge
@@ -2752,21 +2755,21 @@ def _warned():
 
 
 def test_warn_reports_each_incomplete_configuration_independently():
-    guard = (config.OIDC_ISSUER, config.FORUM_MODERATORS, config.DOCS,
+    guard = (config.OIDC_ISSUER, config.MODERATOR_GROUP, config.DOCS,
              security.oidc_enabled)
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
-        config.FORUM_MODERATORS = frozenset({"sub-prof"})
+        config.MODERATOR_GROUP = "ctester_moderators"
         config.DOCS = False
         security.oidc_enabled = lambda: False
         assert _warned() == {"config.sign_in_disabled"}
 
         security.oidc_enabled = lambda: True
-        config.FORUM_MODERATORS = frozenset()
+        config.MODERATOR_GROUP = ""
         assert _warned() == {"config.forum_disabled"}
 
         config.OIDC_ISSUER = ""
-        config.FORUM_MODERATORS = frozenset({"sub-prof"})
+        config.MODERATOR_GROUP = "ctester_moderators"
         config.DOCS = True
         assert _warned() == {"config.docs_public"}
 
@@ -2775,7 +2778,7 @@ def test_warn_reports_each_incomplete_configuration_independently():
         security.oidc_enabled = lambda: True
         assert _warned() == set()
     finally:
-        (config.OIDC_ISSUER, config.FORUM_MODERATORS, config.DOCS,
+        (config.OIDC_ISSUER, config.MODERATOR_GROUP, config.DOCS,
          security.oidc_enabled) = guard
 
 

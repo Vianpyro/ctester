@@ -74,7 +74,9 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   becoming quietly unobtainable.
 - **The page never declares a result.** XP, solved states and verdicts are derived by the server.
 - **The worker trusts nothing from the web tier.** It re-resolves the exercise and recomputes the
-  moderator role itself.
+  moderator role itself from the job's owner and `spool/moderators.json`.
+- **Moderators are an IdP group** (`CTESTER_MODERATOR_GROUP`). Only the API writes
+  `spool/moderators.json`; the admin app checks the token's own `groups` claim.
 - **The admin app demands a moderator's OIDC token** on every `/api` route, on top of the
   proxy's access list. It never writes anything but its copy of the judge's run journal.
 - **Student names and code are hidden by the server, not the page.** `/api/runs` omits `account`

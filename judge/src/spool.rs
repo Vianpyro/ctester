@@ -3,6 +3,7 @@
 //! `openat2(RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS)`, so no entry the API plants can redirect it.
 //! Without `openat2` the judge does not start.
 
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::{self, Read};
 use std::os::fd::OwnedFd;
@@ -15,6 +16,8 @@ use serde_json::Value;
 use crate::grade;
 
 pub const MAX_READ: usize = 4 * 1024 * 1024;
+
+pub const MODERATORS: &str = "moderators.json";
 
 const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
     .union(ResolveFlags::NO_SYMLINKS)
@@ -142,6 +145,20 @@ impl Spool {
     pub fn read_json(&self, rel: &str) -> io::Result<Value> {
         serde_json::from_slice(&self.read(rel, MAX_READ)?)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    }
+
+    /// Nobody when anything is off
+    pub fn moderators(&self) -> BTreeSet<String> {
+        let Ok(Value::Array(subs)) = self
+            .read(MODERATORS, 65536)
+            .and_then(|raw| serde_json::from_slice(&raw).map_err(io::Error::other))
+        else {
+            return BTreeSet::new();
+        };
+        subs.iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect()
     }
 
     /// A field of `job.json` as text; "" when anything is off.
@@ -379,6 +396,27 @@ pub mod tests {
             !spool.root.join(first.as_str()).exists(),
             "sweep kept a stale job"
         );
+    }
+
+    #[test]
+    fn the_roster_is_a_plain_list_or_nobody() {
+        let (scratch, spool, target) = hostile();
+        let roster = spool.root.join(MODERATORS);
+        assert!(spool.moderators().is_empty());
+        std::fs::write(&roster, r#"["sub-a", 7, "sub-b"]"#).unwrap();
+        let expected: BTreeSet<String> = ["sub-a", "sub-b"].map(String::from).into();
+        assert_eq!(spool.moderators(), expected);
+        for garbage in [r#"{"sub-a": true}"#, "sub-a", ""] {
+            std::fs::write(&roster, garbage).unwrap();
+            assert!(spool.moderators().is_empty(), "{garbage:?}");
+        }
+        // A link to a list outside the spool.
+        std::fs::remove_file(&roster).unwrap();
+        let outside = scratch.0.join("outside.json");
+        std::fs::write(&outside, r#"["sub-a"]"#).unwrap();
+        symlink(&outside, &roster).unwrap();
+        assert!(spool.moderators().is_empty());
+        untouched(&target);
     }
 
     #[test]

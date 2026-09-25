@@ -24,6 +24,9 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from services import spool
 
+# The token's own `groups` claim decides here; the roster belongs to the student API.
+security.RECORD_ROLES = False
+
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 PORT = int(os.environ.get("CTESTER_ADMIN_PORT", "8001"))
 
@@ -39,7 +42,7 @@ def moderator(request: Request) -> str:
     sub = security.current_user(request.headers)
     if sub is None:
         raise _Refusal(401, "connexion requise ou expirée")
-    if not security.is_moderator(sub):
+    if not security.holder_is_moderator(request.headers):
         raise _Refusal(403, "réservé à l'enseignant")
     return sub
 

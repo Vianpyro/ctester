@@ -2230,7 +2230,7 @@ def test_ask_userinfo_bounds_the_sub_and_sanitizes_the_suggested_name():
 
         security._get_json = lambda url, headers=None: {
             "sub": "abc123", "preferred_username": "Léa"}
-        sub, name = security._ask_userinfo("tok")
+        sub, name, _ = security._ask_userinfo("tok")
         assert sub == "abc123" and name
 
         security._get_json = lambda url, headers=None: {"sub": "a" * 128}
@@ -2353,7 +2353,7 @@ def test_token_cache_flushes_fully_once_it_reaches_its_cap():
 
         security._tokens.clear()
         for i in range(security.TOKENS_MAX - 1):
-            security._tokens["f%d" % i] = ("s", "", time.time() + 300)
+            security._tokens["f%d" % i] = ("s", "", False, time.time() + 300)
         assert len(security._tokens) == security.TOKENS_MAX - 1
 
         security.current_user({"Authorization": "Bearer tokenA"})
@@ -2379,10 +2379,10 @@ def test_current_name_only_reads_the_cache_it_never_calls_out():
         assert security.current_name({"Authorization": "Bearer " + token}) == ""
         assert security.current_name({}) == ""
 
-        security._tokens[digest] = ("sub-1", "Lea", time.time() + 60)
+        security._tokens[digest] = ("sub-1", "Lea", False, time.time() + 60)
         assert security.current_name({"Authorization": "Bearer " + token}) == "Lea"
 
-        security._tokens[digest] = ("sub-1", "Lea", time.time() - 1)
+        security._tokens[digest] = ("sub-1", "Lea", False, time.time() - 1)
         assert security.current_name({"Authorization": "Bearer " + token}) == ""
     finally:
         security._tokens.clear()
@@ -2449,23 +2449,98 @@ def test_get_json_reads_a_bounded_response_and_never_follows_a_redirect():
         server_thread.join(timeout=2)
 
 
+def _roster(*subs):
+    """Moderators as the API records them; hand the result back to `_unroster`."""
+    saved = (config.MODERATOR_GROUP, config.MODERATORS_FILE)
+    handle, path = tempfile.mkstemp(suffix=".json")
+    with os.fdopen(handle, "w", encoding="utf-8") as fh:
+        json.dump(list(subs), fh)
+    config.MODERATOR_GROUP, config.MODERATORS_FILE = "ctester_moderators", path
+    return saved
+
+
+def _unroster(saved):
+    with contextlib.suppress(OSError):
+        os.unlink(config.MODERATORS_FILE)
+    config.MODERATOR_GROUP, config.MODERATORS_FILE = saved
+
+
 def test_forum_is_off_by_default():
-    saved = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS, security.state)
+    saved = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state)
+    roster = _roster()
     try:
         config.OIDC_ISSUER = "https://auth.exemple"
         config.OIDC_CLIENT_ID = "ctester"
         security.state = type("Base", (), {"enabled": staticmethod(lambda: True)})
-        config.FORUM_MODERATORS = frozenset()
         assert security.oidc_enabled() and not forum.forum_enabled()
-        config.FORUM_MODERATORS = frozenset({"sub-mod"})
+        with open(config.MODERATORS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(["sub-mod"], fh)
         assert forum.forum_enabled()
         assert security.is_moderator("sub-mod") and not security.is_moderator("sub-alice")
         assert not security.is_moderator("") and not security.is_moderator(None)
+        # Without a group, a roster left behind moderates nothing.
+        config.MODERATOR_GROUP = ""
+        assert not forum.forum_enabled() and not security.is_moderator("sub-mod")
+        config.MODERATOR_GROUP = "ctester_moderators"
         config.OIDC_ISSUER = ""
         assert not forum.forum_enabled()
     finally:
-        (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, config.FORUM_MODERATORS,
-         security.state) = saved
+        (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state) = saved
+        _unroster(roster)
+
+
+def test_the_groups_claim_fills_and_empties_the_roster():
+    saved = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json,
+             security.RECORD_ROLES)
+    saved_tokens = dict(security._tokens)
+    saved_discovery = dict(security._discovery)
+    roster = _roster()
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        config.OIDC_CLIENT_ID = "ctester"
+        security.state = type("Base", (), {"enabled": staticmethod(lambda: True)})
+        security._tokens.clear()
+        security._discovery.update(
+            until=time.time() + 600, userinfo="https://auth.exemple/userinfo")
+        claims = {"sub": "sub-prof", "groups": ["ctester_moderators", "autre"]}
+        security._get_json = lambda url, headers=None: dict(claims)
+        teacher = {"Authorization": "Bearer t1"}
+
+        assert security.current_user(teacher) == "sub-prof"
+        assert security.is_moderator("sub-prof") and security.holder_is_moderator(teacher)
+        with open(config.MODERATORS_FILE, encoding="utf-8") as fh:
+            assert json.load(fh) == ["sub-prof"]
+
+        claims = {"sub": "sub-prof", "groups": ["autre"]}
+        security._tokens.clear()
+        security.current_user(teacher)
+        assert not security.is_moderator("sub-prof")
+        assert not security.holder_is_moderator(teacher)
+
+        # A token issued without the `groups` scope has no claim at all.
+        claims = {"sub": "sub-prof"}
+        security._tokens.clear()
+        security.current_user(teacher)
+        assert not security.holder_is_moderator(teacher)
+
+        # The admin app decides on the claim and leaves the roster alone.
+        claims = {"sub": "sub-prof", "groups": ["ctester_moderators"]}
+        security._tokens.clear()
+        security.current_user(teacher)
+        security.RECORD_ROLES = False
+        claims = {"sub": "sub-prof", "groups": []}
+        security._tokens.clear()
+        security.current_user(teacher)
+        assert not security.holder_is_moderator(teacher)
+        assert security.is_moderator("sub-prof")
+    finally:
+        (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json,
+         security.RECORD_ROLES) = saved
+        security._tokens.clear()
+        security._tokens.update(saved_tokens)
+        security._discovery.clear()
+        security._discovery.update(saved_discovery)
+        _unroster(roster)
 
 
 def test_forum_text_is_bounded_and_stores_the_source():
@@ -2592,9 +2667,8 @@ def test_document_csp():
 
 
 def test_forum_view_leaks_no_sub():
-    saved = config.FORUM_MODERATORS
+    saved = _roster("sub-mod")
     try:
-        config.FORUM_MODERATORS = frozenset({"sub-mod"})
         thread = [{"id": "a" * 32, "account": "sub-alice", "text": "moi",
                 "hidden": False, "created_at": "2026-09-03 10:00"},
                {"id": "b" * 32, "account": "sub-bob", "text": "lui",
@@ -2616,7 +2690,7 @@ def test_forum_view_leaks_no_sub():
         assert seen_by_moderator[2]["role"] == "me"
         assert "sub-bob" not in json.dumps(seen_by_moderator, ensure_ascii=False)
     finally:
-        config.FORUM_MODERATORS = saved
+        _unroster(saved)
 
 
 def test_forum_identity_bounds_and_visibility():
@@ -2642,9 +2716,8 @@ def test_forum_identity_bounds_and_visibility():
     finally:
         config.FORUM_GROUPS = saved_groups
 
-    saved = config.FORUM_MODERATORS
+    saved = _roster("sub-mod")
     try:
-        config.FORUM_MODERATORS = frozenset({"sub-mod"})
         thread = [{"id": "a" * 32, "account": "sub-bob", "text": "x",
                 "hidden": False, "created_at": "2026-09-03T10:00Z"}]
         cache = {"sub-bob": {"display_name": "Bob", "group_number": 7,
@@ -2662,7 +2735,7 @@ def test_forum_identity_bounds_and_visibility():
         assert "sub-bob" not in json.dumps(
             [seen, seen_by_moderator, seen2, mine], ensure_ascii=False)
     finally:
-        config.FORUM_MODERATORS = saved
+        _unroster(saved)
 
 
 def test_the_host_check_depends_on_no_third_party():
@@ -3515,9 +3588,8 @@ def test_the_chat_forces_public_and_the_prefix_is_the_whole_distinction():
 
 
 def test_a_hidden_author_stays_followable():
-    saved = config.FORUM_MODERATORS
+    saved = _roster("sub-mod")
     try:
-        config.FORUM_MODERATORS = frozenset({"sub-mod"})
         thread = [{"id": "a" * 32, "account": "sub-bob", "text": "x",
                 "hidden": False, "created_at": "2026-09-03T10:00Z"},
                {"id": "b" * 32, "account": "sub-carl", "text": "y",
@@ -3547,7 +3619,7 @@ def test_a_hidden_author_stays_followable():
 
         assert "sub-bob" not in json.dumps(views + [seen, mine], ensure_ascii=False)
     finally:
-        config.FORUM_MODERATORS = saved
+        _unroster(saved)
 
 
 def test_a_reply_travels_with_its_link_and_both_counters():

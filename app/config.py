@@ -1,5 +1,4 @@
 import os
-import re
 
 
 def _int(name, default):
@@ -46,9 +45,8 @@ OIDC_ISSUER = os.environ.get("CTESTER_OIDC_ISSUER", "").rstrip("/")
 OIDC_CLIENT_ID = os.environ.get("CTESTER_OIDC_CLIENT_ID", "")
 OIDC_TTL = _int("CTESTER_OIDC_CACHE_TTL", "300")
 
-FORUM_MODERATORS = frozenset(
-    s for s in re.split(r"[,\s]+",
-                        os.environ.get("CTESTER_FORUM_MODERATORS", "")) if s)
+MODERATOR_GROUP = os.environ.get("CTESTER_MODERATOR_GROUP", "").strip()
+MODERATORS_FILE = os.path.join(SPOOL, "moderators.json")
 FORUM_MAX_CHARS = _int("CTESTER_FORUM_MAX_CHARS", "1200")
 FORUM_COOLDOWN = _int("CTESTER_FORUM_COOLDOWN", "10")
 FORUM_HOURLY = _int("CTESTER_FORUM_HOURLY_QUOTA", "20")

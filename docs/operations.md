@@ -169,10 +169,30 @@ python3 worker/publish_content.py   <content root> /tmp/published
   publication until it is fixed.
 - **After every publication**, `grep -rl answer /opt/ctester/published/` must print nothing.
 - **Preview before opening:** `CTESTER_PREVIEW=1` opens every exercise on a local machine. In
-  production, moderators (`CTESTER_FORUM_MODERATORS`) can open and submit closed exercises.
+  production, moderators (see [Moderators](#moderators)) can open and submit closed exercises.
 - **Randomized exercises** must set `"cache": false` in `io.json` or `unity.json`, or a lucky or unlucky
   verdict gets cached.
 - **Unity test names** must match `[A-Za-z0-9_]{1,64}` and are shown to students, so make them readable.
+
+## Moderators
+
+Moderators are the members of the IdP group named by `CTESTER_MODERATOR_GROUP`. Membership is
+managed on the IdP, not in `.env`.
+
+- The page and the dashboard ask for the `groups` scope, so the client on the IdP must allow it.
+  A token issued without that scope reads as "not a moderator".
+- The IdP answers from its live membership, so a change applies within `CTESTER_OIDC_CACHE_TTL`
+  (300 s) for a token that carries the scope. A session opened before the scope was requested has
+  to sign out and in once.
+- The API writes the last answer for each account to `spool/moderators.json`, because the forum
+  and the leaderboard ask about other accounts and the judge has no token. The judge reads that
+  file for every job. An account leaves it the first time it is seen without the group.
+- The forum stays off until at least one moderator has signed in.
+- The dashboard ignores the file and checks the claim of the token it is given.
+
+```sh
+cat /opt/ctester/spool/moderators.json   # the account ids the API last saw in the group
+```
 
 ## Deployment pitfalls
 
@@ -184,7 +204,7 @@ python3 worker/publish_content.py   <content root> /tmp/published
 | Console | Needs `CTESTER_SCRATCH=1` and at least two workers. |
 | gVisor | `--pids-limit` counts the sentry's threads: below 64 the sandbox does not start. Fork bombs are stopped by the memory limit. |
 | Compiler | `-std=gnu23`, not `c23` (which hides `M_PI`). `-DUNITY_INCLUDE_DOUBLE` is required, or double assertions always fail. |
-| Rauthy | Enable the `refresh_token` flow on the client. `refresh_token_lifetime` (240 h) must match `SESSION_MAX_DAYS` in `frontend/src/lib/auth/keys.ts`. |
+| Rauthy | Enable the `refresh_token` flow on the client, and allow the `groups` scope on it. `refresh_token_lifetime` (240 h) must match `SESSION_MAX_DAYS` in `frontend/src/lib/auth/keys.ts`. |
 | Typst | Pull the `CTESTER_TYPST_IMAGE` image (default `ghcr.io/typst/typst:0.15.1`) before the first publication. |
 | Discord | Off by default (`COMPOSE_PROFILES=discord`). The webhook, bot token and bridge key are secrets. |
 | Docs | Never set `CTESTER_DOCS=1` in production: it makes `/docs` and `/openapi.json` public. |
@@ -314,7 +334,7 @@ To send them elsewhere later, an OpenTelemetry Collector reads these lines as th
 | `service.start` | INFO | web, admin, bridge | the process is listening; web lists the features it enables |
 | `config.no_key` | FATAL | web | `CTESTER_KEY` is empty |
 | `config.sign_in_disabled` | WARN | web | an issuer is set but sign-in cannot work |
-| `config.forum_disabled` | WARN | web | `CTESTER_FORUM_MODERATORS` is empty |
+| `config.forum_disabled` | WARN | web | `CTESTER_MODERATOR_GROUP` is empty |
 | `config.docs_public` | WARN | web | `CTESTER_DOCS=1` |
 | `config.no_websocket` | WARN | web | wsproto is missing: live sockets answer 501 |
 | `config.no_database` | WARN | admin | no `CTESTER_DB_DSN`, the journal is not ingested |
@@ -326,6 +346,8 @@ To send them elsewhere later, an OpenTelemetry Collector reads these lines as th
 | `job.enqueued` | INFO | web | a submission reached the spool, with the queue depth |
 | `db.unavailable`, `db.restored` | WARN, INFO | web, admin | PostgreSQL stopped or resumed answering; once per outage |
 | `oidc.unavailable`, `oidc.restored` | WARN, INFO | web | the identity provider stopped or resumed answering |
+| `moderators.changed` | INFO | web | an account joined or left the moderator roster ([Moderators](#moderators)) |
+| `moderators.unwritable` | ERROR | web | `spool/moderators.json` could not be replaced; roles stay as they were |
 | `discord.webhook_failed` | WARN | web | a chat message did not reach Discord |
 | `journal.ingest_failed`, `journal.ingest_restored` | WARN, INFO | admin | see [The run journal](#the-run-journal) |
 | `bridge.api_unreachable`, `bridge.refused` | WARN | bridge | a Discord message did not reach the chat |
@@ -390,10 +412,9 @@ what was there before.
 verdict, a grade or a student's row; the only table it fills is its own copy of the judge's run
 journal.
 
-Every `/api` route demands a moderator's OIDC token, from the same `CTESTER_FORUM_MODERATORS`
-list the forum and the judge use. Without one the routes answer 401, and a signed-in student
-gets 403. The page itself is served to anyone, but shows a sign-in screen and fetches nothing
-until it has a token.
+Every `/api` route demands the OIDC token of a member of `CTESTER_MODERATOR_GROUP`. Without one
+the routes answer 401, and a signed-in student gets 403. The page itself is served to anyone, but
+shows a sign-in screen and fetches nothing until it has a token.
 
 Also put an access list on the Nginx Proxy Manager host, restricted to the LAN (for example
 `192.168.0.0/16`). A hostname that only resolves on the LAN does not protect anything, because the

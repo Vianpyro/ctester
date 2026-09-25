@@ -43,14 +43,20 @@ pub struct Exercise {
     pub mode: Mode,
 }
 
-/// Whether closed exercises open for this owner: preview, or a moderator.
-pub fn unlocked(config: &Config, owner: &str) -> bool {
-    config.preview || (!owner.is_empty() && config.moderators.contains(owner))
+/// Whether closed exercises open for this owner: preview, or an account on the API's roster.
+pub fn unlocked(config: &Config, moderators: &BTreeSet<String>, owner: &str) -> bool {
+    config.preview || (!owner.is_empty() && moderators.contains(owner))
 }
 
 /// Closed exercises open only in preview or for a moderator, recomputed from the owner here.
-pub fn find(config: &Config, id: &str, owner: &str, now: i128) -> Option<Exercise> {
-    let all = unlocked(config, owner);
+pub fn find(
+    config: &Config,
+    moderators: &BTreeSet<String>,
+    id: &str,
+    owner: &str,
+    now: i128,
+) -> Option<Exercise> {
+    let all = unlocked(config, moderators, owner);
     // Ids are unique across roots, so the first match is the only one.
     config
         .content
@@ -382,19 +388,19 @@ mod tests {
         .unwrap();
         let now = now();
         assert_eq!(
-            find(&config, "surface", "", now).map(|e| e.mode),
+            find(&config, &BTreeSet::new(), "surface", "", now).map(|e| e.mode),
             Some(Mode::Io)
         );
         // The second root is reached, and its mode is its own.
         assert_eq!(
-            find(&config, "nombres", "", now).map(|e| e.mode),
+            find(&config, &BTreeSet::new(), "nombres", "", now).map(|e| e.mode),
             Some(Mode::Quiz)
         );
-        assert!(find(&config, "absent", "", now).is_none());
+        assert!(find(&config, &BTreeSet::new(), "absent", "", now).is_none());
         // Searching further roots must not reopen what the content closed.
-        assert!(find(&config, "ferme", "", now).is_none());
+        assert!(find(&config, &BTreeSet::new(), "ferme", "", now).is_none());
         // Nor may a root be escaped through the id.
-        assert!(find(&config, "../b/exercises/nombres", "", now).is_none());
+        assert!(find(&config, &BTreeSet::new(), "../b/exercises/nombres", "", now).is_none());
     }
 
     #[test]

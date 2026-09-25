@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
@@ -99,10 +100,10 @@ def current_user(headers, strict=False):
     now = time.time()
     with _tokens_lock:
         known = _tokens.get(fingerprint)
-        if known and known[2] > now:
+        if known and known[3] > now:
             return known[0]
     try:
-        sub, name = _ask_userinfo(token)
+        sub, name, moderator = _ask_userinfo(token)
     except AuthUnavailable:
         # Not cached: the token may be valid as soon as the provider answers again.
         if strict:
@@ -112,18 +113,30 @@ def current_user(headers, strict=False):
         # Clearing everything is fine: the cache only saves userinfo round trips.
         if len(_tokens) >= TOKENS_MAX:
             _tokens.clear()
-        _tokens[fingerprint] = (sub, name, now + (config.OIDC_TTL if sub else 30))
+        _tokens[fingerprint] = (sub, name, moderator, now + (config.OIDC_TTL if sub else 30))
+    if sub and RECORD_ROLES:
+        _record_role(sub, moderator)
     return sub
 
 
-def current_name(headers):
+def _known_token(headers):
     header = headers.get("Authorization", "")
     if not header.startswith("Bearer "):
-        return ""
+        return None
     fingerprint = hashlib.sha256(header[7:].strip().encode()).hexdigest()
     with _tokens_lock:
         known = _tokens.get(fingerprint)
-    return known[1] if known and known[2] > time.time() and known[1] else ""
+    return known if known and known[3] > time.time() else None
+
+
+def current_name(headers):
+    known = _known_token(headers)
+    return known[1] if known and known[1] else ""
+
+
+def holder_is_moderator(headers):
+    known = _known_token(headers)
+    return bool(known and known[0] and known[2])
 
 
 def _ask_userinfo(token):
@@ -135,7 +148,7 @@ def _ask_userinfo(token):
     except urllib.error.HTTPError as refused:
         if refused.code in (400, 401, 403):
             _provider_up()
-            return None, ""
+            return None, "", False
         _provider_down(refused)
         raise AuthUnavailable() from refused
     except Exception as failure:
@@ -144,12 +157,15 @@ def _ask_userinfo(token):
     _provider_up()
     sub = claims.get("sub") if isinstance(claims, dict) else None
     if not isinstance(sub, str) or not 0 < len(sub) <= 128:
-        return None, ""
+        return None, "", False
     from services.forum import forum_display_name
 
     propose = claims.get("preferred_username")
     name, _ = forum_display_name(propose if isinstance(propose, str) else None)
-    return sub, name or ""
+    groups = claims.get("groups")
+    moderator = (bool(config.MODERATOR_GROUP) and isinstance(groups, list)
+                 and config.MODERATOR_GROUP in groups)
+    return sub, name or "", moderator
 
 
 def client_id(headers, peer, station=None):
@@ -177,4 +193,56 @@ def station_tag(station):
 
 
 def is_moderator(sub):
-    return bool(sub) and sub in config.FORUM_MODERATORS
+    return bool(sub) and sub in moderators()
+
+
+RECORD_ROLES = True
+_roster = {"stamp": None, "subs": frozenset()}
+_roster_lock = Lock()
+_record_lock = Lock()
+
+
+def moderators():
+    if not config.MODERATOR_GROUP:
+        return frozenset()
+    try:
+        stat = os.stat(config.MODERATORS_FILE)
+        stamp = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+    except OSError:
+        stamp = None
+    with _roster_lock:
+        if stamp != _roster["stamp"]:
+            _roster.update(stamp=stamp, subs=_read_roster() if stamp else frozenset())
+        return _roster["subs"]
+
+
+def _read_roster():
+    try:
+        with open(config.MODERATORS_FILE, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return frozenset()
+    if not isinstance(data, list):
+        return frozenset()
+    return frozenset(s for s in data if isinstance(s, str))
+
+
+def _record_role(sub, moderator):
+    with _record_lock:
+        known = moderators()
+        if (sub in known) == moderator:
+            return
+        subs = known | {sub} if moderator else known - {sub}
+        temporary = config.MODERATORS_FILE + ".tmp"
+        try:
+            with open(temporary, "w", encoding="utf-8") as fh:
+                json.dump(sorted(subs), fh)
+            os.replace(temporary, config.MODERATORS_FILE)
+        except OSError as failure:
+            log.event("moderators.unwritable", log.ERROR,
+                      "the moderator roster cannot be written, roles stay as they were",
+                      {}, exc=failure)
+            return
+    log.event("moderators.changed", log.INFO,
+              "an account joined the moderators" if moderator
+              else "an account left the moderators", {})

@@ -159,7 +159,7 @@ export async function connect() {
     response_type: "code",
     client_id,
     redirect_uri: redirection(),
-    scope: "openid profile offline_access",
+    scope: "openid profile offline_access groups",
     state: state,
     code_challenge: await challengeFor(verifier),
     code_challenge_method: "S256",

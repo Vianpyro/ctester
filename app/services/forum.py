@@ -1,5 +1,5 @@
 import config
-from security import is_moderator, oidc_enabled
+from security import is_moderator, moderators, oidc_enabled
 
 # `@` never appears in a catalog id, so a chat key can't resolve to an exercise.
 CHAT_PREFIX = "@chat:"
@@ -15,7 +15,7 @@ def chat_key(exercise):
 
 
 def forum_enabled():
-    return oidc_enabled() and bool(config.FORUM_MODERATORS)
+    return oidc_enabled() and bool(moderators())
 
 
 def forum_text(raw):

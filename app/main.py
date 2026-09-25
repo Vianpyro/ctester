@@ -63,10 +63,10 @@ def _warn():
         log.event("config.sign_in_disabled", log.WARN,
                   "sign-in disabled: needs an https CTESTER_OIDC_ISSUER,"
                   " CTESTER_OIDC_CLIENT_ID and CTESTER_DB_DSN")
-    if security.oidc_enabled() and not config.FORUM_MODERATORS:
+    if security.oidc_enabled() and not config.MODERATOR_GROUP:
         log.event("config.forum_disabled", log.WARN,
-                  "forum disabled: CTESTER_FORUM_MODERATORS is empty"
-                  " (comma-separated OIDC subjects)")
+                  "forum disabled: CTESTER_MODERATOR_GROUP is empty"
+                  " (the IdP group whose members moderate)")
     if config.DOCS:
         log.event("config.docs_public", log.WARN,
                   "CTESTER_DOCS=1, /docs and /openapi.json are public")

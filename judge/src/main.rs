@@ -109,7 +109,7 @@ fn grade_request() -> Result<Value, String> {
 
 #[cfg(target_os = "linux")]
 mod runner {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap, HashSet};
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::process::ExitCode;
     use std::time::{Duration, Instant, SystemTime};
@@ -196,7 +196,7 @@ mod runner {
                 "spool": c.spool, "results": c.results, "work": c.work, "content": c.content, "image": c.image,
                 "runtime": c.runtime, "job_timeout": c.job_timeout, "lock_stale": c.lock_stale,
                 "sweep_after": c.sweep_after, "preview": c.preview, "cache_max": c.cache_max,
-                "moderators": c.moderators.len(), "sandbox_env": c.sandbox_env,
+                "moderators": self.spool.moderators().len(), "sandbox_env": c.sandbox_env,
             })
         }
 
@@ -393,8 +393,13 @@ mod runner {
             true
         }
 
-        fn context(&self, exercise_id: &str, owner: &str) -> Option<Context> {
-            let exercise = gate::find(&self.config, exercise_id, owner, gate::now())?;
+        fn context(
+            &self,
+            moderators: &BTreeSet<String>,
+            exercise_id: &str,
+            owner: &str,
+        ) -> Option<Context> {
+            let exercise = gate::find(&self.config, moderators, exercise_id, owner, gate::now())?;
             if exercise.mode == Mode::Quiz {
                 return None;
             }
@@ -431,13 +436,17 @@ mod runner {
             let mut contexts: HashMap<(bool, String), Option<Context>> = HashMap::new();
             let mut alive = HashSet::new();
             let mut served = 0;
+            let moderators = self.spool.moderators();
             for job in self.pending() {
                 alive.insert(job.clone());
                 let exercise_id = self.spool.job_field(&job, "exercise_id");
                 let owner = self.spool.job_field(&job, "owner");
-                let key = (gate::unlocked(&self.config, &owner), exercise_id.clone());
+                let key = (
+                    gate::unlocked(&self.config, &moderators, &owner),
+                    exercise_id.clone(),
+                );
                 if !contexts.contains_key(&key) {
-                    let ctx = self.context(&exercise_id, &owner);
+                    let ctx = self.context(&moderators, &exercise_id, &owner);
                     contexts.insert(key.clone(), ctx);
                 }
                 let Some(ctx) = &contexts[&key] else {
@@ -466,7 +475,10 @@ mod runner {
         fn run_job(&mut self, job: &Job) -> Result<(Value, bool), String> {
             let exercise_id = self.spool.job_field(job, "exercise_id");
             let owner = self.spool.job_field(job, "owner");
-            let Some(exercise) = gate::find(&self.config, &exercise_id, &owner, gate::now()) else {
+            let moderators = self.spool.moderators();
+            let Some(exercise) =
+                gate::find(&self.config, &moderators, &exercise_id, &owner, gate::now())
+            else {
                 return Ok((
                     json!({"status": "error", "code": "unknown_exercise"}),
                     false,
@@ -619,6 +631,10 @@ mod runner {
                     &root.join("docker"),
                     include_str!("../tests/fake_docker.sh"),
                 );
+                write(
+                    &root.join("spool").join(crate::spool::MODERATORS),
+                    r#"["sub-prof"]"#,
+                );
                 let p = |name: &str| root.join(name).display().to_string();
                 let pairs = [
                     ("CTESTER_SPOOL", p("spool")),
@@ -630,7 +646,6 @@ mod runner {
                     ("CTESTER_BUILD_SCRATCH", p("build-scratch.sh")),
                     ("CTESTER_DOCKER", p("docker")),
                     ("CTESTER_JOB_TIMEOUT", "10".into()),
-                    ("CTESTER_FORUM_MODERATORS", "sub-prof".into()),
                     ("CTESTER_CONSOLE_SESSION_MAX", "20".into()),
                     ("CTESTER_CONSOLE_IDLE_MAX", "10".into()),
                 ];
