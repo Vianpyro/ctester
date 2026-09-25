@@ -6,8 +6,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 use serde_json::{Map, Value, json};
-use unicode_normalization::UnicodeNormalization;
-use unicode_normalization::char::canonical_combining_class;
+use unicode_normalization::char::{canonical_combining_class, decompose_compatible};
 
 pub const MAX_GCC_CHARS: usize = 8000;
 const MAX_FAILED_NAMES: usize = 50;
@@ -574,10 +573,18 @@ fn texts_of_gaps(answer: &Value) -> Vec<String> {
 }
 
 pub fn extract_numbers(text: &str) -> Vec<f64> {
-    NUMBER_RE
-        .find_iter(text)
-        .filter_map(|m| m.as_str().replace(',', ".").parse().ok())
-        .collect()
+    numbers(text).collect()
+}
+
+fn numbers(text: &str) -> impl Iterator<Item = f64> {
+    NUMBER_RE.find_iter(text).filter_map(|m| {
+        let s = m.as_str();
+        if s.contains(',') {
+            s.replace(',', ".").parse().ok()
+        } else {
+            s.parse().ok()
+        }
+    })
 }
 
 fn close_enough(got: f64, want: f64, tol: f64) -> bool {
@@ -600,13 +607,31 @@ pub fn match_subsequence(numbers: &[f64], expected: &[f64], tol: f64) -> bool {
 
 /// Lower case, compatibility decomposition, accents dropped: "Écoulement" matches "ecoulement".
 pub fn fold(text: &str) -> String {
-    text.to_lowercase()
-        .nfkd()
-        .filter(|c| canonical_combining_class(*c) == 0)
-        .collect()
+    // ASCII has nothing to decompose: the common case skips the Unicode tables.
+    if text.is_ascii() {
+        return text.to_ascii_lowercase();
+    }
+    // Decomposed char by char: reordering only moves combining marks, which are all dropped.
+    let lower = text.to_lowercase();
+    let mut folded = String::with_capacity(lower.len());
+    for c in lower.chars() {
+        if c.is_ascii() {
+            folded.push(c);
+        } else {
+            decompose_compatible(c, |d| {
+                if canonical_combining_class(d) == 0 {
+                    folded.push(d);
+                }
+            });
+        }
+    }
+    folded
 }
 
 fn is_letter(c: char) -> bool {
+    if c.is_ascii() {
+        return c.is_ascii_alphabetic();
+    }
     let mut buf = [0; 4];
     LETTER_RE.is_match(c.encode_utf8(&mut buf))
 }
@@ -803,10 +828,7 @@ pub fn verdict_io(rc: i64, output: &str, cases: &[Value], nonce: &str, tol: f64)
             code => ("crashed", json!({ "code": code })),
         };
         if !reason.is_empty() {
-            let numbers: Vec<f64> = extract_numbers(text)
-                .into_iter()
-                .take(MAX_NUMBERS)
-                .collect();
+            let numbers: Vec<f64> = numbers(text).take(MAX_NUMBERS).collect();
             failed.push(json!({
                 "case": number,
                 "stdin": stdin,
@@ -1324,6 +1346,26 @@ mod tests {
         assert_ne!(why(&case, prompt), "");
         assert_eq!(why(&case, "l'ecoulement est calme"), "missing_word");
         assert_eq!(fold("ÉCOULEMENT ﬁn"), "ecoulement fin");
+    }
+
+    #[test]
+    fn folding_char_by_char_matches_the_whole_string_form() {
+        use unicode_normalization::UnicodeNormalization;
+        let reference = |t: &str| -> String {
+            let lower = t.to_lowercase();
+            let decomposed = lower.nfkd();
+            decomposed
+                .filter(|c| canonical_combining_class(*c) == 0)
+                .collect()
+        };
+        for text in [
+            "ΟΔΟΣ Σ aΣ. ΣΑ",
+            "e\u{0301}\u{0323} ệ ǅ İstanbul ı",
+            "한국어 ㎏ ½ ﬃ Ⅻ ①",
+            "x\u{0345}\u{0301}y ὂ ᾷ",
+        ] {
+            assert_eq!(fold(text), reference(text), "{text}");
+        }
     }
 
     #[test]

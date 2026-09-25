@@ -13,3 +13,8 @@ unicode-normalization = "0.1"
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1", features = ["fs", "rand"] }
 sha2 = "0.11.0"
+
+# Release with symbols, for cargo flamegraph; the shipped binary is unchanged.
+[profile.profiling]
+inherits = "release"
+debug = true
