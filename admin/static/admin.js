@@ -27,6 +27,8 @@ const pad2 = (n) => String(n).padStart(2, "0");
 
 function clock(iso) {
   const d = new Date(iso);
+  if (Date.now() - d.getTime() >= 86400000)
+    return d.toLocaleDateString("fr-CA", { month: "short", day: "numeric" });
   return pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
 }
 
