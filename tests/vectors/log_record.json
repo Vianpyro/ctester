@@ -1,0 +1,39 @@
+{
+  "_comment": "The log format both app/log.py and judge/src/log.rs write: the OpenTelemetry Logs data model, one JSON object per line. Attributes outside this list are dropped: no account, name, token, address, header, request body or code may enter a log.",
+  "fields": ["Timestamp", "SeverityText", "SeverityNumber", "EventName", "Body", "Attributes",
+             "Resource", "InstrumentationScope", "TraceId", "SpanId"],
+  "severities": {"DEBUG": 5, "INFO": 9, "WARN": 13, "ERROR": 17, "FATAL": 21},
+  "attributes": [
+    "http.request.method", "http.route", "http.response.status_code",
+    "error.type", "exception.type", "exception.stacktrace",
+    "db.system.name", "server.address",
+    "ctester.job.id", "ctester.exercise.id", "ctester.refusal", "ctester.queue.depth",
+    "ctester.duration_ms", "ctester.ws.close_code", "ctester.revision",
+    "ctester.exercises", "ctester.collections", "ctester.statements",
+    "ctester.statements.cached", "ctester.channel", "ctester.channels",
+    "ctester.interval_s", "ctester.feature.sign_in", "ctester.feature.forum",
+    "ctester.feature.scratch", "ctester.feature.discord",
+    "ctester.attempt", "ctester.cache.signature", "ctester.cache.source",
+    "ctester.cache.pruned", "ctester.cache.left"
+  ],
+  "example": {
+    "input": {
+      "severity": "WARN",
+      "name": "job.reclaimed",
+      "body": "stale lock reclaimed",
+      "attributes": {"ctester.job.id": "0123456789abcdef0123456789abcdef", "ctester.attempt": 2,
+                     "account": "sub-alice"},
+      "service": "ctester-judge",
+      "now_ns": 1790330400123456789
+    },
+    "record": {
+      "Timestamp": "1790330400123456789",
+      "SeverityText": "WARN",
+      "SeverityNumber": 13,
+      "EventName": "job.reclaimed",
+      "Body": "stale lock reclaimed",
+      "Attributes": {"ctester.job.id": "0123456789abcdef0123456789abcdef", "ctester.attempt": 2},
+      "Resource": {"service.name": "ctester-judge"}
+    }
+  }
+}

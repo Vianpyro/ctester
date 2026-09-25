@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 import os
-import sys
 
 import config
 import deps
 import headers
+import log
 import security
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -60,27 +60,41 @@ app = create_app()
 
 def _warn():
     if config.OIDC_ISSUER and not security.oidc_enabled():
-        print("sign-in disabled: needs an https CTESTER_OIDC_ISSUER,"
-              " CTESTER_OIDC_CLIENT_ID and CTESTER_DB_DSN", file=sys.stderr)
+        log.event("config.sign_in_disabled", log.WARN,
+                  "sign-in disabled: needs an https CTESTER_OIDC_ISSUER,"
+                  " CTESTER_OIDC_CLIENT_ID and CTESTER_DB_DSN")
     if security.oidc_enabled() and not config.FORUM_MODERATORS:
-        print("forum disabled: CTESTER_FORUM_MODERATORS is empty"
-              " (comma-separated OIDC subjects)", file=sys.stderr)
+        log.event("config.forum_disabled", log.WARN,
+                  "forum disabled: CTESTER_FORUM_MODERATORS is empty"
+                  " (comma-separated OIDC subjects)")
     if config.DOCS:
-        print("WARNING: CTESTER_DOCS=1, /docs and /openapi.json are public",
-              file=sys.stderr)
+        log.event("config.docs_public", log.WARN,
+                  "CTESTER_DOCS=1, /docs and /openapi.json are public")
     from uvicorn.protocols.websockets.auto import AutoWebSocketsProtocol
     if AutoWebSocketsProtocol is None:
-        print("WARNING: no WebSocket implementation installed, /team/live and"
-              " /scratch/live will answer 501. Install wsproto (requirements.txt)",
-              file=sys.stderr)
+        log.event("config.no_websocket", log.WARN,
+                  "no WebSocket implementation installed, /team/live and /scratch/live"
+                  " will answer 501. Install wsproto (requirements.txt)")
+
+
+def _started():
+    log.event("service.start", log.INFO, "listening on port %d" % config.PORT, {
+        "ctester.feature.sign_in": security.oidc_enabled(),
+        "ctester.feature.forum": deps.forum_service.forum_enabled(),
+        "ctester.feature.scratch": config.SCRATCH,
+        "ctester.feature.discord": bool(config.DISCORD_WEBHOOK),
+    })
 
 
 if __name__ == "__main__":
     import uvicorn
 
+    log.setup("ctester-web")
     if not config.KEY:
-        raise SystemExit("CTESTER_KEY is empty, refusing to start")
+        log.event("config.no_key", log.FATAL, "CTESTER_KEY is empty, refusing to start")
+        raise SystemExit(1)
     _warn()
+    _started()
     os.makedirs(config.SPOOL, exist_ok=True)
 
     uvicorn.run(
@@ -91,5 +105,7 @@ if __name__ == "__main__":
         workers=1,
         server_header=False,
         proxy_headers=True,
+        # Requests are logged by headers.HeaderMiddleware, which names the route, not the path.
         access_log=False,
+        log_config=None,
     )

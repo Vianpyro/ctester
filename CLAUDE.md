@@ -55,7 +55,7 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   spool without following links and mounts nothing from it (mounts are staged in `CTESTER_WORK`).
   `results/` is root's and mounted read-only into web: the API reads verdicts, never writes one.
 - **Anything `test_ctester.py` imports must be standard-library only.** It runs with the host Python on
-  the Dell. The same goes for `csp.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
+  the Dell. The same goes for `csp.py`, `log.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares
   them. No inline scripts. The page names no host: `vite.config.ts` fills `%API_ORIGIN%`,
   `%API_WS%`, `%AUTH_ORIGIN%`, `%TITLE%`, `%TAGLINE%` and `%LANG%` at build time from
@@ -82,6 +82,12 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   holds a moderator token.
 - **The judge journals every run** to `results/runs-<date>.jsonl`, from `write_result()` so no
   exit path is missed. A test binds its fields to `admin/journal.py` and `state.RUN_COLUMNS`.
+- **Logs follow the OpenTelemetry data model and carry no identity.** Every service writes JSON
+  lines through `app/log.py` (the judge through `log.rs`, bound by `tests/vectors/log_record.json`).
+  Docker logs and journald outlive "Delete my data", so no account, name, token, address, header,
+  body or code is logged: attributes outside `log.ATTRIBUTES` are dropped, a stack trace keeps
+  frames without the message, and requests are logged by route template. Event names are stable
+  and each one is documented in `docs/operations.md`; a test checks both.
 - **A Console session is not a graded run.** It is excluded from failures, the success rate and
   every timing average; `exercise_id = ':console'` keeps it visible on its own.
 

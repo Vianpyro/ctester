@@ -7,6 +7,7 @@ import urllib.request
 from threading import Lock
 
 import config
+import log
 import state
 
 
@@ -44,10 +45,37 @@ def userinfo_url():
         candidate = document.get("userinfo_endpoint", "")
         if isinstance(candidate, str) and candidate.startswith(config.OIDC_ISSUER + "/"):
             url = candidate
-    except Exception:
-        url = ""
+    except Exception as failure:
+        _provider_down(failure)
+    else:
+        if url:
+            _provider_up()
+        else:
+            _provider_down(None)
     _discovery.update(until=now + (600 if url else 30), userinfo=url)
     return url
+
+
+# Logged on the transition only, like state.py's database outage.
+_provider = {"down": False}
+
+
+def _provider_down(failure):
+    if _provider["down"]:
+        return
+    _provider["down"] = True
+    log.event("oidc.unavailable", log.WARN,
+              "the identity provider cannot be asked, signed-in requests answer auth_unavailable",
+              {"server.address": urllib.parse.urlsplit(config.OIDC_ISSUER).hostname,
+               "error.type": "no_userinfo_endpoint" if failure is None else None,
+               "http.response.status_code": getattr(failure, "code", None)}, exc=failure)
+
+
+def _provider_up():
+    if _provider["down"]:
+        _provider["down"] = False
+        log.event("oidc.restored", log.INFO, "the identity provider answers again",
+                  {"server.address": urllib.parse.urlsplit(config.OIDC_ISSUER).hostname})
 
 
 class AuthUnavailable(Exception):
@@ -106,10 +134,14 @@ def _ask_userinfo(token):
         claims = _get_json(url, {"Authorization": "Bearer " + token})
     except urllib.error.HTTPError as refused:
         if refused.code in (400, 401, 403):
+            _provider_up()
             return None, ""
+        _provider_down(refused)
         raise AuthUnavailable() from refused
     except Exception as failure:
+        _provider_down(failure)
         raise AuthUnavailable() from failure
+    _provider_up()
     sub = claims.get("sub") if isinstance(claims, dict) else None
     if not isinstance(sub, str) or not 0 < len(sub) <= 128:
         return None, ""

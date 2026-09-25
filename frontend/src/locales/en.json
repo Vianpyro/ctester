@@ -748,6 +748,7 @@
   "error.forum_disabled": "discussions are not enabled on this deployment",
   "error.malformed_request": "malformed request",
   "error.unknown": "unknown",
+  "error.internal": "something went wrong on the server, try again in a moment",
   "error.message_missing": "missing message",
   "error.message_empty": "an empty message helps nobody",
   "error.invalid_name": "invalid name",

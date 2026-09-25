@@ -7,6 +7,7 @@ import time
 import config
 import deps
 import headers
+import log
 import security
 import state
 from fastapi import APIRouter, Request
@@ -91,6 +92,11 @@ def submit(body: SubmissionIn, request: Request):
             return headers.error(503, "queue_full")
         job_id = spool.write_job(entry["id"], name, blob, sub,
                                  station=None if sub else security.station_tag(station))
+    log.event("job.enqueued", log.INFO, "job queued for " + entry["id"], {
+        "ctester.job.id": job_id,
+        "ctester.exercise.id": entry["id"],
+        "ctester.queue.depth": pending + 1,
+    })
     return {"id": job_id}
 
 

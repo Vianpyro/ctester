@@ -228,11 +228,93 @@ python3 /opt/ctester/src/tests/test_ctester.py
 Verdict cache activity is logged by the workers:
 
 ```sh
-journalctl -u 'ctester-judge@*' -n 500 | grep 'ctester: cache '
+journalctl -u 'ctester-judge@*' -n 500 -o cat | jq -c 'select(.EventName | startswith("cache."))'
 ```
 
-If you see many "written" lines but no "served" ones, cache keys are changing between submissions,
-which is expected right after a deploy.
+If you see many `cache.written` records but no `cache.served` ones, cache keys are changing between
+submissions, which is expected right after a deploy.
+
+## Logs
+
+Every component writes its log to stderr as one JSON object per line, following the
+[OpenTelemetry Logs data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/).
+Docker (`docker logs`, capped at 3 × 10 MB per container) and journald keep them, as before; no
+SDK and no collector are involved. `tests/vectors/log_record.json` binds the Python writer
+(`app/log.py`) to the judge's (`judge/src/log.rs`).
+
+```json
+{"Timestamp":"1790330400123456789","SeverityText":"WARN","SeverityNumber":13,
+ "EventName":"db.unavailable","Body":"PostgreSQL query failed, answering db_down",
+ "Attributes":{"db.system.name":"postgresql","exception.type":"psycopg.OperationalError"},
+ "Resource":{"service.name":"ctester-web"},"TraceId":"4bf9…","SpanId":"00f0…"}
+```
+
+- `Timestamp` is in nanoseconds since the epoch, as a string. `SeverityNumber` is 5 (DEBUG),
+  9 (INFO), 13 (WARN), 17 (ERROR) or 21 (FATAL).
+- `Resource."service.name"` is `ctester-web`, `ctester-admin`, `ctester-judge` (plus
+  `service.instance.id`, the worker number), `ctester-bridge` or `ctester-content`.
+- `TraceId`/`SpanId` are random per API request or socket: every record written while serving it
+  shares them. Between the API and the judge, `ctester.job.id` is the link.
+- `EventName` values are stable, like the other persisted ids: queries depend on them.
+- Records from libraries (uvicorn's) carry `InstrumentationScope` and no `EventName`.
+
+**No identity enters a log.** Docker logs and journald are not cleared by "Delete my data", so no
+account, name, token, address, header, request body or code is written. `app/log.py` drops any
+attribute outside `ATTRIBUTES`, a stack trace holds frames but not the exception's message, and a
+request is logged by its route template (`/r/{job_id}`), never its path. The checks scan every call.
+
+| Setting | Default | |
+|---|---|---|
+| `CTESTER_LOG_LEVEL` | `info` | `debug` adds successful requests, socket ends and nothing else |
+| `CTESTER_LOG_FORMAT` | `json`, or `text` on a terminal | `text` is for the content tools run by hand |
+| `CTESTER_LOG_SLOW_MS` | `1000` | a request slower than this is a warning whatever its status |
+
+```sh
+docker logs ctester-web-1 2>&1 | jq -c 'select(.SeverityNumber >= 13)'           # warnings and up
+docker logs ctester-web-1 2>&1 | jq -r 'select(.EventName == "http.server.request")
+    | [.Attributes."http.response.status_code", .Attributes."http.route"] | @tsv' | sort | uniq -c
+journalctl -u 'ctester-judge@*' -o cat | jq -c 'select(.Attributes."ctester.job.id" == "<job>")'
+journalctl -u ctester-content -o cat | jq -R 'fromjson? // .'    # content.sh's own lines are text
+```
+
+To send them elsewhere later, an OpenTelemetry Collector reads these lines as they are: the
+`filelog` receiver on Docker's `*-json.log` files, the `journald` receiver for the judge.
+
+### Events
+
+| Event | Severity | Written by | Meaning |
+|---|---|---|---|
+| `service.start` | INFO | web, admin, bridge | the process is listening; web lists the features it enables |
+| `config.no_key` | FATAL | web | `CTESTER_KEY` is empty |
+| `config.sign_in_disabled` | WARN | web | an issuer is set but sign-in cannot work |
+| `config.forum_disabled` | WARN | web | `CTESTER_FORUM_MODERATORS` is empty |
+| `config.docs_public` | WARN | web | `CTESTER_DOCS=1` |
+| `config.no_websocket` | WARN | web | wsproto is missing: live sockets answer 501 |
+| `config.no_database` | WARN | admin | no `CTESTER_DB_DSN`, the journal is not ingested |
+| `config.bridge_unconfigured` | WARN | bridge | token, URL, key or channels missing |
+| `http.server.request` | DEBUG to ERROR | web | one per request: DEBUG below 400, INFO for 4xx (with `ctester.refusal`, the error key), WARN for 503 or a slow request, ERROR for other 5xx |
+| `http.server.exception` | ERROR | web | an endpoint raised; answered 500 `internal` |
+| `ws.close` | DEBUG, INFO | web | a live socket ended; INFO when the server refused it (44xx) |
+| `ws.exception` | ERROR | web | a live socket's handler raised |
+| `job.enqueued` | INFO | web | a submission reached the spool, with the queue depth |
+| `db.unavailable`, `db.restored` | WARN, INFO | web, admin | PostgreSQL stopped or resumed answering; once per outage |
+| `oidc.unavailable`, `oidc.restored` | WARN, INFO | web | the identity provider stopped or resumed answering |
+| `discord.webhook_failed` | WARN | web | a chat message did not reach Discord |
+| `journal.ingest_failed`, `journal.ingest_restored` | WARN, INFO | admin | see [The run journal](#the-run-journal) |
+| `bridge.api_unreachable`, `bridge.refused` | WARN | bridge | a Discord message did not reach the chat |
+| `bridge.discord_unreachable`, `bridge.prime_failed` | WARN | bridge | Discord could not be read |
+| `bridge.state_unreadable`, `bridge.state_unwritten` | WARN | bridge | the bridge's position file |
+| `content.published` | INFO | content | a release is live, with its revision and counts |
+| `content.refused` | ERROR | content | one per validation error; the live release is untouched |
+| `content.preview_active`, `judge.preview_active` | WARN | content, judge | `CTESTER_PREVIEW` is on |
+| `typst.html_incomplete`, `typst.html_skipped` | WARN | content | a statement falls back to SVG only |
+| `judge.refusing_to_start` | FATAL | judge | the settings or the host are unusable |
+| `judge.panic` | ERROR | judge | a panic, caught per job |
+| `job.failed` | ERROR | judge | the run ended in `judge_internal` |
+| `job.reclaimed`, `job.abandoned` | WARN | judge | a worker died holding the job |
+| `cache.served`, `cache.written`, `cache.pruned` | INFO | judge | verdict cache activity |
+| `console.build_missing`, `console.stage_failed` | ERROR | judge | a Console session could not start |
+| `console.claim_held`, `console.lock_reclaimed` | WARN | judge | Console locking |
 
 ## Several content repositories
 

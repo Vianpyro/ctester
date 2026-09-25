@@ -7,9 +7,13 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+sys.path.append(os.path.join(ROOT, "app"))
+import log  # noqa: E402
 
 PACKAGES = os.path.join(ROOT, "typst", "packages")
 LIB = os.path.join(PACKAGES, "local", "ctester", "1.0.0")
@@ -205,16 +209,19 @@ def render(exercise_dir, exercise_id, version=None, published=""):
                       if "ignored during HTML export" in l
                       and "pagebreak" not in l]
             if lost:
-                print("ctester: %s: incomplete HTML render, SVG only:\n%s"
-                      % (exercise_id, "\n".join(lost)))
+                log.event("typst.html_incomplete", log.WARN,
+                          "incomplete HTML render, SVG only:\n" + "\n".join(lost),
+                          {"ctester.exercise.id": exercise_id})
             elif done.returncode == 0 and os.path.isfile(path):
                 with open(path, "rb") as fh:
                     rendered["html"] = fh.read()
             else:
-                print("ctester: %s: HTML render skipped:\n%s"
-                      % (exercise_id, (done.stderr or done.stdout).strip()))
+                log.event("typst.html_skipped", log.WARN,
+                          "HTML render skipped:\n" + (done.stderr or done.stdout).strip(),
+                          {"ctester.exercise.id": exercise_id})
         except (OSError, subprocess.SubprocessError) as exc:
-            print("ctester: %s: HTML render skipped (%s)" % (exercise_id, exc))
+            log.event("typst.html_skipped", log.WARN, "HTML render skipped",
+                      {"ctester.exercise.id": exercise_id}, exc=exc)
         _write_cache(store, rendered)
         return rendered, False
     finally:

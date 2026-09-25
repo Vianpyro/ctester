@@ -11,6 +11,7 @@ import threading
 import time
 
 import config
+import log
 import state
 from journal import LINES_MAX, READ_MAX, parse_journal
 
@@ -90,20 +91,23 @@ def run_forever(every=EVERY):
         try:
             _record(drain_once())
         except Exception as exc:  # noqa: BLE001 -- a bad line must not stop the loop
-            _record(None, repr(exc))
+            _record(None, exc)
         wake.wait(every)
 
 
-def _record(stored, exception=""):
+def _record(stored, failure=None):
     """A failing pass is reported once, not on every tick."""
     if stored is None:
         if health["ok"]:
-            print("admin: the journal is no longer ingested" + (": " + exception if exception
-                  else " (the database refused the write; is the schema up to date?)"), flush=True)
+            log.event("journal.ingest_failed", log.WARN,
+                      "the run journal is no longer ingested" + (
+                          "" if failure else
+                          " (the database refused the write; is the schema up to date?)"),
+                      exc=failure, stack=True)
             health.update(ok=False, since=time.time())
         return
     if not health["ok"]:
-        print("admin: journal ingestion restored", flush=True)
+        log.event("journal.ingest_restored", log.INFO, "run journal ingestion restored")
     health.update(ok=True, since=None)
     health["ingested"] += stored
 
@@ -111,7 +115,9 @@ def _record(stored, exception=""):
 def start():
     """One thread, so drains never overlap and need no lock of their own."""
     if not state.enabled():
-        print("admin: no CTESTER_DB_DSN, the run journal will not be ingested", flush=True)
+        log.event("config.no_database", log.WARN,
+                  "no CTESTER_DB_DSN: the run journal will not be ingested, only the queue"
+                  " and the release will show")
         return None
     thread = threading.Thread(target=run_forever, name="drain", daemon=True)
     thread.start()

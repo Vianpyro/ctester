@@ -9,7 +9,6 @@ Every /api route demands a moderator's OIDC token on top of the proxy's access l
 import asyncio
 import json
 import os
-import sys
 import time
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -17,6 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import code as code_service
 import config
 import drain
+import log
 import overview
 import security
 import state
@@ -237,9 +237,8 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
-    if not state.enabled():
-        print("admin: CTESTER_DB_DSN is unset, only the queue and the release will show",
-              file=sys.stderr)
+    log.setup("ctester-admin")
+    log.event("service.start", log.INFO, "listening on port %d" % PORT)
     drain.start()
     uvicorn.run(
         app,
@@ -249,4 +248,5 @@ if __name__ == "__main__":
         server_header=False,
         proxy_headers=True,
         access_log=False,
+        log_config=None,
     )

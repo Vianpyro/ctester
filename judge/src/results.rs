@@ -229,7 +229,12 @@ impl Results {
                     });
                 let retaken = stale && std::fs::remove_dir(&lock).is_ok() && mkdir(&lock).is_ok();
                 if retaken {
-                    eprintln!("ctester: console: verrou perime repris");
+                    crate::log::event(
+                        crate::log::Severity::Warn,
+                        "console.lock_reclaimed",
+                        "the console lock was stale and has been retaken",
+                        &[],
+                    );
                 }
                 retaken
             }

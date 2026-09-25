@@ -154,8 +154,11 @@ services:
     environment:
       CTESTER_BRIDGE_URL: http://web:8000
       CTESTER_BRIDGE_STATE: /state/bridge.json
+      PYTHONPATH: /lib
     volumes:
       - ../bot:/bot:ro
+      # The one log writer the other services share.
+      - ../app/log.py:/lib/log.py:ro
       - bridge_state:/state
     networks:
       - default

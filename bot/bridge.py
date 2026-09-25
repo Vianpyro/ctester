@@ -3,10 +3,15 @@
 
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
 import urllib.request
+
+# app/log.py: next to bot/ in the repository, mounted at /lib (PYTHONPATH) in the container.
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"))
+import log  # noqa: E402
 
 API = "https://discord.com/api/v10"
 
@@ -15,6 +20,7 @@ BRIDGE_URL = os.environ.get("CTESTER_BRIDGE_URL", "").strip().rstrip("/")
 BRIDGE_KEY = os.environ.get("CTESTER_DISCORD_BRIDGE_KEY", "").strip()
 STATE_PATH = os.environ.get("CTESTER_BRIDGE_STATE", "/state/bridge.json")
 INTERVAL = int(os.environ.get("CTESTER_BRIDGE_INTERVAL", "5") or 5)
+KEY_RE = re.compile(rb'"(?:error|message)": *"([a-z][a-z0-9_]{0,63})"')
 
 
 def parse_channels(raw):
@@ -61,7 +67,8 @@ def read_state():
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as error:
-        print("ctester-bridge: state unreadable, starting over:", error, flush=True)
+        log.event("bridge.state_unreadable", log.WARN, "state unreadable, starting over",
+                  exc=error)
         return {}
 
 
@@ -73,7 +80,7 @@ def write_state(state):
             json.dump(state, fh)
         os.replace(temporary, STATE_PATH)
     except Exception as error:
-        print("ctester-bridge: state not written:", error, flush=True)
+        log.event("bridge.state_unwritten", log.WARN, "state not written", exc=error)
 
 
 def _get(url):
@@ -107,11 +114,15 @@ def push(thread, message):
         with urllib.request.urlopen(request, timeout=15):
             return True
     except urllib.error.HTTPError as error:
-        print("ctester-bridge: refused (%s): %s"
-              % (error.code, error.read(400)), flush=True)
+        found = KEY_RE.search(error.read(400))
+        log.event("bridge.refused", log.WARN, "the API refused a relayed message", {
+            "http.response.status_code": error.code,
+            "ctester.refusal": found.group(1).decode() if found else None,
+            "ctester.channel": thread,
+        })
         return False
     except Exception as error:
-        print("ctester-bridge: API unreachable:", error, flush=True)
+        log.event("bridge.api_unreachable", log.WARN, "the API cannot be reached", exc=error)
         return False
 
 
@@ -120,7 +131,9 @@ def poll_once(state):
         try:
             batch = messages(channel, state.get(channel))
         except Exception as error:
-            print("ctester-bridge: Discord unreachable:", error, flush=True)
+            log.event("bridge.discord_unreachable", log.WARN, "Discord cannot be reached",
+                      {"ctester.channel": thread,
+                       "http.response.status_code": getattr(error, "code", None)}, exc=error)
             continue
         # The position moves even past a refused message, or it would be retried forever.
         for message in batch:
@@ -132,11 +145,12 @@ def poll_once(state):
 
 def start():
     if not (TOKEN and BRIDGE_URL and BRIDGE_KEY and CHANNELS):
-        print("ctester-bridge: not configured (token, URL, key or channels "
-              "missing) -- nothing to do.", flush=True)
+        log.event("config.bridge_unconfigured", log.WARN,
+                  "not configured (token, URL, key or channels missing), nothing to do")
         return 0
-    print("ctester-bridge: %d channel(s), polling every %d s"
-          % (len(CHANNELS), INTERVAL), flush=True)
+    log.event("service.start", log.INFO, "%d channel(s), polling every %d s" % (
+        len(CHANNELS), INTERVAL), {"ctester.channels": len(CHANNELS),
+                                    "ctester.interval_s": INTERVAL})
     # Without a saved position, start from the latest message instead of replaying history.
     state = read_state()
     for channel in CHANNELS:
@@ -147,7 +161,8 @@ def start():
             if batch:
                 state[channel] = str(batch[-1].get("id") or "")
         except Exception as error:
-            print("ctester-bridge: could not prime", channel + ":", error, flush=True)
+            log.event("bridge.prime_failed", log.WARN, "could not read the latest message",
+                      {"ctester.channel": CHANNELS[channel]}, exc=error)
     write_state(state)
     while True:
         write_state(poll_once(state))
@@ -178,4 +193,5 @@ def autotest():
 
 
 if __name__ == "__main__":
+    log.setup("ctester-bridge")
     sys.exit(autotest() if "--autotest" in sys.argv else start())

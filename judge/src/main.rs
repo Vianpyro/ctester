@@ -3,6 +3,7 @@
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 mod grade;
+mod log;
 
 #[cfg(target_os = "linux")]
 mod cache;
@@ -37,7 +38,12 @@ fn main() -> ExitCode {
         ["run"] | ["run", "--once"] => match runner::Runner::start() {
             Ok(mut runner) => runner.run(args.len() == 2),
             Err(message) => {
-                eprintln!("ctester: refusing to start: {message}");
+                log::event(
+                    log::Severity::Fatal,
+                    "judge.refusing_to_start",
+                    &format!("refusing to start: {message}"),
+                    &[],
+                );
                 ExitCode::FAILURE
             }
         },
@@ -116,6 +122,7 @@ mod runner {
     use crate::console;
     use crate::gate::{self, Exercise, Mode};
     use crate::grade;
+    use crate::log::{self, Severity};
     use crate::results::{Results, Run};
     use crate::sandbox::{self, Stage};
     use crate::spool::{self, Job, Spool};
@@ -137,6 +144,20 @@ mod runner {
         signatures: HashMap<Job, (String, String)>,
     }
 
+    fn cache_event(name: &str, job: &Job, exercise_id: &str, sig: &str, source: Option<&str>) {
+        log::event(
+            Severity::Info,
+            name,
+            &format!("{name} for {exercise_id}"),
+            &[
+                ("ctester.job.id", json!(job.as_str())),
+                ("ctester.exercise.id", json!(exercise_id)),
+                ("ctester.cache.signature", json!(&sig[..12])),
+                ("ctester.cache.source", json!(source)),
+            ],
+        );
+    }
+
     fn internal_error() -> Value {
         json!({"status": "error", "code": "judge_internal"})
     }
@@ -147,6 +168,7 @@ mod runner {
         }
 
         fn with(config: Config) -> Result<Runner, String> {
+            log::init(&config.worker_id);
             std::fs::create_dir_all(&config.spool)
                 .map_err(|e| format!("{}: {e}", config.spool.display()))?;
             let jobs = config.work.join("jobs");
@@ -178,10 +200,6 @@ mod runner {
             })
         }
 
-        fn job_path(&self, job: &Job) -> String {
-            self.spool.root.join(job.as_str()).display().to_string()
-        }
-
         fn pending(&self) -> Vec<Job> {
             let mut jobs = self.spool.jobs();
             jobs.retain(|job| !self.results.done(job));
@@ -190,7 +208,12 @@ mod runner {
 
         pub fn run(&mut self, once: bool) -> ExitCode {
             if self.config.preview {
-                eprintln!("ctester: PREVIEW ACTIVE -- exercises not yet open are being graded");
+                log::event(
+                    Severity::Warn,
+                    "judge.preview_active",
+                    "PREVIEW ACTIVE: exercises not yet open are being graded",
+                    &[],
+                );
             }
             loop {
                 // Known verdicts first, then a single compilation per pass.
@@ -267,7 +290,15 @@ mod runner {
                 Ok(Err(message)) => message,
                 Err(_) => "panic".to_string(),
             };
-            eprintln!("ctester: {}: {failure}", self.job_path(job));
+            log::event(
+                Severity::Error,
+                "job.failed",
+                &format!("the run failed: {failure}"),
+                &[
+                    ("ctester.job.id", json!(job.as_str())),
+                    ("ctester.exercise.id", json!(key)),
+                ],
+            );
             let run = self.record(job, &key, Some(elapsed()), false);
             let _ = self.results.write_result(job, internal_error(), &run);
             if console {
@@ -325,10 +356,14 @@ mod runner {
             }
             let attempt = self.results.retries(job) + 1;
             if attempt > self.config.lock_retries {
-                eprintln!(
-                    "ctester: {}: abandoned after {} reclaim(s)",
-                    self.job_path(job),
-                    attempt - 1
+                log::event(
+                    Severity::Warn,
+                    "job.abandoned",
+                    &format!("abandoned after {} reclaim(s)", attempt - 1),
+                    &[
+                        ("ctester.job.id", json!(job.as_str())),
+                        ("ctester.attempt", json!(attempt - 1)),
+                    ],
                 );
                 let verdict = json!({"status": "error", "code": "judge_interrupted"});
                 let exercise_id = self.spool.job_field(job, "exercise_id");
@@ -346,9 +381,14 @@ mod runner {
             {
                 return false;
             }
-            eprintln!(
-                "ctester: {}: stale lock reclaimed (attempt {attempt})",
-                self.job_path(job)
+            log::event(
+                Severity::Warn,
+                "job.reclaimed",
+                &format!("stale lock reclaimed (attempt {attempt})"),
+                &[
+                    ("ctester.job.id", json!(job.as_str())),
+                    ("ctester.attempt", json!(attempt)),
+                ],
             );
             true
         }
@@ -412,7 +452,7 @@ mod runner {
                 if !self.results.claim(&job) {
                     continue;
                 }
-                eprintln!("ctester: cache served {exercise_id} {} [queue]", &sig[..12]);
+                cache_event("cache.served", &job, &exercise_id, &sig, Some("queue"));
                 let run = self.record(&job, &exercise_id, None, true);
                 if self.results.write_result(&job, verdict, &run).is_ok() {
                     served += 1;
@@ -448,16 +488,13 @@ mod runner {
             let fingerprint = cache::fingerprint(&self.config, &exercise_id, &exercise);
             let sig = cache::signature(&fingerprint, &conf, &exercise.path, &sent);
             if let Some(known) = self.cache.read(&sig) {
-                eprintln!(
-                    "ctester: cache served {exercise_id} {} [dequeued]",
-                    &sig[..12]
-                );
+                cache_event("cache.served", job, &exercise_id, &sig, Some("dequeued"));
                 return Ok((known, true));
             }
             let mut verdict = self.judge(job, &exercise, &conf, &sent)?;
             if cache::cachable(&conf, &verdict) {
                 self.cache.write(&sig, &verdict);
-                eprintln!("ctester: cache written {exercise_id} {}", &sig[..12]);
+                cache_event("cache.written", job, &exercise_id, &sig, None);
             } else if let Some(map) = verdict.as_object_mut() {
                 map.insert("rerun".into(), json!(true));
             }

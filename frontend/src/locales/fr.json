@@ -748,6 +748,7 @@
   "error.forum_disabled": "les discussions ne sont pas activées sur ce déploiement",
   "error.malformed_request": "requête malformée",
   "error.unknown": "inconnu",
+  "error.internal": "le serveur a rencontré une erreur, réessaie dans un instant",
   "error.message_missing": "message manquant",
   "error.message_empty": "un message vide n'aide personne",
   "error.invalid_name": "nom invalide",

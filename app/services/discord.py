@@ -1,9 +1,9 @@
 import json
-import sys
 import threading
 import urllib.request
 
 import config
+import log
 from services.forum import is_chat
 
 
@@ -36,7 +36,8 @@ def _post(body):
     try:
         urllib.request.urlopen(request, timeout=config.DISCORD_TIMEOUT).close()
     except Exception as error:
-        print("discord: webhook failed:", error, file=sys.stderr)
+        log.event("discord.webhook_failed", log.WARN, "Discord webhook call failed",
+                  {"http.response.status_code": getattr(error, "code", None)}, exc=error)
 
 
 def announce(thread, account, author, text, channel=""):

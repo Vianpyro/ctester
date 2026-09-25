@@ -25,6 +25,7 @@ except ImportError:  # pragma: no cover
 
 import config      # noqa: E402
 import deps        # noqa: E402
+import log         # noqa: E402
 import state        # noqa: E402
 import main        # noqa: E402
 import security    # noqa: E402
@@ -37,6 +38,26 @@ KNOWN_ORIGIN = "https://ctester.example"
 UNKNOWN_ORIGIN = "https://mechant.example"
 
 client = TestClient(main.app)
+
+# Thousands of requests below: the checks read the log only through _logs().
+log._threshold[0] = log.FATAL + 1
+
+
+@contextlib.contextmanager
+def _logs(level=log.DEBUG):
+    buffer = io.StringIO()
+    saved = log._threshold[0]
+    log._threshold[0] = level
+    try:
+        with contextlib.redirect_stderr(buffer):
+            yield buffer
+    finally:
+        log._threshold[0] = saved
+
+
+def _records(buffer, name=None):
+    records = [json.loads(line) for line in buffer.getvalue().splitlines()]
+    return [r for r in records if name is None or r.get("EventName") == name]
 
 
 def _stateful_modules():
@@ -2653,6 +2674,12 @@ def test_redraw_alias_exhausts_the_vocabulary():
         assert r.status_code == 503 and r.json()["error"] == "no_alias_left", r.text
 
 
+def _warned():
+    with _logs() as buffer:
+        main._warn()
+    return {r["EventName"] for r in _records(buffer)}
+
+
 def test_warn_reports_each_incomplete_configuration_independently():
     guard = (config.OIDC_ISSUER, config.FORUM_MODERATORS, config.DOCS,
              security.oidc_enabled)
@@ -2661,44 +2688,175 @@ def test_warn_reports_each_incomplete_configuration_independently():
         config.FORUM_MODERATORS = frozenset({"sub-prof"})
         config.DOCS = False
         security.oidc_enabled = lambda: False
-        buffer = io.StringIO()
-        with contextlib.redirect_stderr(buffer):
-            main._warn()
-        out = buffer.getvalue()
-        assert "sign-in disabled" in out
-        assert "forum disabled" not in out
-        assert "CTESTER_DOCS" not in out
+        assert _warned() == {"config.sign_in_disabled"}
 
         security.oidc_enabled = lambda: True
         config.FORUM_MODERATORS = frozenset()
-        buffer = io.StringIO()
-        with contextlib.redirect_stderr(buffer):
-            main._warn()
-        out = buffer.getvalue()
-        assert "sign-in disabled" not in out
-        assert "forum disabled" in out
+        assert _warned() == {"config.forum_disabled"}
 
         config.OIDC_ISSUER = ""
         config.FORUM_MODERATORS = frozenset({"sub-prof"})
         config.DOCS = True
-        buffer = io.StringIO()
-        with contextlib.redirect_stderr(buffer):
-            main._warn()
-        out = buffer.getvalue()
-        assert "CTESTER_DOCS=1" in out
-        assert "sign-in disabled" not in out
-        assert "forum disabled" not in out
+        assert _warned() == {"config.docs_public"}
 
         config.OIDC_ISSUER = "https://auth.exemple"
         config.DOCS = False
         security.oidc_enabled = lambda: True
-        buffer = io.StringIO()
-        with contextlib.redirect_stderr(buffer):
-            main._warn()
-        assert buffer.getvalue() == ""
+        assert _warned() == set()
     finally:
         (config.OIDC_ISSUER, config.FORUM_MODERATORS, config.DOCS,
          security.oidc_enabled) = guard
+
+
+def test_a_request_is_logged_with_its_route_and_refusal_never_its_caller_or_code():
+    with context(tokens={"t-alice": "sub-alice"}) as (c, _, _):
+        with _logs() as buffer:
+            r = c.post("/submit?station=SENTINEL-STATION", headers=_headers("t-alice"),
+                       json={"key": config.KEY, "exercise_id": "tp2-ex3",
+                             "files": {"submission.c": "int main(void){return SENTINEL;}"}})
+            assert r.status_code == 200, r.text
+            assert c.get("/r/" + "z" * 32).status_code == 400
+    text = buffer.getvalue()
+    for secret in ("t-alice", "sub-alice", "SENTINEL", "Bearer"):
+        assert secret not in text, secret
+
+    (queued,) = _records(buffer, "job.enqueued")
+    assert queued["Attributes"]["ctester.job.id"] == r.json()["id"]
+    assert queued["Attributes"]["ctester.exercise.id"] == "tp2-ex3"
+    submit, refused = _records(buffer, "http.server.request")
+    # The endpoint runs in a thread: the request's trace must follow it there.
+    assert queued["TraceId"] == submit["TraceId"] and len(submit["TraceId"]) == 32
+    assert submit["SeverityText"] == "DEBUG"
+    assert submit["Attributes"]["http.route"] == "/submit"
+    assert refused["TraceId"] != submit["TraceId"]
+    assert refused["SeverityText"] == "INFO"
+    assert refused["Attributes"] == dict(refused["Attributes"], **{
+        "http.request.method": "GET", "http.route": "/r/{job_id}",
+        "http.response.status_code": 400, "ctester.refusal": "invalid_id"})
+
+    with context() as (c, _, _):
+        with _logs(log.INFO) as buffer:
+            assert c.get("/healthz").status_code == 200
+    assert _records(buffer) == [], "a success is logged only at debug level"
+
+
+def test_an_unhandled_exception_answers_a_key_and_logs_no_message():
+    app = main.create_app()
+    # Built outside the frame: a stack trace shows source lines, which is fine, not values.
+    message = "-".join(("SENTINEL", "MESSAGE"))
+
+    def boom():
+        raise ValueError(message)
+
+    app.add_api_route("/boom", boom)
+    # Ahead of the page router's catch-all.
+    app.router.routes.insert(0, app.router.routes.pop())
+    with _logs() as buffer:
+        r = TestClient(app).get("/boom")
+    assert r.status_code == 500 and r.json() == {"error": "internal"}
+    assert "SENTINEL" not in buffer.getvalue()
+    (failure,) = _records(buffer, "http.server.exception")
+    assert failure["SeverityText"] == "ERROR"
+    assert failure["Attributes"]["exception.type"] == "ValueError"
+    assert failure["Attributes"]["http.route"] == "/boom"
+    assert "in boom" in failure["Attributes"]["exception.stacktrace"]
+    (request,) = _records(buffer, "http.server.request")
+    assert request["Attributes"]["http.response.status_code"] == 500
+    assert request["SeverityText"] == "ERROR"
+
+
+def test_a_database_outage_is_logged_once_and_so_is_its_end():
+    import types
+
+    class Broken(Exception):
+        pass
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def execute(self, sql, params):
+            pass
+
+        def fetchall(self):
+            return [(1,)]
+
+    class Connection:
+        closed = False
+
+        def cursor(self):
+            return Cursor()
+
+        def close(self):
+            pass
+
+    up = [False]
+
+    def connect(*_, **__):
+        if not up[0]:
+            raise Broken("SENTINEL password=secret")
+        return Connection()
+
+    saved = (state.psycopg, state.DSN, state._conn, dict(state._health))
+    state.psycopg, state.DSN, state._conn = types.SimpleNamespace(connect=connect), "x", None
+    try:
+        with _logs() as buffer:
+            assert state._query("SELECT 1", ()) is None
+            assert state._query("SELECT 1", ()) is None
+            up[0] = True
+            assert state._query("SELECT 1", (), read=True) == [(1,)]
+            assert state._query("SELECT 1", ()) == []
+        assert [r["EventName"] for r in _records(buffer)] == ["db.unavailable", "db.restored"]
+        down = _records(buffer)[0]["Attributes"]
+        assert down["exception.type"].endswith("Broken") and "SENTINEL" not in buffer.getvalue()
+    finally:
+        state.psycopg, state.DSN, state._conn = saved[:3]
+        state._health.clear()
+        state._health.update(saved[3])
+
+
+def test_an_identity_provider_outage_is_logged_once_and_so_is_its_end():
+    import urllib.error
+
+    answers = [urllib.error.URLError("down"), urllib.error.URLError("down"),
+               {"userinfo_endpoint": "https://auth.exemple/userinfo"}]
+
+    def ask(url, headers=None):
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    saved = (security._get_json, config.OIDC_ISSUER, dict(security._discovery),
+             dict(security._provider))
+    security._get_json, config.OIDC_ISSUER = ask, "https://auth.exemple"
+    try:
+        with _logs() as buffer:
+            for expected in ("", "", "https://auth.exemple/userinfo"):
+                security._discovery["until"] = 0
+                assert security.userinfo_url() == expected
+        records = _records(buffer)
+        assert [r["EventName"] for r in records] == ["oidc.unavailable", "oidc.restored"]
+        assert records[0]["Attributes"]["server.address"] == "auth.exemple"
+    finally:
+        security._get_json, config.OIDC_ISSUER = saved[:2]
+        security._discovery.update(saved[2])
+        security._provider.update(saved[3])
+
+
+def test_a_refused_socket_is_logged_with_its_close_code():
+    with assignment_deployment() as (client, _, _):
+        collab.reset()
+        with _logs(log.INFO) as buffer:
+            assert _close_code(client, lambda s: _hello(s, "t-inconnu")) == 4401
+        (closed,) = _records(buffer, "ws.close")
+        assert closed["Attributes"]["ctester.ws.close_code"] == 4401
+        assert closed["Attributes"]["http.route"] == "/team/live"
+        assert "t-inconnu" not in buffer.getvalue()
+        collab.reset()
 
 
 def test_http_exception_handler_only_rewrites_the_generic_404():

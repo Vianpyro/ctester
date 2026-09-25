@@ -246,9 +246,15 @@ impl Cache {
         for (_, path) in entries.iter().take(surplus as usize) {
             let _ = std::fs::remove_file(path);
         }
-        eprintln!(
-            "ctester: cache pruned {surplus} entries ({} left)",
-            entries.len() as i64 - surplus
+        let left = entries.len() as i64 - surplus;
+        crate::log::event(
+            crate::log::Severity::Info,
+            "cache.pruned",
+            &format!("cache pruned {surplus} entries ({left} left)"),
+            &[
+                ("ctester.cache.pruned", surplus.into()),
+                ("ctester.cache.left", left.into()),
+            ],
         );
     }
 }

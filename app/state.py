@@ -4,6 +4,8 @@ import re
 import threading
 from datetime import timezone
 
+import log
+
 try:
     import psycopg
 except ImportError:
@@ -49,12 +51,30 @@ def _query(sql, params, read=False):
                     _conn = psycopg.connect(DSN, autocommit=True, connect_timeout=5)
                 with _conn.cursor() as cur:
                     cur.execute(sql, params)
-                    return cur.fetchall() if read else []
-            except Exception:
+                    rows = cur.fetchall() if read else []
+                if _health["down"]:
+                    _health["down"] = False
+                    log.event("db.restored", log.INFO, "PostgreSQL answers again",
+                              {"db.system.name": "postgresql"})
+                return rows
+            except Exception as failure:
                 _close()
                 if last_try:
+                    _unavailable(failure)
                     return None
     return None
+
+
+# Logged on the transition only: during an outage every request would log the same line.
+_health = {"down": False}
+
+
+def _unavailable(failure):
+    if _health["down"]:
+        return
+    _health["down"] = True
+    log.event("db.unavailable", log.WARN, "PostgreSQL query failed, answering db_down",
+              {"db.system.name": "postgresql"}, exc=failure)
 
 
 def _sources(rows):

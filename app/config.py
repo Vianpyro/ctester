@@ -25,6 +25,8 @@ API_ORIGIN = os.environ.get("CTESTER_API_ORIGIN", "")
 
 PORT = _int("CTESTER_PORT", "8000")
 DOCS = os.environ.get("CTESTER_DOCS", "") == "1"
+# A request slower than this is logged as a warning whatever its status.
+LOG_SLOW_MS = _int("CTESTER_LOG_SLOW_MS", "1000")
 
 KEY = os.environ.get("CTESTER_KEY", "")
 COOLDOWN = _int("CTESTER_COOLDOWN", "15")

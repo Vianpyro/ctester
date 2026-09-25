@@ -24,6 +24,7 @@ sys.path[:0] = [os.path.join(ROOT, "worker"), os.path.join(ROOT, "app"),
 
 import content_catalog as content_catalogue  # noqa: E402
 import journal    # noqa: E402
+import log        # noqa: E402
 import publish_content  # noqa: E402
 import typst_build  # noqa: E402
 import config     # noqa: E402
@@ -42,6 +43,22 @@ from services import teams       # noqa: E402
 from services import spool        # noqa: E402
 from services import source       # noqa: E402
 from services import scratch      # noqa: E402
+
+
+# The checks read the log only through _log_capture().
+log._threshold[0] = log.FATAL + 1
+
+
+@contextlib.contextmanager
+def _log_capture():
+    buffer = io.StringIO()
+    saved = log._threshold[0]
+    log._threshold[0] = log.DEBUG
+    try:
+        with contextlib.redirect_stderr(buffer):
+            yield buffer
+    finally:
+        log._threshold[0] = saved
 
 
 def read_file(path):
@@ -469,20 +486,21 @@ def test_publish_content_main_publishes_and_rejects_invalid_content():
     dest = tempfile.mkdtemp(prefix="ctester-published-")
     try:
         _minimal_valid_content(root)
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        with _log_capture() as out:
             code = publish_content.main([root, dest, "--keep", "3"])
         assert code == 0, out.getvalue()
-        assert "published: revision" in out.getvalue()
-        assert publish_content.current(dest) is not None
+        (published,) = _log_records(out, "content.published")
+        assert published["Attributes"]["ctester.exercises"] >= 1
+        revision = published["Attributes"]["ctester.revision"]
+        assert publish_content.current(dest) == os.path.join(dest, revision)
 
         before = publish_content.current(dest)
         _write_json(os.path.join(root, "catalog.json"), {"schema_version": 99})
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
+        with _log_capture() as err:
             code = publish_content.main([root, dest])
         assert code == 1, err.getvalue()
-        assert "publish refused" in err.getvalue()
+        refused = _log_records(err, "content.refused")
+        assert refused and all(r["SeverityText"] == "ERROR" for r in refused), err.getvalue()
         assert publish_content.current(dest) == before
     finally:
         shutil.rmtree(root)
@@ -511,10 +529,9 @@ def test_publish_catalogue_publishes_and_reports_preview():
         assert not os.path.isfile(os.path.join(
             publish_content.current(dest), "exercises", "nombres.json"))
 
-        capture = io.StringIO()
-        with contextlib.redirect_stderr(capture):
+        with _log_capture() as capture:
             publish_content.publish_catalogue(root, dest, preview=True)
-        assert "PREVIEW" in capture.getvalue(), capture.getvalue()
+        assert _log_records(capture, "content.preview_active"), capture.getvalue()
         assert os.path.isfile(os.path.join(
             publish_content.current(dest), "exercises", "nombres.json"))
     finally:
@@ -3544,6 +3561,135 @@ def test_a_reply_travels_with_its_link_and_both_counters():
     assert views[0]["reply_to"] is None and views[1]["reply_to"] == "a" * 32
     assert views[0]["upvotes"] == 3 and views[0]["my_vote"] == 1
     assert views[1]["downvotes"] == 2 and views[1]["my_vote"] == -1
+
+
+def _log_records(buffer, name=None):
+    records = [json.loads(line) for line in buffer.getvalue().splitlines()]
+    return [r for r in records if name is None or r.get("EventName") == name]
+
+
+def _log_vector():
+    return json.loads(read_file(os.path.join(ROOT, "tests", "vectors", "log_record.json")))
+
+
+def test_a_log_record_matches_the_judge_s():
+    # judge/src/log.rs replays the same vector: the two formats must not diverge.
+    vector = _log_vector()
+    example = vector["example"]["input"]
+    saved = dict(log._resource)
+    log._resource.clear()
+    log._resource["service.name"] = example["service"]
+    try:
+        got = log.record(example["name"], vector["severities"][example["severity"]],
+                         example["body"], example["attributes"], now_ns=example["now_ns"])
+    finally:
+        log._resource.clear()
+        log._resource.update(saved)
+    assert got == vector["example"]["record"], got
+    assert log.SEVERITY_TEXT == {n: t for t, n in vector["severities"].items()}
+    assert set(got) <= set(vector["fields"])
+
+
+def test_the_log_keeps_only_listed_attributes_and_no_identity():
+    listed = set(_log_vector()["attributes"])
+    assert set(log.ATTRIBUTES) == listed, sorted(set(log.ATTRIBUTES) ^ listed)
+    identity = {"account", "enduser", "user", "client", "agent", "station", "token", "sub",
+                "header", "headers", "query", "full", "body", "sources", "ip", "display"}
+    assert not [k for k in listed if identity & set(re.split(r"[._]", k))]
+    got = log.record("e", log.INFO, "b", {"account": "sub-alice", "ctester.job.id": "j"})
+    assert got["Attributes"] == {"ctester.job.id": "j"}
+
+
+def test_a_logged_exception_carries_its_frames_not_its_message():
+    message = "-".join(("SENTINEL", "VALUE"))
+    try:
+        raise ValueError(message)
+    except ValueError as exc:
+        with _log_capture() as buffer:
+            log.event("test.failed", log.ERROR, "failed", exc=exc, stack=True)
+    (record,) = _log_records(buffer)
+    assert record["Attributes"]["exception.type"] == "ValueError"
+    assert "test_a_logged_exception" in record["Attributes"]["exception.stacktrace"]
+    assert "SENTINEL" not in buffer.getvalue()
+
+
+def test_the_log_writes_text_when_asked():
+    saved = os.environ.get("CTESTER_LOG_FORMAT")
+    os.environ["CTESTER_LOG_FORMAT"] = "text"
+    try:
+        with _log_capture() as buffer:
+            log.event("test.text", log.WARN, "readable", {"ctester.exercise.id": "ex"})
+    finally:
+        if saved is None:
+            del os.environ["CTESTER_LOG_FORMAT"]
+        else:
+            os.environ["CTESTER_LOG_FORMAT"] = saved
+    line = buffer.getvalue()
+    assert " WARN test.text readable ctester.exercise.id=ex" in line, line
+    assert not line.startswith("{")
+
+
+def test_the_log_is_standard_library_only():
+    text = read_file(os.path.join(ROOT, "app", "log.py"))
+    imported = set(re.findall(r"^\s*(?:import|from)\s+(\w+)", text, re.M))
+    assert imported <= {"contextvars", "datetime", "json", "logging", "os", "secrets", "sys",
+                        "time", "traceback"}, sorted(imported)
+
+
+def _python_log_events():
+    """(path, event name, attribute keys) for every log.event call; keys are None when the
+    attributes are not a literal dict."""
+    import ast
+
+    found = []
+    for top in ("app", "admin", "bot", "worker"):
+        for directory, _dirs, files in os.walk(os.path.join(ROOT, top)):
+            for name in files:
+                if not name.endswith(".py"):
+                    continue
+                path = os.path.join(directory, name)
+                for node in ast.walk(ast.parse(read_file(path))):
+                    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                            and node.func.attr == "event"
+                            and isinstance(node.func.value, ast.Name)
+                            and node.func.value.id == "log"):
+                        continue
+                    where = os.path.relpath(path, ROOT) + ":" + str(node.lineno)
+                    event = node.args[0].value if isinstance(node.args[0], ast.Constant) else None
+                    attributes = node.args[3] if len(node.args) > 3 else None
+                    keys = []
+                    if isinstance(attributes, ast.Dict):
+                        keys = [k.value if isinstance(k, ast.Constant) else None
+                                for k in attributes.keys]
+                    elif attributes is not None:
+                        keys = None
+                    found.append((where, event, keys))
+    return found
+
+
+def _rust_log_events():
+    judge = "".join(read_file(os.path.join(ROOT, "judge", "src", name))
+                    for name in sorted(os.listdir(os.path.join(ROOT, "judge", "src"))))
+    names = re.findall(r'log::event\(\s*[\w:]+,\s*"([^"]+)"', judge)
+    names += re.findall(r'cache_event\(\s*"([^"]+)"', judge)
+    names += re.findall(r'\bevent\(\s*Severity::\w+,\s*"([^"]+)"', judge)
+    return set(names)
+
+
+def test_every_log_event_is_named_listed_and_documented():
+    events = _python_log_events()
+    assert len(events) >= 30, len(events)
+    unnamed = [where for where, event, _ in events if not event]
+    assert not unnamed, "an event name must be a literal: " + ", ".join(unnamed)
+    loose = [where for where, _, keys in events
+             if keys is None or not set(keys) <= log.ATTRIBUTES]
+    assert not loose, "attributes must be a literal dict of listed keys: " + ", ".join(loose)
+    rust = _rust_log_events()
+    assert {"job.failed", "job.reclaimed", "cache.written", "judge.panic"} <= rust, rust
+    documented = read_file(os.path.join(ROOT, "docs", "operations.md"))
+    missing = sorted(name for name in {e for _, e, _ in events} | rust
+                     if "`" + name + "`" not in documented)
+    assert not missing, "log events missing from docs/operations.md: " + ", ".join(missing)
 
 
 def test_the_python_gate_reads_dates_like_the_rust_gate():

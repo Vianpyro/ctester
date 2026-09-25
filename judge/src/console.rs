@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use crate::config::Config;
 use crate::gate;
+use crate::log::{self, Severity};
 use crate::results::Results;
 use crate::sandbox::{self, Stage};
 use crate::spool::{self, Job, MAX_READ, Spool};
@@ -145,9 +146,14 @@ pub fn run_console(
     counter.touch();
 
     if !config.build_scratch.is_file() {
-        eprintln!(
-            "ctester: console: CTESTER_BUILD_SCRATCH introuvable ({})",
-            config.build_scratch.display()
+        log::event(
+            Severity::Error,
+            "console.build_missing",
+            &format!(
+                "CTESTER_BUILD_SCRATCH not found ({})",
+                config.build_scratch.display()
+            ),
+            &[("ctester.job.id", json!(job.as_str()))],
         );
         return Ok(exited(results, job, -1, "build_missing"));
     }
@@ -165,9 +171,11 @@ pub fn run_console(
         ok
     });
     if !held {
-        eprintln!(
-            "ctester: console: claim deja tenu sur {}",
-            spool.root.join(job.as_str()).display()
+        log::event(
+            Severity::Warn,
+            "console.claim_held",
+            "the session's claim is already held",
+            &[("ctester.job.id", json!(job.as_str()))],
         );
         return Ok(exited(results, job, -1, "worker"));
     }
@@ -179,9 +187,11 @@ pub fn run_console(
     let stage = match staged {
         Ok(stage) => stage,
         Err(e) => {
-            eprintln!(
-                "ctester: console: {}: {e}",
-                spool.root.join(job.as_str()).display()
+            log::event(
+                Severity::Error,
+                "console.stage_failed",
+                &format!("the session could not be staged: {e}"),
+                &[("ctester.job.id", json!(job.as_str()))],
             );
             return Ok(exited(results, job, -1, "worker"));
         }

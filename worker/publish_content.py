@@ -12,6 +12,10 @@ import sys
 import content_catalog
 import typst_build
 
+# app/log.py: the host runs this from the repository, where app/ sits next to worker/.
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"))
+import log  # noqa: E402
+
 POINTER = "current.json"
 
 
@@ -247,18 +251,51 @@ def _prune(dest, live_revision, keep):
 def publish_catalogue(content, published, preview=False):
     """What ctester-content.timer runs; the judge no longer publishes anything."""
     if preview:
-        print("ctester: PREVIEW ACTIVE -- exercises not yet open are being published",
-              file=sys.stderr, flush=True)
+        log.event("content.preview_active", log.WARN,
+                  "PREVIEW ACTIVE: exercises not yet open are being published")
     if not (content and published):
         raise RuntimeError(
             "CTESTER_CONTENT and CTESTER_PUBLISHED are required to publish")
     model = content_catalog.discover(content_catalog.content_roots(content))
     renders, (total, cached) = typst_build.render_all(model, published)
-    if total:
-        print("ctester: %d Typst statement(s) rendered, %d of them from the cache"
-              % (total, cached), file=sys.stderr, flush=True)
-    publish(model, published, now=PREVIEW if preview else None, renders=renders)
+    rev = publish(model, published, now=PREVIEW if preview else None, renders=renders)
+    _published(rev, model, total, cached)
     return list(model["exercises"].values())
+
+
+def _published(rev, model, total, cached):
+    log.event("content.published", log.INFO,
+              "published: revision %s (%d exercise(s), %d collection(s), "
+              "%d Typst statement(s), %d from cache)"
+              % (rev, len(model["exercises"]), len(model["collections"]), total, cached), {
+                  "ctester.revision": rev,
+                  "ctester.exercises": len(model["exercises"]),
+                  "ctester.collections": len(model["collections"]),
+                  "ctester.statements": total,
+                  "ctester.statements.cached": cached,
+              })
+
+
+def _refused(exc):
+    errors = exc.errors if isinstance(exc, content_catalog.ContentValidationError) else [str(exc)]
+    for error in errors:
+        log.event("content.refused", log.ERROR,
+                  "publish refused, the active release is untouched: " + error,
+                  {"error.type": type(exc).__name__})
+
+
+def service(environ=os.environ):
+    """What ctester-content.timer runs, through deploy/content.sh."""
+    log.setup("ctester-content")
+    try:
+        publish_catalogue(environ.get("CTESTER_CONTENT", ""),
+                          environ.get("CTESTER_PUBLISHED", ""),
+                          environ.get("CTESTER_PREVIEW", "") not in ("", "0"))
+    except (RuntimeError, typst_build.TypstError,
+            content_catalog.ContentValidationError) as exc:
+        _refused(exc)
+        return 1
+    return 0
 
 
 def main(argv=None):
@@ -274,21 +311,13 @@ def main(argv=None):
         model = content_catalog.discover(args.root)
         renders, account = ({}, (0, 0)) if args.no_render else typst_build.render_all(model, args.dest)
         rev = publish(model, args.dest, keep=args.keep, renders=renders)
-    except typst_build.TypstError as exc:
-        print("publish refused, the active release is untouched:", file=sys.stderr)
-        print("- " + str(exc), file=sys.stderr)
+    except (typst_build.TypstError, content_catalog.ContentValidationError) as exc:
+        _refused(exc)
         return 1
-    except content_catalog.ContentValidationError as exc:
-        print("publish refused, the active release is untouched:", file=sys.stderr)
-        for error in exc.errors:
-            print("- " + error, file=sys.stderr)
-        return 1
-    print("published: revision %s (%d exercise(s), %d collection(s), "
-          "%d Typst statement(s), %d from cache)"
-          % (rev, len(model["exercises"]), len(model["collections"]),
-             account[0], account[1]))
+    _published(rev, model, *account)
     return 0
 
 
 if __name__ == "__main__":
+    log.setup("ctester-content")
     sys.exit(main())

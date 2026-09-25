@@ -2,9 +2,12 @@ import functools
 import gzip
 import hashlib
 import os
+import re
+import time
 
 import config
 import csp
+import log
 from starlette.datastructures import MutableHeaders
 from starlette.responses import JSONResponse, Response
 
@@ -15,14 +18,27 @@ PREFLIGHT = {
 }
 
 
+KEY_RE = re.compile(rb'"(?:error|message)": *"([a-z][a-z0-9_]{0,63})"')
+
+
 class HeaderMiddleware:
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket":
+            return await _watch_socket(self.app, scope, receive, send)
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        trace = log.begin_trace()
+        seen = {"status": 0, "refusal": None, "started": time.monotonic()}
+        try:
+            await self._http(scope, receive, send, seen)
+        finally:
+            _request_done(scope, seen)
+            log.end_trace(trace)
 
+    async def _http(self, scope, receive, send, seen):
         origin = ""
         for name, value in scope["headers"]:
             if name == b"origin":
@@ -32,6 +48,8 @@ class HeaderMiddleware:
 
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
+                seen["status"] = message["status"]
+                seen["answered"] = True
                 response_headers = MutableHeaders(scope=message)
                 if known:
                     response_headers["Access-Control-Allow-Origin"] = origin
@@ -39,6 +57,11 @@ class HeaderMiddleware:
                 response_headers["Vary"] = "Accept-Encoding, Origin"
                 if "cache-control" not in response_headers:
                     response_headers["Cache-Control"] = "no-store"
+            elif (message["type"] == "http.response.body" and seen["status"] >= 400
+                  and seen["refusal"] is None):
+                # Refusals answer with a key, never a sentence: the key is safe to log.
+                found = KEY_RE.search(message.get("body", b"")[:512])
+                seen["refusal"] = found.group(1).decode() if found else ""
             await send(message)
 
         if scope["method"] in ("POST", "PUT"):
@@ -53,7 +76,79 @@ class HeaderMiddleware:
             await _respond(send_with_headers, 204, b"", PREFLIGHT)
             return
 
-        await self.app(scope, receive, send_with_headers)
+        try:
+            await self.app(scope, receive, send_with_headers)
+        except Exception as exc:
+            # Answered here, so neither Starlette nor uvicorn logs it again with its message.
+            log.event("http.server.exception", log.ERROR, "unhandled exception",
+                      {"http.request.method": scope["method"],
+                       "http.route": _route(scope)}, exc=exc, stack=True)
+            if not seen.get("answered"):
+                await _respond(send_with_headers, 500, b'{"error": "internal"}')
+
+
+def _route(scope):
+    """The route's template, never the raw path."""
+    route = scope.get("route")
+    return getattr(route, "path", None)
+
+
+def _request_done(scope, seen):
+    status = seen["status"]
+    elapsed_ms = (time.monotonic() - seen["started"]) * 1000
+    if status >= 500:
+        severity = log.WARN if status == 503 else log.ERROR
+    elif status >= 400:
+        severity = log.INFO
+    else:
+        severity = log.DEBUG
+    if elapsed_ms >= config.LOG_SLOW_MS:
+        severity = max(severity, log.WARN)
+    if not log.enabled(severity):
+        return
+    log.event("http.server.request", severity, "%s %s %d" % (
+        scope["method"], _route(scope) or "-", status), {
+        "http.request.method": scope["method"],
+        "http.route": _route(scope),
+        "http.response.status_code": status,
+        "ctester.duration_ms": round(elapsed_ms, 1),
+        "ctester.refusal": seen["refusal"] or None,
+        "error.type": str(status) if status >= 500 else None,
+    })
+
+
+async def _watch_socket(app, scope, receive, send):
+    trace = log.begin_trace()
+    started = time.monotonic()
+    closed = {"code": None}
+
+    async def watched_send(message):
+        if message["type"] == "websocket.close":
+            closed["code"] = message.get("code", 1000)
+        await send(message)
+
+    try:
+        await app(scope, receive, watched_send)
+    except Exception as exc:
+        log.event("ws.exception", log.ERROR, "unhandled exception in a live socket",
+                  {"http.route": _route(scope)}, exc=exc, stack=True)
+        if closed["code"] is None:
+            closed["code"] = 1011
+            try:
+                await send({"type": "websocket.close", "code": 1011})
+            except Exception:
+                pass
+    finally:
+        code = closed["code"]
+        # 44xx are the server's refusals (deps.CLOSE_*); anything else is an ordinary end.
+        severity = log.INFO if code is not None and code >= 4400 else log.DEBUG
+        log.event("ws.close", severity, "%s closed with %s" % (
+            _route(scope) or "-", code if code is not None else "client"), {
+            "http.route": _route(scope),
+            "ctester.ws.close_code": code,
+            "ctester.duration_ms": round((time.monotonic() - started) * 1000, 1),
+        })
+        log.end_trace(trace)
 
 
 def _body_out_of_bounds(scope):
