@@ -5,8 +5,14 @@ dir=/opt/ctester
 src=$dir/src
 stamp=$dir/.deployed
 defer=$dir/.pull-defer
+flag=$dir/status/maintenance
 
 cd "$dir"
+
+tmp=
+raised=
+# However this script ends, it never leaves open tabs announcing an update it raised itself.
+trap '[ -z "$tmp" ] || rm -rf "$tmp"; [ -z "$raised" ] || rm -f "$flag"' EXIT
 
 git -C "$src" fetch --quiet origin "${CTESTER_BRANCH:-main}"
 git -C "$src" merge --ff-only --quiet FETCH_HEAD
@@ -23,7 +29,6 @@ repo=${CTESTER_REPO:-Vianpyro/ctester}
 judge=$dir/bin/ctester-judge-$head
 if [ ! -x "$judge" ]; then
     tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
     release="https://github.com/$repo/releases/download/judge-$head"
     if ! curl -fsSL -o "$tmp/ctester-judge" "$release/ctester-judge" ||
        ! curl -fsSL -o "$tmp/ctester-judge.sha256" "$release/ctester-judge.sha256"; then
@@ -36,6 +41,8 @@ if [ ! -x "$judge" ]; then
 fi
 # Root's, and mounted read-only into web: the API reads verdicts there but cannot write one.
 install -d -o root -g root -m 0755 "$dir/results"
+# Mounted read-only into web, which shows an update notice while the flag in it exists.
+install -d -o root -g root -m 0755 "$dir/status"
 "$judge" self-check > /dev/null
 
 spool_empty() {
@@ -78,6 +85,11 @@ else
     rm -f "$defer"
 fi
 
+# web checks the flag every second: the pause lets open tabs show the notice before the restarts.
+raised=1
+touch "$flag"
+sleep 3
+
 ln -sfn "$judge" "$dir/bin/ctester-judge.next"
 mv -T "$dir/bin/ctester-judge.next" "$dir/bin/ctester-judge"
 ls -t "$dir"/bin/ctester-judge-* | tail -n +3 | xargs -r rm -f
@@ -94,6 +106,16 @@ for n in $(seq 1 "${CTESTER_WORKERS:-2}"); do
 done
 docker compose up -d --remove-orphans
 docker compose restart web admin
+
+# The notice ends once the API answers again, so "the server is back" is true when shown.
+for _ in $(seq 1 30); do
+    docker compose exec -T web python3 -c \
+        'import urllib.request as u;u.urlopen("http://127.0.0.1:8000/healthz")' \
+        > /dev/null 2>&1 && break
+    sleep 1
+done
+rm -f "$flag"
+raised=
 
 # The judge does not publish on start, so the catalogue is republished with the new code.
 rm -f "$dir/.content-deployed"

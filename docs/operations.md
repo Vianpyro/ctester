@@ -56,6 +56,7 @@ for `gh attestation verify`.
   results/      owned by root, mounted read-only into web and admin: verdicts,
                 Console output, durations, and the run journal runs-<date>.jsonl
   published/
+  status/       owned by root, mounted read-only into web: the update notice's flag
   bin/          ctester-judge -> ctester-judge-<commit>, installed by ctester-pull
 /var/lib/ctester-judge/   CTESTER_WORK, created by the judge units: staging and verdict cache
 ```
@@ -69,7 +70,7 @@ Keep `CTESTER_WORK` out of the web container, and never mount `results/` read-wr
 git clone https://github.com/Vianpyro/ctester.git /opt/ctester/src
 cd /opt/ctester
 cp src/deploy/env.example .env && chmod 600 .env   # then fill it in
-mkdir -p published spool results && chown 65534:65534 spool
+mkdir -p published spool results status && chown 65534:65534 spool
 docker network create ctester-ingress               # or set CTESTER_NETWORK to your proxy's network
 ln -s /opt/ctester/src/deploy/systemd/* /etc/systemd/system/
 systemctl daemon-reload
@@ -86,6 +87,32 @@ docker compose exec -T postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1 <
   `CTESTER_OIDC_ISSUER` and `CTESTER_OIDC_CLIENT_ID` in `.env`.
 - `COMPOSE_PROFILES=discord` starts the Discord bridge.
 - The timers' schedules can be changed with `systemctl edit ctester-pull.timer`.
+
+### Warning students of an update
+
+While `/opt/ctester/status/maintenance` exists, every open tab shows a notice that an update is
+under way. Once the flag is gone and the API answers again, the notice becomes "the server is
+working again" for ten seconds. The page listens on `GET /events` (server-sent events), and web
+checks the flag once a second. A flag older than `CTESTER_MAINTENANCE_MAX` seconds (30 minutes by
+default) is ignored, so a run killed before it cleaned up cannot leave the notice up for good.
+
+`ctester-pull` raises the flag three seconds before it restarts the judges and web, and removes it
+once `/healthz` answers. It never removes a flag it did not raise. Any other script that restarts
+the service should do the same, for example in the Ansible role:
+
+```yaml
+- block:
+    - name: Announce the update to open tabs
+      ansible.builtin.file: { path: /opt/ctester/status/maintenance, state: touch, mode: "0644" }
+    - name: Give open tabs time to show it
+      ansible.builtin.pause: { seconds: 3 }
+    # ... the tasks that restart the judges and web ...
+  always:
+    - name: Tell open tabs the update is over
+      ansible.builtin.file: { path: /opt/ctester/status/maintenance, state: absent }
+```
+
+To raise it by hand: `touch /opt/ctester/status/maintenance`, then `rm` it when you are done.
 
 The first deployment of the judge also retires the Python `ctester-runner@N` units. On that host,
 check the unit's hardening with `systemd-analyze security ctester-judge@1`, then submit one quiz, io,

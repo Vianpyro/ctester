@@ -37,7 +37,8 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   and `demo_content.py` is the example base.
 
 - **One uvicorn worker.** Quotas, presence, the token cache and collaboration rooms live in memory.
-- **Endpoints are `def`** (except WebSockets and the admin's event stream) and share one
+- **Endpoints are `def`** (except WebSockets and the two event streams, the admin's and the
+  update notice's `/events`) and share one
   PostgreSQL connection behind a lock.
 - **No identity in request bodies.** The account always comes from the validated token; a test scans
   `schemas.py` for this.

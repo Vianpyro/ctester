@@ -17,6 +17,11 @@ PAGE = os.environ.get("CTESTER_PAGE", "/web")
 
 PUBLISHED = os.environ.get("CTESTER_PUBLISHED", "")
 
+# Touched by the host (pull.sh, Ansible) while it redeploys; empty disables the notice.
+MAINTENANCE_FLAG = os.environ.get("CTESTER_MAINTENANCE", "")
+# An older flag is ignored: a run killed before it removed the flag must not leave the notice up.
+MAINTENANCE_MAX = _int("CTESTER_MAINTENANCE_MAX", "1800")
+
 # Empty by default: an unconfigured deployment trusts no other origin.
 ORIGINS = tuple(o.strip().rstrip("/") for o in os.environ.get(
     "CTESTER_ORIGINS", "").split(",") if o.strip())

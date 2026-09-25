@@ -5,6 +5,7 @@
   import { catalog } from "./lib/state/catalog.svelte";
   import { dock } from "./lib/state/dock.svelte";
   import { lastExercise, exercise } from "./lib/state/exercise.svelte";
+  import { maintenance } from "./lib/state/maintenance.svelte";
   import { presence } from "./lib/state/presence.svelte";
   import { profile } from "./lib/state/profile.svelte";
   import { statuses } from "./lib/state/statuses.svelte";
@@ -139,9 +140,13 @@
     if (!sessionKey()) system.say(t("access.missing_key"));
     theme.apply(theme.current);
     const stopBeating = presence.start();
+    const stopListening = maintenance.start();
     whenSessionLost(() => system.say(t("app.session_lost"), true));
     void start(params.get("tp") ?? "", authCode, authState);
-    return stopBeating;
+    return () => {
+      stopBeating();
+      stopListening();
+    };
   });
 
   async function start(deepLink: string, authCode: string | null, authState: string | null) {
@@ -314,7 +319,11 @@
 {/if}
 
 <main>
-  <div id="system" class={system.failed ? "outage" : ""} hidden={!system.text}>{system.text}</div>
+  <!-- Its own banner: every submission rewrites #system, which would erase the notice. -->
+  <div id="maintenance" role="status" class={maintenance.phase} hidden={maintenance.phase === "idle"}>
+    {maintenance.phase === "back" ? t("maintenance.over") : t("maintenance.started")}
+  </div>
+  <div id="system"class={system.failed ? "outage" : ""} hidden={!system.text}>{system.text}</div>
 
   <div id="work" class={dock.open || dock.reserved ? "withchat" : ""} hidden={!showWorkbench}>
     <Statement />

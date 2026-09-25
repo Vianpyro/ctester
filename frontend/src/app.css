@@ -2333,6 +2333,25 @@ pre {
   color: var(--bad);
 }
 
+#maintenance {
+  flex: 0 0 auto;
+  padding: .55rem var(--gut) .55rem calc(var(--gut) - 3px);
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  color: var(--fg);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--wait);
+}
+
+#maintenance[hidden] {
+  display: none;
+}
+
+#maintenance.back {
+  border-left-color: var(--ok);
+}
+
 .offscreen {
   position: absolute;
   width: 1px;

@@ -122,6 +122,8 @@
   "app.signin_failed": "Signing in failed. You can go on without an account: the page works exactly the same.",
   "app.session_lost": "You have been signed out. Sign in again to keep your progress.",
   "app.autosaved": "No need to save: your code is saved on its own.",
+  "maintenance.started": "The admin decided now was the right time for an update: the test server will be unavailable for a few seconds.",
+  "maintenance.over": "The server is working again. Thanks for your patience!",
   "app.verification": "verification — no XP",
   "app.course_chat": "Course chat",
   "access.missing_key": "Your access key is missing. Reopen the CTester link from your course to be able to test your code. You can write in the meantime: your draft is saved.",

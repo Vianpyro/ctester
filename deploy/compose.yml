@@ -50,6 +50,7 @@ services:
       CTESTER_RESULTS: /results
       CTESTER_PAGE: /web
       CTESTER_PUBLISHED: /published
+      CTESTER_MAINTENANCE: /status/maintenance
       PYTHONPATH: /deps
     extra_hosts:
       - ${CTESTER_EXTRA_HOST:-host.docker.internal:host-gateway}
@@ -57,6 +58,7 @@ services:
       - ../app:/app:ro
       - ../web:/web:ro
       - ../../published:/published:ro
+      - ../../status:/status:ro
       - ../../spool:/spool
       - ../../results:/results:ro
       - deps:/deps:ro

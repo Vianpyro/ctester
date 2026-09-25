@@ -4,7 +4,9 @@ import config
 import deps
 import security
 from fastapi import APIRouter, Query, Request
+from fastapi.responses import StreamingResponse
 from services import forum as forum_service
+from services import maintenance
 
 router = APIRouter(tags=["health"])
 
@@ -23,6 +25,16 @@ def live(request: Request, id: str = Query("")):
     with deps.lock:
         n = deps.presence.touch(who, time.time())
     return {"n": n}
+
+
+@router.get("/events")
+async def events():
+    # async: a def would hold a threadpool thread for as long as each tab stays open.
+    return StreamingResponse(maintenance.stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        # Nginx buffers proxied responses by default; this turns it off for this one.
+        "X-Accel-Buffering": "no",
+    })
 
 
 @router.get("/oidc.json")

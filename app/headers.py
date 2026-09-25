@@ -57,6 +57,8 @@ class HeaderMiddleware:
                 response_headers["Vary"] = "Accept-Encoding, Origin"
                 if "cache-control" not in response_headers:
                     response_headers["Cache-Control"] = "no-store"
+                seen["stream"] = response_headers.get(
+                    "content-type", "").startswith("text/event-stream")
             elif (message["type"] == "http.response.body" and seen["status"] >= 400
                   and seen["refusal"] is None):
                 # Refusals answer with a key, never a sentence: the key is safe to log.
@@ -102,7 +104,8 @@ def _request_done(scope, seen):
         severity = log.INFO
     else:
         severity = log.DEBUG
-    if elapsed_ms >= config.LOG_SLOW_MS:
+    # An event stream lasts minutes by design; it is not a slow request.
+    if elapsed_ms >= config.LOG_SLOW_MS and not seen.get("stream"):
         severity = max(severity, log.WARN)
     if not log.enabled(severity):
         return

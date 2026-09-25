@@ -32,6 +32,7 @@ import security    # noqa: E402
 import policy as policy  # noqa: E402
 from services import collab  # noqa: E402
 from services import forum_live  # noqa: E402
+from services import maintenance  # noqa: E402
 from services import quotas  # noqa: E402
 
 KNOWN_ORIGIN = "https://ctester.example"
@@ -1291,6 +1292,76 @@ def test_a_window_cannot_open_someone_elses_presence():
                        headers={"CF-Connecting-IP": "203.0.113.2"})
         assert first.json()["n"] == 1, first.json()
         assert second.json()["n"] == 2, second.json()
+
+
+@contextlib.contextmanager
+def _maintenance_flag():
+    saved = config.MAINTENANCE_FLAG
+    with tempfile.TemporaryDirectory() as tmp:
+        config.MAINTENANCE_FLAG = os.path.join(tmp, "maintenance")
+        maintenance._cache["at"] = None
+        try:
+            yield config.MAINTENANCE_FLAG
+        finally:
+            config.MAINTENANCE_FLAG = saved
+            maintenance._cache["at"] = None
+
+
+def test_the_update_notice_follows_the_hosts_flag_and_ignores_a_stale_one():
+    with _maintenance_flag() as flag:
+        assert not maintenance.active()
+        pathlib.Path(flag).touch()
+        assert maintenance.active()
+        old = time.time() - config.MAINTENANCE_MAX - 1
+        os.utime(flag, (old, old))
+        assert not maintenance.active(), "a flag left by a killed run expires"
+    saved = config.MAINTENANCE_FLAG
+    config.MAINTENANCE_FLAG = ""
+    try:
+        assert not maintenance.active(), "no flag configured, no notice"
+    finally:
+        config.MAINTENANCE_FLAG = saved
+
+
+def test_the_event_stream_announces_the_state_on_connect_and_on_change():
+    async def first_events(n):
+        seen = []
+        async for chunk in maintenance.stream(max_s=3, tick=0.01):
+            if "event: state" in chunk:
+                seen.append(json.loads(chunk.split("data: ", 1)[1]))
+                if len(seen) == n:
+                    return seen
+                os.remove(config.MAINTENANCE_FLAG)
+        return seen
+
+    saved_tick = maintenance.TICK
+    maintenance.TICK = 0.0
+    try:
+        with _maintenance_flag() as flag:
+            pathlib.Path(flag).touch()
+            assert asyncio.run(first_events(2)) == [
+                {"maintenance": True}, {"maintenance": False}]
+    finally:
+        maintenance.TICK = saved_tick
+
+
+def test_the_event_stream_is_served_unbuffered_to_anyone():
+    saved, saved_slow = maintenance.STREAM_MAX, config.LOG_SLOW_MS
+    maintenance.STREAM_MAX = 0
+    # Every request is slow here: only the stream's exemption keeps it out of the warnings.
+    config.LOG_SLOW_MS = 0
+    try:
+        with _maintenance_flag(), _logs(log.WARN) as buffer:
+            with client.stream("GET", "/events", headers={"Origin": KNOWN_ORIGIN}) as r:
+                body = "".join(r.iter_text())
+            assert r.status_code == 200, r.status_code
+            assert r.headers["content-type"].startswith("text/event-stream")
+            assert r.headers["x-accel-buffering"] == "no"
+            assert r.headers["access-control-allow-origin"] == KNOWN_ORIGIN
+            assert 'event: state\ndata: {"maintenance": false}' in body, body
+        assert not _records(buffer, "http.server.request"), "a stream is never a slow request"
+    finally:
+        maintenance.STREAM_MAX, config.LOG_SLOW_MS = saved, saved_slow
 
 
 def test_refusal_order_forum_off_before_missing_token():

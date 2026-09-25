@@ -122,6 +122,8 @@
   "app.signin_failed": "La connexion a échoué. Tu peux continuer sans compte : la page fonctionne exactement pareil.",
   "app.session_lost": "Tu as été déconnecté·e. Reconnecte-toi pour conserver ta progression.",
   "app.autosaved": "Pas besoin d'enregistrer : ton code est sauvegardé tout seul.",
+  "maintenance.started": "L'admin a décidé que c'était le bon moment pour faire une mise à jour : le serveur de tests va être indisponible pendant quelques secondes.",
+  "maintenance.over": "Le serveur fonctionne à nouveau. Merci pour ta patience !",
   "app.verification": "vérification — sans XP",
   "app.course_chat": "Chat du cours",
   "access.missing_key": "Il manque ta clé d'accès. Rouvre le lien de CTester depuis ton cours pour pouvoir tester ton code. Tu peux écrire en attendant : ton brouillon est enregistré.",
