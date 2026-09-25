@@ -1,6 +1,7 @@
 import hashlib
 import json
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from threading import Lock
@@ -49,12 +50,17 @@ def userinfo_url():
     return url
 
 
+class AuthUnavailable(Exception):
+    """The provider could not be asked: the token may be valid, so this is not a 401."""
+
+
 _tokens = {}
 _tokens_lock = Lock()
 TOKENS_MAX = 500
 
 
-def current_user(headers):
+def current_user(headers, strict=False):
+    """With strict, an unreachable provider raises AuthUnavailable instead of reading as anonymous."""
     header = headers.get("Authorization", "")
     if not header.startswith("Bearer ") or not oidc_enabled():
         return None
@@ -67,7 +73,13 @@ def current_user(headers):
         known = _tokens.get(fingerprint)
         if known and known[2] > now:
             return known[0]
-    sub, name = _ask_userinfo(token)
+    try:
+        sub, name = _ask_userinfo(token)
+    except AuthUnavailable:
+        # Not cached: the token may be valid as soon as the provider answers again.
+        if strict:
+            raise
+        return None
     with _tokens_lock:
         # Clearing everything is fine: the cache only saves userinfo round trips.
         if len(_tokens) >= TOKENS_MAX:
@@ -89,11 +101,15 @@ def current_name(headers):
 def _ask_userinfo(token):
     url = userinfo_url()
     if not url:
-        return None, ""
+        raise AuthUnavailable()
     try:
         claims = _get_json(url, {"Authorization": "Bearer " + token})
-    except Exception:
-        return None, ""
+    except urllib.error.HTTPError as refused:
+        if refused.code in (400, 401, 403):
+            return None, ""
+        raise AuthUnavailable() from refused
+    except Exception as failure:
+        raise AuthUnavailable() from failure
     sub = claims.get("sub") if isinstance(claims, dict) else None
     if not isinstance(sub, str) or not 0 < len(sub) <= 128:
         return None, ""

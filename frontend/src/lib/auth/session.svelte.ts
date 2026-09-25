@@ -60,10 +60,29 @@ class Session {
 export const session = new Session();
 
 const onSignOut = new Set<() => void>();
+const onLost = new Set<() => void>();
 
 export function whenSignedOut(forget: () => void): () => void {
   onSignOut.add(forget);
   return () => onSignOut.delete(forget);
+}
+
+// Called when the session ends without the student asking, so the page can say so.
+export function whenSessionLost(notice: () => void): () => void {
+  onLost.add(notice);
+  return () => onLost.delete(notice);
+}
+
+export function loseSession(): void {
+  const had = !!session.token;
+  signOut();
+  if (!had) return;
+  for (const notice of onLost) {
+    try {
+      notice();
+    } catch {
+    }
+  }
 }
 
 export function signOut(): void {
@@ -93,6 +112,15 @@ export async function renew(): Promise<boolean> {
   return await (await oidc()).refreshAccessToken();
 }
 
+// After a refusal, only a token near its expiry is worth renewing: Rauthy refuses an early
+// refresh and revokes the session for it, which would burn a refresh token still good for days.
+export async function renewAfterRefusal(): Promise<boolean> {
+  if (!session.oidcOffered) return false;
+  const auth = await oidc();
+  if (!auth.renewalDue()) return false;
+  return await auth.refreshAccessToken();
+}
+
 function authorized(options: RequestOptions): RequestOptions {
   return {
     ...options,
@@ -105,12 +133,14 @@ export async function authFetch(path: string, options: RequestOptions = {}): Pro
   if (!session.token) return new Response(null, { status: 401 });
   const answer = await fetchApi(path, authorized(options));
   if (answer.status !== 401) return answer;
-  if (!(await renew())) {
-    signOut();
+  // The deployment has not answered yet (a restart): nothing can be renewed, so nothing is dropped.
+  if (!session.deployment) return answer;
+  if (!(await renewAfterRefusal())) {
+    loseSession();
     return answer;
   }
   const second = await fetchApi(path, authorized(options));
-  if (second.status === 401) signOut();
+  if (second.status === 401) loseSession();
   return second;
 }
 
@@ -125,7 +155,6 @@ export async function authRequest<T>(
   } catch {
     return { ok: false, status: 0, body: null };
   }
-  if (answer.status === 401) signOut();
   return await decode<T>(answer);
 }
 

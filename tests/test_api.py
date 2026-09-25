@@ -622,7 +622,7 @@ def context(*, tokens=None, moderators=(), forum_enabled=True, base=None,
     config.DISCORD_BRIDGE_KEY = bridge
     config.DISCORD_WEBHOOK = webhook
     tokens = tokens or {}
-    security.current_user = lambda headers: tokens.get(
+    security.current_user = lambda headers, strict=False: tokens.get(
         headers.get("Authorization", "").replace("Bearer ", ""))
     security.current_name = lambda headers: ""
     deps.quota = quotas.Quota(cooldown=0, hourly=100000)
@@ -1280,6 +1280,19 @@ def test_refusal_order_forum_off_before_missing_token():
     with context(moderators=["sub-prof"]) as (c, _, _tmp):
         r = c.get("/forum?ex=tp2-ex3")
         assert r.status_code == 401, (r.status_code, r.text)
+
+
+def test_an_unreachable_issuer_answers_503_not_401():
+    # A 401 makes the page spend its refresh token; the token is not at fault here.
+    with context(tokens={"alice": "sub-alice"}, moderators=["sub-prof"]) as (c, _, _tmp):
+        def down(headers, strict=False):
+            if strict:
+                raise security.AuthUnavailable()
+            return None
+        security.current_user = down
+        r = c.get("/forum/activity", headers=auth("alice"))
+        assert r.status_code == 503, (r.status_code, r.text)
+        assert r.json()["error"] == "auth_unavailable", r.json()
 
 
 def test_forum_activity_only_reports_visible_threads():

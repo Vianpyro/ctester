@@ -16,8 +16,9 @@
   import { editor } from "./lib/state/editor.svelte";
   import { matchShortcut } from "./lib/domain/shortcuts";
   import { fetchDeployment } from "./lib/api/public";
+  import type { Deployment } from "./lib/api/types";
   import { RETURN_KEY } from "./lib/auth/keys";
-  import { ensureValid, session } from "./lib/auth/session.svelte";
+  import { ensureValid, session, whenSessionLost } from "./lib/auth/session.svelte";
   import { sessionGet } from "./lib/storage";
   import { expectedOf } from "./lib/domain/labels";
 
@@ -138,6 +139,7 @@
     if (!sessionKey()) system.say(t("access.missing_key"));
     theme.apply(theme.current);
     const stopBeating = presence.start();
+    whenSessionLost(() => system.say(t("app.session_lost"), true));
     void start(params.get("tp") ?? "", authCode, authState);
     return stopBeating;
   });
@@ -148,8 +150,20 @@
     if (!dock.open) dock.reserved = false;
   }
 
+  // Right after a deployment the API may still be starting: a stored session waits for it
+  // rather than being left without the issuer it needs to renew.
+  async function deploymentWhenUp(): Promise<Deployment | null> {
+    let delay = 1000;
+    for (;;) {
+      const deployment = await fetchDeployment();
+      if (deployment || !session.token) return deployment;
+      await new Promise((done) => setTimeout(done, delay));
+      delay = Math.min(delay * 2, 15_000);
+    }
+  }
+
   async function boot(deepLink: string, authCode: string | null, authState: string | null) {
-    const deploymentSoon = fetchDeployment();
+    const deploymentSoon = deploymentWhenUp();
     const toOpen = await catalog.load(deepLink, lastExercise());
     if (catalog.spotlighted) menuOpen = true;
     if (toOpen) await exercise.open(toOpen);

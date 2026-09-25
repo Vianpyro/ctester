@@ -12,6 +12,7 @@ import {
   renew,
   session,
   signOut,
+  whenSessionLost,
   whenSignedOut,
 } from "../src/lib/auth/session.svelte";
 
@@ -220,6 +221,7 @@ describe("authRequest", () => {
   });
 
   it("renews once and retries once on a 401", async () => {
+    localStorage.setItem(EXPIRY_KEY, "0");
     apiStatuses = [401, 200];
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     const answer = await authRequest("states");
@@ -229,6 +231,7 @@ describe("authRequest", () => {
   });
 
   it("signs out on a second 401, rather than spinning", async () => {
+    localStorage.setItem(EXPIRY_KEY, "0");
     apiStatuses = [401, 401];
     grants = [{ access_token: "jeton-2", expires_in: 3600 }];
     await authRequest("states");
@@ -236,10 +239,45 @@ describe("authRequest", () => {
   });
 
   it("signs out when the renewal after a 401 is refused", async () => {
+    localStorage.setItem(EXPIRY_KEY, "0");
     apiStatuses = [401];
     grants = [null];
     await authRequest("states");
     expect(session.token).toBeNull();
+  });
+
+  it("never spends the refresh token on a 401 for a token far from expiry", async () => {
+    apiStatuses = [401];
+    await authRequest("states");
+    expect(tokenCalls()).toHaveLength(0);
+    expect(session.token).toBeNull();
+  });
+
+  it("keeps the whole session while the deployment is still unknown", async () => {
+    session.deployment = null;
+    apiStatuses = [401];
+    const answer = await authRequest("states");
+    expect(answer.status).toBe(401);
+    expect(session.token).toBe("jeton-1");
+    expect(localStorage.getItem(REFRESH_KEY)).toBe("refresh-1");
+  });
+
+  it("keeps the session on a 503 while the issuer cannot be asked", async () => {
+    apiStatuses = [503];
+    const answer = await authRequest("states");
+    expect(answer.status).toBe(503);
+    expect(session.token).toBe("jeton-1");
+    expect(tokenCalls()).toHaveLength(0);
+  });
+
+  it("says so when a session is lost rather than left", async () => {
+    let told = 0;
+    const release = whenSessionLost(() => told++);
+    apiStatuses = [401];
+    await authRequest("states");
+    signOut();
+    expect(told).toBe(1);
+    release();
   });
 
   it("reports a dead network as status 0 rather than throwing", async () => {

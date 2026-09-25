@@ -260,7 +260,7 @@ class Thread {
     if (!resumed) this.#reauth = false;
     if (!session.signedIn || !this.key) return;
     const { socketUrl } = await import("../../lib/config");
-    const { ensureValid, renew } = await import("../../lib/auth/session.svelte");
+    const { ensureValid, renewAfterRefusal } = await import("../../lib/auth/session.svelte");
     await ensureValid();
     const aimedAt = this.key;
     if (this.#socket || !session.signedIn || aimedAt !== this.key) return;
@@ -293,7 +293,7 @@ class Thread {
       if (this.#watchers === 0) return;
       if (event.code === UNAUTHORIZED && !this.#reauth) {
         this.#reauth = true;
-        void renew().then((ok) => {
+        void renewAfterRefusal().then((ok) => {
           if (ok) void this.connect(true);
         });
         return;

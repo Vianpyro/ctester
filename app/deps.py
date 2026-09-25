@@ -65,7 +65,10 @@ class Refusal(Exception):
 def user(request: Request) -> str:
     if not security.oidc_enabled():
         raise Refusal(503, "no_persistence")
-    sub = security.current_user(request.headers)
+    try:
+        sub = security.current_user(request.headers, strict=True)
+    except security.AuthUnavailable:
+        raise Refusal(503, "auth_unavailable") from None
     if sub is None:
         raise Refusal(401, "sign_in_required")
     return sub

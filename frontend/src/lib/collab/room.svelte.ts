@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { t } from "../i18n.svelte";
 import { serverMessage } from "../api/client";
 import { socketUrl } from "../config";
-import { ensureValid, renew, session } from "../auth/session.svelte";
+import { ensureValid, renewAfterRefusal, session } from "../auth/session.svelte";
 import { fetchContext, fetchDocument, saveDocument } from "../api/team";
 import { applyLocal, LOCAL, REMOTE, seed, snapshot, textOf } from "./document";
 import { fromBase64, shift, toBase64 } from "./carets";
@@ -232,7 +232,7 @@ class Room {
       if (said) {
         if (event.code === UNAUTHORIZED && !live.reauth) {
           live.reauth = true;
-          void renew().then((ok) => {
+          void renewAfterRefusal().then((ok) => {
             if (this.#live !== live) return;
             if (ok) return this.#connect(live);
             this.fatal = closedMessage(UNAUTHORIZED);

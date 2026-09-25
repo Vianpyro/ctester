@@ -2228,7 +2228,11 @@ def test_ask_userinfo_bounds_the_sub_and_sanitizes_the_suggested_name():
 
         security._discovery.update(until=0.0, userinfo="")
         config.OIDC_ISSUER = ""
-        assert security._ask_userinfo("tok") == (None, "")
+        try:
+            security._ask_userinfo("tok")
+            raise AssertionError("no userinfo endpoint cannot vouch for a token")
+        except security.AuthUnavailable:
+            pass
     finally:
         config.OIDC_ISSUER = saved_issuer
         security._get_json = saved_get_json
@@ -2265,6 +2269,50 @@ def test_current_user_bounds_the_bearer_token_and_caches_the_lookup():
         assert len(calls) == 1
         assert security.current_user({"Authorization": exact}) == "etu-1"
         assert len(calls) == 1
+    finally:
+        (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state,
+         security._get_json) = saved
+        security._tokens.clear()
+        security._tokens.update(saved_tokens)
+        security._discovery.clear()
+        security._discovery.update(saved_discovery)
+
+
+def test_an_unreachable_issuer_is_not_a_refused_token():
+    import urllib.error
+
+    saved = (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state, security._get_json)
+    saved_tokens = dict(security._tokens)
+    saved_discovery = dict(security._discovery)
+    try:
+        config.OIDC_ISSUER = "https://auth.exemple"
+        config.OIDC_CLIENT_ID = "ctester"
+        security.state = type("Base", (), {"enabled": staticmethod(lambda: True)})
+        security._tokens.clear()
+        security._discovery.update(
+            until=time.time() + 600, userinfo="https://auth.exemple/userinfo")
+        bearer = {"Authorization": "Bearer jeton"}
+
+        def down(url, headers=None):
+            raise OSError("connection refused")
+        security._get_json = down
+        assert security.current_user(bearer) is None
+        try:
+            security.current_user(bearer, strict=True)
+            raise AssertionError("an unreachable issuer must raise under strict")
+        except security.AuthUnavailable:
+            pass
+
+        # Not cached: the same token works as soon as the issuer is back.
+        security._get_json = lambda url, headers=None: {"sub": "etu-1"}
+        assert security.current_user(bearer) == "etu-1"
+
+        security._tokens.clear()
+
+        def refused(url, headers=None):
+            raise urllib.error.HTTPError(url, 401, "Unauthorized", {}, None)
+        security._get_json = refused
+        assert security.current_user(bearer, strict=True) is None
     finally:
         (config.OIDC_ISSUER, config.OIDC_CLIENT_ID, security.state,
          security._get_json) = saved
@@ -2324,7 +2372,7 @@ def test_current_name_only_reads_the_cache_it_never_calls_out():
         security._tokens.update(saved_tokens)
 
 
-def test_ask_userinfo_swallows_a_broken_lookup():
+def test_ask_userinfo_reports_a_broken_lookup_as_unavailable():
     saved_issuer = config.OIDC_ISSUER
     saved_get_json = security._get_json
     saved_discovery = dict(security._discovery)
@@ -2334,7 +2382,11 @@ def test_ask_userinfo_swallows_a_broken_lookup():
             until=time.time() + 600, userinfo="https://auth.exemple/userinfo")
         security._get_json = lambda url, headers=None: (_ for _ in ()).throw(
             OSError("network failure"))
-        assert security._ask_userinfo("tok") == (None, "")
+        try:
+            security._ask_userinfo("tok")
+            raise AssertionError("a network failure is not a refused token")
+        except security.AuthUnavailable:
+            pass
     finally:
         config.OIDC_ISSUER = saved_issuer
         security._get_json = saved_get_json

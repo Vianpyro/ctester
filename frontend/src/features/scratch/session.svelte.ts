@@ -8,7 +8,7 @@ import {
 } from "../../lib/domain/scratchHeader";
 import { system } from "../../lib/state/system.svelte";
 import { socketUrl } from "../../lib/config";
-import { ensureValid, renew, session, whenSignedOut } from "../../lib/auth/session.svelte";
+import { ensureValid, renewAfterRefusal, session, whenSignedOut } from "../../lib/auth/session.svelte";
 import type { ScratchFrame } from "../../lib/api/types";
 
 // Close codes and exit reasons are words the judge and the API send; the page words them.
@@ -229,7 +229,7 @@ class Scratch {
       if (event.code === UNAUTHORIZED && !this.#reauth) {
         this.#reauth = true;
         this.say(t("console.reconnecting"));
-        void renew().then((ok) => {
+        void renewAfterRefusal().then((ok) => {
           if (ok) return this.start(true);
           this.say(closedMessage(UNAUTHORIZED), true);
         });

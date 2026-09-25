@@ -1,4 +1,4 @@
-import { dropCredentials, session, signOut, whenSignedOut } from "./session.svelte";
+import { dropCredentials, loseSession, session, whenSignedOut } from "./session.svelte";
 import { t } from "../i18n.svelte";
 import { localGet, localSet, sessionGet, sessionSet, sessionDrop } from "../storage";
 import {
@@ -64,6 +64,11 @@ function nearlyExpired(): boolean {
   return at > 0 && seconds() >= at - REFRESH_MARGIN;
 }
 
+// An unknown lifetime (a session from before it was stored) may be renewed at any time.
+export function renewalDue(): boolean {
+  return expiresAt() === 0 || nearlyExpired();
+}
+
 function storeGrant(granted: Grant): void {
   if (typeof granted.refresh_token === "string" && granted.refresh_token) {
     localSet(REFRESH_KEY, granted.refresh_token);
@@ -101,7 +106,7 @@ export function refreshAccessToken(): Promise<boolean> {
   if (refreshing) return refreshing;
   if (abandoned()) {
     dropCredentials();
-    signOut();
+    loseSession();
     return Promise.resolve(false);
   }
   const carried = storedRefreshToken();
@@ -114,7 +119,7 @@ export function refreshAccessToken(): Promise<boolean> {
       if (started !== session.generation) return false;
       if (!granted) {
         forgetRenewal();
-        signOut();
+        loseSession();
         return false;
       }
       storeGrant(granted);
