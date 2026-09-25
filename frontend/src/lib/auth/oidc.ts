@@ -169,7 +169,7 @@ export async function startSignIn(): Promise<void> {
     response_type: "code",
     client_id: config().client_id,
     redirect_uri: redirectUri(),
-    scope: "openid profile offline_access groups",
+    scope: "openid profile email offline_access groups",
     state,
     code_challenge: await challengeFor(verifier),
     code_challenge_method: "S256",

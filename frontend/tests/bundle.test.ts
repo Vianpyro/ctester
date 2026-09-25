@@ -85,7 +85,7 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
   it("keeps the account, forum, team, progress and console screens out of them", () => {
     const source = eagerSource();
     for (const sentence of [
-      "openid profile offline_access groups",
+      "openid profile email offline_access groups",
       "forum.rules",
       "team.shared_history",
       "progress.mastery",
