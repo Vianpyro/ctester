@@ -230,6 +230,37 @@ h1 {
   }
 }
 
+@media (max-width: 700px) {
+  #home .tagline,
+  #top > .sep {
+    display: none;
+  }
+
+  #menuex {
+    order: 1;
+    flex: 1 1 calc(100% - 7rem);
+    min-width: 0;
+  }
+
+  #top > .field {
+    order: 2;
+  }
+
+  #excurrent {
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+
+  #menuex > .menupanel {
+    left: 0;
+  }
+
+  #exlist {
+    min-width: 0;
+  }
+}
+
 #live::before {
   content: "";
   display: inline-block;
