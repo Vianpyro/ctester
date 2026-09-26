@@ -11,7 +11,7 @@
   const hint = $derived(error?.hint ? tOr(`verdict.gcc.${error.hint}`, "") : "");
   // The judge may compile under another name; a single file is still unambiguous.
   const file = $derived.by(() => {
-    if (!error) return null;
+    if (!error?.line) return null;
     const names = Object.keys(editor.sources);
     if (names.includes(error.file)) return error.file;
     return names.length === 1 ? names[0]! : null;

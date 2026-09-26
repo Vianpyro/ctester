@@ -14,6 +14,7 @@ export type ShortcutId =
   | "moveUp"
   | "moveDown"
   | "completeStatement"
+  | "format"
   | "nextIssue"
   | "gotoLine"
   | "save"
@@ -41,6 +42,8 @@ const BINDINGS: Binding[] = [
   { id: "moveUp", keys: ["ArrowUp"], alt: true, shift: true },
   { id: "moveDown", keys: ["ArrowDown"], alt: true, shift: true },
   { id: "completeStatement", keys: ["Enter"], ctrl: true, shift: true },
+  // Option+Shift+F types "Ï" on a Mac.
+  { id: "format", keys: ["f", "ï"], alt: true, shift: true },
   { id: "nextIssue", keys: ["F2"] },
   { id: "gotoLine", keys: ["g"], ctrl: true },
   { id: "save", keys: ["s"], ctrl: true },
@@ -58,6 +61,7 @@ export const EDITOR_COMMANDS: ReadonlySet<ShortcutId> = new Set<ShortcutId>([
   "moveUp",
   "moveDown",
   "completeStatement",
+  "format",
   "nextIssue",
   "gotoLine",
 ]);
@@ -70,6 +74,7 @@ export const TEXT_COMMANDS: ReadonlySet<ShortcutId> = new Set<ShortcutId>([
   "moveUp",
   "moveDown",
   "completeStatement",
+  "format",
 ]);
 
 export function matchShortcut(chord: Chord): ShortcutId | null {

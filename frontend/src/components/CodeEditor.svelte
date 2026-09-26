@@ -7,6 +7,7 @@
   import RemoteCarets from "./RemoteCarets.svelte";
 
   let zone: HTMLTextAreaElement | null = $state(null);
+  let surface: CodeSurface | undefined = $state();
 
   $effect(() => {
     editor.element = zone;
@@ -52,11 +53,17 @@
       {/each}
     </div>
     <span class="grow"></span>
+    {#if !editor.readOnly}
+      <button type="button" class="nav" title={t("shortcuts.format")} onclick={() => surface?.command("format")}
+        >{t("editor.format")}</button
+      >
+    {/if}
     <span id="saving" class={drafts.statusFailed ? "failed" : ""} aria-live="polite"
       >{drafts.status}</span
     >
   </div>
   <CodeSurface
+    bind:this={surface}
     bind:element={zone}
     value={editor.text}
     {onInput}

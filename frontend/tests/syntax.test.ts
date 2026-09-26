@@ -426,3 +426,46 @@ describe("arrays, keywords and literals", () => {
     expect(saysKey("#include <stdio.h>\nvoid main(void) {\n}\n", "int main")).toBe(true);
   });
 });
+
+describe("mistakes seen in students' submissions", () => {
+  it("flags a misspelled directive and a header name with a space", () => {
+    expect(saysKey("#inctude <math.h>\nint main(void) {\n    return 0;\n}\n", "« #inctude »")).toBe(true);
+    expect(saysKey(inMain("", "#include <stdio. h>\n"), "<stdio.h>")).toBe(true);
+    expect(check("#ifndef A\n#define A\n#pragma once\n#endif\n")).toEqual([]);
+  });
+
+  it("flags a variable name with spaces in it", () => {
+    expect(saysKey(inMain("    int calories par seconde = 3;\n"), "« calories_par_seconde »")).toBe(true);
+    expect(saysKey(inMain("    int valeur 1 ;\n"), "« valeur_1 »")).toBe(true);
+    expect(check(inMain("    long long a = 1;\n    unsigned int b = 2;\n    char const c = 'x';\n"))).toEqual([]);
+  });
+
+  it("flags a call above main, not a prototype or a call inside", () => {
+    const src = 'double a;\n    scanf("%lf", &a);\n#include <stdio.h>\nint main(void) {\n    return 0;\n}\n';
+    expect(saysKey(src, "en dehors de toute fonction")).toBe(true);
+    expect(check('#include <stdio.h>\nint f(int x);\nint main(void) {\n    puts("x");\n    return f(1);\n}\nint f(int x) {\n    return x;\n}\n')).toEqual([]);
+  });
+
+  it("flags a condition after else, not else if", () => {
+    const body = "    int a = 1, b = 2;\n    if (a > b) {\n        a = b;\n    }";
+    expect(saysKey(inMain(body + " else (b > a) {\n        b = a;\n    }\n"), "else if")).toBe(true);
+    expect(check(inMain(body + " else if (b > a) {\n        b = a;\n    }\n"))).toEqual([]);
+  });
+
+  it("suggests the function a typo was meant to be", () => {
+    expect(saysKey(inMain("    int v;\n    sacnf(\"%d\", &v);\n"), "« scanf »")).toBe(true);
+    expect(saysKey(inMain('    print("%d", 1);\n'), "« printf »")).toBe(true);
+    expect(saysKey("#include <stdio.h>\nint maint(void) {\n    return 0;\n}\n", "« main »")).toBe(true);
+  });
+
+  it("leaves real functions and a student's own print alone", () => {
+    expect(check(inMain('    fprintf(stderr, "x");\n    char s[4];\n    sscanf("1", "%s", s);\n'))).toEqual([]);
+    expect(check('#include <stdio.h>\nvoid print(int x) {\n    printf("%d", x);\n}\nint main(void) {\n    print(1);\n    return 0;\n}\n')).toEqual([]);
+    expect(check("int gain(int x) {\n    return x;\n}\n")).toEqual([]);
+  });
+
+  it("flags /n written for \\n", () => {
+    expect(saysKey(inMain('    printf("age ./n");\n'), "« \\n »")).toBe(true);
+    expect(check(inMain('    printf("km/nuit\\n");\n'))).toEqual([]);
+  });
+});

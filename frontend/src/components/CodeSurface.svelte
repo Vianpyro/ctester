@@ -74,6 +74,10 @@
     return null;
   });
   let lint: typeof import("../lib/domain/syntax") | null = null;
+  const formatting = import("../lib/domain/reindent").catch(() => {
+    system.say(t("app.load_failed", { what: t("app.load.format") }), true);
+    return null;
+  });
 
   $effect(() => {
     const source = value;
@@ -111,7 +115,7 @@
 
   const usable = $derived(!!metrics && !!metrics.char && !!metrics.line);
 
-  function command(id: ShortcutId) {
+  export function command(id: ShortcutId) {
     if (!zone) return;
     if (id === "nextIssue") {
       const issue = lint?.nextIssue(issues, zone.selectionEnd);
@@ -124,6 +128,13 @@
     }
     if (readOnly && TEXT_COMMANDS.has(id)) {
       system.flash(t("editor.read_only"));
+      return;
+    }
+    if (id === "format") {
+      void formatting.then((mod) => {
+        const edit = zone && mod?.formatEdit(zone.value, zone.selectionStart, zone.selectionEnd);
+        if (edit) apply(edit);
+      });
       return;
     }
     const edit = commandEdit(id, zone.value, zone.selectionStart, zone.selectionEnd);

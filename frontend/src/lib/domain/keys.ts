@@ -8,7 +8,7 @@ export interface Edit {
   caretEnd?: number;
 }
 
-const INDENT = 4;
+export const INDENT = 4;
 
 const PAIRS: Record<string, string> = {
   "(": ")",

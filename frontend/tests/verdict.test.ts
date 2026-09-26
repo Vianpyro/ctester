@@ -240,3 +240,20 @@ describe("explainGcc", () => {
     expect(explainGcc(undefined)).toBeNull();
   });
 });
+
+describe("explainGcc on students' mistakes", () => {
+  it.each([
+    ["main.c:1:2: error: invalid preprocessing directive #inctude; did you mean #include?", "directive"],
+    ["main.c:2:10: fatal error: stdio. h: No such file or directory", "header"],
+    ["main.c:9:9: error: expected '=', ',', ';', 'asm' or '__attribute__' before 'par'", "name_space"],
+    ["main.c:3:11: error: expected declaration specifiers or '...' before string constant", "outside_function"],
+  ])("%s", (gcc, hint) => {
+    expect(explainGcc(gcc)?.hint).toBe(hint);
+  });
+
+  it("reads the linker, which names no line", () => {
+    const ld = "/usr/bin/ld: /usr/lib/crt1.o: in function `_start':\n(.text+0x1b): undefined reference to `main'\ncollect2: error: ld returned 1 exit status";
+    expect(explainGcc(ld)).toEqual({ file: "", line: 0, hint: "no_main" });
+    expect(explainGcc("main.c:(.text+0x2a): undefined reference to `print'")?.hint).toBe("undefined_reference");
+  });
+});

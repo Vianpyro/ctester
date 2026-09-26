@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { commandEdit, keyEdit, lineSpan, parseLine, type Edit } from "../src/lib/domain/keys";
+import { formatEdit, reindent } from "../src/lib/domain/reindent";
 import type { ShortcutId } from "../src/lib/domain/shortcuts";
 
 function press(key: string, marked: string, shift = false): string | null {
@@ -320,5 +321,46 @@ describe("go to line", () => {
     for (const bad of ["", "0", "abc", "-2", "1.5", "2e3"]) {
       expect(parseLine(bad, 5), bad).toBeNull();
     }
+  });
+});
+
+describe("reindent", () => {
+  it("indents a student's program by its braces", () => {
+    const messy = [
+      "  #include <stdio.h>",
+      "int main(void) {   ",
+      "      double v =  1;",
+      "  if (v < 2) {",
+      "v = 2;",
+      "        }",
+      "    printf(\"%.2f\", v);",
+      "    return 0;}",
+    ].join("\n");
+    const clean = [
+      "#include <stdio.h>",
+      "int main(void) {",
+      "    double v =  1;",
+      "    if (v < 2) {",
+      "        v = 2;",
+      "    }",
+      "    printf(\"%.2f\", v);",
+      "    return 0;}",
+    ].join("\n");
+    expect(reindent(messy)).toBe(clean);
+    expect(reindent(clean)).toBe(clean);
+  });
+
+  it("ignores braces in strings, characters and comments, and keeps a comment's layout", () => {
+    const src = "int main(void) {\nputs(\"{\"); // {\nchar c = '}';\n/* {\n   keep\n*/\nreturn 0;\n}";
+    expect(reindent(src)).toBe(
+      "int main(void) {\n    puts(\"{\"); // {\n    char c = '}';\n    /* {\n   keep\n*/\n    return 0;\n}",
+    );
+  });
+
+  it("keeps the caret on its line, in the same place in the code", () => {
+    const edit = formatEdit("int f(void) {\nreturn 1;\n}", 18, 18)!;
+    expect(edit.insert).toBe("    ");
+    expect(edit.caret).toBe(22);
+    expect(formatEdit("int x;\n", 0, 0)).toBeNull();
   });
 });

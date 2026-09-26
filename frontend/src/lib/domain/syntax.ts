@@ -157,6 +157,53 @@ function typographic(blanked: string, issues: Issue[]): void {
   }
 }
 
+const DIRECTIVES = new Set([
+  "include", "define", "undef", "if", "ifdef", "ifndef", "elif", "elifdef", "elifndef", "else",
+  "endif", "pragma", "error", "warning", "line", "embed",
+]);
+
+function directives(blanked: string, issues: Issue[]): void {
+  for (const m of blanked.matchAll(/^[ \t]*#[ \t]*(\w+)/gm)) {
+    const word = m[1]!;
+    const at = m.index + m[0].length - word.length;
+    if (!DIRECTIVES.has(word)) say(issues, "error", at, at + word.length, "directive", { word });
+  }
+  for (const m of blanked.matchAll(/^[ \t]*#[ \t]*include[ \t]*<([^>\n]*[ \t][^>\n]*)>/gm)) {
+    const at = m.index + m[0].indexOf("<");
+    say(issues, "error", at, m.index + m[0].length, "header_space", { name: m[1]!.replace(/[ \t]+/g, "") });
+  }
+}
+
+const QUALIFIERS = new Set([
+  "const", "volatile", "restrict", "static", "register", "signed", "unsigned", "long", "short",
+  "int", "char", "float", "double",
+]);
+
+// int calories par seconde = ...; gcc only says "expected '=', ',', ';' ... before 'par'".
+function spacedName(blanked: string, issues: Issue[]): void {
+  for (const m of blanked.matchAll(/\b(?:int|char|float|double)[ \t]+([A-Za-z_]\w*(?:[ \t]+\w+)+)[ \t]*(?=[=;,[])/g)) {
+    const words = m[1]!.split(/[ \t]+/);
+    if (words.some((w) => QUALIFIERS.has(w))) continue;
+    const from = m.index + m[0].indexOf(m[1]!);
+    say(issues, "error", from, from + m[1]!.length, "spaced_name", {
+      words: words.join(" "),
+      joined: words.join("_"),
+    });
+  }
+}
+
+// scanf(...); above main: gcc only says "expected declaration specifiers or '...'".
+function callOutsideFunction(blanked: string, issues: Issue[]): void {
+  let depth = 0;
+  let at = 0;
+  for (const line of blanked.split("\n")) {
+    const call = /^([ \t]*)([A-Za-z_]\w*)\s*\(.*\)\s*;\s*$/.exec(line);
+    if (!depth && call) say(issues, "error", at + call[1]!.length, at + call[1]!.length + call[2]!.length, "outside_function");
+    for (const c of line) depth += c === "{" ? 1 : c === "}" ? -1 : 0;
+    at += line.length + 1;
+  }
+}
+
 function forSemicolons(blanked: string, issues: Issue[]): void {
   for (const m of blanked.matchAll(/\bfor\s*\(/g)) {
     const open = m.index + m[0].length - 1;
@@ -451,6 +498,51 @@ function voidMain(blanked: string, issues: Issue[]): void {
   if (m) say(issues, "hint", m.index, m.index + m[0].length, "void_main");
 }
 
+// gcc reads else (x) { as a missing ";" and says so, which sends the student the wrong way.
+function elseCondition(blanked: string, issues: Issue[]): void {
+  for (const m of blanked.matchAll(/\belse\s*\(/g)) say(issues, "hint", m.index, m.index + 4, "else_condition");
+}
+
+const TYPO_TARGETS = ["printf", "scanf"];
+// Real library functions one letter away from a target.
+const LOOKALIKES = new Set(["fprintf", "sprintf", "dprintf", "vprintf", "wprintf", "fscanf", "sscanf", "vscanf", "wscanf"]);
+
+// One insertion, deletion, substitution or swap of neighbours; a change of case alone is
+// case_keyword's business.
+function oneEdit(a: string, b: string): boolean {
+  if (a.toLowerCase() === b.toLowerCase() || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  while (a[i] === b[i]) i++;
+  if (a.length > b.length) return a.slice(i + 1) === b.slice(i);
+  if (a.length < b.length) return a.slice(i) === b.slice(i + 1);
+  if (a.slice(i + 1) === b.slice(i + 1)) return true;
+  return a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2);
+}
+
+function nearMiss(blanked: string, issues: Issue[]): void {
+  const defs = [...blanked.matchAll(/\b([A-Za-z_]\w*)\s*\(([^;{}]*)\)\s*\{/g)];
+  const defined = new Set(defs.map((m) => m[1]!));
+  for (const m of blanked.matchAll(/\b([A-Za-z_]\w*)\s*\(/g)) {
+    const name = m[1]!;
+    if (defined.has(name) || LOOKALIKES.has(name)) continue;
+    const target = TYPO_TARGETS.find((known) => oneEdit(name, known));
+    if (target) say(issues, "hint", m.index, m.index + name.length, "near_miss", { name: target });
+  }
+  // A unity exercise has no main, but its functions take parameters; int maint(void) is main.
+  if (defined.has("main")) return;
+  for (const m of defs) {
+    if (!/^\s*(?:void)?\s*$/.test(m[2]!) || !oneEdit(m[1]!, "main")) continue;
+    say(issues, "hint", m.index, m.index + m[1]!.length, "near_miss", { name: "main" });
+  }
+}
+
+function slashN(literals: Literal[], issues: Issue[]): void {
+  for (const l of literals) {
+    const at = l.text.search(/(?<!\/)\/n(?![a-z])/i);
+    if (at >= 0) say(issues, "hint", l.from + 1 + at, l.from + 3 + at, "slash_n");
+  }
+}
+
 function multiChar(quoted: Literal[], issues: Issue[]): void {
   for (const q of quoted) {
     if (q.text.replace(/\\(x[0-9a-fA-F]+|[0-7]{1,3}|.)/g, "x").length < 2) continue;
@@ -514,6 +606,9 @@ export function check(src: string): Issue[] {
   const { blanked, literals, quoted, issues } = scan(src);
   typographic(blanked, issues);
   if (!issues.length) {
+    directives(blanked, issues);
+    spacedName(blanked, issues);
+    callOutsideFunction(blanked, issues);
     forSemicolons(blanked, issues);
     structSemicolon(blanked, issues);
   }
@@ -534,6 +629,9 @@ export function check(src: string): Issue[] {
     integerDivision(blanked, issues);
     arrayBound(blanked, issues);
     multiChar(quoted, issues);
+    elseCondition(blanked, issues);
+    nearMiss(blanked, issues);
+    slashN(literals, issues);
     missingSemicolon(blanked, issues);
   }
   return issues.sort((a, b) => a.from - b.from).slice(0, MAX_ISSUES);
