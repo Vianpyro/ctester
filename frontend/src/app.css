@@ -180,6 +180,56 @@ h1 {
   visibility: hidden;
 }
 
+#live .narrow,
+#burger {
+  display: none;
+}
+
+#tools {
+  display: contents;
+}
+
+/* Phones and portrait tablets: the tools fold behind ☰ and the counter shortens, so the bar
+   keeps to one row where it can. */
+@media (max-width: 1000px) {
+  #live {
+    min-width: 5rem;
+  }
+
+  #live .wide {
+    display: none;
+  }
+
+  #live .narrow {
+    display: inline;
+  }
+
+  #burger {
+    display: inline-flex;
+    width: var(--tap);
+    min-width: var(--tap);
+    padding: 0;
+  }
+
+  #tools {
+    display: none;
+    right: var(--gut);
+  }
+
+  #tools.open {
+    display: flex;
+  }
+
+  #tools .group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #tools .sep {
+    display: none;
+  }
+}
+
 #live::before {
   content: "";
   display: inline-block;

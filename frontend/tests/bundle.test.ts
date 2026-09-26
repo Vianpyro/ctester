@@ -121,12 +121,12 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     }
   });
 
-  it("stays under 147 KB of eager JavaScript", () => {
+  it("stays under 148 KB of eager JavaScript", () => {
     const bytes = eagerChunks().reduce(
       (n, name) => n + readFileSync(join(DIST, "assets", name)).byteLength,
       0,
     );
-    expect(bytes).toBeLessThan(147_000);
+    expect(bytes).toBeLessThan(148_000);
   });
 
   it("keeps the quiz widgets out: most exercises are not a quiz", () => {

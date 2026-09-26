@@ -43,9 +43,19 @@
   const chooseLanguage = async (lang: string) => {
     if ((await i18n.choose(lang)) && signedIn) void savePreferences({ lang });
   };
+
+  let toolsOpen = $state(false);
+
+  // Runs before App's window handler, which skips events already defaultPrevented.
+  const closeTools = (e: KeyboardEvent) => {
+    if (e.key !== "Escape" || !toolsOpen) return;
+    e.preventDefault();
+    toolsOpen = false;
+    document.getElementById("burger")?.focus();
+  };
 </script>
 
-<div id="top">
+<div id="top" role="presentation" onkeydown={closeTools}>
   <h1>
     <button
       type="button"
@@ -58,7 +68,7 @@
   </h1>
   <span class="tagline credit">{t("topbar.by")} <a href="https://www.linkedin.com/in/vianney-veremme-1b88a5177" target="_blank">Vianney Veremme</a></span>
   <span id="live" class="tagline" aria-live="polite" hidden={presence.count === null}>
-    {presence.label}
+    <span class="wide">{presence.label}</span><span class="narrow">{t("presence.online_short", { count: presence.count ?? 0 })}</span>
   </span>
   <span class="sep"></span>
 
@@ -86,61 +96,84 @@
   </span>
   <span class="grow"></span>
 
-  <span class="group">
-    {#if signedIn}
-      <button type="button" id="myprogress" class="nav" onclick={() => openView("progress")}>
-        {view.label("progress", t("topbar.progress"))}
-      </button>
-      {#if session.forumOffered}
-        <button type="button" id="discussions" class="nav" onclick={openChat}>
-          {view.current === "forum" || view.current === "moderation"
-            ? t("view.back")
-            : t("topbar.chat")}
-          {#if dock.unread}<span class="pill" aria-label={t("topbar.unread")}></span>{/if}
-        </button>
-      {/if}
-      {#if session.scratchOffered}
-        <button type="button" id="scratch" class="nav" onclick={() => openView("scratch")}>
-          {view.label("scratch", t("topbar.console"))}
-        </button>
-      {/if}
-    {/if}
-  </span>
-  <span class="sep"></span>
-
   <button
     type="button"
-    id="shortcutsbutton"
+    id="burger"
     class="nav"
-    aria-expanded={helpOpen}
-    aria-controls="shortcuts"
-    title={t("topbar.shortcuts_title")}
-    onclick={openHelp}
+    aria-expanded={toolsOpen}
+    aria-controls="tools"
+    aria-label={t("topbar.menu")}
+    onclick={() => (toolsOpen = !toolsOpen)}
   >
-    {t("topbar.shortcuts")}<span class="shortcut">F1</span>
+    ☰{#if dock.unread && !toolsOpen}<span class="pill"></span>{/if}
   </button>
-  <button
-    type="button"
-    id="theme"
-    class="nav"
-    title={light ? t("topbar.to_dark") : t("topbar.to_light")}
-    aria-label={light ? t("topbar.to_dark") : t("topbar.to_light")}
-    onclick={() => theme.toggle(signedIn)}>{light ? "☾" : "☀"}</button
+
+  <!-- On wide screens #tools has display: contents, so these sit in the bar as before. -->
+  <div
+    id="tools"
+    class="menupanel"
+    class:open={toolsOpen}
+    role="presentation"
+    onclick={(e) => {
+      if ((e.target as Element).closest("button")) toolsOpen = false;
+    }}
   >
-  {#if LANGUAGES.length > 1}
-    <select
-      id="language"
+    <span class="group">
+      {#if signedIn}
+        <button type="button" id="myprogress" class="nav" onclick={() => openView("progress")}>
+          {view.label("progress", t("topbar.progress"))}
+        </button>
+        {#if session.forumOffered}
+          <button type="button" id="discussions" class="nav" onclick={openChat}>
+            {view.current === "forum" || view.current === "moderation"
+              ? t("view.back")
+              : t("topbar.chat")}
+            {#if dock.unread}<span class="pill" aria-label={t("topbar.unread")}></span>{/if}
+          </button>
+        {/if}
+        {#if session.scratchOffered}
+          <button type="button" id="scratch" class="nav" onclick={() => openView("scratch")}>
+            {view.label("scratch", t("topbar.console"))}
+          </button>
+        {/if}
+      {/if}
+    </span>
+    <span class="sep"></span>
+
+    <button
+      type="button"
+      id="shortcutsbutton"
       class="nav"
-      aria-label={t("topbar.language")}
-      title={t("topbar.language")}
-      value={i18n.lang}
-      onchange={(e) => chooseLanguage(e.currentTarget.value)}
+      aria-expanded={helpOpen}
+      aria-controls="shortcuts"
+      title={t("topbar.shortcuts_title")}
+      onclick={openHelp}
     >
-      {#each LANGUAGES as lang (lang)}
-        <option value={lang}>{languageName(lang)}</option>
-      {/each}
-    </select>
-  {/if}
+      {t("topbar.shortcuts")}<span class="shortcut">F1</span>
+    </button>
+    <button
+      type="button"
+      id="theme"
+      class="nav"
+      title={light ? t("topbar.to_dark") : t("topbar.to_light")}
+      aria-label={light ? t("topbar.to_dark") : t("topbar.to_light")}
+      onclick={() => theme.toggle(signedIn)}>{light ? "☾" : "☀"}</button
+    >
+    {#if LANGUAGES.length > 1}
+      <select
+        id="language"
+        class="nav"
+        aria-label={t("topbar.language")}
+        title={t("topbar.language")}
+        value={i18n.lang}
+        onchange={(e) => chooseLanguage(e.currentTarget.value)}
+      >
+        {#each LANGUAGES as lang (lang)}
+          <option value={lang}>{languageName(lang)}</option>
+        {/each}
+      </select>
+    {/if}
+  </div>
 
   {#if !signedIn && session.oidcOffered}
     <button
