@@ -83,7 +83,7 @@ async def live(socket: WebSocket):
 
     session = None
     try:
-        session = await run_in_threadpool(scratch.open_session, code, header_name, header)
+        session = await run_in_threadpool(scratch.open_session, code, header_name, header, sub)
         reader = asyncio.create_task(_listen(socket, session))
         await _follow(socket, session, reader)
     except WebSocketDisconnect:

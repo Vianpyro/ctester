@@ -44,8 +44,7 @@ fn mkdir(path: &Path) -> io::Result<()> {
 /// `exercise_id = ":console"`, the key `durations.json` already uses for them.
 pub struct Run<'a> {
     pub exercise_id: &'a str,
-    /// The OIDC subject, or empty: an anonymous run, or a Console session, whose job
-    /// deliberately carries no owner.
+    /// The OIDC subject, or empty for an anonymous run. A Console session has one too.
     pub account: String,
     /// A short hash of an anonymous browser's station id, empty when there is an account:
     /// it tells two anonymous submitters apart without naming either.

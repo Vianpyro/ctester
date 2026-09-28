@@ -107,7 +107,7 @@ class Session:
         return _lock_held(os.path.join(self.results, "claim"))
 
 
-def open_session(code, header_name="", header=""):
+def open_session(code, header_name="", header="", owner=""):
     if fcntl is None:
         raise RuntimeError("the console needs flock (POSIX only)")
 
@@ -119,6 +119,8 @@ def open_session(code, header_name="", header=""):
               encoding="utf-8") as fh:
         fh.write(code)
     job = {"kind": KIND}
+    if isinstance(owner, str) and 0 < len(owner) <= 128:
+        job["owner"] = owner
     if header_name:
         with open(os.path.join(path, "src", header_name), "w",
                   encoding="utf-8") as fh:
@@ -132,7 +134,7 @@ def open_session(code, header_name="", header=""):
         os.close(lock)
         raise
     # job.json goes last, atomically: the worker only picks up complete jobs.
-    # It carries no owner or exercise, so nothing identifying reaches the worker.
+    # The owner only reaches the run journal: with no exercise, the API records no progress.
     tmp = os.path.join(path, "job.json.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(job, fh)

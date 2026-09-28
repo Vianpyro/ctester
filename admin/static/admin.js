@@ -522,6 +522,9 @@ function authorCell(r) {
   return ["anonyme", "count zero", "aucun compte"];
 }
 
+const hasCode = (r) => r.exercise_id === ":console"
+  || (r.exercise_id && !r.exercise_id.startsWith(":"));
+
 function fillRuns(target, rows) {
   fillTable(target,
     [{ title: "fini", cls: "mono", width: "5.9rem" },
@@ -547,11 +550,10 @@ function fillRuns(target, rows) {
         [seconds(r.queue_wait_s), "n"],
         [text(r.worker_id), "n mono"],
         ...(revealed() ? [authorCell(r)] : []),
-        [r.exercise_id && !r.exercise_id.startsWith(":") ? "show" : "–",
-         r.exercise_id && !r.exercise_id.startsWith(":") ? "show" : "zero"],
+        [hasCode(r) ? "show" : "–", hasCode(r) ? "show" : "zero"],
         [r.job_id, "mono", r.job_id],
       ]);
-      if (r.exercise_id && !r.exercise_id.startsWith(":")) {
+      if (hasCode(r)) {
         tr.cells[tr.cells.length - 2].addEventListener("click", () => void showCode(r));
       }
       if (known && !known.has(r.job_id)) tr.className = "new";
@@ -580,6 +582,7 @@ function runParams() {
 const SOURCES = {
   run: "le code de ce run",
   last: "dernier code soumis pour cet exercice",
+  draft: "brouillon actuel de la console, peut différer de ce run",
 };
 
 async function showCode(r) {

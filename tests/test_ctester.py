@@ -2036,6 +2036,37 @@ def test_job_metadata_refuses_a_job_json_that_is_not_an_object():
         config.SPOOL = guard
 
 
+def test_the_admin_reads_a_console_job_back_from_its_src():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "admin_code", os.path.join(ROOT, "admin", "code.py"))
+    code = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(code)
+    guard = (config.SPOOL, state.read_scratch)
+    try:
+        config.SPOOL = tempfile.mkdtemp(prefix="ctester-spool-")
+        job = "c" * 32
+        src = os.path.join(config.SPOOL, job, "src")
+        os.makedirs(src)
+        for name, text in (("main.c", "int main(void){}"), ("util.h", "#pragma once"),
+                           ("notes.txt", "x"), ("big.c", "x" * (config.MAX_CODE + 1))):
+            with open(os.path.join(src, name), "w", encoding="utf-8") as fh:
+                fh.write(text)
+        cell = code.pour(job, ":console", "sub-alice")
+        assert cell["source"] == "run", cell
+        assert cell["files"] == {"main.c": "int main(void){}", "util.h": "#pragma once"}
+        assert code.pour("../" + job, ":console", "")["files"] == {}
+
+        shutil.rmtree(os.path.join(config.SPOOL, job))
+        state.read_scratch = lambda account: {"code": "int x;", "header_name": "", "header": ""}
+        cell = code.pour(job, ":console", "sub-alice")
+        assert (cell["source"], cell["files"]) == ("draft", {"main.c": "int x;"}), cell
+        assert code.pour(job, ":console", "")["source"] is None
+    finally:
+        shutil.rmtree(config.SPOOL, ignore_errors=True)
+        config.SPOOL, state.read_scratch = guard
+
+
 def test_job_sources_ignores_an_unreadable_submission_file():
     guard = config.SPOOL
     try:

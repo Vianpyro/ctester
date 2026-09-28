@@ -3057,7 +3057,7 @@ def test_the_console_bounds_typed_input_on_both_sides():
         assert entry.endswith(b"FIN\n")
 
 
-def test_the_console_writes_neither_owner_nor_exercise_to_the_spool():
+def test_the_console_writes_its_owner_but_no_exercise_to_the_spool():
     _requires_flock()
     base = FakeDatabase()
     with context(tokens=TEAM_TOKENS, base=base) as (client, fake, _):
@@ -3066,7 +3066,8 @@ def test_the_console_writes_neither_owner_nor_exercise_to_the_spool():
             assert socket.receive_json()["t"] == "queued"
             path = _console_job()
             job = json.loads(_read_bytes(os.path.join(path, "job.json")))
-            assert job == {"kind": "console"}, job
+            # The owner only reaches the run journal: no exercise, so no progress.
+            assert job == {"kind": "console", "owner": "sub-alice"}, job
             identifier = os.path.basename(path)
             r = client.get("/r/" + identifier, headers=_headers("t-alice"))
             assert r.status_code == 200, r.text
@@ -3169,7 +3170,7 @@ def test_the_console_places_the_header_next_to_main_c():
             assert socket.receive_json()["t"] == "queued"
             path = _console_job()
             job = json.loads(_read_bytes(os.path.join(path, "job.json")))
-            assert job == {"kind": "console", "header": "pile.h"}, job
+            assert job == {"kind": "console", "owner": "sub-alice", "header": "pile.h"}, job
             assert _read_bytes(os.path.join(path, "src", "pile.h")) == b"#define N 0\n"
         # Both files at their limit still fit in the first frame.
         with client.websocket_connect("/scratch/live") as socket:
