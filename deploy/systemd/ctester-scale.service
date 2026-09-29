@@ -1,0 +1,13 @@
+[Unit]
+Description=CTester on-demand judges
+After=docker.service
+
+[Service]
+Type=simple
+EnvironmentFile=/opt/ctester/.env
+ExecStart=/bin/sh /opt/ctester/src/deploy/scale.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

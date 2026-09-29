@@ -4,10 +4,17 @@
   import { t } from "../../lib/i18n.svelte";
   import { readableThread, stepLabel } from "./labels";
   import { chat } from "./chat.svelte";
+  import { maintenance } from "../../lib/state/maintenance.svelte";
   import { thread } from "./thread.svelte";
   import Markdown from "./Markdown.svelte";
 
   let title: HTMLHeadingElement | undefined = $state();
+  let note = $state("");
+  let hours = $state(24);
+
+  async function publish(text: string) {
+    if (await thread.announce(text, hours)) note = "";
+  }
 
   onMount(() => {
     title?.focus();
@@ -29,6 +36,29 @@
   <p class="failed">{t("moderation.only")}</p>
 {:else}
   <div class="block">
+    <h3 class="subtitle">{t("announcement.title")}</h3>
+    <p class="help">
+      {maintenance.announcement
+        ? t("announcement.current", { text: maintenance.announcement.text })
+        : t("announcement.none")}
+    </p>
+    <textarea bind:value={note} maxlength="500" rows="2" aria-label={t("announcement.title")}></textarea>
+    <div class="row">
+      <select bind:value={hours} aria-label={t("announcement.duration")}>
+        {#each [1, 6, 24, 72] as h (h)}
+          <option value={h}>{t("announcement.hours", { count: h })}</option>
+        {/each}
+      </select>
+      <button type="button" class="nav" disabled={!note.trim()} onclick={() => publish(note)}>
+        {t("announcement.publish")}
+      </button>
+      {#if maintenance.announcement}
+        <button type="button" class="nav" onclick={() => publish("")}>{t("announcement.remove")}</button>
+      {/if}
+    </div>
+  </div>
+
+  <div class="block second">
     <h3 class="subtitle">{t("moderation.top")}</h3>
     {#if !thread.top}
       <p class="failed">{t("moderation.top_failed")}</p>

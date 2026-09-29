@@ -11,9 +11,10 @@ import security
 import state
 from deps import SubForum, SubModerator, throttle_forum
 from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
-from schemas import (DiscordBridgeIn, ForumTargetIn, ForumMessageIn, ForumModerationIn,
-                     ForumProfileIn, ForumReportIn, ForumVoteIn)
+from schemas import (AnnouncementIn, DiscordBridgeIn, ForumTargetIn, ForumMessageIn,
+                     ForumModerationIn, ForumProfileIn, ForumReportIn, ForumVoteIn)
 from services.catalog import find_exercise
+from services import announcement
 from services import discord
 from services import forum as forum_service
 from services import forum_live
@@ -322,6 +323,14 @@ def moderate(sub: SubModerator, body: ForumModerationIn):
     if not done:
         return headers.error(404, "message_not_found")
     forum_live.notify(thread)
+    return {"ok": True}
+
+
+@router.post("/announcement")
+def announce(sub: SubModerator, body: AnnouncementIn):
+    refused = announcement.publish(body.text, body.hours)
+    if refused:
+        return headers.error(*refused)
     return {"ok": True}
 
 

@@ -1,4 +1,5 @@
-"""The update notice: whether the host announced a redeployment, and the stream that says so."""
+"""The update notice: whether the host announced a redeployment, and the stream that says so,
+along with the moderators' announcement."""
 
 import asyncio
 import json
@@ -6,6 +7,7 @@ import os
 import time
 
 import config
+from services import announcement
 
 TICK = 1.0
 HEARTBEAT = 20.0
@@ -33,8 +35,14 @@ def _cached():
     return _cache["on"]
 
 
-def _state(on):
-    return "event: state\ndata: %s\n\n" % json.dumps({"maintenance": on})
+def _state(on, note):
+    return "event: state\ndata: %s\n\n" % json.dumps({"maintenance": on, "announcement": note})
+
+
+async def _seen():
+    if not announcement.loaded():
+        await asyncio.to_thread(announcement.load)
+    return _cached(), announcement.current()
 
 
 async def stream(max_s=None, tick=TICK):
@@ -42,16 +50,16 @@ async def stream(max_s=None, tick=TICK):
 
     The stream ends after max_s so connections turn over; the page reconnects."""
     deadline = time.monotonic() + (STREAM_MAX if max_s is None else max_s)
-    last = _cached()
+    last = await _seen()
     last_sent = time.monotonic()
-    yield "retry: 2000\n\n" + _state(last)
+    yield "retry: 2000\n\n" + _state(*last)
     while time.monotonic() < deadline:
         await asyncio.sleep(tick)
-        on = _cached()
+        seen = await _seen()
         now = time.monotonic()
-        if on != last:
-            yield _state(on)
-            last, last_sent = on, now
+        if seen != last:
+            yield _state(*seen)
+            last, last_sent = seen, now
         elif now - last_sent >= HEARTBEAT:
             yield ": \n\n"
             last_sent = now

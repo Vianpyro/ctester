@@ -30,6 +30,7 @@ import state        # noqa: E402
 import main        # noqa: E402
 import security    # noqa: E402
 import policy as policy  # noqa: E402
+from services import announcement  # noqa: E402
 from services import collab  # noqa: E402
 from services import forum_live  # noqa: E402
 from services import maintenance  # noqa: E402
@@ -92,7 +93,16 @@ class FakeDatabase:
         self.documents = {}
         self.revisions = []
         self.handins = {}
+        self.announcements = []
         self.clock = 1000.0
+
+    def announcement_latest(self):
+        return dict(self.announcements[-1]) if self.announcements else {}
+
+    def announcement_write(self, announcement_id, text, expires_at):
+        self.announcements.append(
+            {"id": announcement_id, "text": text, "expires_at": expires_at})
+        return []
 
     def read_resume(self, user, ex):
         return self.drafts.get((user, ex))
@@ -1343,7 +1353,8 @@ def test_the_event_stream_announces_the_state_on_connect_and_on_change():
         with _maintenance_flag() as flag:
             pathlib.Path(flag).touch()
             assert asyncio.run(first_events(2)) == [
-                {"maintenance": True}, {"maintenance": False}]
+                {"maintenance": True, "announcement": None},
+                {"maintenance": False, "announcement": None}]
     finally:
         maintenance.TICK = saved_tick
 
@@ -1361,10 +1372,84 @@ def test_the_event_stream_is_served_unbuffered_to_anyone():
             assert r.headers["content-type"].startswith("text/event-stream")
             assert r.headers["x-accel-buffering"] == "no"
             assert r.headers["access-control-allow-origin"] == KNOWN_ORIGIN
-            assert 'event: state\ndata: {"maintenance": false}' in body, body
+            assert 'event: state\ndata: {"maintenance": false, "announcement": null}' in body, body
         assert not _records(buffer, "http.server.request"), "a stream is never a slow request"
     finally:
         maintenance.STREAM_MAX, config.LOG_SLOW_MS = saved, saved_slow
+
+
+@contextlib.contextmanager
+def _no_announcement():
+    announcement._cache.update(row=None, tried=None)
+    try:
+        yield
+    finally:
+        announcement._cache.update(row=None, tried=None)
+
+
+def test_only_a_moderator_publishes_an_announcement_and_it_is_checked():
+    tokens = {"alice": "sub-alice", "prof": "sub-prof"}
+    with _no_announcement(), context(tokens=tokens, moderators=["sub-prof"]) as (c, fake, _t):
+        r = c.post("/announcement", json={"text": "x"}, headers=auth("alice"))
+        assert r.status_code == 403 and r.json() == {"error": "teachers_only"}, r.text
+        r = c.post("/announcement", json={"text": "x" * 501}, headers=auth("prof"))
+        assert r.status_code == 400, r.text
+        assert r.json() == {"error": "announcement_too_long", "params": {"max": 500}}, r.text
+        r = c.post("/announcement", json={"text": "x", "hours": 5}, headers=auth("prof"))
+        assert r.status_code == 400 and r.json() == {"error": "invalid_duration"}, r.text
+        assert not fake.announcements and announcement.current() is None
+
+        r = c.post("/announcement", json={"text": "  Bring a blank sheet\u0007 ", "hours": 6},
+                   headers=auth("prof"))
+        assert r.status_code == 200 and r.json() == {"ok": True}, r.text
+        shown = announcement.current()
+        assert shown == {"id": fake.announcements[-1]["id"], "text": "Bring a blank sheet"}
+        expires = fake.announcements[-1]["expires_at"]
+        assert abs(expires - time.time() - 6 * 3600) < 60, expires
+        assert announcement.current(now=expires) is None, "an announcement expires"
+
+        r = c.post("/announcement", json={"text": ""}, headers=auth("prof"))
+        assert r.status_code == 200, r.text
+        assert announcement.current() is None, "an empty text takes it down"
+        assert fake.announcements[-1]["expires_at"] is None
+
+    base = FakeDatabase()
+    base.announcement_write = lambda *a: None
+    with _no_announcement(), context(tokens=tokens, base=base,
+                                     moderators=["sub-prof"]) as (c, _fake, _t):
+        r = c.post("/announcement", json={"text": "x"}, headers=auth("prof"))
+        assert r.status_code == 503 and r.json() == {"error": "db_down"}, r.text
+        assert announcement.current() is None
+
+
+def test_the_event_stream_carries_the_announcement_read_once_from_the_database():
+    base = FakeDatabase()
+    base.announcement_write("a" * 32, "Bring a blank sheet", time.time() + 60)
+    reads = []
+    latest = base.announcement_latest
+    base.announcement_latest = lambda: reads.append(1) or latest()
+
+    async def first_event():
+        async for chunk in maintenance.stream(max_s=0, tick=0.01):
+            return json.loads(chunk.split("data: ", 1)[1])
+
+    with _no_announcement(), _maintenance_flag(), context(base=base) as (_c, _fake, _t):
+        for _ in range(2):
+            assert asyncio.run(first_event()) == {"maintenance": False, "announcement": {
+                "id": "a" * 32, "text": "Bring a blank sheet"}}
+        assert len(reads) == 1, "once read, the announcement is served from memory"
+
+
+def test_an_unreadable_announcement_is_retried_but_not_on_every_tick():
+    base = FakeDatabase()
+    reads = []
+    base.announcement_latest = lambda: reads.append(1)
+    with _no_announcement(), context(base=base) as (_c, _fake, _t):
+        announcement.load(now=100.0)
+        announcement.load(now=100.0 + announcement.RETRY - 1)
+        assert len(reads) == 1 and not announcement.loaded()
+        announcement.load(now=100.0 + announcement.RETRY)
+        assert len(reads) == 2
 
 
 def test_refusal_order_forum_off_before_missing_token():

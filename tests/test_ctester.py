@@ -1839,7 +1839,7 @@ def test_forget_covers_every_table():
     schema = read_file(os.path.join(ROOT, "app", "schema.sql"))
     tables = set(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)", schema))
-    assert len(tables) == 21, tables
+    assert len(tables) == 22, tables
     blocks = dict(re.findall(
         r"CREATE (?:UNLOGGED )?TABLE IF NOT EXISTS (\w+)\s*\((.*?)\n\);",
         schema, re.S))
@@ -1849,7 +1849,7 @@ def test_forget_covers_every_table():
     with_account = {name for name, body in blocks.items()
                    if re.search(r"^\s*account\s+TEXT", body, re.M)}
     assert with_account == tables - {"team", "team_document", "team_submission",
-                                    "judge_journal_cursor"}, \
+                                    "judge_journal_cursor", "announcement"}, \
         sorted(with_account)
     state_py = read_file(os.path.join(ROOT, "app", "state.py"))
     state_py = state_py[state_py.index("def forget(user):"):]

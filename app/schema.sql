@@ -304,9 +304,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS team_number_idx
     ON team (assignment_id, group_number, number);
 DROP INDEX IF EXISTS team_invite_code_idx;
 
--- Solve events used to be keyed 'reussite:<exercise>', and that key is what
--- prevents a second XP grant. Rows are renamed unless the account already has
--- the new id, in which case both stay untouched.
 UPDATE progress_event p SET event_id = 'solved:' || substr(p.event_id, 10)
  WHERE p.event_id LIKE 'reussite:%'
    AND NOT EXISTS (SELECT 1 FROM progress_event q
@@ -320,10 +317,6 @@ UPDATE xp_transaction x SET event_id = 'solved:' || substr(x.event_id, 10)
 UPDATE achievement_unlocked SET event_id = 'solved:' || substr(event_id, 10)
  WHERE event_id LIKE 'reussite:%';
 
--- The judge's run journal, ingested by the admin app. `account` is empty for an
--- anonymous run; a Console session carries its owner, and `exercise_id = ':console'`
--- keeps it apart from graded runs. Because the column exists, forget()
--- must clear it: a student's deletion request takes their run history with it.
 CREATE TABLE IF NOT EXISTS judge_run (
     job_id       TEXT        PRIMARY KEY,
     exercise_id  TEXT        NOT NULL,
@@ -343,21 +336,22 @@ CREATE TABLE IF NOT EXISTS judge_run (
 
 CREATE INDEX IF NOT EXISTS judge_run_finished_idx ON judge_run (finished_at DESC);
 
--- Repairs for journals ingested before these columns existed.
 ALTER TABLE judge_run ADD COLUMN IF NOT EXISTS station TEXT NOT NULL DEFAULT '';
 ALTER TABLE judge_run ADD COLUMN IF NOT EXISTS passed  INTEGER;
 ALTER TABLE judge_run ADD COLUMN IF NOT EXISTS total   INTEGER;
 
--- One row per journal file: results/ is read-only to the API, so the judge's files are never
--- truncated and the offset is how far each has been read.
 CREATE TABLE IF NOT EXISTS judge_journal_cursor (
     filename    TEXT   PRIMARY KEY,
     byte_offset BIGINT NOT NULL DEFAULT 0
 );
 
--- Grants are listed table by table, never schema-wide, so a new table without
--- its grant is caught by the checks. Append-only tables get no UPDATE, and forum
--- messages are immutable apart from the two moderated columns.
+CREATE TABLE IF NOT EXISTS announcement (
+    id          TEXT        PRIMARY KEY,
+    text        TEXT        NOT NULL,
+    expires_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ctester_app') THEN
@@ -397,5 +391,7 @@ BEGIN
     EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE'
             ' ON judge_run, judge_journal_cursor'
             ' TO ctester_app';
+
+    EXECUTE 'GRANT SELECT, INSERT ON announcement TO ctester_app';
 END
 $$;

@@ -323,6 +323,14 @@
   <div id="maintenance" role="status" class={maintenance.phase} hidden={maintenance.phase === "idle"}>
     {maintenance.phase === "back" ? t("maintenance.over") : t("maintenance.started")}
   </div>
+  {#if maintenance.shown}
+    <div id="announcement" role="status">
+      <strong>{t("announcement.title")}</strong>
+      <span class="text">{maintenance.shown.text}</span>
+      <button type="button" class="nav" aria-label={t("announcement.dismiss")}
+        onclick={() => maintenance.dismiss()}>×</button>
+    </div>
+  {/if}
   <div id="system"class={system.failed ? "outage" : ""} hidden={!system.text}>{system.text}</div>
 
   <div id="work" class={dock.open || dock.reserved ? "withchat" : ""} hidden={!showWorkbench}>

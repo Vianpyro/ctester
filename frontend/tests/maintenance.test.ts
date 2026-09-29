@@ -96,3 +96,34 @@ describe("the update notice", () => {
     expect(FakeSource.opened).toHaveLength(1);
   });
 });
+
+describe("the announcement", () => {
+  const announce = (announcement: unknown) => {
+    for (const fn of last().listeners.state ?? []) {
+      fn({ data: JSON.stringify({ maintenance: false, announcement }) });
+    }
+  };
+
+  beforeEach(() => {
+    maintenance.dismissed = "";
+    localStorage.clear();
+  });
+
+  it("follows the stream", () => {
+    announce({ id: "a", text: "Bring a blank sheet" });
+    expect(maintenance.shown).toEqual({ id: "a", text: "Bring a blank sheet" });
+    announce(null);
+    expect(maintenance.shown).toBeNull();
+  });
+
+  it("stays hidden once dismissed, until a new one is published", () => {
+    announce({ id: "a", text: "Bring a blank sheet" });
+    maintenance.dismiss();
+    expect(maintenance.shown).toBeNull();
+    expect(localStorage.getItem("ctester.announcement.dismissed")).toBe("a");
+    announce({ id: "a", text: "Bring a blank sheet" });
+    expect(maintenance.shown).toBeNull();
+    announce({ id: "b", text: "Room B-1500" });
+    expect(maintenance.shown?.id).toBe("b");
+  });
+});

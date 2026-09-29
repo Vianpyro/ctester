@@ -54,6 +54,9 @@ export const vote = (id: string, value: -1 | 0 | 1) =>
 export const moderate = (id: string, action: "hide" | "restore" | "retain" | "unretain" | "clear-name") =>
   authRequest<{ ok: boolean }>("forum/moderation", { method: "POST", json: { id, action } });
 
+export const announce = (text: string, hours: number) =>
+  authRequest<{ ok: boolean }>("announcement", { method: "POST", json: { text, hours } });
+
 export const fetchModeration = () => authGet<ModerationPayload>("forum/moderation");
 
 export const fetchHelp = () => authGet<HelpPayload>("forum/help");

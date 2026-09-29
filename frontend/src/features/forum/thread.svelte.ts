@@ -1,4 +1,5 @@
 import {
+  announce as announceCall,
   CHAT_GENERAL,
   CHAT_PREFIX,
   bareExercise,
@@ -210,6 +211,13 @@ class Thread {
       () => moderateCall(id, action),
       action === "hide" ? "forum.hidden" : action === "restore" ? "forum.restored" : "forum.noted",
       "forum.action_failed",
+    );
+
+  announce = (text: string, hours: number) =>
+    this.#write(
+      () => announceCall(text, hours),
+      text ? "announcement.published" : "announcement.removed",
+      "announcement.not_published",
     );
 
   clearName = (id: string) =>

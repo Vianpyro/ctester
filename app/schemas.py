@@ -67,6 +67,13 @@ class ForumReportIn(BaseModel):
     kind: str = "message"
 
 
+class AnnouncementIn(BaseModel):
+    model_config = _CONFIG
+
+    text: str = ""
+    hours: int = 24
+
+
 class ForumModerationIn(BaseModel):
     model_config = _CONFIG
 

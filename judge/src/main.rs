@@ -25,7 +25,8 @@ use std::process::ExitCode;
 
 use serde_json::{Value, json};
 
-const USAGE: &str = "usage: ctester-judge run [--once] | self-check | grade < request.json";
+const USAGE: &str =
+    "usage: ctester-judge run [--once] | self-check | backlog | grade < request.json";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -34,6 +35,8 @@ fn main() -> ExitCode {
         ["grade"] => report(grade_request()),
         #[cfg(target_os = "linux")]
         ["self-check"] => report(runner::Runner::start().map(|r| r.describe())),
+        #[cfg(target_os = "linux")]
+        ["backlog"] => report(runner::backlog()),
         #[cfg(target_os = "linux")]
         ["run"] | ["run", "--once"] => match runner::Runner::start() {
             Ok(mut runner) => runner.run(args.len() == 2),
@@ -111,6 +114,7 @@ fn grade_request() -> Result<Value, String> {
 mod runner {
     use std::collections::{BTreeSet, HashMap, HashSet};
     use std::panic::{AssertUnwindSafe, catch_unwind};
+    use std::path::{Path, PathBuf};
     use std::process::ExitCode;
     use std::time::{Duration, Instant, SystemTime};
 
@@ -128,6 +132,36 @@ mod runner {
     use crate::spool::{self, Job, Spool};
 
     const CONSOLE_EXERCISE: &str = ":console";
+    const BACKLOG_AGE: Duration = Duration::from_secs(2);
+    const VERSION_CHECK: Duration = Duration::from_secs(5);
+    const EXIT_UPGRADE: u8 = 75;
+
+    pub fn backlog() -> Result<Value, String> {
+        let config = Config::from_env()?;
+        let spool = Spool::open(&config.spool)?;
+        let results = Results::open(&config.results, &config.worker_id)?;
+        Ok(json!(waiting(&spool, &results, SystemTime::now())))
+    }
+
+    fn waiting(spool: &Spool, results: &Results, now: SystemTime) -> usize {
+        spool
+            .jobs()
+            .iter()
+            .filter(|job| {
+                !results.done(job)
+                    && results.lock_time(job).is_none()
+                    && spool.job_field(job, "kind") != "console"
+                    && spool
+                        .queued_at(job)
+                        .and_then(|at| now.duration_since(at).ok())
+                        .is_some_and(|age| age >= BACKLOG_AGE)
+            })
+            .count()
+    }
+
+    fn superseded(running: &Path, launched: &Path) -> bool {
+        std::fs::canonicalize(launched).is_ok_and(|current| current != running)
+    }
 
     struct Context {
         exercise: Exercise,
@@ -140,7 +174,6 @@ mod runner {
         spool: Spool,
         results: Results,
         cache: Cache,
-        /// Per pending job: (fingerprint it was computed under, signature).
         signatures: HashMap<Job, (String, String)>,
     }
 
@@ -215,6 +248,10 @@ mod runner {
                     &[],
                 );
             }
+            let launched = std::env::args_os().next().map(PathBuf::from);
+            let running = std::env::current_exe().ok();
+            let mut checked = Instant::now();
+            let mut busy = Instant::now();
             loop {
                 // Known verdicts first, then a single compilation per pass.
                 let mut worked = self.serve_known() > 0;
@@ -247,6 +284,34 @@ mod runner {
                     work.sweep(SystemTime::now(), after);
                 }
                 if once {
+                    return ExitCode::SUCCESS;
+                }
+                // Between jobs only: a new binary takes over without cutting a run short.
+                if checked.elapsed() >= VERSION_CHECK {
+                    checked = Instant::now();
+                    if let (Some(running), Some(launched)) = (&running, &launched)
+                        && superseded(running, launched)
+                    {
+                        log::event(
+                            Severity::Info,
+                            "judge.upgrading",
+                            "a new judge binary is installed; restarting on it",
+                            &[],
+                        );
+                        return ExitCode::from(EXIT_UPGRADE);
+                    }
+                }
+                if worked {
+                    busy = Instant::now();
+                } else if self.config.idle_exit > 0
+                    && busy.elapsed() >= Duration::from_secs(self.config.idle_exit)
+                {
+                    log::event(
+                        Severity::Info,
+                        "judge.idle_exit",
+                        "on-demand judge idle; leaving",
+                        &[],
+                    );
                     return ExitCode::SUCCESS;
                 }
                 if !worked {
@@ -714,6 +779,39 @@ mod runner {
 
         fn files(source: &str) -> String {
             json!({"submission.c": source}).to_string()
+        }
+
+        #[test]
+        fn the_backlog_counts_only_jobs_no_judge_has_taken() {
+            let mut w = World::new();
+            let io = r#"{"exercise_id": "tp-io"}"#;
+            w.submit(io, &[("files.json", &files("int main(void){return 0;}"))]);
+            w.submit(r#"{"kind": "console"}"#, &[]);
+            let taken = w.submit(io, &[("files.json", &files("int main(void){return 1;}"))]);
+            assert!(w.runner.results.claim(&taken));
+            let (spool, results) = (&w.runner.spool, &w.runner.results);
+            assert_eq!(waiting(spool, results, SystemTime::now()), 0, "too recent");
+            let later = SystemTime::now() + Duration::from_secs(10);
+            assert_eq!(waiting(spool, results, later), 1);
+        }
+
+        #[test]
+        fn a_judge_notices_its_link_now_names_another_binary() {
+            let scratch = Scratch::new("upgrade");
+            let (old, new) = (scratch.0.join("judge-old"), scratch.0.join("judge-new"));
+            for binary in [&old, &new] {
+                std::fs::write(binary, "").unwrap();
+            }
+            let link = scratch.0.join("judge");
+            symlink(&old, &link).unwrap();
+            let running = std::fs::canonicalize(&old).unwrap();
+            assert!(!superseded(&running, &link));
+            std::fs::remove_file(&link).unwrap();
+            symlink(&new, &link).unwrap();
+            assert!(superseded(&running, &link));
+            // A link being swapped and briefly missing is not a new version.
+            std::fs::remove_file(&link).unwrap();
+            assert!(!superseded(&running, &link));
         }
 
         #[test]

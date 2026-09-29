@@ -1,4 +1,5 @@
 import { api } from "../config";
+import { localGet, localSet } from "../storage";
 
 // How long "the server is back" stays up once an update is over.
 const BACK_MS = 10_000;
@@ -6,17 +7,20 @@ const RETRY_MIN = 2_000;
 const RETRY_MAX = 30_000;
 
 export type Phase = "idle" | "down" | "back";
+export type Announcement = { id: string; text: string };
+
+const DISMISSED_KEY = "ctester.announcement.dismissed";
 
 class Maintenance {
   phase = $state<Phase>("idle");
+  announcement = $state<Announcement | null>(null);
+  dismissed = $state(localGet(DISMISSED_KEY));
 
   #source: EventSource | null = null;
   #retry: ReturnType<typeof setTimeout> | null = null;
   #settle: ReturnType<typeof setTimeout> | null = null;
   #delay = RETRY_MIN;
 
-  // "Back" is only said by a server that answers: the stream dies with the restart, and
-  // "down" stays up across the gap.
   apply(on: boolean): void {
     if (on) {
       this.#clearSettle();
@@ -28,6 +32,16 @@ class Maintenance {
         this.phase = "idle";
       }, BACK_MS);
     }
+  }
+
+  get shown(): Announcement | null {
+    return this.announcement && this.announcement.id !== this.dismissed ? this.announcement : null;
+  }
+
+  dismiss(): void {
+    if (!this.announcement) return;
+    this.dismissed = this.announcement.id;
+    localSet(DISMISSED_KEY, this.dismissed);
   }
 
   start(): () => void {
@@ -48,7 +62,9 @@ class Maintenance {
     source.addEventListener("state", (event) => {
       this.#delay = RETRY_MIN;
       try {
-        this.apply(!!JSON.parse((event as MessageEvent).data).maintenance);
+        const data = JSON.parse((event as MessageEvent).data);
+        this.apply(!!data.maintenance);
+        this.announcement = data.announcement || null;
       } catch {
         // A malformed event changes nothing.
       }

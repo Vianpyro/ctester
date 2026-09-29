@@ -18,8 +18,22 @@ git -C "$src" fetch --quiet origin "${CTESTER_BRANCH:-main}"
 git -C "$src" merge --ff-only --quiet FETCH_HEAD
 
 head=$(git -C "$src" rev-parse HEAD)
-if [ "$head" = "$(cat "$stamp" 2>/dev/null || true)" ]; then
+old=$(cat "$stamp" 2>/dev/null || true)
+if [ "$head" = "$old" ]; then
     exit 0
+fi
+
+# True when a path changed since the last deployment, or when that cannot be told.
+changed() {
+    [ -z "$old" ] || ! git -C "$src" diff --quiet "$old" "$head" -- "$@" 2>/dev/null
+}
+
+# Judges move to a new binary on their own between two jobs, so only code web or admin
+# mounts, or a new judge unit, needs the restarts that cut the service for a few seconds.
+full=
+if changed app admin bot requirements.txt deploy/compose.yml \
+        deploy/systemd/ctester-judge@.service; then
+    full=1
 fi
 
 PYTHONDONTWRITEBYTECODE=1 python3 "$src/tests/test_ctester.py"
@@ -72,7 +86,7 @@ calm() {
     done
 }
 
-if [ "${CTESTER_FORCE:-}" = "1" ] || calm; then
+if [ -z "$full" ] || [ "${CTESTER_FORCE:-}" = "1" ] || calm; then
     rm -f "$defer"
 else
     count=$(( $(cat "$defer" 2>/dev/null || echo 0) + 1 ))
@@ -86,9 +100,11 @@ else
 fi
 
 # web checks the flag every second: the pause lets open tabs show the notice before the restarts.
-raised=1
-touch "$flag"
-sleep 3
+if [ -n "$full" ]; then
+    raised=1
+    touch "$flag"
+    sleep 3
+fi
 
 ln -sfn "$judge" "$dir/bin/ctester-judge.next"
 mv -T "$dir/bin/ctester-judge.next" "$dir/bin/ctester-judge"
@@ -98,24 +114,37 @@ ls -t "$dir"/bin/ctester-judge-* | tail -n +3 | xargs -r rm -f
 systemctl stop 'ctester-runner@*.service' 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/ctester-runner@*.service \
       /etc/systemd/system/ctester-runner@.service
-ln -sfn "$src/deploy/systemd/ctester-judge@.service" /etc/systemd/system/ctester-judge@.service
+for unit in ctester-judge@.service ctester-scale.service; do
+    ln -sfn "$src/deploy/systemd/$unit" "/etc/systemd/system/$unit"
+done
 systemctl daemon-reload
+# Without a full deployment, the running judges (on-demand ones included) switch to the new
+# binary themselves once their current job is done.
 for n in $(seq 1 "${CTESTER_WORKERS:-2}"); do
     systemctl enable --quiet "ctester-judge@$n.service"
-    systemctl restart "ctester-judge@$n.service"
+    if [ -n "$full" ]; then
+        systemctl restart "ctester-judge@$n.service"
+    else
+        systemctl start "ctester-judge@$n.service"
+    fi
 done
-docker compose up -d --remove-orphans
-docker compose restart web admin
+systemctl enable --quiet ctester-scale.service
+systemctl restart ctester-scale.service
 
-# The notice ends once the API answers again, so "the server is back" is true when shown.
-for _ in $(seq 1 30); do
-    docker compose exec -T web python3 -c \
-        'import urllib.request as u;u.urlopen("http://127.0.0.1:8000/healthz")' \
-        > /dev/null 2>&1 && break
-    sleep 1
-done
-rm -f "$flag"
-raised=
+if [ -n "$full" ]; then
+    docker compose up -d --remove-orphans
+    docker compose restart web admin
+
+    # The notice ends once the API answers again, so "the server is back" is true when shown.
+    for _ in $(seq 1 30); do
+        docker compose exec -T web python3 -c \
+            'import urllib.request as u;u.urlopen("http://127.0.0.1:8000/healthz")' \
+            > /dev/null 2>&1 && break
+        sleep 1
+    done
+    rm -f "$flag"
+    raised=
+fi
 
 # The judge does not publish on start, so the catalogue is republished with the new code.
 rm -f "$dir/.content-deployed"

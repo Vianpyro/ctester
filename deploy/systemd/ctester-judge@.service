@@ -10,8 +10,12 @@ EnvironmentFile=/opt/ctester/.env
 # there would name them all alike. %i is the instance number.
 Environment=CTESTER_WORKER_ID=%i
 ExecStart=/opt/ctester/bin/ctester-judge run
-Restart=always
+# on-failure: an on-demand instance leaving idle (exit 0) stays down. 75 is a judge
+# restarting on a newly installed binary between two jobs.
+Restart=on-failure
 RestartSec=2
+SuccessExitStatus=75
+RestartForceExitStatus=75
 StateDirectory=ctester-judge
 ProtectSystem=strict
 ReadWritePaths=/opt/ctester/spool /opt/ctester/results

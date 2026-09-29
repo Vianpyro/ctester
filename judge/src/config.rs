@@ -33,6 +33,7 @@ pub struct Config {
     pub cache_max: i64,
     pub cache_prune_every: u64,
     pub worker_id: String,
+    pub idle_exit: u64,
 }
 
 const SANDBOX_KEYS: [&str; 6] = [
@@ -61,6 +62,12 @@ impl Config {
             u64::try_from(number(key, default)?).map_err(|_| format!("{key} must not be negative"))
         };
         let job_timeout = unsigned("CTESTER_JOB_TIMEOUT", "60")?;
+        // Instances numbered above CTESTER_WORKERS are started on demand by ctester-scale.
+        // The raw id, not the pid fallback: a judge run by hand is never on demand.
+        let base = unsigned("CTESTER_WORKERS", "2")?;
+        let on_demand = lookup("CTESTER_WORKER_ID")
+            .and_then(|id| id.trim().parse::<u64>().ok())
+            .is_some_and(|n| n > base);
         let config = Config {
             spool: text("CTESTER_SPOOL", "/opt/ctester/spool").into(),
             results: text("CTESTER_RESULTS", "/opt/ctester/results").into(),
@@ -113,6 +120,11 @@ impl Config {
                     id
                 }
                 _ => std::process::id().to_string(),
+            },
+            idle_exit: if on_demand {
+                unsigned("CTESTER_IDLE_EXIT", "300")?
+            } else {
+                0
             },
         };
         config.check()?;
@@ -302,5 +314,21 @@ mod tests {
             let id = with(&[("CTESTER_WORKER_ID", bad)]).unwrap().worker_id;
             assert_eq!(id, std::process::id().to_string(), "accepted {bad:?}");
         }
+    }
+
+    #[test]
+    fn only_instances_above_the_base_leave_when_idle() {
+        let idle = |pairs: &[(&str, &str)]| with(pairs).unwrap().idle_exit;
+        assert_eq!(idle(&[("CTESTER_WORKER_ID", "2")]), 0);
+        assert_eq!(idle(&[("CTESTER_WORKER_ID", "3")]), 300);
+        assert_eq!(
+            idle(&[("CTESTER_WORKER_ID", "3"), ("CTESTER_WORKERS", "3")]),
+            0
+        );
+        assert_eq!(
+            idle(&[("CTESTER_WORKER_ID", "4"), ("CTESTER_IDLE_EXIT", "60")]),
+            60
+        );
+        assert_eq!(idle(&[]), 0, "a judge run by hand is never on demand");
     }
 }

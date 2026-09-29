@@ -2433,6 +2433,27 @@ pre {
   border-left-color: var(--ok);
 }
 
+#announcement {
+  flex: 0 0 auto;
+  display: flex;
+  gap: .6rem;
+  align-items: baseline;
+  padding: .55rem var(--gut) .55rem calc(var(--gut) - 3px);
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  color: var(--fg);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--ink);
+}
+
+#announcement .text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
 .offscreen {
   position: absolute;
   width: 1px;

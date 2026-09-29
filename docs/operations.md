@@ -81,6 +81,7 @@ docker compose exec -T postgres psql -U postgres -d ctester -v ON_ERROR_STOP=1 <
 ```
 
 - Start as many `ctester-judge@N` instances as `CTESTER_WORKERS`; `ctester-pull` keeps that count.
+  Also enable `ctester-scale`, which starts more judges while jobs wait (see *On-demand judges*).
   Before the first judge release exists, `ctester-pull` defers, so install one by hand with the
   commands it runs.
 - Accounts need a `ctester_app` role created before the schema is applied, and `CTESTER_DB_DSN`,
@@ -113,6 +114,24 @@ the service should do the same, for example in the Ansible role:
 ```
 
 To raise it by hand: `touch /opt/ctester/status/maintenance`, then `rm` it when you are done.
+
+`ctester-pull` only does this, and only waits for a calm moment, when the new commit touches
+what web or admin mount (`app/`, `admin/`, `bot/`, `requirements.txt`, `deploy/compose.yml`) or
+the judge's unit. Any other commit deploys without a cut: it swaps the judge link, and each judge
+checks every five seconds, between two jobs, whether the link still names the binary it runs.
+When it does not, it logs `judge.upgrading` and exits with 75, which the unit restarts without
+counting a failure.
+
+### On-demand judges
+
+`ctester-judge@1..CTESTER_WORKERS` always run. `ctester-scale` (`deploy/scale.sh`) reads
+`ctester-judge backlog` every two seconds: the number of jobs, Console sessions aside, that no
+judge has claimed for two seconds. An idle judge claims within half a second, so a backlog means
+every judge is busy, and it starts the next instance up to `CTESTER_WORKERS_MAX` in all. Such an
+instance logs `judge.idle_exit` and leaves once it has had no work for `CTESTER_IDLE_EXIT`
+seconds (300 by default); nothing stops it mid-job. `CTESTER_WORKERS_MAX` is re-read from `.env`
+on every pass, so changing it needs no restart; equal to `CTESTER_WORKERS` or absent, it turns
+this off. Each judge can take a core: load test (see *The run journal*) before raising it.
 
 The first deployment of the judge also retires the Python `ctester-runner@N` units. On that host,
 check the unit's hardening with `systemd-analyze security ctester-judge@1`, then submit one quiz, io,
@@ -358,6 +377,8 @@ To send them elsewhere later, an OpenTelemetry Collector reads these lines as th
 | `content.preview_active`, `judge.preview_active` | WARN | content, judge | `CTESTER_PREVIEW` is on |
 | `typst.html_incomplete`, `typst.html_skipped` | WARN | content | a statement falls back to SVG only |
 | `judge.refusing_to_start` | FATAL | judge | the settings or the host are unusable |
+| `judge.upgrading` | INFO | judge | a new binary is installed; the judge restarts on it between two jobs |
+| `judge.idle_exit` | INFO | judge | an on-demand judge had no work for `CTESTER_IDLE_EXIT` seconds |
 | `judge.panic` | ERROR | judge | a panic, caught per job |
 | `job.failed` | ERROR | judge | the run ended in `judge_internal` |
 | `job.reclaimed`, `job.abandoned` | WARN | judge | a worker died holding the job |
@@ -572,5 +593,5 @@ CTESTER_KEY=... CTESTER_LOAD_EXERCISE=tp2-ex3 CTESTER_LOAD_TOKEN=... \
   python3 scripts/load_test.py http://ctester-web-1:8000
 ```
 
-Watch `docker stats`, `uptime` and the spool length while it runs. Raise `CTESTER_WORKERS` only if
-the other services on the host leave CPU free.
+Watch `docker stats`, `uptime` and the spool length while it runs. Raise `CTESTER_WORKERS` or
+`CTESTER_WORKERS_MAX` only if the other services on the host leave CPU free.

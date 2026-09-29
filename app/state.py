@@ -691,6 +691,27 @@ def forum_report_name(message_id, user):
         " RETURNING message_id", (user, message_id), read=True)
 
 
+def announcement_latest():
+    """The latest row as {id, text, expires_at (epoch seconds or None)}, {} when there is
+    none, None when the database is down."""
+    rows = _query(
+        "SELECT id, text, extract(epoch FROM expires_at) FROM announcement"
+        " ORDER BY created_at DESC LIMIT 1", (), read=True)
+    if rows is None:
+        return None
+    if not rows:
+        return {}
+    expires = rows[0][2]
+    return {"id": rows[0][0], "text": rows[0][1],
+            "expires_at": None if expires is None else float(expires)}
+
+
+def announcement_write(announcement_id, text, expires_at):
+    return _query(
+        "INSERT INTO announcement (id, text, expires_at) VALUES (%s, %s, to_timestamp(%s))",
+        (announcement_id, text, expires_at))
+
+
 def forum_reported_names(limit):
     rows = _query(
         "SELECT m.message_id, m.account, p.display_name, p.group_number, m.created_at,"
