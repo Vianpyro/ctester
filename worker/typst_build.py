@@ -35,7 +35,8 @@ LANG = os.environ.get("CTESTER_LANG", "") or "en"
 
 # Never copied next to the source, so typst cannot read the tests or the reference
 # solution even through --root.
-EXCLUDED = frozenset(("assessment", "public", "solution", "exercise.json", "statement.md"))
+EXCLUDED = frozenset(("assessment", "public", "solution", "template", "exercise.json",
+                      "statement.md"))
 
 MAX_PAGES = 16
 

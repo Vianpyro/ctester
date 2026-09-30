@@ -127,7 +127,8 @@ def test_content_v2_discovery_and_public_projection():
         _write_json(os.path.join(exercise, "public", "files.json"), {
             "files": [{"name": "submission.c"}],
         })
-        with open(os.path.join(exercise, "public", "submission.c"), "w", encoding="utf-8") as fh:
+        os.makedirs(os.path.join(exercise, "template"))
+        with open(os.path.join(exercise, "template", "submission.c"), "w", encoding="utf-8") as fh:
             fh.write("int main(void) {}")
         _write_json(os.path.join(root, "collections", "tp2.json"), {
             "schema_version": 1, "id": "tp2", "title": "TP2",
@@ -946,19 +947,25 @@ def test_files_validates_each_entry():
     assert len(result) == 1 and "invalid or duplicate" in errors[0]
     errors = []
     assert f([{"name": "a.c", "template": "x"}], "x", errors) == []
-    assert "belongs in public/a.c" in errors[0]
+    assert "belongs in template/a.c" in errors[0]
     errors = []
     assert f([{"name": "a.c"}], "x", errors) == [{"name": "a.c", "template": ""}]
     assert not errors
 
 
-def test_starter_code_is_the_public_file_of_the_same_name():
+def test_starter_code_is_the_template_file_of_the_same_name():
     root = tempfile.mkdtemp()
     try:
-        public = os.path.join(root, "public")
-        _write_json(os.path.join(public, "files.json"),
+        _write_json(os.path.join(root, "public", "files.json"),
                     {"files": [{"name": "a.h"}, {"name": "a.c"}]})
-        with open(os.path.join(public, "a.c"), "w", encoding="utf-8", newline="") as fh:
+        errors = []
+        assert content_catalogue._public_files(root, "x", errors, "io") == [
+            {"name": "a.h", "template": ""}, {"name": "a.c", "template": ""}]
+        assert not errors, errors
+
+        template = os.path.join(root, "template")
+        os.makedirs(template)
+        with open(os.path.join(template, "a.c"), "w", encoding="utf-8", newline="") as fh:
             fh.write("int f(void) {\r\n}\r\n")
         errors = []
         files = content_catalogue._public_files(root, "x", errors, "io")
@@ -967,7 +974,7 @@ def test_starter_code_is_the_public_file_of_the_same_name():
                          {"name": "a.c", "template": "int f(void) {\n}\n"}], files
         assert not errors, errors
 
-        with open(os.path.join(public, "submision.c"), "w", encoding="utf-8") as fh:
+        with open(os.path.join(template, "submision.c"), "w", encoding="utf-8") as fh:
             fh.write("")
         errors = []
         content_catalogue._public_files(root, "x", errors, "io")

@@ -84,7 +84,7 @@ def write_content(root):
               {"files": [{"name": f["name"]} for f in files]})
         for f in files:
             if f["template"]:
-                write_text(os.path.join(directory, "public", f["name"]), f["template"])
+                write_text(os.path.join(directory, "template", f["name"]), f["template"])
 
     if any(e["mode"] == "unity" for e in EXERCISES):
         unity = os.path.join(root, "shared", "unity")

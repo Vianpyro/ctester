@@ -30,7 +30,7 @@ final authority: anything it refuses never reaches a student.
     exercise.json                 the manifest
     statement.md | statement.typ  the brief, exactly one of the two
     public/files.json             the files the student submits
-    public/<name>                 optional: the starter code of the tab <name>
+    template/<name>               optional: the starter code of the tab <name>
     assessment/
       quiz.json | io.json | unity.json    exactly one: it decides the mode
       test_*.c                            unity mode only
@@ -138,16 +138,17 @@ only selects the mode.
 ```
 
 ```
-public/
-  files.json
-  calcul.h        the starter code of the calcul.h tab
-  calcul.c        the starter code of the calcul.c tab
+public/files.json
+template/calcul.h   the starter code of the calcul.h tab
+template/calcul.c   the starter code of the calcul.c tab
+solution/calcul.h   the reference solution, same names
+solution/calcul.c
 ```
 
 Each entry becomes an editor tab, in this order. The tab's starter code is the file of the same
-name next to `files.json`, if there is one; otherwise the tab starts empty. Keeping it as a real
-file means it can be read, compiled and diffed against `solution/` as code. A file in `public/`
-that `files.json` does not declare fails the publication, so a misspelt name cannot be silently
+name in `template/`, if there is one; otherwise the tab starts empty. Keeping it as a real file
+means it can be read and compiled as code, and `diff -r template solution` shows what the student
+has to write. A file in `template/` that `files.json` does not declare fails the publication, so a misspelt name cannot be silently
 ignored, and so does a `template` key in `files.json`.
 When any tab has starter code, the editor offers a Reset button that puts all of it back.
 A name matches `[A-Za-z0-9_]{1,32}\.[ch]`; anything resembling a path is refused.

@@ -164,7 +164,7 @@ def _files(value, where, errors):
             errors.append("%s: invalid or duplicate file name" % where)
             continue
         if "template" in item:
-            errors.append("%s: the template of %s belongs in public/%s" % (where, name, name))
+            errors.append("%s: the template of %s belongs in template/%s" % (where, name, name))
             continue
         seen.add(name)
         result.append({"name": name, "template": ""})
@@ -174,25 +174,26 @@ def _files(value, where, errors):
 def _public_files(path, where, errors, mode):
     if mode == "quiz":
         return []
-    public = os.path.join(path, "public")
-    data = _json(os.path.join(public, "files.json"), errors)
+    data = _json(os.path.join(path, "public", "files.json"), errors)
     if data is None:
         return []
     files = _files(data.get("files"), where + "/public/files.json", errors)
+    # A tab's starter code is template/<its name>, beside solution/, so it can be read,
+    # compiled and diffed as code.
+    template = os.path.join(path, "template")
     declared = {item["name"] for item in files}
-    for name in sorted(os.listdir(public)):
-        if name != "files.json" and name not in declared:
-            errors.append("%s/public/%s: not a file declared in files.json" % (where, name))
-    # A tab's starter code is the file of the same name, so it can be read and compiled as code.
+    for name in sorted(os.listdir(template)) if os.path.isdir(template) else []:
+        if name not in declared:
+            errors.append("%s/template/%s: not a file declared in files.json" % (where, name))
     for item in files:
-        source = os.path.join(public, item["name"])
+        source = os.path.join(template, item["name"])
         if not os.path.isfile(source):
             continue
         try:
             with open(source, encoding="utf-8") as fh:
                 item["template"] = fh.read()
         except (OSError, ValueError) as exc:
-            errors.append("%s/public/%s: unreadable (%s)" % (where, item["name"], exc))
+            errors.append("%s/template/%s: unreadable (%s)" % (where, item["name"], exc))
     return files
 
 
