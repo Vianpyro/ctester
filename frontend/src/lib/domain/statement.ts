@@ -10,8 +10,9 @@ const SETEXT = /^(-{3,}|={3,})\s*$/;
 
 // Stricter than CommonMark: "*" is also a pointer and a multiplication in C, so emphasis
 // needs flanking. "_" is never emphasis, because course text is full of snake_case.
+// An apostrophe may open it too, for French elision: "l'**appelle**".
 const flanked = (run: string): RegExp =>
-  new RegExp(`(^|[\\s(])${run}([^\\s*][^*\\n]*[^\\s*]|[^\\s*])${run}(?=$|[\\s).,;:!?])`, "g");
+  new RegExp(`(^|[\\s('’])${run}([^\\s*][^*\\n]*[^\\s*]|[^\\s*])${run}(?=$|[\\s).,;:!?])`, "g");
 
 const STRONG_EM = flanked("\\*\\*\\*");
 const STRONG = flanked("\\*\\*");

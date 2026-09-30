@@ -87,6 +87,11 @@ describe("emphasis is flanked, so C's asterisks survive it", () => {
     expect(host.querySelector("em")).toBeNull();
   });
 
+  it("opens after a French elision: `l'**appelle**`", () => {
+    expect(parsed("on l'**appelle** par son nom").querySelector("strong")?.textContent).toBe("appelle");
+    expect(parsed("qu’*elle* renvoie").querySelector("em")?.textContent).toBe("elle");
+  });
+
   it("leaves a double pointer alone, which is what flanking the closer buys", () => {
     const host = parsed("la fonction prend char **argv et double **tab en parametres");
     expect(host.querySelector("strong")).toBeNull();
