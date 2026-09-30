@@ -605,7 +605,7 @@ def _write_content(root, exercises=CONTENT, release=None, assignment=None):
                                    "answer": 4}]})
         if files:
             write(os.path.join(directory, "public", "files.json"),
-                   {"files": [{"name": name, "template": ""} for name in files]})
+                   {"files": [{"name": name} for name in files]})
     if assignment is not None:
         write(os.path.join(root, "assignments", "devoir.json"), assignment)
 
@@ -703,7 +703,7 @@ def _content_v2(root):
         write(os.path.join(exercise, "assessment", "io.json"),
                {"cases": [{"stdin": "1\\n", "expect": [1]}]})
         write(os.path.join(exercise, "public", "files.json"),
-               {"files": [{"name": "submission.c", "template": ""}]})
+               {"files": [{"name": "submission.c"}]})
     write(os.path.join(root, "collections", "tp1.json"),
            {"schema_version": 1, "id": "tp1", "title": "TP 1",
             "items": ["ouvert", "ferme"], "release": {"state": "available"}})
@@ -757,7 +757,7 @@ def _content_typst(root, pages=2, open_and_closed=True):
         write(os.path.join(exercise, "assessment", "io.json"),
                {"cases": [{"stdin": "1\n", "expect": [1]}]})
         write(os.path.join(exercise, "public", "files.json"),
-               {"files": [{"name": "submission.c", "template": ""}]})
+               {"files": [{"name": "submission.c"}]})
     write(os.path.join(root, "collections", "tp1.json"),
            {"schema_version": 1, "id": "tp1", "title": "TP 1",
             "items": [i for i, _ in (states if open_and_closed else states[:1])],

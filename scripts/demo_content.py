@@ -79,8 +79,12 @@ def write_content(root):
             write(os.path.join(assessment, "io.json"), {"cases": exercise["cases"]})
             write_text(os.path.join(directory, "solution", "main.c"),
                        exercise["solution"])
+        files = exercise.get("files", DEFAULT_FILES)
         write(os.path.join(directory, "public", "files.json"),
-              {"files": exercise.get("files", DEFAULT_FILES)})
+              {"files": [{"name": f["name"]} for f in files]})
+        for f in files:
+            if f["template"]:
+                write_text(os.path.join(directory, "public", f["name"]), f["template"])
 
     if any(e["mode"] == "unity" for e in EXERCISES):
         unity = os.path.join(root, "shared", "unity")

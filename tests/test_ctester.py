@@ -125,8 +125,10 @@ def test_content_v2_discovery_and_public_projection():
             "note": "ne doit jamais etre publique",
         })
         _write_json(os.path.join(exercise, "public", "files.json"), {
-            "files": [{"name": "submission.c", "template": "int main(void) {}"}],
+            "files": [{"name": "submission.c"}],
         })
+        with open(os.path.join(exercise, "public", "submission.c"), "w", encoding="utf-8") as fh:
+            fh.write("int main(void) {}")
         _write_json(os.path.join(root, "collections", "tp2.json"), {
             "schema_version": 1, "id": "tp2", "title": "TP2",
             "items": ["surface-rectangle"], "release": {"state": "available"},
@@ -352,7 +354,7 @@ def _content_v2(root, quiz_state):
         _write_json(os.path.join(exercise, "assessment", config[0]), config[1])
         if config[0] != "quiz.json":
             _write_json(os.path.join(exercise, "public", "files.json"),
-                        {"files": [{"name": "submission.c", "template": ""}]})
+                        {"files": [{"name": "submission.c"}]})
     _write_json(os.path.join(root, "collections", "tp1.json"), {
         "schema_version": 1, "id": "tp1", "title": "TP1", "items": ["surface", "nombres"],
         "release": {"state": "available"}})
@@ -567,7 +569,7 @@ def _typst_content(root, statement=None, released=True):
     _write_json(os.path.join(exercise, "assessment", "io.json"),
                 {"cases": [{"stdin": "1\n", "expect": [1]}]})
     _write_json(os.path.join(exercise, "public", "files.json"),
-                {"files": [{"name": "submission.c", "template": ""}]})
+                {"files": [{"name": "submission.c"}]})
     with open(os.path.join(exercise, "statement.typ"), "w", encoding="utf-8") as fh:
         fh.write(statement if statement is not None else "= Titre\n\nDu texte.\n")
     return exercise
@@ -939,16 +941,39 @@ def test_files_validates_each_entry():
     assert f([{"name": "invalid!.c"}], "x", errors) == []
     assert "invalid or duplicate" in errors[0]
     errors = []
-    duplicate = [{"name": "a.c", "template": ""}, {"name": "a.c", "template": ""}]
+    duplicate = [{"name": "a.c"}, {"name": "a.c"}]
     result = f(duplicate, "x", errors)
     assert len(result) == 1 and "invalid or duplicate" in errors[0]
     errors = []
-    assert f([{"name": "a.c", "template": 42}], "x", errors) == []
-    assert "template must be text" in errors[0]
+    assert f([{"name": "a.c", "template": "x"}], "x", errors) == []
+    assert "belongs in public/a.c" in errors[0]
     errors = []
-    assert f([{"name": "a.c", "template": "x"}], "x", errors) == [
-        {"name": "a.c", "template": "x"}]
+    assert f([{"name": "a.c"}], "x", errors) == [{"name": "a.c", "template": ""}]
     assert not errors
+
+
+def test_starter_code_is_the_public_file_of_the_same_name():
+    root = tempfile.mkdtemp()
+    try:
+        public = os.path.join(root, "public")
+        _write_json(os.path.join(public, "files.json"),
+                    {"files": [{"name": "a.h"}, {"name": "a.c"}]})
+        with open(os.path.join(public, "a.c"), "w", encoding="utf-8", newline="") as fh:
+            fh.write("int f(void) {\r\n}\r\n")
+        errors = []
+        files = content_catalogue._public_files(root, "x", errors, "io")
+        # A Windows checkout's CRLF reaches the student as LF; a tab without a file starts empty.
+        assert files == [{"name": "a.h", "template": ""},
+                         {"name": "a.c", "template": "int f(void) {\n}\n"}], files
+        assert not errors, errors
+
+        with open(os.path.join(public, "submision.c"), "w", encoding="utf-8") as fh:
+            fh.write("")
+        errors = []
+        content_catalogue._public_files(root, "x", errors, "io")
+        assert "submision.c: not a file declared" in errors[0], errors
+    finally:
+        shutil.rmtree(root)
 
 
 def _minimal_valid_content(root):
@@ -964,7 +989,7 @@ def _minimal_valid_content(root):
     _write_json(os.path.join(exercise, "assessment", "io.json"),
                 {"cases": [{"stdin": "1\n", "expect": [1]}]})
     _write_json(os.path.join(exercise, "public", "files.json"),
-                {"files": [{"name": "submission.c", "template": ""}]})
+                {"files": [{"name": "submission.c"}]})
     _write_json(os.path.join(root, "collections", "col1.json"), {
         "schema_version": 1, "id": "col1", "title": "Collection 1",
         "items": ["ex1"], "release": {"state": "available"},
@@ -1191,7 +1216,7 @@ def test_valid_prerequisite_does_not_raise():
             fh.write("x")
         _write_json(os.path.join(prereq, "assessment", "io.json"), {"cases": []})
         _write_json(os.path.join(prereq, "public", "files.json"),
-                    {"files": [{"name": "submission.c", "template": ""}]})
+                    {"files": [{"name": "submission.c"}]})
         _write_json(os.path.join(root, "exercises", "ex1", "exercise.json"), {
             "schema_version": 1, "id": "ex1", "title": "X",
             "prerequisites": ["ex0"], "release": {"state": "available"}})
@@ -3080,7 +3105,7 @@ def _assignment_content(root, team=True, handin=True, items=None, deadline=None)
         _write_json(os.path.join(exercise, "assessment", "io.json"),
                     {"cases": [{"stdin": "1\n", "expect": [1]}]})
         _write_json(os.path.join(exercise, "public", "files.json"),
-                    {"files": [{"name": name, "template": ""} for name in files]})
+                    {"files": [{"name": name} for name in files]})
     assignment = {"schema_version": 1, "id": "devoir", "title": "Le devoir",
               "items": items if items is not None else ["dev-a", "dev-b"],
               "release": {"state": "available"}}

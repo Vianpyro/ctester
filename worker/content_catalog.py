@@ -159,25 +159,41 @@ def _files(value, where, errors):
         if not isinstance(item, dict):
             errors.append("%s: invalid files entry" % where)
             continue
-        name, template = item.get("name"), item.get("template", "")
+        name = item.get("name")
         if not isinstance(name, str) or not FILE_RE.match(name) or name in seen:
             errors.append("%s: invalid or duplicate file name" % where)
             continue
-        if not isinstance(template, str):
-            errors.append("%s: template must be text" % where)
+        if "template" in item:
+            errors.append("%s: the template of %s belongs in public/%s" % (where, name, name))
             continue
         seen.add(name)
-        result.append({"name": name, "template": template})
+        result.append({"name": name, "template": ""})
     return result
 
 
 def _public_files(path, where, errors, mode):
     if mode == "quiz":
         return []
-    data = _json(os.path.join(path, "public", "files.json"), errors)
+    public = os.path.join(path, "public")
+    data = _json(os.path.join(public, "files.json"), errors)
     if data is None:
         return []
-    return _files(data.get("files"), where + "/public/files.json", errors)
+    files = _files(data.get("files"), where + "/public/files.json", errors)
+    declared = {item["name"] for item in files}
+    for name in sorted(os.listdir(public)):
+        if name != "files.json" and name not in declared:
+            errors.append("%s/public/%s: not a file declared in files.json" % (where, name))
+    # A tab's starter code is the file of the same name, so it can be read and compiled as code.
+    for item in files:
+        source = os.path.join(public, item["name"])
+        if not os.path.isfile(source):
+            continue
+        try:
+            with open(source, encoding="utf-8") as fh:
+                item["template"] = fh.read()
+        except (OSError, ValueError) as exc:
+            errors.append("%s/public/%s: unreadable (%s)" % (where, item["name"], exc))
+    return files
 
 
 def _exercise(root, dirname, known_skills, errors, prefix=""):

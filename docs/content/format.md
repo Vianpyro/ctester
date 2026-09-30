@@ -30,6 +30,7 @@ final authority: anything it refuses never reaches a student.
     exercise.json                 the manifest
     statement.md | statement.typ  the brief, exactly one of the two
     public/files.json             the files the student submits
+    public/<name>                 optional: the starter code of the tab <name>
     assessment/
       quiz.json | io.json | unity.json    exactly one: it decides the mode
       test_*.c                            unity mode only
@@ -133,14 +134,22 @@ only selects the mode.
 ## `public/files.json`
 
 ```json
-{"files": [
-  {"name": "calcul.h", "template": "#ifndef CALCUL_H\n..."},
-  {"name": "calcul.c", "template": "#include \"calcul.h\"\n"}
-]}
+{"files": [{"name": "calcul.h"}, {"name": "calcul.c"}]}
 ```
 
-Each entry becomes an editor tab, pre-named and pre-filled with its optional `template`.
-When any file has a template, the editor offers a Reset button that puts every template back.
+```
+public/
+  files.json
+  calcul.h        the starter code of the calcul.h tab
+  calcul.c        the starter code of the calcul.c tab
+```
+
+Each entry becomes an editor tab, in this order. The tab's starter code is the file of the same
+name next to `files.json`, if there is one; otherwise the tab starts empty. Keeping it as a real
+file means it can be read, compiled and diffed against `solution/` as code. A file in `public/`
+that `files.json` does not declare fails the publication, so a misspelt name cannot be silently
+ignored, and so does a `template` key in `files.json`.
+When any tab has starter code, the editor offers a Reset button that puts all of it back.
 A name matches `[A-Za-z0-9_]{1,32}\.[ch]`; anything resembling a path is refused.
 
 The names are imposed: the student's own `#include "calcul.h"`, and the test file's, only
