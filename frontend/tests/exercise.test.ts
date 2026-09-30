@@ -130,6 +130,15 @@ describe("open", () => {
     expect(drafts.get(left)).toEqual({ "submission.c": "// écrit puis quitté" });
   });
 
+  it("puts the template back on reset and saves it as the draft", async () => {
+    const id = next();
+    await exercise.open(id);
+    editor.typed("// modifié");
+    exercise.reset();
+    expect(editor.text).toBe("// gabarit " + id);
+    expect(drafts.get(id)).toEqual({ "submission.c": "// gabarit " + id });
+  });
+
   it("tells `failed` from `none` on the statement, which are not the same thing", async () => {
     const empty = next();
     silent.add(empty);

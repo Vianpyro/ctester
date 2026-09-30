@@ -140,6 +140,7 @@ only selects the mode.
 ```
 
 Each entry becomes an editor tab, pre-named and pre-filled with its optional `template`.
+When any file has a template, the editor offers a Reset button that puts every template back.
 A name matches `[A-Za-z0-9_]{1,32}\.[ch]`; anything resembling a path is refused.
 
 The names are imposed: the student's own `#include "calcul.h"`, and the test file's, only

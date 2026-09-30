@@ -297,6 +297,8 @@
   "editor.code_of": "Code of {{file}}",
   "editor.placeholder": "// Write your code here",
   "editor.format": "Reindent",
+  "editor.reset": "Reset",
+  "editor.reset_confirm": "Put the starting code back? What you wrote will be lost.",
   "editor.issues_one": "{{count}} problem found. F2 to go to it.",
   "editor.issues_other": "{{count}} problems found. F2 for the next one.",
   "statement.title": "Instructions",

@@ -83,6 +83,13 @@ class EditorState {
     }
   }
 
+  reset(): void {
+    for (const f of this.files) {
+      this.write(f.name, f.template);
+      this.session?.onInput?.(f.name);
+    }
+  }
+
   lock(locked: boolean): void {
     this.readOnly = !!locked;
   }

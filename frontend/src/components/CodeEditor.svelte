@@ -57,6 +57,15 @@
       <button type="button" class="nav" title={t("shortcuts.format")} onclick={() => surface?.command("format")}
         >{t("editor.format")}</button
       >
+      {#if editor.files.some((f) => f.template)}
+        <button
+          type="button"
+          class="nav"
+          onclick={() => {
+            if (typeof confirm !== "function" || confirm(t("editor.reset_confirm"))) exercise.reset();
+          }}>{t("editor.reset")}</button
+        >
+      {/if}
     {/if}
     <span id="saving" class={drafts.statusFailed ? "failed" : ""} aria-live="polite"
       >{drafts.status}</span

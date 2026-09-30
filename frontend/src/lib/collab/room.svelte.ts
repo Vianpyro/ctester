@@ -123,9 +123,8 @@ class Room {
     editor.lock(true);
     editor.attach({
       owns: (id) => id === live.exercise,
-      onInput: () => {
-        const name = editor.activeFile;
-        if (!name || !live.seeded) return;
+      onInput: (name) => {
+        if (!live.seeded) return;
         applyLocal(live.doc, textOf(live.doc, name), editor.read(name));
         this.#pushCaret(live);
       },

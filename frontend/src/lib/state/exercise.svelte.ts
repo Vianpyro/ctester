@@ -121,6 +121,12 @@ class ExerciseState {
     drafts.put(id, editor.sources, editor.sharedFor(id));
   }
 
+  reset(): void {
+    editor.reset();
+    drafts.cancel();
+    this.saveNow();
+  }
+
   typed(): void {
     drafts.schedule(() => this.saveNow());
   }
