@@ -737,7 +737,8 @@ pub fn check_case(case: &Value, output: &str, tol: f64) -> Result<Reason> {
 /// One program run per case: (stdout, stderr, exit code).
 pub type Run = (String, String, i64);
 
-/// Markers carry a per-job nonce, so a program cannot print fake case boundaries.
+/// Markers carry a per-job nonce, so ordinary output never reads as a case boundary. The
+/// program can read the nonce from its environment: a forged END can hide a crash.
 pub fn split_runs(output: &str, nonce: &str) -> HashMap<String, Run> {
     let (begin, err, end) = (
         format!("{nonce} BEGIN "),

@@ -1,8 +1,9 @@
 #!/bin/bash
 # io mode: builds a complete program and runs it on each input case.
 # Exit codes: 10 compile error (stdout is gcc's stderr), 12 compile timeout, 0 cases ran.
-# Cases are framed by "<nonce> BEGIN/ERR/END"; the nonce is per job, so a program
-# cannot print fake frames. No test code is mounted, so all output may be shown.
+# Cases are framed by "<nonce> BEGIN/ERR/END". The nonce keeps ordinary output from
+# looking like a frame; it is in the program's environment, so it stops no forgery.
+# No test code is mounted, so all output may be shown.
 set -u
 
 # An empty CTESTER_SANITIZERS disables sanitizers, hence `-` rather than `:-`, and no

@@ -222,6 +222,7 @@ cat /opt/ctester/spool/moderators.json   # the account ids the API last saw in t
 | Verdict cache | Lives in `CTESTER_WORK/cache`. Any new judge build invalidates it once. Avoid deploying right before a lab. `CTESTER_CACHE_MAX=0` disables it. |
 | Console | Needs `CTESTER_SCRATCH=1` and at least two workers. |
 | gVisor | `--pids-limit` counts the sentry's threads: below 64 the sandbox does not start. Fork bombs are stopped by the memory limit. |
+| Threat model | gVisor is the escape boundary: keep `runsc` updated. The grade is not a boundary: student code shares Unity's process and can read the io nonce, so it can forge a pass. Submitted code stays visible to moderators, and a forgery shows in it. |
 | Compiler | `-std=gnu23`, not `c23` (which hides `M_PI`). `-DUNITY_INCLUDE_DOUBLE` is required, or double assertions always fail. |
 | Rauthy | Enable the `refresh_token` flow on the client, and allow the `groups` scope on it. `refresh_token_lifetime` (240 h) must match `SESSION_MAX_DAYS` in `frontend/src/lib/auth/keys.ts`. |
 | Typst | Pull the `CTESTER_TYPST_IMAGE` image (default `ghcr.io/typst/typst:0.15.1`) before the first publication. |
