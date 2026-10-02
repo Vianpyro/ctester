@@ -261,3 +261,47 @@ describe("it never throws and never loops", () => {
     expect(() => renderStatement("-\n")).not.toThrow();
   });
 });
+
+describe("pipe tables", () => {
+  const example = [
+    "**Par exemple :**",
+    "",
+    "| Entrée | Résultat |",
+    "|--------|----------|",
+    "| `153` | `Nombre d'Armstrong : oui` |",
+    "| `154` | `Nombre d'Armstrong : non` |",
+    "| `0` | `Nombre d'Armstrong : oui` |",
+    "| `-370` | `Nombre d'Armstrong : oui` |",
+    "| `10` | `Nombre d'Armstrong : non` |",
+  ].join("\n");
+
+  it("renders a header row and one body row per line", () => {
+    const host = parsed(example);
+    expect([...host.querySelectorAll("th")].map((th) => th.textContent)).toEqual(["Entrée", "Résultat"]);
+    expect(host.querySelectorAll("tbody tr")).toHaveLength(5);
+    expect(host.querySelector("tbody td code")?.textContent).toBe("153");
+  });
+
+  it("keeps C's `||` inside a code span in one cell", () => {
+    const host = parsed("| a | b |\n|---|---|\n| `x || y` | z |");
+    expect([...host.querySelectorAll("td")].map((td) => td.textContent)).toEqual(["x || y", "z"]);
+  });
+
+  it("does not let a `<script>` in a cell become one", () => {
+    const host = parsed("| a |\n|---|\n| <script>alert(1)</script> |");
+    expect(host.querySelector("script")).toBeNull();
+    expect(host.querySelector("td")?.textContent).toBe("<script>alert(1)</script>");
+  });
+
+  it("interrupts a paragraph, as in GFM", () => {
+    const host = parsed("Exemples :\n| a | b |\n|---|---|\n| 1 | 2 |");
+    expect(host.querySelector("p")?.textContent).toBe("Exemples :");
+    expect(host.querySelectorAll("td")).toHaveLength(2);
+  });
+
+  it("leaves a `|` in prose alone without a delimiter row", () => {
+    const host = parsed("on combine a | b puis\nc | d");
+    expect(host.querySelector("table")).toBeNull();
+    expect(host.querySelector("p")?.textContent).toBe("on combine a | b puis c | d");
+  });
+});

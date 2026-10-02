@@ -7,6 +7,8 @@ const MARKER = /^\s*(?:[-*+]|\d+\.) +(?=\S)/;
 const ORDERED = /^\s*\d+\. /;
 const ATX = /^(#{1,6}) +(.*)$/;
 const SETEXT = /^(-{3,}|={3,})\s*$/;
+// Alignment colons are accepted and ignored: every column is left-aligned.
+const DELIMITER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
 // Stricter than CommonMark: "*" is also a pointer and a multiplication in C, so emphasis
 // needs flanking. "_" is never emphasis, because course text is full of snake_case.
@@ -38,6 +40,25 @@ const inline = (s: string): string =>
     })
     .join("");
 
+// A "|" inside a code span is C's "or", not a column break.
+function cells(row: string): string[] {
+  const out = [""];
+  row
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split(TOKEN)
+    .forEach((part, i) => {
+      const [first, ...rest] = i % 2 === 0 ? part.split("|") : [part];
+      out[out.length - 1] += first;
+      out.push(...rest);
+    });
+  return out.map((cell) => inline(cell.trim()));
+}
+
+const row = (tag: string, line: string): string =>
+  "<tr>" + cells(line).map((c) => "<" + tag + ">" + c + "</" + tag + ">").join("") + "</tr>";
+
 function dedent(lines: string[]): string {
   let min = Infinity;
   for (const line of lines) {
@@ -53,6 +74,8 @@ export function renderStatement(source: string): string {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const out: string[] = [];
   let i = 0;
+  const isTable = (at: number): boolean =>
+    lines[at]!.includes("|") && lines[at + 1] !== undefined && DELIMITER.test(lines[at + 1]!);
 
   while (i < lines.length) {
     const line = lines[i]!;
@@ -93,6 +116,15 @@ export function renderStatement(source: string): string {
       continue;
     }
 
+    if (isTable(i)) {
+      const head = row("th", line);
+      const body: string[] = [];
+      i += 2;
+      while (i < lines.length && lines[i]!.includes("|")) body.push(row("td", lines[i++]!));
+      out.push("<table><thead>" + head + "</thead><tbody>" + body.join("") + "</tbody></table>");
+      continue;
+    }
+
     const atx = ATX.exec(line);
     if (atx) {
       const level = atx[1]!.length;
@@ -116,6 +148,7 @@ export function renderStatement(source: string): string {
       !MARKER.test(lines[i]!) &&
       !INDENT.test(lines[i]!) &&
       !ATX.test(lines[i]!) &&
+      !isTable(i) &&
       !(lines[i + 1] !== undefined && SETEXT.test(lines[i + 1]!))
     ) {
       para.push(lines[i++]!.trim());

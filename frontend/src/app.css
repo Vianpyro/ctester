@@ -842,12 +842,12 @@ main {
   -webkit-user-select: none;
 }
 
-.typsthtml table {
+:is(.typsthtml, #statementtext.md) table {
   border-collapse: collapse;
   margin: 0 0 .7rem;
 }
 
-.typsthtml :is(td, th) {
+:is(.typsthtml, #statementtext.md) :is(td, th) {
   border: 1px solid var(--line);
   padding: .15rem .45rem;
 }
