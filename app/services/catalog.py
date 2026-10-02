@@ -64,6 +64,13 @@ def open_collections():
             if isinstance(entry, dict) and entry.get("access") == "available"]
 
 
+def published_achievements():
+    """The content's achievements.json, already in the order the page lists them."""
+    found = (load_catalog() or {}).get("achievements")
+    return [item for item in found or ()
+            if isinstance(item, dict) and isinstance(item.get("id"), str)]
+
+
 def published_cards():
     """The collection's table, authored by the content base next to its exercises."""
     cards = (load_catalog() or {}).get("cards")

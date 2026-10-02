@@ -16,7 +16,8 @@ The files use the i18next JSON v4 format, which Weblate and Crowdin read directl
 `Intl.PluralRules`, as i18next does.
 
 Keys do not change once shipped, since a translation platform tracks them. That includes the
-API's error keys, the judge's codes and the policy ids (`achievement.<id>`, `band.<id>`…).
+API's error keys, the judge's codes and the policy ids (`band.<id>`, `frame.<id>`…).
+Achievements and cards are worded by the content base, in its own language.
 
 ## Adding a language
 

@@ -31,9 +31,10 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
 
 - **CTester ships no exercises.** No file under `app/`, `worker/`, `judge/` or `frontend/src/`
   names an exercise, a collection or a skill. Course vocabulary lives in the content repository:
-  skills and their wording in `catalog.json`, the collection's cards in `cards.json`. The engine
-  fixes the mechanism (the four difficulties, the three modes, the quiz types, the card drawings)
-  and nothing else. The checks run without any content: `test_sandbox.py` writes its own fixture,
+  skills and their wording in `catalog.json`, the collection's cards in `cards.json`, the
+  achievements in `achievements.json`. The engine fixes the mechanism (the four difficulties, the
+  three modes, the quiz types, the card drawings, the facts an achievement counts) and nothing
+  else. The checks run without any content: `test_sandbox.py` writes its own fixture,
   and `demo_content.py` is the example base.
 
 - **One uvicorn worker.** Quotas, presence, the token cache and collaboration rooms live in memory.
@@ -69,8 +70,8 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   cleared by `state.forget()`, and tests enforce both rules.
 - **Persisted ids never change:** achievement, card and frame ids, event ids (`solved:<exercise>`), and
   status values. The same goes for locale keys, the API's error keys and the judge's codes: a
-  translation platform tracks them. Card ids come from the content's `cards.json`, so renaming one there orphans what
-  students already earned; a card naming an unknown exercise fails the publication instead of
+  translation platform tracks them. Card and achievement ids come from the content's `cards.json` and `achievements.json`, so
+  renaming one there orphans what students already earned; a card naming an unknown exercise fails the publication instead of
   becoming quietly unobtainable.
 - **The page never declares a result.** XP, solved states and verdicts are derived by the server.
 - **The worker trusts nothing from the web tier.** It re-resolves the exercise and recomputes the

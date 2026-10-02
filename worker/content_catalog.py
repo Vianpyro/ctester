@@ -16,6 +16,15 @@ SKILL_RE = re.compile(r"\A[a-z][a-z0-9-]{0,47}\Z")
 CARD_ID_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9_-]{0,31}\Z")
 # Names one of the drawings the page ships; an unknown one draws nothing.
 CARD_ART_RE = re.compile(r"\A[a-z][a-z0-9-]{0,31}\Z")
+# Achievement ids share the unlock table with cards, which carry "card:": no colon here.
+ACHIEVEMENT_ID_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
+# What the engine counts for an achievement's "on", in the order the page lists them.
+# app/services/progress.py count_facts() computes exactly these; a test binds the two.
+ACHIEVEMENT_FACTS = (
+    "practiced", "solved", "complete", "labs", "solved_io", "solved_unity", "solved_quiz",
+    "solved_intermediate", "solved_advanced", "solved_bonus", "skills", "verifications",
+    "skills_verified", "comebacks", "persevered", "tests", "days", "cards",
+)
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 MODES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
 # The judge reads an unknown type as "int" and says so to the student, so the only
@@ -614,6 +623,48 @@ def _cards(root, prefix, errors):
     return cards
 
 
+def _achievements(root, prefix, errors):
+    """achievements.json is optional: without it the content offers no achievement."""
+    path = os.path.join(root, "achievements.json")
+    if not os.path.isfile(path):
+        return []
+    data = _json(path, errors)
+    if data is None:
+        return []
+    where = prefix + "achievements.json"
+    if data.get("schema_version") != SCHEMA_VERSION:
+        errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
+    entries = data.get("achievements", [])
+    if not isinstance(entries, list):
+        errors.append("%s: achievements must be a list" % where)
+        return []
+    found = []
+    for index, item in enumerate(entries):
+        place = "%s: achievement %d" % (where, index + 1)
+        if not isinstance(item, dict):
+            errors.append("%s: must be an object" % place)
+            continue
+        ident = item.get("id")
+        if not isinstance(ident, str) or not ACHIEVEMENT_ID_RE.match(ident):
+            errors.append("%s: invalid id" % place)
+            continue
+        place = "%s: achievement %s" % (where, ident)
+        for key in ("name", "description"):
+            if not isinstance(item.get(key), str) or not item[key].strip():
+                errors.append("%s: missing %s" % (place, key))
+        if item.get("on") not in ACHIEVEMENT_FACTS:
+            errors.append("%s: on must be one of %s" % (place, ", ".join(ACHIEVEMENT_FACTS)))
+            continue
+        threshold = item.get("threshold")
+        if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 1:
+            errors.append("%s: threshold must be a whole number of at least 1" % place)
+            continue
+        found.append({"id": ident, "name": item.get("name", ""),
+                      "description": item.get("description", ""),
+                      "on": item["on"], "threshold": threshold})
+    return found
+
+
 def _catalog_skills(root, prefix, errors):
     catalog = _json(os.path.join(root, "catalog.json"), errors)
     if catalog is None:
@@ -747,6 +798,17 @@ def discover(root):
             cards[card["id"]] = card
             card_from[card["id"]] = _label(one)
 
+    achievements, achievement_from = {}, {}
+    for one in roots:
+        prefix = prefixes[os.fspath(one)]
+        for item in _achievements(one, prefix, errors):
+            if item["id"] in achievements:
+                errors.append("%sduplicate achievement id: %s (already in %s)"
+                              % (prefix, item["id"], achievement_from[item["id"]]))
+                continue
+            achievements[item["id"]] = item
+            achievement_from[item["id"]] = _label(one)
+
     owner = {}
     for entry in assignments.values():
         for item in entry["items"]:
@@ -772,7 +834,12 @@ def discover(root):
             "exercises": _by(exercises, lambda name: name),
             "collections": _by(collections, _natural_key),
             "assignments": _by(assignments, _natural_key),
-            "cards": _by(cards, _natural_key)}
+            "cards": _by(cards, _natural_key),
+            # By fact, then threshold: each ladder reads in rising order, whatever the roots.
+            "achievements": dict(sorted(
+                achievements.items(),
+                key=lambda pair: (ACHIEVEMENT_FACTS.index(pair[1]["on"]),
+                                  pair[1]["threshold"], pair[0])))}
 
 
 def public_catalogue(model, now=None):
@@ -807,7 +874,9 @@ def public_catalogue(model, now=None):
                             for entry in model["collections"].values()],
             "assignments": [_public_assignment(entry, now)
                             for entry in model.get("assignments", {}).values()],
-            "cards": [dict(card) for card in model.get("cards", {}).values()]}
+            "cards": [dict(card) for card in model.get("cards", {}).values()],
+            "achievements": [dict(item)
+                             for item in model.get("achievements", {}).values()]}
 
 
 def _public_assignment(entry, now=None):

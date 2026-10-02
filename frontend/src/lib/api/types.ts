@@ -193,13 +193,7 @@ export interface ProgressPayload {
     bands: { id: string }[];
     skills: MasterySkill[];
   };
-  /** Every achievement of the policy; the locked ones have no date. */
-  achievements: {
-    id: string;
-    unlocked_at: string | null;
-    count: number;
-    threshold: number;
-  }[];
+  achievements: Achievement[];
   cards: number;
   next: { exercise_id: string; skill?: string } | null;
   practice_days: { date: string; attempts: number }[];
@@ -218,9 +212,22 @@ export interface Card {
   needed: number;
 }
 
+/** One of the content's achievements; the locked ones have no date. */
+export interface Achievement {
+  id: string;
+  name: string;
+  description: string;
+  unlocked_at: string | null;
+  count: number;
+  threshold: number;
+  /** Only the collection measures it, as for cards. */
+  rarity?: number | null;
+}
+
 export interface CollectionPayload {
   policy: string;
   unlocked?: string[];
+  achievements: Achievement[];
   cards: Card[];
   cohort: boolean;
 }

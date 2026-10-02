@@ -1904,8 +1904,9 @@ pre {
   display: block;
 }
 
-/* The collection's tiles, with the bar in the colour of an earned achievement. */
-#viewprogress .achievements {
+/* The collection's tiles. An earned one carries a bar: its rarity band where the
+   collection measures it, the colour of success elsewhere. */
+.achievements {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
   gap: .5rem;
@@ -1914,7 +1915,7 @@ pre {
   list-style: none;
 }
 
-#viewprogress .achievements li {
+.achievements li {
   display: flex;
   flex-direction: column;
   gap: .15rem;
@@ -1924,31 +1925,49 @@ pre {
   background: var(--card);
 }
 
-#viewprogress .achievements .earned {
-  border-bottom: 3px solid var(--ok);
+.achievements .earned {
+  border-bottom: 3px solid var(--tier, var(--ok));
 }
 
-#viewprogress .achievements .locked {
+.achievements .locked {
   opacity: .68;
 }
 
-#viewprogress .achievements .name {
+.achievements .title {
   font-size: var(--fs-ui);
+  font-weight: 600;
+  color: var(--fg);
 }
 
-#viewprogress .achievements .what,
-#viewprogress .achievements .when {
+.achievements .what,
+.achievements .when {
   font-size: var(--fs-label);
   color: var(--muted);
 }
 
-#viewprogress .achievements .when {
+.achievements .when {
+  display: block;
   margin-top: auto;
   padding-top: .2rem;
 }
 
-#viewprogress .achievements .gauge {
-  margin: .2rem 0 0;
+.achievements .meter {
+  display: block;
+  height: 6px;
+  margin-top: .2rem;
+  border-radius: var(--coin);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.achievements .meter i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+
+#viewcollection .achievementstitle {
+  margin-top: 1rem;
 }
 
 #viewprogress .help {

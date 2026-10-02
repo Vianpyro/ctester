@@ -257,6 +257,40 @@ CARDS = [
      "condition": "Réussir tout le TP 2"},
 ]
 
+# A few ladders over the facts the engine counts; a course writes as many as it wants.
+ACHIEVEMENTS = [
+    {"id": "premier-test", "name": "Premier test",
+     "description": "Tu as testé un exercice pour la première fois.",
+     "on": "practiced", "threshold": 1},
+    {"id": "premiere-reussite", "name": "Premier exercice réussi",
+     "description": "Tu as fait passer tous les tests d'un exercice.",
+     "on": "solved", "threshold": 1},
+    {"id": "trois-reussites", "name": "Trois exercices réussis",
+     "description": "Trois exercices différents, tous tests passés.",
+     "on": "solved", "threshold": 3},
+    {"id": "tout-resolu", "name": "Tout est réussi",
+     "description": "Tous les exercices publiés à ce moment-là, réussis.",
+     "on": "complete", "threshold": 1},
+    {"id": "premier-quiz", "name": "Premier quiz",
+     "description": "Toutes les réponses d'un quiz justes.",
+     "on": "solved_quiz", "threshold": 1},
+    {"id": "premiere-competence", "name": "Première compétence pratiquée",
+     "description": "Tu as pratiqué un exercice qui annonce une compétence.",
+     "on": "skills", "threshold": 1},
+    {"id": "perseverance", "name": "Persévérance",
+     "description": "Tu as réussi un exercice qui t'a demandé cinq tests ou plus.",
+     "on": "persevered", "threshold": 1},
+    {"id": "dix-tests", "name": "Dix tests",
+     "description": "Tu as appuyé dix fois sur « Tester ». Chaque essai compte, réussi ou non.",
+     "on": "tests", "threshold": 10},
+    {"id": "trois-jours", "name": "Trois jours de pratique",
+     "description": "Tu as pratiqué trois jours différents, de suite ou non.",
+     "on": "days", "threshold": 3},
+    {"id": "premiere-carte", "name": "Première carte",
+     "description": "Une première carte dans ta collection.",
+     "on": "cards", "threshold": 1},
+]
+
 QUIZ_ASKED = ("Réponds aux quatre questions ci-dessous. Elles portent sur les types "
               "et sur les conditions vues dans les deux premiers exercices.")
 

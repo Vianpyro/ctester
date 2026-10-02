@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(ROOT, "worker"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from demo_content_data import (  # noqa: E402
-    CARDS, COLLECTIONS, EXERCISES, QUIZ_ASKED, QUIZ_ID, QUIZ_QUESTIONS,
+    ACHIEVEMENTS, CARDS, COLLECTIONS, EXERCISES, QUIZ_ASKED, QUIZ_ID, QUIZ_QUESTIONS,
     SKILLS, STATEMENT, UNITY_STATEMENT,
 )
 
@@ -49,6 +49,8 @@ def write_text(path, text):
 def write_content(root):
     write(os.path.join(root, "catalog.json"), {"schema_version": 1, "skills": SKILLS})
     write(os.path.join(root, "cards.json"), {"schema_version": 1, "cards": CARDS})
+    write(os.path.join(root, "achievements.json"),
+          {"schema_version": 1, "achievements": ACHIEVEMENTS})
 
     for exercise in EXERCISES:
         ident, mode = exercise["id"], exercise["mode"]

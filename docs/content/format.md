@@ -23,6 +23,7 @@ final authority: anything it refuses never reaches a student.
 <root>/
   catalog.json                    the skill vocabulary, and the words to show for each
   cards.json                      optional: the collection's cards
+  achievements.json               optional: the achievements and their thresholds
   shared/unity/                   Unity's sources, for unity-mode exercises
   collections/<id>.json           how the menu groups exercises
   assignments/<id>.json           optional: team work with one hand-in
@@ -320,6 +321,44 @@ unknown one draws nothing.
 Card ids are stored against the accounts that earned them, so they must never change. A card naming an exercise that does not exist fails the publication rather than
 becoming quietly unobtainable.
 
+## `achievements.json` — the achievements
+
+Optional. Without `achievements.json`, a student earns no achievement.
+
+```json
+{"schema_version": 1, "achievements": [
+  {"id": "premiere-reussite", "name": "Premier exercice réussi",
+   "description": "Tu as fait passer tous les tests d'un exercice.",
+   "on": "solved", "threshold": 1}
+]}
+```
+
+An achievement unlocks once the fact named by `on` reaches `threshold`. The engine counts
+these facts, the same way for every content base:
+
+| `on` | what is counted |
+|---|---|
+| `practiced` | practice exercises tested at least once, solved or not |
+| `solved` | practice exercises with every test passed |
+| `complete` | 1 once every published practice exercise is solved |
+| `labs` | collections whose practice exercises are all solved |
+| `solved_io`, `solved_unity`, `solved_quiz` | solved exercises of that mode |
+| `solved_intermediate`, `solved_advanced` | solved exercises of that difficulty |
+| `solved_bonus` | solved bonus exercises |
+| `skills` | skills named by an exercise the student practiced |
+| `verifications` | verification activities passed |
+| `skills_verified` | skills whose every verification is passed |
+| `comebacks` | verifications passed after a failed attempt |
+| `persevered` | exercises solved after five tests or more |
+| `tests` | tests run, passed or not |
+| `days` | different days with at least one test, in a row or not |
+| `cards` | cards held |
+
+The page lists them by fact, in this order, then by threshold. One the published content
+cannot reach (`solved` 100 with 40 exercises) is hidden until it can, unless already earned.
+Ids are lower case, digits and hyphens, and are stored against the accounts that earned them:
+like card ids, they must never change.
+
 ## What the engine defines, and what you do
 
 | The engine fixes | You choose |
@@ -327,7 +366,8 @@ becoming quietly unobtainable.
 | the four `difficulty` values, and the XP each is worth | which exercise is which |
 | the three modes and their file names | which mode each exercise uses |
 | the twelve quiz types | the questions |
-| the achievements, levels, divisions and mastery bands | nothing: they count generically |
+| the facts an achievement can count | the achievements, their wording and thresholds |
+| the levels, divisions and mastery bands | nothing: they count generically |
 | the eight card drawings | the cards, their names and their conditions |
 | the comparison rules for `io` output | the cases |
 | — | every skill id and its wording |

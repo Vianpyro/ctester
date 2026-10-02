@@ -67,4 +67,35 @@
   <p class="help">
     {payload.cohort ? t("collection.rarity") : t("collection.rarity_pending")}
   </p>
+  {#if payload.achievements?.length}
+    <h3 class="subtitle achievementstitle">{t("progress.achievements")}</h3>
+    <p>
+      {t("progress.achievements_earned", {
+        count: payload.achievements.filter((a) => a.unlocked_at).length,
+        total: payload.achievements.length,
+      })}
+    </p>
+    <ul class="achievements">
+      {#each payload.achievements as a (a.id)}
+        <!-- Only the collection measures rarity: elsewhere an earned tile keeps the plain bar. -->
+        <li
+          class={a.unlocked_at ? "earned" : "locked"}
+          data-tier={a.unlocked_at && a.rarity !== undefined ? tier(a.rarity) : undefined}
+        >
+          <span class="title">{a.name}</span>
+          <span class="what">{a.description}</span>
+          {#if a.unlocked_at}
+            <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
+          {:else}
+            <span class="when">
+              {t("progress.achievement_count", { count: a.count, threshold: a.threshold })}
+            </span>
+            <span class="meter" aria-hidden="true">
+              <i style={"width:" + Math.round((a.count / a.threshold) * 100) + "%"}></i>
+            </span>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  {/if}
 {/if}

@@ -8,7 +8,7 @@
   import { system } from "../../lib/state/system.svelte";
   import { view } from "../../lib/state/view.svelte";
   import CardArt from "../collection/CardArt.svelte";
-  import type { Card } from "../../lib/api/types";
+  import type { Achievement, Card } from "../../lib/api/types";
 
   const { openView }: { openView: (name: "collection") => void } = $props();
 
@@ -17,19 +17,21 @@
   const dismiss = () => (drops.ids = []);
   onDestroy(whenSignedOut(dismiss));
 
-  // A card's name, drawing and rarity come from the content, so they are fetched on arrival.
+  // Names, drawings and rarity are the content's, so they are fetched on arrival.
   let cards = $state<Record<string, Card>>({});
-  // Plain on purpose: a card missing from the answer must not trigger another fetch.
+  let achievements = $state<Record<string, Achievement>>({});
+  // Plain on purpose: an id missing from the answer must not trigger another fetch.
   const asked = new Set<string>();
 
   $effect(() => {
-    const wanted = drops.ids.filter((id) => id.startsWith(CARD) && !asked.has(id));
+    const wanted = drops.ids.filter((id) => !asked.has(id));
     if (!wanted.length) return;
     for (const id of wanted) asked.add(id);
     void fetchCollection().then((answer) => {
       const known: Record<string, Card> = {};
       for (const c of answer?.cards ?? []) known[CARD + c.id] = c;
       cards = known;
+      achievements = Object.fromEntries((answer?.achievements ?? []).map((a) => [a.id, a]));
     });
   });
 
@@ -38,13 +40,8 @@
   const items = $derived(
     drops.ids.flatMap((id): Item[] => {
       if (!id.startsWith(CARD)) {
-        return [{
-          id,
-          card: null,
-          name: t(`achievement.${id}.title`),
-          what: t(`achievement.${id}.description`),
-          tier: "ok",
-        }];
+        const a = achievements[id];
+        return a ? [{ id, card: null, name: a.name, what: a.description, tier: "ok" }] : [];
       }
       const card = cards[id];
       return card ? [{ id, card, name: card.name, what: card.condition, tier: String(tier(card.rarity)) }] : [];

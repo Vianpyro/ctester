@@ -308,23 +308,23 @@
     {:else}
       <p>
         {t("progress.achievements_earned", {
-          count: p.achievements.filter((s) => s.unlocked_at).length,
+          count: p.achievements.filter((a) => a.unlocked_at).length,
           total: p.achievements.length,
         })}
       </p>
       <ul class="achievements">
-        {#each p.achievements as s (s.id)}
-          <li class={s.unlocked_at ? "earned" : "locked"}>
-            <span class="name">{t(`achievement.${s.id}.title`)}</span>
-            <span class="what">{t(`achievement.${s.id}.description`)}</span>
-            {#if s.unlocked_at}
-              <time class="when" datetime={s.unlocked_at}>{t("progress.unlocked_on", { date: s.unlocked_at })}</time>
+        {#each p.achievements as a (a.id)}
+          <li class={a.unlocked_at ? "earned" : "locked"}>
+            <span class="title">{a.name}</span>
+            <span class="what">{a.description}</span>
+            {#if a.unlocked_at}
+              <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
             {:else}
               <span class="when">
-                {t("progress.achievement_count", { count: s.count, threshold: s.threshold })}
+                {t("progress.achievement_count", { count: a.count, threshold: a.threshold })}
               </span>
-              <span class="gauge" aria-hidden="true">
-                <i style={"width:" + Math.round((s.count / s.threshold) * 100) + "%"}></i>
+              <span class="meter" aria-hidden="true">
+                <i style={"width:" + Math.round((a.count / a.threshold) * 100) + "%"}></i>
               </span>
             {/if}
           </li>

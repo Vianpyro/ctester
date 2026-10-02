@@ -1547,14 +1547,6 @@ def test_policy_is_declarative():
     words = _source_words()
     thresholds = policy.POLICY["levels"]
     assert thresholds[0] == 0 and thresholds == sorted(thresholds) == list(dict.fromkeys(thresholds))
-    ids = set()
-    for achievement in policy.POLICY["achievements"]:
-        for part in ("title", "description"):
-            assert "achievement.%s.%s" % (achievement["id"], part) in words, achievement
-        assert achievement["on"] and achievement["threshold"] >= 1
-        assert achievement["id"] not in ids
-        ids.add(achievement["id"])
-    assert set(policy.ACHIEVEMENTS) == ids
     bands = policy.POLICY["mastery"]["bands"]
     for band in bands:
         for part in ("title", "description"):
@@ -1602,15 +1594,28 @@ def test_level_derives_from_the_balance():
     assert policy.level(thresholds[1] - 4)["remaining"] == 4
 
 
+# The content's table, as achievements.json would publish it.
+ACHIEVEMENTS_FIXTURE = [
+    {"id": "premiere-reussite", "name": "N", "description": "D", "on": "solved", "threshold": 1},
+    {"id": "trois-competences", "name": "N", "description": "D", "on": "skills", "threshold": 3},
+    {"id": "cinq-reussites", "name": "N", "description": "D", "on": "solved", "threshold": 5},
+    {"id": "premiere-verification", "name": "N", "description": "D",
+     "on": "verifications", "threshold": 1},
+    {"id": "dix-tests", "name": "N", "description": "D", "on": "tests", "threshold": 10},
+]
+
+
 def test_achievements_derive_from_facts():
-    assert policy.achievements_reached({}) == []
-    assert policy.achievements_reached({"solved": 1}) == ["premiere-reussite"]
-    many = policy.achievements_reached(
-        {a["on"]: 10 ** 6 for a in policy.POLICY["achievements"]})
-    assert set(many) == set(policy.ACHIEVEMENTS)
+    assert policy.achievements_reached({}, ACHIEVEMENTS_FIXTURE) == []
+    assert policy.achievements_reached({"solved": 1}, ACHIEVEMENTS_FIXTURE) == [
+        "premiere-reussite"]
+    many = policy.achievements_reached({"solved": 10, "skills": 3, "verifications": 1,
+                                        "tests": 10}, ACHIEVEMENTS_FIXTURE)
+    assert many == [a["id"] for a in ACHIEVEMENTS_FIXTURE]
     assert "premiere-verification" not in policy.achievements_reached(
-        {"solved": 10, "skills": 3})
-    assert policy.achievements_reached({"unknown": 99}) == []
+        {"solved": 10, "skills": 3}, ACHIEVEMENTS_FIXTURE)
+    # The engine ships none: without achievements.json there is nothing to earn.
+    assert policy.achievements_reached({"solved": 99}, []) == []
 
 
 CATALOGUE_DEMO = [
@@ -1672,18 +1677,22 @@ def test_progress_publishes_nothing_secret():
                                "granted_at": "2026-09-03"}]}
     payload = progress.progress_payload(
         CATALOGUE_DEMO, facts,
-        [{"exercise_id": "tp2-ex0", "status": "solved"}], [], [])
+        [{"exercise_id": "tp2-ex0", "status": "solved"}], [], [],
+        achievements=ACHIEVEMENTS_FIXTURE)
     assert payload["policy"] == policy.VERSION
     assert payload["xp"] == 25 and payload["level"]["rank"] >= 1
     assert payload["exercises"] == {"total": 4, "practiced": 1, "solved": 1}
     earned = [s for s in payload["achievements"] if s["unlocked_at"]]
     assert [s["id"] for s in earned] == ["premiere-reussite"]
     by_id = {s["id"]: s for s in payload["achievements"]}
-    assert by_id["trois-competences"] == {"id": "trois-competences", "unlocked_at": None,
+    assert by_id["trois-competences"] == {"id": "trois-competences", "name": "N",
+                                          "description": "D", "unlocked_at": None,
                                           "count": 1, "threshold": 3}
     # Four exercises are published: five solves cannot happen, so the page is not told of it.
-    assert "cinq-reussites" not in by_id and "premier-quiz" not in by_id
-    assert "dix-tests" in by_id and "trois-jours" in by_id
+    assert "cinq-reussites" not in by_id and "premiere-verification" not in by_id
+    assert "dix-tests" in by_id
+    # A row the content no longer lists has no wording to show.
+    assert "disparu" not in by_id
     assert [b["id"] for b in payload["mastery"]["bands"]] == list(policy.BANDS)
     assert payload["mastery"]["skills"] == []
     text = json.dumps(payload, ensure_ascii=False)
@@ -1721,11 +1730,68 @@ def test_mastery_keeps_the_last_attempt():
     assert progress.solved_verifications(journal) == {"verif-a"}
 
 
-def test_every_achievement_counts_a_known_fact():
+def test_the_engine_counts_exactly_the_facts_the_content_may_name():
     facts = progress.count_facts([], [], [], [])
-    assert {a["on"] for a in policy.POLICY["achievements"]} <= set(facts), (
-        {a["on"] for a in policy.POLICY["achievements"]} - set(facts))
+    assert list(facts) == list(content_catalogue.ACHIEVEMENT_FACTS), list(facts)
     assert set(facts) == set(progress.ceilings([]))
+    format_md = read_file(os.path.join(ROOT, "docs", "content", "format.md"))
+    for fact in content_catalogue.ACHIEVEMENT_FACTS:
+        assert "`%s`" % fact in format_md, fact
+
+
+def test_discover_reads_achievements_in_ladder_order():
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _minimal_valid_content(root)
+        model = content_catalogue.discover(root)
+        assert model["achievements"] == {}
+        _write_json(os.path.join(root, "achievements.json"), {
+            "schema_version": 1, "achievements": [
+                {"id": "dix-tests", "name": "N", "description": "D", "on": "tests",
+                 "threshold": 10},
+                {"id": "cinq", "name": "N", "description": "D", "on": "solved",
+                 "threshold": 5},
+                {"id": "une", "name": "N", "description": "D", "on": "solved",
+                 "threshold": 1}]})
+        model = content_catalogue.discover(root)
+        assert list(model["achievements"]) == ["une", "cinq", "dix-tests"]
+        public = content_catalogue.public_catalogue(model)
+        assert [a["id"] for a in public["achievements"]] == ["une", "cinq", "dix-tests"]
+    finally:
+        shutil.rmtree(root)
+
+
+def test_discover_rejects_each_achievement_defect():
+    base = {"id": "une", "name": "N", "description": "D", "on": "solved", "threshold": 1}
+
+    def table(**extra):
+        return {"schema_version": 1, "achievements": [dict(base, **extra)]}
+
+    def write(value):
+        return lambda r: _write_json(os.path.join(r, "achievements.json"), value)
+
+    cases = [
+        (write(dict(table(), schema_version=2)), "expected schema_version"),
+        (write({"schema_version": 1, "achievements": {}}), "achievements must be a list"),
+        (write({"schema_version": 1, "achievements": ["x"]}), "must be an object"),
+        (write(table(id="card:E-01")), "invalid id"),
+        (write(table(name="  ")), "missing name"),
+        (write(table(description=None)), "missing description"),
+        (write(table(on="xp")), "on must be one of"),
+        (write(table(threshold=0)), "threshold must be"),
+        (write(table(threshold=True)), "threshold must be"),
+        (write({"schema_version": 1, "achievements": [base, base]}),
+         "duplicate achievement id"),
+    ]
+    for mutate, expected in cases:
+        root = tempfile.mkdtemp(prefix="ctester-content-")
+        try:
+            _minimal_valid_content(root)
+            mutate(root)
+            message = _discover_error(root)
+            assert expected in message, (expected, message)
+        finally:
+            shutil.rmtree(root)
 
 
 def test_achievement_facts_count_generically():
@@ -1758,10 +1824,10 @@ def test_achievement_facts_count_generically():
     most = progress.ceilings(entries, collections, cards)
     assert most["solved"] == 3 and most["labs"] == 2 and most["comebacks"] == 2
     assert most["complete"] == 1 and most["cards"] == 2 and most["days"] > 1000
-    reached = policy.achievements_reached(facts)
-    assert {"premier-programme", "premiere-fonction", "perseverance", "remontee",
-            "premier-lab-complet", "premiere-carte", "trois-jours"} <= set(reached), reached
-    assert "premier-quiz" not in reached and "tout-resolu" not in reached
+    ladder = [{"id": on, "name": "N", "description": "D", "on": on, "threshold": 1}
+              for on in content_catalogue.ACHIEVEMENT_FACTS]
+    reached = set(policy.achievements_reached(facts, ladder))
+    assert reached == {on for on, n in facts.items() if n >= 1}, reached
 
 
 def test_a_practice_moves_no_band():
@@ -3133,7 +3199,9 @@ def test_a_card_drops_on_a_whole_family_and_its_rarity_is_measured():
 
     # The engine ships none: a card that named an exercise would name someone's course.
     assert policy.cards_earned(complete_set, []) == []
-    assert not set(policy.cards_by_key(CARDS_FIXTURE)) & set(policy.ACHIEVEMENTS)
+    # They share the unlock table with achievements, whose ids cannot hold the prefix.
+    assert not any(content_catalogue.ACHIEVEMENT_ID_RE.match(key)
+                   for key in policy.cards_by_key(CARDS_FIXTURE))
 
     saved = progress.published_cards
     progress.published_cards = lambda: CARDS_FIXTURE

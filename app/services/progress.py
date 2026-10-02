@@ -1,6 +1,7 @@
 import policy
 import state
-from services.catalog import open_collections, open_exercises, published_cards
+from services.catalog import (open_collections, open_exercises, published_achievements,
+                              published_cards)
 
 MAX_SKILLS = 40
 
@@ -212,7 +213,8 @@ def _unlock(user, event_id):
     facts = progression_facts(user)
     if facts is None:
         return []
-    return state.unlock(user, policy.achievements_reached(facts) + cards_to_grant(user),
+    reached = policy.achievements_reached(facts, published_achievements())
+    return state.unlock(user, reached + cards_to_grant(user),
                         event_id, policy.VERSION) or []
 
 
@@ -248,24 +250,45 @@ def collection_view(unlocked, rates, cohort, solved=()):
             "held": key in held,
             "progress": len(solved.intersection(card.get("exercises") or ())),
             "needed": len(card.get("exercises") or ()),
-            "rarity": (round(holders * 100 / cohort)
-                       if cohort >= policy.minimum_cohort() else None),
+            "rarity": rarity(holders, cohort),
         })
     return views
 
 
-def achievements_view(unlocked, counts, ceiling):
+def rarity(holders, cohort):
+    """The share of accounts that practiced holding it; None until the cohort can say."""
+    cohort = int(cohort or 0)
+    return round(int(holders) * 100 / cohort) if cohort >= policy.minimum_cohort() else None
+
+
+def with_rarity(achievements, rates, cohort):
+    return [dict(row, rarity=rarity((rates or {}).get(row["id"], 0), cohort))
+            for row in achievements]
+
+
+def achievements_view(unlocked, counts, ceiling, achievements):
     """Every achievement earned, or still within reach of the published content."""
     when = {row["id"]: row["unlocked_at"] for row in unlocked or ()}
-    return [{"id": a["id"], "unlocked_at": when.get(a["id"]),
+    return [{"id": a["id"], "name": a["name"], "description": a["description"],
+             "unlocked_at": when.get(a["id"]),
              "count": min(counts.get(a["on"], 0), a["threshold"]),
              "threshold": a["threshold"]}
-            for a in policy.POLICY["achievements"]
+            for a in achievements or ()
             if a["id"] in when or ceiling.get(a["on"], 0) >= a["threshold"]]
 
 
+def user_achievements(user, unlocked):
+    """The collection's view: what progress_payload computes, read for one account."""
+    counts = progression_facts(user)
+    if counts is None:
+        return None
+    return achievements_view(unlocked, counts,
+                             ceilings(open_exercises(), open_collections(), published_cards()),
+                             published_achievements())
+
+
 def progress_payload(entries, facts, states, practice, evidences,
-                     practice_days=None, days=0, collections=(), cards=()):
+                     practice_days=None, days=0, collections=(), cards=(), achievements=()):
     touched, solved = exercise_facts(states, practice)
     exercises = practice_exercises(entries)
     return {
@@ -285,7 +308,7 @@ def progress_payload(entries, facts, states, practice, evidences,
         "achievements": achievements_view(
             facts["achievements"],
             count_facts(entries, states, practice, evidences, days, collections, cards),
-            ceilings(entries, collections, cards)),
+            ceilings(entries, collections, cards), achievements),
         "cards": sum(1 for row in facts["achievements"]
                      if row["id"] in policy.cards_by_key(published_cards())),
         "next": recommend(exercises, touched, solved),

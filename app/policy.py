@@ -1,6 +1,6 @@
-# Every balancing number lives here. Achievement, card and frame ids are stored
-# in the database: renaming one orphans what students already earned. Their wording
-# is the page's, under achievement.<id>, division.<id>, frame.<id> and band.<id>.
+# Every balancing number lives here. Frame ids are stored in the database: renaming
+# one orphans what students already earned. Their wording is the page's, under
+# division.<id>, frame.<id> and band.<id>. Achievements and cards are the content's.
 POLICY = {
     "version": "pilote-1",
 
@@ -15,68 +15,6 @@ POLICY = {
     "daily_cap": 100,
 
     "levels": [0, 30, 80, 150, 250, 400, 600],
-
-    # Grouped by fact, each ladder in rising order: the page shows them in this order.
-    "achievements": [
-        {"id": "premier-test", "on": "practiced", "threshold": 1},
-        {"id": "vingt-exercices-pratiques", "on": "practiced", "threshold": 20},
-        {"id": "cinquante-exercices-pratiques", "on": "practiced", "threshold": 50},
-        {"id": "premiere-reussite", "on": "solved", "threshold": 1},
-        {"id": "cinq-reussites", "on": "solved", "threshold": 5},
-        {"id": "dix-reussites", "on": "solved", "threshold": 10},
-        {"id": "vingt-cinq-reussites", "on": "solved", "threshold": 25},
-        {"id": "cinquante-reussites", "on": "solved", "threshold": 50},
-        {"id": "soixante-quinze-reussites", "on": "solved", "threshold": 75},
-        {"id": "cent-reussites", "on": "solved", "threshold": 100},
-        {"id": "tout-resolu", "on": "complete", "threshold": 1},
-        {"id": "premier-lab-complet", "on": "labs", "threshold": 1},
-        {"id": "cinq-labs-complets", "on": "labs", "threshold": 5},
-        {"id": "dix-labs-complets", "on": "labs", "threshold": 10},
-        {"id": "premier-programme", "on": "solved_io", "threshold": 1},
-        {"id": "dix-programmes", "on": "solved_io", "threshold": 10},
-        {"id": "vingt-cinq-programmes", "on": "solved_io", "threshold": 25},
-        {"id": "premiere-fonction", "on": "solved_unity", "threshold": 1},
-        {"id": "dix-fonctions", "on": "solved_unity", "threshold": 10},
-        {"id": "vingt-cinq-fonctions", "on": "solved_unity", "threshold": 25},
-        {"id": "premier-quiz", "on": "solved_quiz", "threshold": 1},
-        {"id": "cinq-quiz", "on": "solved_quiz", "threshold": 5},
-        {"id": "dix-quiz", "on": "solved_quiz", "threshold": 10},
-        {"id": "premier-intermediaire", "on": "solved_intermediate", "threshold": 1},
-        {"id": "dix-intermediaires", "on": "solved_intermediate", "threshold": 10},
-        {"id": "vingt-cinq-intermediaires", "on": "solved_intermediate", "threshold": 25},
-        {"id": "premier-avance", "on": "solved_advanced", "threshold": 1},
-        {"id": "cinq-avances", "on": "solved_advanced", "threshold": 5},
-        {"id": "dix-avances", "on": "solved_advanced", "threshold": 10},
-        {"id": "premier-bonus", "on": "solved_bonus", "threshold": 1},
-        {"id": "cinq-bonus", "on": "solved_bonus", "threshold": 5},
-        {"id": "premiere-competence", "on": "skills", "threshold": 1},
-        {"id": "trois-competences", "on": "skills", "threshold": 3},
-        {"id": "six-competences", "on": "skills", "threshold": 6},
-        {"id": "douze-competences", "on": "skills", "threshold": 12},
-        {"id": "vingt-competences", "on": "skills", "threshold": 20},
-        {"id": "premiere-verification", "on": "verifications", "threshold": 1},
-        {"id": "trois-verifications", "on": "verifications", "threshold": 3},
-        {"id": "cinq-verifications", "on": "verifications", "threshold": 5},
-        {"id": "dix-verifications", "on": "verifications", "threshold": 10},
-        {"id": "premiere-competence-verifiee", "on": "skills_verified", "threshold": 1},
-        {"id": "trois-competences-verifiees", "on": "skills_verified", "threshold": 3},
-        {"id": "cinq-competences-verifiees", "on": "skills_verified", "threshold": 5},
-        {"id": "remontee", "on": "comebacks", "threshold": 1},
-        {"id": "trois-remontees", "on": "comebacks", "threshold": 3},
-        {"id": "perseverance", "on": "persevered", "threshold": 1},
-        {"id": "cinq-perseverances", "on": "persevered", "threshold": 5},
-        {"id": "quinze-perseverances", "on": "persevered", "threshold": 15},
-        {"id": "dix-tests", "on": "tests", "threshold": 10},
-        {"id": "cent-tests", "on": "tests", "threshold": 100},
-        {"id": "cinq-cents-tests", "on": "tests", "threshold": 500},
-        {"id": "trois-jours", "on": "days", "threshold": 3},
-        {"id": "dix-jours", "on": "days", "threshold": 10},
-        {"id": "vingt-cinq-jours", "on": "days", "threshold": 25},
-        {"id": "cinquante-jours", "on": "days", "threshold": 50},
-        {"id": "premiere-carte", "on": "cards", "threshold": 1},
-        {"id": "cinq-cartes", "on": "cards", "threshold": 5},
-        {"id": "dix-cartes", "on": "cards", "threshold": 10},
-    ],
 
     "leaderboard": {
         "minimum_cohort": 5,
@@ -163,8 +101,6 @@ POLICY = {
 
 VERSION = POLICY["version"]
 
-ACHIEVEMENTS = {s["id"]: s for s in POLICY["achievements"]}
-
 BANDS = {b["id"]: b for b in POLICY["mastery"]["bands"]}
 
 
@@ -194,9 +130,10 @@ def level(xp):
     }
 
 
-def achievements_reached(facts):
-    return [s["id"] for s in POLICY["achievements"]
-            if int((facts or {}).get(s["on"], 0)) >= s["threshold"]]
+# Achievements count generic facts, but which ones and how far is the content's choice.
+def achievements_reached(facts, achievements):
+    return [a["id"] for a in achievements or ()
+            if int((facts or {}).get(a["on"], 0)) >= a["threshold"]]
 
 
 def mastery_band(solved, attempted, total):

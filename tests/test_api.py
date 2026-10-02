@@ -575,6 +575,18 @@ def _write_content(root, exercises=CONTENT, release=None, assignment=None):
     skill_names = sorted({c for _, _, _, _, skills, _ in exercises for c in skills})
     write(os.path.join(root, "catalog.json"),
            {"schema_version": 1, "skills": skill_names})
+    # The achievements are the content base's too.
+    write(os.path.join(root, "achievements.json"),
+           {"schema_version": 1, "achievements": [
+               {"id": ident, "name": ident, "description": "D", "on": on, "threshold": 1}
+               for ident, on in (("premier-test", "practiced"),
+                                 ("premiere-reussite", "solved"),
+                                 ("premier-programme", "solved_io"),
+                                 ("premiere-fonction", "solved_unity"),
+                                 ("premier-intermediaire", "solved_intermediate"),
+                                 ("premiere-competence", "skills"),
+                                 ("premiere-verification", "verifications"),
+                                 ("premiere-competence-verifiee", "skills_verified"))]})
     # The collection's table is the content base's, so the fixture has to carry one.
     write(os.path.join(root, "cards.json"),
            {"schema_version": 1, "cards": [
@@ -2528,6 +2540,9 @@ def test_looking_catches_up_on_what_was_reached_without_a_verdict():
         collection = c.get("/collection", headers=auth("alice")).json()
         assert "unlocked" not in collection, collection
         assert [(card["held"], card["progress"]) for card in collection["cards"]] == [(True, 1)]
+        earned = {a["id"]: a for a in collection["achievements"] if a["unlocked_at"]}
+        assert earned["premiere-reussite"]["name"] == "premiere-reussite", earned
+        assert "rarity" in earned["premiere-reussite"]
 
 
 def test_a_mute_database_answers_503_on_the_new_screens():
