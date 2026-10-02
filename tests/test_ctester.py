@@ -1676,8 +1676,12 @@ def test_progress_publishes_nothing_secret():
     assert payload["policy"] == policy.VERSION
     assert payload["xp"] == 25 and payload["level"]["rank"] >= 1
     assert payload["exercises"] == {"total": 4, "practiced": 1, "solved": 1}
-    assert [s["id"] for s in payload["achievements"]] == ["premiere-reussite"]
-    assert payload["achievements"][0]["id"] in policy.ACHIEVEMENTS
+    assert [s["id"] for s in payload["achievements"]] == list(policy.ACHIEVEMENTS)
+    earned = [s for s in payload["achievements"] if s["unlocked_at"]]
+    assert [s["id"] for s in earned] == ["premiere-reussite"]
+    by_id = {s["id"]: s for s in payload["achievements"]}
+    assert by_id["cinq-reussites"] == {"id": "cinq-reussites", "unlocked_at": None,
+                                       "count": 1, "threshold": 5}
     assert [b["id"] for b in payload["mastery"]["bands"]] == list(policy.BANDS)
     assert payload["mastery"]["skills"] == []
     text = json.dumps(payload, ensure_ascii=False)
@@ -1892,8 +1896,8 @@ def test_forget_covers_every_table():
 def test_progress_degrades_without_a_database():
     assert not state.enabled()
     assert state.grant_first_solve("u", "tp", "e", 10, "m", "v", {}, 100) is None
-    assert state.unlock("u", ["premiere-reussite"], "e", "v") is False
-    assert state.unlock("u", [], "e", "v") is True
+    assert state.unlock("u", ["premiere-reussite"], "e", "v") is None
+    assert state.unlock("u", [], "e", "v") == []
     assert state.read_progress("u") is None
     assert state.record_event("u", "e", "T", "tp", "v", {}) is None
     assert state.read_events("u", "T") is None
@@ -2003,8 +2007,8 @@ def test_reward_survives_an_outage_after_writing():
     try:
         progress.state = _PartialOutage()
         entry = {"id": "tp2-ex0", "difficulty": "foundation"}
-        progress.reward("u", entry, "job1")
-        progress.record_verification("u", entry, "job2", True)
+        assert progress.reward("u", entry, "job1") == []
+        assert progress.record_verification("u", entry, "job2", True) == []
     finally:
         progress.state = guard
 

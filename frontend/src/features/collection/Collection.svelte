@@ -3,6 +3,7 @@
   import { fetchCollection } from "../../lib/api/account";
   import { whenSignedOut } from "../../lib/auth/session.svelte";
   import CardArt from "./CardArt.svelte";
+  import { tier } from "../../lib/domain/rarity";
   import { t } from "../../lib/i18n.svelte";
   import type { CollectionPayload } from "../../lib/api/types";
 
@@ -42,7 +43,7 @@
   </p>
   <div class="cards">
     {#each payload.cards as c (c.id)}
-      <div class={"card " + (c.held ? "held" : "locked")}>
+      <div class={"card " + (c.held ? "held" : "locked")} data-tier={c.held ? tier(c.rarity) : undefined}>
         <div class="header">
           <span class="code">{c.id}</span>
           <span class="code">{c.rarity === null || c.rarity === undefined ? "—" : c.rarity + " %"}</span>

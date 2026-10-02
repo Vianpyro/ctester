@@ -14,6 +14,7 @@
   import { view } from "./lib/state/view.svelte";
   import { runTest } from "./lib/state/run";
   import { drafts } from "./lib/state/drafts.svelte";
+  import { drops } from "./lib/state/drops.svelte";
   import { editor } from "./lib/state/editor.svelte";
   import { matchShortcut } from "./lib/domain/shortcuts";
   import { fetchDeployment } from "./lib/api/public";
@@ -46,6 +47,7 @@
   let TeamBand = $state<Component | null>(null);
   let ShortcutsPanel = $state<Component<{ open: boolean; onClose: () => void }> | null>(null);
   let QuizPanel = $state<Component | null>(null);
+  let Drops = $state<Component | null>(null);
 
   async function bring<T>(what: string, load: () => Promise<T>): Promise<T | null> {
     try {
@@ -122,6 +124,12 @@
     const wanted =
       profile.identityOpen || view.current === "forum" || view.current === "moderation";
     if (wanted && !ChatDock) void bringChat();
+  });
+
+  $effect(() => {
+    // ponytail: no "could not load" notice; a missing panel costs nothing the verdict didn't say.
+    if (drops.ids.length && !Drops)
+      import("./features/drops/Drops.svelte").then((mod) => (Drops = mod.default as Component), () => {});
   });
 
   $effect(() => {
@@ -402,5 +410,6 @@
     {#if ModerationView && view.current === "moderation"}<ModerationView />{/if}
   </section>
 
+  {#if Drops}<Drops openView={openDestination} />{/if}
   <div id="notice" role="status" class="offscreen">{system.announcement}</div>
 </main>

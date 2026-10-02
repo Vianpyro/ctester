@@ -117,7 +117,10 @@ def get_result(job_id: str):
 
     if result is not None:
         if owner is not None and exercise_id and isinstance(result, dict):
-            _record(owner, exercise_id, job_id, result)
+            unlocked = _record(owner, exercise_id, job_id, result)
+            if unlocked:
+                # Only the poll that first sees the verdict gets them: unlocking is idempotent.
+                return dict(result, unlocked=unlocked)
         return result
 
     if os.path.exists(os.path.join(config.RESULTS, job_id, ".lock")):
@@ -134,7 +137,7 @@ def _record(owner, exercise_id, job_id, result):
     state.write_practice_attempt(owner, job_id, exercise_id, result)
     entry = find_exercise(exercise_id, security.is_moderator(owner))
     if entry is None:
-        return
+        return []
     solved = (result.get("status") == "ok"
               and result.get("total", 0) > 0
               and result.get("passed") == result.get("total"))
@@ -143,8 +146,9 @@ def _record(owner, exercise_id, job_id, result):
     # Team members share one document, so personal XP would pay for the same work
     # several times. Verifications record mastery evidence instead of XP.
     if entry.get("assignment"):
-        return
+        return []
     if entry.get("verification"):
-        progress.record_verification(owner, entry, job_id, solved)
-    elif solved:
-        progress.reward(owner, entry, job_id)
+        return progress.record_verification(owner, entry, job_id, solved)
+    if solved:
+        return progress.reward(owner, entry, job_id)
+    return []

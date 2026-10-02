@@ -34,6 +34,11 @@
   --tap-lg: 2.75rem;
   --gut: .9rem;
   --edge: #6a7280;
+  /* Rarity bands, drawn as bars and glows only (never text), so one set serves both themes. */
+  --tier-1: #4b69ff;
+  --tier-2: #8847ff;
+  --tier-3: #d32ce6;
+  --tier-4: #eb4b4b;
 }
 
 :root[data-theme="light"] {
@@ -1903,6 +1908,10 @@ pre {
   display: block;
 }
 
+#viewprogress .achievements .locked {
+  opacity: .68;
+}
+
 #viewprogress .help {
   font-family: var(--sans);
 }
@@ -2914,6 +2923,160 @@ pre {
 .card .what {
   font-size: var(--fs-label);
   color: var(--muted);
+}
+
+[data-tier="0"] { --tier: var(--ink); }
+[data-tier="1"] { --tier: var(--tier-1); }
+[data-tier="2"] { --tier: var(--tier-2); }
+[data-tier="3"] { --tier: var(--tier-3); }
+[data-tier="4"] { --tier: var(--tier-4); }
+[data-tier="ok"] { --tier: var(--ok); }
+
+.card.held[data-tier] {
+  border-bottom: 3px solid var(--tier);
+}
+
+.drops {
+  position: fixed;
+  right: var(--gut);
+  bottom: var(--gut);
+  z-index: 10;
+  width: min(22rem, calc(100vw - 2 * var(--gut)));
+  max-height: calc(100vh - 2 * var(--gut));
+  overflow: auto;
+  padding: .8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  background: var(--panel);
+  box-shadow: 0 .6rem 2rem rgb(0 0 0 / .35);
+}
+
+.drops h2 {
+  margin: 0 0 .6rem;
+  font-size: var(--fs-body);
+}
+
+.drops ul {
+  display: grid;
+  gap: .5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The item tile of a loot site: a bar in the band's colour and a glow rising from it. */
+.drop {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .55rem .65rem;
+  border: 1px solid var(--line);
+  border-bottom: 3px solid var(--tier);
+  border-radius: var(--coin);
+  background:
+    radial-gradient(120% 90% at 50% 130%, color-mix(in srgb, var(--tier) 30%, transparent), transparent 70%),
+    var(--card);
+}
+
+.drop .drawing {
+  flex: none;
+  color: var(--tier);
+}
+
+.drop .drawing svg {
+  display: block;
+  width: 4.5rem;
+  height: auto;
+}
+
+.drop .text {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  min-width: 0;
+}
+
+.drop .kind,
+.drop .what {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.drop .name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.drops .actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .4rem;
+  margin-top: .7rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .drops {
+    animation: drop-in .22s ease-out;
+  }
+
+  .drop {
+    animation: drop-flip .45s cubic-bezier(.2, .7, .2, 1) both;
+    animation-delay: calc(120ms + var(--i, 0) * 140ms);
+  }
+
+  /* One light sweep per tile, after it has turned face up. */
+  .drop::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(105deg, transparent 35%,
+        color-mix(in srgb, var(--tier) 45%, white) 50%, transparent 65%);
+    animation: drop-sweep .9s ease-out both;
+    animation-delay: calc(480ms + var(--i, 0) * 140ms);
+  }
+
+  @keyframes drop-in {
+    from {
+      opacity: 0;
+      transform: translateY(1rem);
+    }
+  }
+
+  @keyframes drop-flip {
+    from {
+      opacity: 0;
+      transform: perspective(40rem) rotateY(-90deg);
+    }
+
+    60% {
+      opacity: 1;
+    }
+
+    to {
+      transform: perspective(40rem) rotateY(0);
+    }
+  }
+
+  @keyframes drop-sweep {
+    from {
+      opacity: 0;
+      transform: translateX(-100%);
+    }
+
+    25% {
+      opacity: .55;
+    }
+
+    to {
+      opacity: 0;
+      transform: translateX(100%);
+    }
+  }
 }
 
 .plate {

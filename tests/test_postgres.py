@@ -286,12 +286,13 @@ def grants():
 
 
 def achievements_and_reading():
-    assert state.unlock(ALICE, ["premiere-reussite", "premiere-competence"],
-                       "solved:tp2-ex3", "policy-1")
+    assert sorted(state.unlock(ALICE, ["premiere-reussite", "premiere-competence"],
+                              "solved:tp2-ex3", "policy-1")) == [
+        "premiere-competence", "premiere-reussite"]
     assert state.unlock(ALICE, ["premiere-reussite", "cinq-reussites"],
-                       "solved:tp2-ex0", "policy-1")
+                       "solved:tp2-ex0", "policy-1") == ["cinq-reussites"]
     assert count("achievement_unlocked", ALICE) == 3
-    assert state.unlock(ALICE, [], "solved:tp2-ex3", "policy-1")
+    assert state.unlock(ALICE, [], "solved:tp2-ex3", "policy-1") == []
 
     view = state.read_progress(ALICE)
     assert view["xp"] == 20, view

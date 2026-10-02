@@ -109,7 +109,10 @@ def progression_facts(user):
     evidences = state.read_events(user, VERIFICATION)
     if states is None or practice is None or evidences is None:
         return None
-    entries = open_exercises()
+    return count_facts(open_exercises(), states, practice, evidences)
+
+
+def count_facts(entries, states, practice, evidences):
     exercises = practice_exercises(entries)
     touched, solved = exercise_facts(states, practice)
     published = {e["id"] for e in exercises}
@@ -128,11 +131,8 @@ def reward(user, entry, job_id):
         {"job": job_id, "difficulty": entry.get("difficulty") or ""},
         policy.daily_cap())
     if granted is None:
-        return
-    facts = progression_facts(user)
-    if facts is not None:
-        state.unlock(user, policy.achievements_reached(facts)
-                     + cards_to_grant(user), event_id, policy.VERSION)
+        return []
+    return _unlock(user, event_id)
 
 
 def record_verification(user, entry, job_id, solved):
@@ -141,11 +141,17 @@ def record_verification(user, entry, job_id, solved):
         user, "verification:%s:%s" % (entry["id"], job_id), VERIFICATION,
         entry["id"], policy.VERSION, {"job": job_id, "passed": bool(solved)})
     if written is None:
-        return
+        return []
+    return _unlock(user, "verification:" + entry["id"])
+
+
+def _unlock(user, event_id):
+    """What this fact unlocked, so the verdict can show it once."""
     facts = progression_facts(user)
-    if facts is not None:
-        state.unlock(user, policy.achievements_reached(facts) + cards_to_grant(user),
-                    "verification:" + entry["id"], policy.VERSION)
+    if facts is None:
+        return []
+    return state.unlock(user, policy.achievements_reached(facts) + cards_to_grant(user),
+                        event_id, policy.VERSION) or []
 
 
 def cards_to_grant(user):
@@ -177,6 +183,15 @@ def collection_view(unlocked, rates, cohort):
     return views
 
 
+def achievements_view(unlocked, counts):
+    """Every achievement of the policy, earned or not, with how far the student is."""
+    when = {row["id"]: row["unlocked_at"] for row in unlocked or ()}
+    return [{"id": a["id"], "unlocked_at": when.get(a["id"]),
+             "count": min(counts.get(a["on"], 0), a["threshold"]),
+             "threshold": a["threshold"]}
+            for a in policy.POLICY["achievements"]]
+
+
 def progress_payload(entries, facts, states, practice, evidences,
                      practice_days=None):
     touched, solved = exercise_facts(states, practice)
@@ -195,8 +210,8 @@ def progress_payload(entries, facts, states, practice, evidences,
             "bands": [dict(band) for band in policy.BANDS.values()],
             "skills": mastery_view(entries, evidences),
         },
-        "achievements": [{"id": row["id"], "unlocked_at": row["unlocked_at"]}
-                   for row in facts["achievements"] if row["id"] in policy.ACHIEVEMENTS],
+        "achievements": achievements_view(
+            facts["achievements"], count_facts(entries, states, practice, evidences)),
         "cards": sum(1 for row in facts["achievements"]
                      if row["id"] in policy.cards_by_key(published_cards())),
         "next": recommend(exercises, touched, solved),

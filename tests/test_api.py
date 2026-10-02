@@ -306,11 +306,11 @@ class FakeDatabase:
                 if event["account"] == user and event["type"] == kind][:limit]
 
     def unlock(self, user, ids, event_id, policy):
-        for achievement_id in ids:
-            self.achievement.setdefault((user, achievement_id),
-                                   {"id": achievement_id, "unlocked_at": "2026-09-04",
-                                    "policy": policy})
-        return True
+        new = [i for i in ids if (user, i) not in self.achievement]
+        for achievement_id in new:
+            self.achievement[(user, achievement_id)] = {
+                "id": achievement_id, "unlocked_at": "2026-09-04", "policy": policy}
+        return new
 
     def read_practice_days(self, user, days):
         n = sum(a for (u, _), (a, _) in self.practice.items() if u == user)
@@ -1991,8 +1991,11 @@ def _verdict(exercise_id, job, result):
 def test_a_verification_leaves_evidence_and_no_xp():
     with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
         _verdict("verif-tp2", "a" * 32, {"status": "ok", "passed": 3, "total": 3})
-        assert c.get("/r/" + "a" * 32).status_code == 200
-        assert c.get("/r/" + "a" * 32).status_code == 200
+        first = c.get("/r/" + "a" * 32)
+        assert first.status_code == 200
+        assert first.json()["unlocked"] == ["premiere-verification"], first.json()
+        again = c.get("/r/" + "a" * 32)
+        assert again.status_code == 200 and "unlocked" not in again.json(), again.json()
         assert not base.xp, base.xp
         evidences = [f for f in base.facts if f["type"] == "VerificationEvaluated"]
         assert len(evidences) == 1, base.facts
@@ -2004,7 +2007,8 @@ def test_a_verification_leaves_evidence_and_no_xp():
         assert {c_["id"]: c_["band"] for c_ in view["mastery"]["skills"]} == {
             "variables": "verifie"}
         assert view["exercises"]["total"] == len(CONTENT) - 1, view["exercises"]
-        assert [s["id"] for s in view["achievements"]] == ["premiere-verification"]
+        assert [s["id"] for s in view["achievements"]
+                if s["unlocked_at"]] == ["premiere-verification"]
 
 
 def test_a_failed_verification_reads_as_to_consolidate():
@@ -2013,7 +2017,8 @@ def test_a_failed_verification_reads_as_to_consolidate():
         assert c.get("/r/" + "b" * 32).status_code == 200
         view = c.get("/progress", headers=auth("alice")).json()
         assert [c_["band"] for c_ in view["mastery"]["skills"]] == ["a-consolider"]
-        assert not base.xp and not view["achievements"], (base.xp, view["achievements"])
+        assert not base.xp, base.xp
+        assert not any(s["unlocked_at"] for s in view["achievements"]), view["achievements"]
 
 
 def test_silent_evidence_answers_503():

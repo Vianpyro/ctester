@@ -5,6 +5,7 @@ import { isJudgeFailure, verdictExplain, verdictHeadline, type Scope } from "../
 import { canonicalizeFiles } from "../domain/source";
 import type { PollResult, SubmissionBody, Verdict } from "../api/types";
 import { session, ensureValid } from "../auth/session.svelte";
+import { drops } from "./drops.svelte";
 import { system } from "./system.svelte";
 import { localGet, localSet, randomId } from "../storage";
 
@@ -133,6 +134,7 @@ class SubmissionState {
         return;
       }
       this.#record(verdict, scope, exercise);
+      drops.ids = verdict.unlocked ?? [];
       const flight = this.#inFlight;
       if (flight && flight.token === token && !verdict.rerun && verdict.status !== "error") {
         this.#known.set(flight.exercise, { key: flight.key, verdict });

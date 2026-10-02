@@ -137,6 +137,8 @@ export interface Verdict {
   failed?: string[];
   wrong?: WrongAnswer[];
   rerun?: boolean;
+  /** Achievement and card ids this verdict unlocked, sent once by the server. */
+  unlocked?: string[];
 }
 
 export type PollResult =
@@ -189,9 +191,12 @@ export interface ProgressPayload {
     bands: { id: string }[];
     skills: MasterySkill[];
   };
+  /** Every achievement of the policy; the locked ones have no date. */
   achievements: {
     id: string;
-    unlocked_at: string;
+    unlocked_at: string | null;
+    count: number;
+    threshold: number;
   }[];
   cards: number;
   next: { exercise_id: string; skill?: string } | null;

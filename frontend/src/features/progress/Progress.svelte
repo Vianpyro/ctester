@@ -308,10 +308,19 @@
     {:else}
       <dl class="achievements">
         {#each p.achievements as s (s.id)}
-          <dt>{t(`achievement.${s.id}.title`)}</dt>
-          <dd>
+          <dt class={s.unlocked_at ? "" : "locked"}>{t(`achievement.${s.id}.title`)}</dt>
+          <dd class={s.unlocked_at ? "" : "locked"}>
             <span class="what">{t(`achievement.${s.id}.description`)}</span>
-            <time class="when" datetime={s.unlocked_at}>{t("progress.unlocked_on", { date: s.unlocked_at })}</time>
+            {#if s.unlocked_at}
+              <time class="when" datetime={s.unlocked_at}>{t("progress.unlocked_on", { date: s.unlocked_at })}</time>
+            {:else}
+              <span class="when">
+                {t("progress.achievement_count", { count: s.count, threshold: s.threshold })}
+              </span>
+              <span class="gauge" aria-hidden="true">
+                <i style={"width:" + Math.round((s.count / s.threshold) * 100) + "%"}></i>
+              </span>
+            {/if}
           </dd>
         {/each}
       </dl>

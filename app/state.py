@@ -239,15 +239,17 @@ def read_events(user, kind, limit=500):
 
 
 def unlock(user, achievement_ids, event_id, policy):
+    """The ids this call unlocked, [] when all were held, None without a database."""
     if not achievement_ids:
-        return True
-    return _query(
+        return []
+    rows = _query(
         "INSERT INTO achievement_unlocked"
         "  (account, achievement_id, event_id, policy) "
         "SELECT %s, which, %s, %s FROM unnest(%s::text[]) AS which "
-        "ON CONFLICT (account, achievement_id) DO NOTHING",
-        (user, event_id, policy, list(achievement_ids)),
-    ) is not None
+        "ON CONFLICT (account, achievement_id) DO NOTHING "
+        "RETURNING achievement_id",
+        (user, event_id, policy, list(achievement_ids)), read=True)
+    return None if rows is None else [row[0] for row in rows]
 
 
 def read_progress(user):
