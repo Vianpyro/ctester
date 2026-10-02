@@ -168,11 +168,7 @@ impl Config {
         if !stricter {
             broken.push("the console limits must stay stricter than the grading limits");
         }
-        if broken.is_empty() {
-            Ok(())
-        } else {
-            Err(broken.join("; "))
-        }
+        broken.is_empty().ok_or_else(|| broken.join("; "))
     }
 
     fn unity_roots(&self) -> impl Iterator<Item = PathBuf> + '_ {

@@ -263,10 +263,9 @@ impl Results {
         }
         let mut all = self.durations();
         let (mean, n) = match all.get(key).and_then(Value::as_array).map(Vec::as_slice) {
-            Some([mean, n]) => match (mean.as_f64(), n.as_f64()) {
-                (Some(mean), Some(n)) => (mean, (n as i64).min(DURATION_WINDOW)),
-                _ => (0.0, 0),
-            },
+            Some([mean, n]) if let (Some(mean), Some(n)) = (mean.as_f64(), n.as_f64()) => {
+                (mean, (n as i64).min(DURATION_WINDOW))
+            }
             _ => (0.0, 0),
         };
         let n = n + 1;
