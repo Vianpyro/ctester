@@ -341,7 +341,7 @@ mod runner {
                 // A verdict taken from the cache is journaled like the queue pass serves one:
                 // no duration, so it weighs on neither the worker's average nor the ETA.
                 Ok(Ok((verdict, cached))) => {
-                    let run = self.record(job, &key, (!cached).then(&elapsed), cached);
+                    let run = self.record(job, &key, (!cached).then(elapsed), cached);
                     match self.results.write_result(job, verdict, &run) {
                         Ok(()) => {
                             if !cached {
