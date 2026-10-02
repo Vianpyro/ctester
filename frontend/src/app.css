@@ -2975,6 +2975,26 @@ pre {
   border-bottom: 3px solid var(--tier);
 }
 
+.card .progress {
+  margin-top: auto;
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.card .gauge {
+  display: block;
+  height: 6px;
+  border-radius: var(--coin);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.card .gauge i {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+
 .drops {
   position: fixed;
   right: var(--gut);

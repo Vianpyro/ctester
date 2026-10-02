@@ -1,5 +1,6 @@
 import { fetchProgress } from "../../lib/api/account";
 import { whenSignedOut } from "../../lib/auth/session.svelte";
+import { drops } from "../../lib/state/drops.svelte";
 import { view } from "../../lib/state/view.svelte";
 import { t } from "../../lib/i18n.svelte";
 import type { ProgressPayload } from "../../lib/api/types";
@@ -17,6 +18,7 @@ class Projection {
     }
     this.payload = answer;
     this.error = "";
+    if (answer.unlocked?.length) drops.ids = answer.unlocked;
   }
 
   async refreshIfOpen(): Promise<void> {

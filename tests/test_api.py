@@ -2515,6 +2515,19 @@ def test_the_collection_shows_locked_cards_with_their_condition():
         assert all(not card["held"] for card in cards)
         assert all(card["condition"] for card in cards), cards
         assert all(card["rarity"] is None for card in cards)
+        assert [(card["progress"], card["needed"]) for card in cards] == [(0, 1)], cards
+
+
+def test_looking_catches_up_on_what_was_reached_without_a_verdict():
+    with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
+        base.states[("sub-alice", "tp2-ex3")] = "solved"
+        view = c.get("/progress", headers=auth("alice")).json()
+        assert {"premiere-reussite", "card:E-01"} <= set(view["unlocked"]), view
+        assert "premiere-reussite" in [s["id"] for s in view["achievements"] if s["unlocked_at"]]
+        assert "unlocked" not in c.get("/progress", headers=auth("alice")).json()
+        collection = c.get("/collection", headers=auth("alice")).json()
+        assert "unlocked" not in collection, collection
+        assert [(card["held"], card["progress"]) for card in collection["cards"]] == [(True, 1)]
 
 
 def test_a_mute_database_answers_503_on_the_new_screens():

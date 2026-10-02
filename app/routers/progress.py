@@ -11,8 +11,13 @@ router = APIRouter(tags=["progress"])
 CALENDAR_DAYS = 91
 
 
+def _with_unlocked(payload, fresh):
+    return dict(payload, unlocked=fresh) if fresh else payload
+
+
 @router.get("/progress")
 def get_progress(sub: Sub):
+    fresh = progress.catch_up(sub)
     facts = state.read_progress(sub)
     statuses = state.read_states(sub)
     practice = state.read_practice_summary(sub)
@@ -22,18 +27,22 @@ def get_progress(sub: Sub):
     if (facts is None or statuses is None or practice is None
             or evidences is None or days is None or every_day is None):
         return headers.error(503, "db_down")
-    return progress.progress_payload(open_exercises(), facts,
-                                     statuses, practice, evidences, days,
-                                     len(every_day), open_collections(), published_cards())
+    return _with_unlocked(progress.progress_payload(
+        open_exercises(), facts, statuses, practice, evidences, days,
+        len(every_day), open_collections(), published_cards()), fresh)
 
 
 @router.get("/collection")
 def collection(sub: Sub):
+    fresh = progress.catch_up(sub)
     facts = state.read_progress(sub)
+    statuses = state.read_states(sub)
     unlock_rates = state.read_unlock_rates()
-    if facts is None or unlock_rates is None:
+    if facts is None or statuses is None or unlock_rates is None:
         return headers.error(503, "db_down")
     rates, cohort = unlock_rates
-    return {"policy": policy.VERSION,
-            "cards": progress.collection_view(facts["achievements"], rates, cohort),
-            "cohort": cohort}
+    solved = {row["exercise_id"] for row in statuses if row.get("status") == "solved"}
+    return _with_unlocked({"policy": policy.VERSION,
+                           "cards": progress.collection_view(facts["achievements"], rates,
+                                                             cohort, solved),
+                           "cohort": cohort}, fresh)

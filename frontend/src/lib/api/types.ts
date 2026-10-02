@@ -183,6 +183,8 @@ export interface MasterySkill {
 
 export interface ProgressPayload {
   policy: string;
+  /** What looking at the page just unlocked, sent once. */
+  unlocked?: string[];
   xp: number;
   level: { rank: number; since: number; next: number | null; remaining: number };
   exercises: { total: number; practiced: number; solved: number };
@@ -211,10 +213,14 @@ export interface Card {
   condition: string;
   held: boolean;
   rarity: number | null;
+  /** How many of the card's exercises are solved, out of `needed`. */
+  progress: number;
+  needed: number;
 }
 
 export interface CollectionPayload {
   policy: string;
+  unlocked?: string[];
   cards: Card[];
   cohort: boolean;
 }

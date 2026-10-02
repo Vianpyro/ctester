@@ -216,6 +216,12 @@ def _unlock(user, event_id):
                         event_id, policy.VERSION) or []
 
 
+def catch_up(user):
+    # Achievements a newer policy added, or reached before a verdict counted them,
+    # are unlocked when the student looks rather than at their next test.
+    return _unlock(user, "recount")
+
+
 def cards_to_grant(user):
     states = state.read_states(user)
     if states is None:
@@ -226,8 +232,9 @@ def cards_to_grant(user):
     return policy.cards_earned(solved, published_cards())
 
 
-def collection_view(unlocked, rates, cohort):
+def collection_view(unlocked, rates, cohort, solved=()):
     held = {row["id"] for row in unlocked or ()}
+    solved = set(solved or ()) & {e["id"] for e in open_exercises()}
     cohort = int(cohort or 0)
     views = []
     for key, card in policy.cards_by_key(published_cards()).items():
@@ -239,6 +246,8 @@ def collection_view(unlocked, rates, cohort):
             "art": card.get("art") or card.get("family") or "",
             "condition": card["condition"],
             "held": key in held,
+            "progress": len(solved.intersection(card.get("exercises") or ())),
+            "needed": len(card.get("exercises") or ()),
             "rarity": (round(holders * 100 / cohort)
                        if cohort >= policy.minimum_cohort() else None),
         })

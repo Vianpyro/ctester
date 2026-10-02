@@ -4,6 +4,7 @@
   import { whenSignedOut } from "../../lib/auth/session.svelte";
   import CardArt from "./CardArt.svelte";
   import { tier } from "../../lib/domain/rarity";
+  import { drops } from "../../lib/state/drops.svelte";
   import { t } from "../../lib/i18n.svelte";
   import type { CollectionPayload } from "../../lib/api/types";
 
@@ -21,6 +22,7 @@
       }
       payload = answer;
       error = "";
+      if (answer.unlocked?.length) drops.ids = answer.unlocked;
     })();
     title?.focus();
   });
@@ -51,6 +53,12 @@
         <div class="drawing"><CardArt art={c.art} /></div>
         <div class="name">{c.name}</div>
         <div class="what">{c.held ? c.condition : t("collection.locked", { condition: c.condition })}</div>
+        {#if !c.held && c.needed}
+          <div class="progress">{t("collection.progress", { count: c.progress, total: c.needed })}</div>
+          <span class="gauge" aria-hidden="true">
+            <i style={"width:" + Math.round((c.progress / c.needed) * 100) + "%"}></i>
+          </span>
+        {/if}
         <span class="offscreen"> — {c.held ? t("collection.earned") : t("collection.not_earned")}</span>
       </div>
     {/each}
