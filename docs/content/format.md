@@ -84,7 +84,7 @@ repository declared.
   "schema_version": 1,
   "id": "tp1-ex1",
   "title": "Additionner deux entiers",
-  "release": {"state": "scheduled", "available_from": "2026-10-09T13:26:39-04:00"},
+  "release": {"state": "scheduled", "available_from": "2026-10-09T13:00:00-04:00"},
   "skills": ["entrees-sorties", "types"],
   "difficulty": "intro",
   "contexts": ["general-engineering"]
@@ -111,7 +111,7 @@ repository declared.
 
 ```json
 {"state": "available"}
-{"state": "scheduled", "available_from": "2026-10-09T13:26:39-04:00"}
+{"state": "scheduled", "available_from": "2026-10-09T13:00:00-04:00"}
 {"state": "archived"}
 ```
 
