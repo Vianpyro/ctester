@@ -60,4 +60,17 @@ describe("the metro layout", () => {
     expect(colours.size).toBe(FACTS.length);
     expect(layout([{ on: "solved", name: "s", color: "teal" }], STATIONS, 8).nodes[0]!.color).toBe("teal");
   });
+
+  it("draws a card line with cards to its end, pointing at the first card not held", () => {
+    const cards: MetroStation[] = ["E-01", "E-07", "M-04"].map((id, i) => ({
+      id: "card:" + id,
+      on: "cards",
+      unlocked_at: i === 1 ? null : "held",
+      kind: "card",
+    }));
+    const map = layout([{ on: "cards", name: "Cartes" }], cards, 6);
+    const stops = map.nodes.filter((n) => n.kind !== "start");
+    expect(stops.map((n) => n.kind)).toEqual(["card", "card", "card"]);
+    expect(stops.map((n) => n.state)).toEqual(["earned", "next", "earned"]);
+  });
 });

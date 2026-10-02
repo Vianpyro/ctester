@@ -1780,14 +1780,17 @@ def test_discover_publishes_the_map_lines_in_fact_order():
         _write_json(os.path.join(root, "achievements.json"), {
             "schema_version": 1,
             "lines": [{"on": "tests", "name": "Tests"},
-                      {"on": "solved", "name": "Réussites", "color": "orange"}],
+                      {"on": "solved", "name": "Réussites", "color": "orange",
+                       "description": " Tous les tests passés. "}],
             "achievements": [
                 {"id": "une", "name": "N", "description": "D", "on": "solved", "threshold": 1},
                 {"id": "dix", "name": "N", "description": "D", "on": "tests", "threshold": 10}]})
         model = content_catalogue.discover(root)
         assert model["achievement_lines"] == [
-            {"on": "solved", "name": "Réussites", "color": "orange"},
-            {"on": "tests", "name": "Tests", "color": None}], model["achievement_lines"]
+            {"on": "solved", "name": "Réussites", "color": "orange",
+             "description": "Tous les tests passés."},
+            {"on": "tests", "name": "Tests", "color": None, "description": ""}], (
+            model["achievement_lines"])
         public = content_catalogue.public_catalogue(model)
         assert [line["on"] for line in public["achievement_lines"]] == ["solved", "tests"]
     finally:
@@ -1808,6 +1811,7 @@ def test_discover_rejects_each_map_defect():
         (write([dict(line, on="xp")]), "on must be one of"),
         (write([dict(line, name=" ")]), "missing name"),
         (write([dict(line, color="mauve")]), "color must be one of"),
+        (write([dict(line, description=["x"])]), "description must be text"),
         (write([line, line]), "duplicate line"),
         (write([line], [one, dict(one, id="dix", on="tests", threshold=10)]),
          "no line draws it"),

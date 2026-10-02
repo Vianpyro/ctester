@@ -231,7 +231,7 @@ export interface CollectionPayload {
   unlocked?: string[];
   achievements: Achievement[];
   /** The map's lines; empty when the content draws no map. */
-  lines?: { on: string; name: string; color?: string | null }[];
+  lines?: { on: string; name: string; color?: string | null; description?: string }[];
   cards: Card[];
   cohort: boolean;
 }

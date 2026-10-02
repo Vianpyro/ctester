@@ -366,13 +366,19 @@ per fact, its stations being that fact's achievements in threshold order.
 
 ```json
 {"schema_version": 1,
- "lines": [{"on": "solved", "name": "Réussites", "color": "orange"}],
+ "lines": [{"on": "solved", "name": "Réussites", "color": "orange",
+            "description": "Un exercice compte quand tous ses tests passent."}],
  "achievements": [ ... ]}
 ```
 
-`name` is shown at the line's start. `color` is optional and is one of `red`, `orange`,
+`name` is shown at the line's start; `description`, optional, opens the tooltip of each of its
+stations, above what the station asks. `color` is optional and is one of `red`, `orange`,
 `yellow`, `green`, `teal`, `blue`, `purple` or `pink`; without it the page picks the next one.
 Every fact your achievements count needs a line, and a line needs at least one achievement.
+
+With a map, the collection has a single view: when `cards.json` publishes cards, the `cards`
+line carries the cards themselves, one station each, instead of the achievements that count
+them (those stay listed on the progress page). Without a `cards` line, the page adds one.
 
 You place nothing: the page lays the lines out on a grid, turning at right angles and keeping
 a gap between them, and fits the width of the screen. The layout is computed from the content

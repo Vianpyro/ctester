@@ -1962,7 +1962,7 @@ pre {
 }
 
 .achievements .meter,
-.metrodetail .meter {
+.metrotip .meter {
   display: block;
   height: 6px;
   margin-top: .2rem;
@@ -1972,7 +1972,7 @@ pre {
 }
 
 .achievements .meter i,
-.metrodetail .meter i {
+.metrotip .meter i {
   display: block;
   height: 100%;
   background: var(--ok);
@@ -2092,6 +2092,30 @@ pre {
   outline-offset: 3px;
 }
 
+/* A card stands on its line as itself: a small frame holding its drawing. */
+.metro .stop.card {
+  width: 2.5rem;
+  height: 1.9rem;
+  border-width: .2rem;
+  border-radius: .4rem;
+  color: var(--muted);
+}
+
+.metro .stop.card.earned {
+  color: var(--c);
+}
+
+.metro .stop.card.next {
+  color: #fff;
+}
+
+.metro .stop.card svg {
+  width: 1.75rem;
+  height: auto;
+  stroke: currentColor;
+  stroke-width: 4;
+}
+
 .metro .linename {
   position: absolute;
   transform: translateX(-50%);
@@ -2104,32 +2128,92 @@ pre {
   pointer-events: none;
 }
 
-.metrodetail {
+
+/* The tooltip, as on CodinGame: the line first, then what this station asks. The line's
+   colour is a bar, never text: some hues are too faint for small type on --panel. */
+.metrotip {
+  position: absolute;
+  z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: .15rem;
-  max-width: 34rem;
-  min-height: 4.5rem;
-  margin-top: .6rem;
-  padding: .55rem .7rem;
+  gap: .2rem;
+  padding: .65rem .8rem .7rem 1rem;
   border: 1px solid var(--line);
+  border-left: 4px solid var(--c);
   border-radius: var(--coin);
-  background: var(--card);
+  background: var(--panel);
+  box-shadow: 0 .6rem 2rem rgb(0 0 0 / .35);
+  font-size: var(--fs-ui);
+  pointer-events: none;
 }
 
-.metrodetail .title {
+.metrotip .linetitle {
+  font-size: var(--fs-body);
   font-weight: 600;
   color: var(--fg);
 }
 
-.metrodetail .what,
-.metrodetail .when {
-  font-size: var(--fs-ui);
+.metrotip .about,
+.metrotip .what,
+.metrotip .when {
   color: var(--muted);
+  line-height: 1.4;
 }
 
-.metrodetail .meter {
-  max-width: 14rem;
+.metrotip hr {
+  width: 100%;
+  margin: .35rem 0 .2rem;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.metrotip .title {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.metrotip .goal {
+  display: flex;
+  justify-content: space-between;
+  gap: .6rem;
+  margin-top: .35rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.metrotip .count {
+  font-variant-numeric: tabular-nums;
+}
+
+.metrotip .meter i {
+  background: var(--c);
+}
+
+.metrotip .cardrow {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+}
+
+.metrotip .drawing {
+  flex: none;
+  color: var(--c);
+}
+
+.metrotip .drawing svg {
+  display: block;
+  width: 4rem;
+  height: auto;
+}
+
+.metrotip .named {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+
+#viewcollection .mapnote {
+  margin-top: .7rem;
 }
 
 @media (prefers-reduced-motion: no-preference) {

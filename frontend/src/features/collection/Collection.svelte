@@ -40,6 +40,22 @@
 
 {#if !payload}
   <p class="failed">{error}</p>
+{:else if payload.lines?.length}
+  <!-- The content draws a map: cards and achievements are its stations, one view for both. -->
+  <p class="help">
+    {t("collection.summary", {
+      earned: payload.achievements.filter((a) => a.unlocked_at).length,
+      total: payload.achievements.length,
+      held,
+      cards: payload.cards.length,
+    })}
+  </p>
+  <p class="help">{t("collection.map_hint")}</p>
+  <AchievementMap lines={payload.lines} achievements={payload.achievements} cards={payload.cards} />
+  <p class="help mapnote">{t("collection.help")}</p>
+  <p class="help">
+    {payload.cohort ? t("collection.rarity") : t("collection.rarity_pending")}
+  </p>
 {:else}
   <p class="help">
     {t("collection.held", { count: held, total: payload.cards.length })}
@@ -76,31 +92,27 @@
         total: payload.achievements.length,
       })}
     </p>
-    {#if payload.lines?.length}
-      <AchievementMap lines={payload.lines} achievements={payload.achievements} />
-    {:else}
-      <ul class="achievements">
-        {#each payload.achievements as a (a.id)}
-          <!-- Only the collection measures rarity: elsewhere an earned tile keeps the plain bar. -->
-          <li
-            class={a.unlocked_at ? "earned" : "locked"}
-            data-tier={a.unlocked_at && a.rarity !== undefined ? tier(a.rarity) : undefined}
-          >
-            <span class="title">{a.name}</span>
-            <span class="what">{a.description}</span>
-            {#if a.unlocked_at}
-              <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
-            {:else}
-              <span class="when">
-                {t("progress.achievement_count", { count: a.count, threshold: a.threshold })}
-              </span>
-              <span class="meter" aria-hidden="true">
-                <i style={"width:" + Math.round((a.count / a.threshold) * 100) + "%"}></i>
-              </span>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    {/if}
+    <ul class="achievements">
+      {#each payload.achievements as a (a.id)}
+        <!-- Only the collection measures rarity: elsewhere an earned tile keeps the plain bar. -->
+        <li
+          class={a.unlocked_at ? "earned" : "locked"}
+          data-tier={a.unlocked_at && a.rarity !== undefined ? tier(a.rarity) : undefined}
+        >
+          <span class="title">{a.name}</span>
+          <span class="what">{a.description}</span>
+          {#if a.unlocked_at}
+            <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
+          {:else}
+            <span class="when">
+              {t("progress.achievement_count", { count: a.count, threshold: a.threshold })}
+            </span>
+            <span class="meter" aria-hidden="true">
+              <i style={"width:" + Math.round((a.count / a.threshold) * 100) + "%"}></i>
+            </span>
+          {/if}
+        </li>
+      {/each}
+    </ul>
   {/if}
 {/if}

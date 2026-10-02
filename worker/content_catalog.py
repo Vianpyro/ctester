@@ -648,7 +648,12 @@ def _lines(data, where, errors):
         if color is not None and color not in LINE_COLORS:
             errors.append("%s: color must be one of %s" % (place, ", ".join(LINE_COLORS)))
             continue
-        found.append({"on": line["on"], "name": line["name"], "color": color})
+        description = line.get("description", "")
+        if not isinstance(description, str):
+            errors.append("%s: description must be text" % place)
+            continue
+        found.append({"on": line["on"], "name": line["name"], "color": color,
+                      "description": description.strip()})
     return found
 
 

@@ -294,13 +294,18 @@ ACHIEVEMENTS = [
 # The map's lines, one per fact the achievements above count; the page places them.
 ACHIEVEMENT_LINES = [
     {"on": "practiced", "name": "Pratique", "color": "yellow"},
-    {"on": "solved", "name": "Réussites", "color": "orange"},
+    {"on": "solved", "name": "Réussites", "color": "orange",
+     "description": ("Un exercice compte quand tous ses tests passent. "
+                     "Tu peux en reprendre un autant de fois que tu veux.")},
     {"on": "complete", "name": "Tout réussi", "color": "red"},
     {"on": "solved_quiz", "name": "Quiz", "color": "pink"},
     {"on": "skills", "name": "Compétences", "color": "green"},
     {"on": "persevered", "name": "Persévérance", "color": "pink"},
-    {"on": "tests", "name": "Tests", "color": "teal"},
-    {"on": "days", "name": "Jours de pratique", "color": "blue"},
+    {"on": "tests", "name": "Tests", "color": "teal",
+     "description": "Chaque appui sur « Tester » compte, réussi ou non."},
+    {"on": "days", "name": "Jours de pratique", "color": "blue",
+     "description": ("Les jours où tu as testé du code. "
+                     "Pas besoin qu'ils se suivent : une pause n'enlève rien.")},
     {"on": "cards", "name": "Cartes", "color": "red"},
 ]
 

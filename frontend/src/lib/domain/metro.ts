@@ -14,6 +14,8 @@ export interface MetroStation {
   id: string;
   on: string;
   unlocked_at: string | null;
+  /** A card drawn as itself: its line ends on a card, not a flag. */
+  kind?: "card";
 }
 
 export type Cell = [number, number];
@@ -22,7 +24,7 @@ export interface MetroNode {
   id: string;
   line: string;
   at: Cell;
-  kind: "start" | "station" | "flag";
+  kind: "start" | "station" | "flag" | "card";
   state: "earned" | "next" | "locked";
   color: string;
 }
@@ -141,7 +143,7 @@ export function layout(lines: MetroLine[], stations: MetroStation[], columns: nu
         id: stop.id,
         line: line.on,
         at: path[i + 1]!,
-        kind: i === stops.length - 1 ? "flag" : "station",
+        kind: stop.kind ?? (i === stops.length - 1 ? "flag" : "station"),
         state,
         color,
       });
