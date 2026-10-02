@@ -59,6 +59,11 @@ def _published():
             if isinstance(entry, dict) and isinstance(entry.get("id"), str)]
 
 
+def open_collections():
+    return [entry for entry in (load_catalog() or {}).get("collections") or ()
+            if isinstance(entry, dict) and entry.get("access") == "available"]
+
+
 def published_cards():
     """The collection's table, authored by the content base next to its exercises."""
     cards = (load_catalog() or {}).get("cards")

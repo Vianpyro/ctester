@@ -1605,8 +1605,8 @@ def test_level_derives_from_the_balance():
 def test_achievements_derive_from_facts():
     assert policy.achievements_reached({}) == []
     assert policy.achievements_reached({"solved": 1}) == ["premiere-reussite"]
-    many = policy.achievements_reached({"solved": 10, "skills": 3,
-                                               "verifications": 1})
+    many = policy.achievements_reached(
+        {a["on"]: 10 ** 6 for a in policy.POLICY["achievements"]})
     assert set(many) == set(policy.ACHIEVEMENTS)
     assert "premiere-verification" not in policy.achievements_reached(
         {"solved": 10, "skills": 3})
@@ -1676,12 +1676,14 @@ def test_progress_publishes_nothing_secret():
     assert payload["policy"] == policy.VERSION
     assert payload["xp"] == 25 and payload["level"]["rank"] >= 1
     assert payload["exercises"] == {"total": 4, "practiced": 1, "solved": 1}
-    assert [s["id"] for s in payload["achievements"]] == list(policy.ACHIEVEMENTS)
     earned = [s for s in payload["achievements"] if s["unlocked_at"]]
     assert [s["id"] for s in earned] == ["premiere-reussite"]
     by_id = {s["id"]: s for s in payload["achievements"]}
-    assert by_id["cinq-reussites"] == {"id": "cinq-reussites", "unlocked_at": None,
-                                       "count": 1, "threshold": 5}
+    assert by_id["trois-competences"] == {"id": "trois-competences", "unlocked_at": None,
+                                          "count": 1, "threshold": 3}
+    # Four exercises are published: five solves cannot happen, so the page is not told of it.
+    assert "cinq-reussites" not in by_id and "premier-quiz" not in by_id
+    assert "dix-tests" in by_id and "trois-jours" in by_id
     assert [b["id"] for b in payload["mastery"]["bands"]] == list(policy.BANDS)
     assert payload["mastery"]["skills"] == []
     text = json.dumps(payload, ensure_ascii=False)
@@ -1717,6 +1719,49 @@ def test_mastery_keeps_the_last_attempt():
     view = {c["id"]: c for c in progress.mastery_view(CATALOGUE_VERIFICATION, journal)}
     assert view["arithmetic-operators"]["band"] == "a-consolider"
     assert progress.solved_verifications(journal) == {"verif-a"}
+
+
+def test_every_achievement_counts_a_known_fact():
+    facts = progress.count_facts([], [], [], [])
+    assert {a["on"] for a in policy.POLICY["achievements"]} <= set(facts), (
+        {a["on"] for a in policy.POLICY["achievements"]} - set(facts))
+    assert set(facts) == set(progress.ceilings([]))
+
+
+def test_achievement_facts_count_generically():
+    entries = [
+        {"id": "a", "mode": "io", "difficulty": "intermediate", "skills": ["s1"]},
+        {"id": "b", "mode": "unity", "difficulty": "advanced", "skills": ["s2"]},
+        {"id": "c", "mode": "quiz", "bonus": True},
+        {"id": "v", "skills": ["s1"], "verification": True},
+        {"id": "w", "skills": ["s2"], "verification": True},
+    ]
+    states = [{"exercise_id": i, "status": "solved"} for i in ("a", "b")]
+    states.append({"exercise_id": "c", "status": "attempted"})
+    practice = [{"exercise_id": "a", "attempts": 6, "successes": 1},
+                {"exercise_id": "b", "attempts": 1, "successes": 1},
+                {"exercise_id": "v", "attempts": 2, "successes": 1},
+                {"exercise_id": ":console", "attempts": 40, "successes": 0}]
+    # Newest first: v failed then passed, w passed then failed.
+    evidences = [evidence("v", True), evidence("v", False),
+                 evidence("w", False), evidence("w", True)]
+    collections = [{"items": ["a", "b"]}, {"items": ["a", "c"]}, {"items": ["v"]}]
+    cards = [{"id": "k", "exercises": ["a"]}, {"id": "l", "exercises": ["c"]}]
+    facts = progress.count_facts(entries, states, practice, evidences, 4, collections, cards)
+    assert facts == {
+        "practiced": 3, "solved": 2, "complete": 0, "labs": 1,
+        "solved_io": 1, "solved_unity": 1, "solved_quiz": 0,
+        "solved_intermediate": 1, "solved_advanced": 1, "solved_bonus": 0,
+        "skills": 2, "verifications": 2, "skills_verified": 1, "comebacks": 1,
+        "persevered": 1, "tests": 9, "days": 4, "cards": 1,
+    }, facts
+    most = progress.ceilings(entries, collections, cards)
+    assert most["solved"] == 3 and most["labs"] == 2 and most["comebacks"] == 2
+    assert most["complete"] == 1 and most["cards"] == 2 and most["days"] > 1000
+    reached = policy.achievements_reached(facts)
+    assert {"premier-programme", "premiere-fonction", "perseverance", "remontee",
+            "premier-lab-complet", "premiere-carte", "trois-jours"} <= set(reached), reached
+    assert "premier-quiz" not in reached and "tout-resolu" not in reached
 
 
 def test_a_practice_moves_no_band():
@@ -1996,6 +2041,9 @@ class _PartialOutage:
         return None
 
     def read_events(self, *a, **k):
+        return None
+
+    def read_practice_days(self, *a, **k):
         return None
 
     def unlock(self, *a, **k):

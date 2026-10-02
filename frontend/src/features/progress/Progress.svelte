@@ -306,10 +306,16 @@
     {#if !p.achievements.length}
       <p class="help">{t("progress.no_achievements")}</p>
     {:else}
-      <dl class="achievements">
+      <p>
+        {t("progress.achievements_earned", {
+          count: p.achievements.filter((s) => s.unlocked_at).length,
+          total: p.achievements.length,
+        })}
+      </p>
+      <ul class="achievements">
         {#each p.achievements as s (s.id)}
-          <dt class={s.unlocked_at ? "" : "locked"}>{t(`achievement.${s.id}.title`)}</dt>
-          <dd class={s.unlocked_at ? "" : "locked"}>
+          <li class={s.unlocked_at ? "earned" : "locked"}>
+            <span class="name">{t(`achievement.${s.id}.title`)}</span>
             <span class="what">{t(`achievement.${s.id}.description`)}</span>
             {#if s.unlocked_at}
               <time class="when" datetime={s.unlocked_at}>{t("progress.unlocked_on", { date: s.unlocked_at })}</time>
@@ -321,9 +327,9 @@
                 <i style={"width:" + Math.round((s.count / s.threshold) * 100) + "%"}></i>
               </span>
             {/if}
-          </dd>
+          </li>
         {/each}
-      </dl>
+      </ul>
     {/if}
   </div>
 

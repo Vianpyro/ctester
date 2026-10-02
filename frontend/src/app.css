@@ -1880,25 +1880,21 @@ pre {
   border-color: var(--ok);
 }
 
-#viewprogress .achievements,
 #viewprogress .bands {
   margin: 0;
 }
 
-#viewprogress .bands dt,
-#viewprogress .achievements dt {
+#viewprogress .bands dt {
   font-size: var(--fs-body);
   font-weight: 600;
   margin-top: .6rem;
 }
 
-#viewprogress .bands dt:first-child,
-#viewprogress .achievements dt:first-child {
+#viewprogress .bands dt:first-child {
   margin-top: 0;
 }
 
-#viewprogress .bands dd,
-#viewprogress .achievements dd {
+#viewprogress .bands dd {
   margin: 0;
   font-size: var(--fs-ui);
   color: var(--muted);
@@ -1908,8 +1904,51 @@ pre {
   display: block;
 }
 
+/* The collection's tiles, with the bar in the colour of an earned achievement. */
+#viewprogress .achievements {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: .5rem;
+  margin: .5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+#viewprogress .achievements li {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  padding: .5rem .6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  background: var(--card);
+}
+
+#viewprogress .achievements .earned {
+  border-bottom: 3px solid var(--ok);
+}
+
 #viewprogress .achievements .locked {
   opacity: .68;
+}
+
+#viewprogress .achievements .name {
+  font-size: var(--fs-ui);
+}
+
+#viewprogress .achievements .what,
+#viewprogress .achievements .when {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+#viewprogress .achievements .when {
+  margin-top: auto;
+  padding-top: .2rem;
+}
+
+#viewprogress .achievements .gauge {
+  margin: .2rem 0 0;
 }
 
 #viewprogress .help {

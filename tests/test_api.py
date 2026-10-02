@@ -1993,7 +1993,8 @@ def test_a_verification_leaves_evidence_and_no_xp():
         _verdict("verif-tp2", "a" * 32, {"status": "ok", "passed": 3, "total": 3})
         first = c.get("/r/" + "a" * 32)
         assert first.status_code == 200
-        assert first.json()["unlocked"] == ["premiere-verification"], first.json()
+        assert first.json()["unlocked"] == [
+            "premiere-verification", "premiere-competence-verifiee"], first.json()
         again = c.get("/r/" + "a" * 32)
         assert again.status_code == 200 and "unlocked" not in again.json(), again.json()
         assert not base.xp, base.xp
@@ -2007,8 +2008,22 @@ def test_a_verification_leaves_evidence_and_no_xp():
         assert {c_["id"]: c_["band"] for c_ in view["mastery"]["skills"]} == {
             "variables": "verifie"}
         assert view["exercises"]["total"] == len(CONTENT) - 1, view["exercises"]
-        assert [s["id"] for s in view["achievements"]
-                if s["unlocked_at"]] == ["premiere-verification"]
+        assert [s["id"] for s in view["achievements"] if s["unlocked_at"]] == [
+            "premiere-verification", "premiere-competence-verifiee"], view["achievements"]
+
+
+def test_a_failed_practice_still_counts_and_solving_names_the_mode():
+    with context(tokens={"alice": "sub-alice"}) as (c, base, _tmp):
+        _verdict("tp5-mod", "f" * 32, {"status": "ok", "passed": 1, "total": 3})
+        first = c.get("/r/" + "f" * 32).json()
+        # Practicing a skill needs no solve, as its wording says.
+        assert first.get("unlocked") == ["premier-test", "premiere-competence"], first
+        _verdict("tp5-mod", "c" * 32, {"status": "ok", "passed": 3, "total": 3})
+        second = c.get("/r/" + "c" * 32).json()
+        unlocked = second["unlocked"]
+        assert {"premiere-reussite", "premiere-fonction",
+                "premier-intermediaire"} <= set(unlocked), unlocked
+        assert not {"premier-test", "premiere-competence", "premier-programme"} & set(unlocked)
 
 
 def test_a_failed_verification_reads_as_to_consolidate():

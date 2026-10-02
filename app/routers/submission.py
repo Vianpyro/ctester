@@ -151,4 +151,4 @@ def _record(owner, exercise_id, job_id, result):
         return progress.record_verification(owner, entry, job_id, solved)
     if solved:
         return progress.reward(owner, entry, job_id)
-    return []
+    return progress.practice(owner, job_id)

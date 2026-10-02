@@ -1,8 +1,14 @@
 import policy
 import state
-from services.catalog import open_exercises, published_cards
+from services.catalog import open_collections, open_exercises, published_cards
 
 MAX_SKILLS = 40
+
+# Long enough to count every practice day a student ever had.
+ALL_DAYS = 3650
+
+# A solve that took this many tests counts as perseverance.
+PERSEVERED_AFTER = 5
 
 VERIFICATION = "VerificationEvaluated"
 
@@ -77,6 +83,20 @@ def latest_attempts(evidences):
     return last
 
 
+def comebacks(evidences):
+    """Verifications passed after a failed attempt. Evidences come newest first."""
+    passed, back = set(), set()
+    for row in evidences or ():
+        exercise = (row or {}).get("exercise_id")
+        if not exercise:
+            continue
+        if ((row or {}).get("payload") or {}).get("passed"):
+            passed.add(exercise)
+        elif exercise in passed:
+            back.add(exercise)
+    return back
+
+
 def solved_verifications(evidences):
     return {(row or {})["exercise_id"] for row in evidences or ()
             if (row or {}).get("exercise_id")
@@ -107,19 +127,56 @@ def progression_facts(user):
     states = state.read_states(user)
     practice = state.read_practice_summary(user)
     evidences = state.read_events(user, VERIFICATION)
-    if states is None or practice is None or evidences is None:
+    days = state.read_practice_days(user, ALL_DAYS)
+    if states is None or practice is None or evidences is None or days is None:
         return None
-    return count_facts(open_exercises(), states, practice, evidences)
+    return count_facts(open_exercises(), states, practice, evidences, len(days),
+                       open_collections(), published_cards())
 
 
-def count_facts(entries, states, practice, evidences):
+def count_facts(entries, states, practice, evidences, days=0, collections=(), cards=()):
+    """Every fact an achievement can count, named by its "on". All generic: no id is named."""
     exercises = practice_exercises(entries)
     touched, solved = exercise_facts(states, practice)
     published = {e["id"] for e in exercises}
+    done = [e for e in exercises if e["id"] in solved]
     verifiable = {e["id"] for e in verifications(entries)}
-    return {"solved": len(solved & published),
-            "skills": len(practised_skills(exercises, touched)),
-            "verifications": len(solved_verifications(evidences) & verifiable)}
+    opened = {e["id"] for e in entries}
+    attempts = {row.get("exercise_id"): int(row.get("attempts") or 0) for row in practice or ()}
+    labs = [published.intersection(c.get("items") or ()) for c in collections or ()]
+    return {
+        "practiced": len(touched & published),
+        "solved": len(done),
+        "complete": int(bool(published) and published <= solved),
+        "labs": sum(1 for items in labs if items and items <= solved),
+        "solved_io": sum(1 for e in done if e.get("mode") == "io"),
+        "solved_unity": sum(1 for e in done if e.get("mode") == "unity"),
+        "solved_quiz": sum(1 for e in done if e.get("mode") == "quiz"),
+        "solved_intermediate": sum(1 for e in done if e.get("difficulty") == "intermediate"),
+        "solved_advanced": sum(1 for e in done if e.get("difficulty") == "advanced"),
+        "solved_bonus": sum(1 for e in done if e.get("bonus")),
+        "skills": len(practised_skills(exercises, touched)),
+        "verifications": len(solved_verifications(evidences) & verifiable),
+        "skills_verified": sum(1 for row in mastery_view(entries, evidences)
+                               if row["band"] == "verifie"),
+        "comebacks": len(comebacks(evidences) & verifiable),
+        "persevered": sum(1 for e in done if attempts.get(e["id"], 0) >= PERSEVERED_AFTER),
+        "tests": sum(n for exercise, n in attempts.items() if exercise in opened),
+        "days": int(days or 0),
+        "cards": len(policy.cards_earned(solved & opened, cards)),
+    }
+
+
+def ceilings(entries, collections=(), cards=()):
+    """The most each fact can reach with what is published: what no one can earn is hidden."""
+    plenty = 10 ** 6
+    ids = [e["id"] for e in entries]
+    evidences = [row for e in verifications(entries) for row in (
+        {"exercise_id": e["id"], "payload": {"passed": True}},
+        {"exercise_id": e["id"], "payload": {"passed": False}})]
+    return count_facts(entries, [{"exercise_id": i, "status": "solved"} for i in ids],
+                       [{"exercise_id": i, "attempts": plenty, "successes": 1} for i in ids],
+                       evidences, plenty, collections, cards)
 
 
 def reward(user, entry, job_id):
@@ -131,8 +188,13 @@ def reward(user, entry, job_id):
         {"job": job_id, "difficulty": entry.get("difficulty") or ""},
         policy.daily_cap())
     if granted is None:
-        return []
+        return practice(user, job_id)
     return _unlock(user, event_id)
+
+
+def practice(user, job_id):
+    # Tests and practice days count even when nothing is solved.
+    return _unlock(user, "practice:" + job_id)
 
 
 def record_verification(user, entry, job_id, solved):
@@ -183,17 +245,18 @@ def collection_view(unlocked, rates, cohort):
     return views
 
 
-def achievements_view(unlocked, counts):
-    """Every achievement of the policy, earned or not, with how far the student is."""
+def achievements_view(unlocked, counts, ceiling):
+    """Every achievement earned, or still within reach of the published content."""
     when = {row["id"]: row["unlocked_at"] for row in unlocked or ()}
     return [{"id": a["id"], "unlocked_at": when.get(a["id"]),
              "count": min(counts.get(a["on"], 0), a["threshold"]),
              "threshold": a["threshold"]}
-            for a in policy.POLICY["achievements"]]
+            for a in policy.POLICY["achievements"]
+            if a["id"] in when or ceiling.get(a["on"], 0) >= a["threshold"]]
 
 
 def progress_payload(entries, facts, states, practice, evidences,
-                     practice_days=None):
+                     practice_days=None, days=0, collections=(), cards=()):
     touched, solved = exercise_facts(states, practice)
     exercises = practice_exercises(entries)
     return {
@@ -211,7 +274,9 @@ def progress_payload(entries, facts, states, practice, evidences,
             "skills": mastery_view(entries, evidences),
         },
         "achievements": achievements_view(
-            facts["achievements"], count_facts(entries, states, practice, evidences)),
+            facts["achievements"],
+            count_facts(entries, states, practice, evidences, days, collections, cards),
+            ceilings(entries, collections, cards)),
         "cards": sum(1 for row in facts["achievements"]
                      if row["id"] in policy.cards_by_key(published_cards())),
         "next": recommend(exercises, touched, solved),

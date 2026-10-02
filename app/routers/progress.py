@@ -4,7 +4,7 @@ import state
 from deps import Sub
 from fastapi import APIRouter
 from services import progress
-from services.catalog import open_exercises
+from services.catalog import open_collections, open_exercises, published_cards
 
 router = APIRouter(tags=["progress"])
 
@@ -18,11 +18,13 @@ def get_progress(sub: Sub):
     practice = state.read_practice_summary(sub)
     evidences = state.read_events(sub, progress.VERIFICATION)
     days = state.read_practice_days(sub, CALENDAR_DAYS)
+    every_day = state.read_practice_days(sub, progress.ALL_DAYS)
     if (facts is None or statuses is None or practice is None
-            or evidences is None or days is None):
+            or evidences is None or days is None or every_day is None):
         return headers.error(503, "db_down")
     return progress.progress_payload(open_exercises(), facts,
-                                     statuses, practice, evidences, days)
+                                     statuses, practice, evidences, days,
+                                     len(every_day), open_collections(), published_cards())
 
 
 @router.get("/collection")
