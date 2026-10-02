@@ -1686,7 +1686,8 @@ def test_progress_publishes_nothing_secret():
     assert [s["id"] for s in earned] == ["premiere-reussite"]
     by_id = {s["id"]: s for s in payload["achievements"]}
     assert by_id["trois-competences"] == {"id": "trois-competences", "name": "N",
-                                          "description": "D", "unlocked_at": None,
+                                          "description": "D", "on": "skills",
+                                          "unlocked_at": None,
                                           "count": 1, "threshold": 3}
     # Four exercises are published: five solves cannot happen, so the page is not told of it.
     assert "cinq-reussites" not in by_id and "premiere-verification" not in by_id
@@ -1759,6 +1760,68 @@ def test_discover_reads_achievements_in_ladder_order():
         assert [a["id"] for a in public["achievements"]] == ["une", "cinq", "dix-tests"]
     finally:
         shutil.rmtree(root)
+
+
+def test_the_line_colours_are_the_ones_the_page_draws():
+    css = read_file(os.path.join(ROOT, "frontend", "src", "app.css"))
+    drawn = re.findall(r"--metro-([a-z]+):", css)
+    assert drawn == list(content_catalogue.LINE_COLORS), drawn
+    metro = read_file(os.path.join(ROOT, "frontend", "src", "lib", "domain", "metro.ts"))
+    assert str(list(content_catalogue.LINE_COLORS)).replace("'", '"') in metro
+    format_md = read_file(os.path.join(ROOT, "docs", "content", "format.md"))
+    for colour in content_catalogue.LINE_COLORS:
+        assert "`%s`" % colour in format_md, colour
+
+
+def test_discover_publishes_the_map_lines_in_fact_order():
+    root = tempfile.mkdtemp(prefix="ctester-content-")
+    try:
+        _minimal_valid_content(root)
+        _write_json(os.path.join(root, "achievements.json"), {
+            "schema_version": 1,
+            "lines": [{"on": "tests", "name": "Tests"},
+                      {"on": "solved", "name": "Réussites", "color": "orange"}],
+            "achievements": [
+                {"id": "une", "name": "N", "description": "D", "on": "solved", "threshold": 1},
+                {"id": "dix", "name": "N", "description": "D", "on": "tests", "threshold": 10}]})
+        model = content_catalogue.discover(root)
+        assert model["achievement_lines"] == [
+            {"on": "solved", "name": "Réussites", "color": "orange"},
+            {"on": "tests", "name": "Tests", "color": None}], model["achievement_lines"]
+        public = content_catalogue.public_catalogue(model)
+        assert [line["on"] for line in public["achievement_lines"]] == ["solved", "tests"]
+    finally:
+        shutil.rmtree(root)
+
+
+def test_discover_rejects_each_map_defect():
+    one = {"id": "une", "name": "N", "description": "D", "on": "solved", "threshold": 1}
+    line = {"on": "solved", "name": "Réussites"}
+
+    def write(lines, achievements=(one,)):
+        return lambda r: _write_json(os.path.join(r, "achievements.json"), {
+            "schema_version": 1, "lines": lines, "achievements": list(achievements)})
+
+    cases = [
+        (write("solved"), "lines must be a list"),
+        (write(["x"]), "must be an object"),
+        (write([dict(line, on="xp")]), "on must be one of"),
+        (write([dict(line, name=" ")]), "missing name"),
+        (write([dict(line, color="mauve")]), "color must be one of"),
+        (write([line, line]), "duplicate line"),
+        (write([line], [one, dict(one, id="dix", on="tests", threshold=10)]),
+         "no line draws it"),
+        (write([line, {"on": "days", "name": "Jours"}]), "has no achievement"),
+    ]
+    for mutate, expected in cases:
+        root = tempfile.mkdtemp(prefix="ctester-content-")
+        try:
+            _minimal_valid_content(root)
+            mutate(root)
+            message = _discover_error(root)
+            assert expected in message, (expected, message)
+        finally:
+            shutil.rmtree(root)
 
 
 def test_discover_rejects_each_achievement_defect():

@@ -71,6 +71,13 @@ def published_achievements():
             if isinstance(item, dict) and isinstance(item.get("id"), str)]
 
 
+def published_achievement_lines():
+    """The map's lines, in the order of the facts; empty when the content draws no map."""
+    found = (load_catalog() or {}).get("achievement_lines")
+    return [line for line in found or ()
+            if isinstance(line, dict) and isinstance(line.get("on"), str)]
+
+
 def published_cards():
     """The collection's table, authored by the content base next to its exercises."""
     cards = (load_catalog() or {}).get("cards")

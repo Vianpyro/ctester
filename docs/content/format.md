@@ -359,6 +359,25 @@ cannot reach (`solved` 100 with 40 exercises) is hidden until it can, unless alr
 Ids are lower case, digits and hyphens, and are stored against the accounts that earned them:
 like card ids, they must never change.
 
+### The map
+
+With `lines`, the collection draws the achievements as a metro map instead of a list: one line
+per fact, its stations being that fact's achievements in threshold order.
+
+```json
+{"schema_version": 1,
+ "lines": [{"on": "solved", "name": "Réussites", "color": "orange"}],
+ "achievements": [ ... ]}
+```
+
+`name` is shown at the line's start. `color` is optional and is one of `red`, `orange`,
+`yellow`, `green`, `teal`, `blue`, `purple` or `pink`; without it the page picks the next one.
+Every fact your achievements count needs a line, and a line needs at least one achievement.
+
+You place nothing: the page lays the lines out on a grid, turning at right angles and keeping
+a gap between them, and fits the width of the screen. The layout is computed from the content
+itself, so a student finds the same map on every visit until the content changes.
+
 ## What the engine defines, and what you do
 
 | The engine fixes | You choose |

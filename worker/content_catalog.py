@@ -25,6 +25,8 @@ ACHIEVEMENT_FACTS = (
     "solved_intermediate", "solved_advanced", "solved_bonus", "skills", "verifications",
     "skills_verified", "comebacks", "persevered", "tests", "days", "cards",
 )
+# The map's line colours: the page draws them (app.css --metro-<colour>); a test binds the two.
+LINE_COLORS = ("red", "orange", "yellow", "green", "teal", "blue", "purple", "pink")
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 MODES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))
 # The judge reads an unknown type as "int" and says so to the student, so the only
@@ -623,21 +625,49 @@ def _cards(root, prefix, errors):
     return cards
 
 
+def _lines(data, where, errors):
+    """The map's lines: one per fact, named by the content. Placement is the page's."""
+    entries = data.get("lines", [])
+    if not isinstance(entries, list):
+        errors.append("%s: lines must be a list" % where)
+        return []
+    found = []
+    for index, line in enumerate(entries):
+        place = "%s: line %d" % (where, index + 1)
+        if not isinstance(line, dict):
+            errors.append("%s: must be an object" % place)
+            continue
+        if line.get("on") not in ACHIEVEMENT_FACTS:
+            errors.append("%s: on must be one of %s" % (place, ", ".join(ACHIEVEMENT_FACTS)))
+            continue
+        place = "%s: line %s" % (where, line["on"])
+        if not isinstance(line.get("name"), str) or not line["name"].strip():
+            errors.append("%s: missing name" % place)
+            continue
+        color = line.get("color")
+        if color is not None and color not in LINE_COLORS:
+            errors.append("%s: color must be one of %s" % (place, ", ".join(LINE_COLORS)))
+            continue
+        found.append({"on": line["on"], "name": line["name"], "color": color})
+    return found
+
+
 def _achievements(root, prefix, errors):
     """achievements.json is optional: without it the content offers no achievement."""
     path = os.path.join(root, "achievements.json")
     if not os.path.isfile(path):
-        return []
+        return [], []
     data = _json(path, errors)
     if data is None:
-        return []
+        return [], []
     where = prefix + "achievements.json"
     if data.get("schema_version") != SCHEMA_VERSION:
         errors.append("%s: expected schema_version %s" % (where, SCHEMA_VERSION))
+    lines = _lines(data, where, errors)
     entries = data.get("achievements", [])
     if not isinstance(entries, list):
         errors.append("%s: achievements must be a list" % where)
-        return []
+        return [], lines
     found = []
     for index, item in enumerate(entries):
         place = "%s: achievement %d" % (where, index + 1)
@@ -662,7 +692,7 @@ def _achievements(root, prefix, errors):
         found.append({"id": ident, "name": item.get("name", ""),
                       "description": item.get("description", ""),
                       "on": item["on"], "threshold": threshold})
-    return found
+    return found, lines
 
 
 def _catalog_skills(root, prefix, errors):
@@ -799,15 +829,31 @@ def discover(root):
             card_from[card["id"]] = _label(one)
 
     achievements, achievement_from = {}, {}
+    lines, line_from = {}, {}
     for one in roots:
         prefix = prefixes[os.fspath(one)]
-        for item in _achievements(one, prefix, errors):
+        found, drawn = _achievements(one, prefix, errors)
+        for item in found:
             if item["id"] in achievements:
                 errors.append("%sduplicate achievement id: %s (already in %s)"
                               % (prefix, item["id"], achievement_from[item["id"]]))
                 continue
             achievements[item["id"]] = item
             achievement_from[item["id"]] = _label(one)
+        for line in drawn:
+            if line["on"] in lines:
+                errors.append("%sduplicate line: %s (already in %s)"
+                              % (prefix, line["on"], line_from[line["on"]]))
+                continue
+            lines[line["on"]] = line
+            line_from[line["on"]] = _label(one)
+    # A map is all or nothing: a fact without a line would leave stations nowhere to go.
+    if lines:
+        used = {item["on"] for item in achievements.values()}
+        for fact in sorted(used - set(lines)):
+            errors.append("achievements.json: achievements count %r but no line draws it" % fact)
+        for fact in sorted(set(lines) - used):
+            errors.append("achievements.json: line %r has no achievement" % fact)
 
     owner = {}
     for entry in assignments.values():
@@ -839,7 +885,8 @@ def discover(root):
             "achievements": dict(sorted(
                 achievements.items(),
                 key=lambda pair: (ACHIEVEMENT_FACTS.index(pair[1]["on"]),
-                                  pair[1]["threshold"], pair[0])))}
+                                  pair[1]["threshold"], pair[0]))),
+            "achievement_lines": [lines[fact] for fact in ACHIEVEMENT_FACTS if fact in lines]}
 
 
 def public_catalogue(model, now=None):
@@ -876,7 +923,8 @@ def public_catalogue(model, now=None):
                             for entry in model.get("assignments", {}).values()],
             "cards": [dict(card) for card in model.get("cards", {}).values()],
             "achievements": [dict(item)
-                             for item in model.get("achievements", {}).values()]}
+                             for item in model.get("achievements", {}).values()],
+            "achievement_lines": [dict(line) for line in model.get("achievement_lines", [])]}
 
 
 def _public_assignment(entry, now=None):

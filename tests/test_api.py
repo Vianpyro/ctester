@@ -2540,6 +2540,8 @@ def test_looking_catches_up_on_what_was_reached_without_a_verdict():
         collection = c.get("/collection", headers=auth("alice")).json()
         assert "unlocked" not in collection, collection
         assert [(card["held"], card["progress"]) for card in collection["cards"]] == [(True, 1)]
+        assert collection["lines"] == [], collection["lines"]
+        assert all(a["on"] for a in collection["achievements"]), collection["achievements"]
         earned = {a["id"]: a for a in collection["achievements"] if a["unlocked_at"]}
         assert earned["premiere-reussite"]["name"] == "premiere-reussite", earned
         assert "rarity" in earned["premiere-reussite"]

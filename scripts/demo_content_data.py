@@ -291,6 +291,19 @@ ACHIEVEMENTS = [
      "on": "cards", "threshold": 1},
 ]
 
+# The map's lines, one per fact the achievements above count; the page places them.
+ACHIEVEMENT_LINES = [
+    {"on": "practiced", "name": "Pratique", "color": "yellow"},
+    {"on": "solved", "name": "Réussites", "color": "orange"},
+    {"on": "complete", "name": "Tout réussi", "color": "red"},
+    {"on": "solved_quiz", "name": "Quiz", "color": "pink"},
+    {"on": "skills", "name": "Compétences", "color": "green"},
+    {"on": "persevered", "name": "Persévérance", "color": "pink"},
+    {"on": "tests", "name": "Tests", "color": "teal"},
+    {"on": "days", "name": "Jours de pratique", "color": "blue"},
+    {"on": "cards", "name": "Cartes", "color": "red"},
+]
+
 QUIZ_ASKED = ("Réponds aux quatre questions ci-dessous. Elles portent sur les types "
               "et sur les conditions vues dans les deux premiers exercices.")
 

@@ -217,6 +217,8 @@ export interface Achievement {
   id: string;
   name: string;
   description: string;
+  /** The fact it counts, which is also the map line it sits on. */
+  on: string;
   unlocked_at: string | null;
   count: number;
   threshold: number;
@@ -228,6 +230,8 @@ export interface CollectionPayload {
   policy: string;
   unlocked?: string[];
   achievements: Achievement[];
+  /** The map's lines; empty when the content draws no map. */
+  lines?: { on: string; name: string; color?: string | null }[];
   cards: Card[];
   cohort: boolean;
 }

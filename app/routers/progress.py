@@ -4,8 +4,8 @@ import state
 from deps import Sub
 from fastapi import APIRouter
 from services import progress
-from services.catalog import (open_collections, open_exercises, published_achievements,
-                              published_cards)
+from services.catalog import (open_collections, open_exercises, published_achievement_lines,
+                              published_achievements, published_cards)
 
 router = APIRouter(tags=["progress"])
 
@@ -49,4 +49,5 @@ def collection(sub: Sub):
                            "cards": progress.collection_view(facts["achievements"], rates,
                                                              cohort, solved),
                            "achievements": progress.with_rarity(achievements, rates, cohort),
+                           "lines": published_achievement_lines(),
                            "cohort": cohort}, fresh)

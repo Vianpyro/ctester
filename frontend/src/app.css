@@ -39,6 +39,16 @@
   --tier-2: #8847ff;
   --tier-3: #d32ce6;
   --tier-4: #eb4b4b;
+  /* The map's line colours, named by the content (LINE_COLORS in the worker). Strokes and
+     fills only, so one set serves both themes. */
+  --metro-red: #e0263b;
+  --metro-orange: #f27a1a;
+  --metro-yellow: #f2b10f;
+  --metro-green: #22b06a;
+  --metro-teal: #13b3a3;
+  --metro-blue: #1ea5dc;
+  --metro-purple: #8e5cc7;
+  --metro-pink: #de4f98;
 }
 
 :root[data-theme="light"] {
@@ -1951,7 +1961,8 @@ pre {
   padding-top: .2rem;
 }
 
-.achievements .meter {
+.achievements .meter,
+.metrodetail .meter {
   display: block;
   height: 6px;
   margin-top: .2rem;
@@ -1960,7 +1971,8 @@ pre {
   overflow: hidden;
 }
 
-.achievements .meter i {
+.achievements .meter i,
+.metrodetail .meter i {
   display: block;
   height: 100%;
   background: var(--ok);
@@ -1968,6 +1980,175 @@ pre {
 
 #viewcollection .achievementstitle {
   margin-top: 1rem;
+}
+
+/* The map: tracks in an SVG behind, stations as buttons on top, on a faint checkerboard. */
+.metrowrap {
+  margin-top: .4rem;
+}
+
+.metro {
+  position: relative;
+  margin: 0 auto;
+  background:
+    conic-gradient(var(--panel) 25%, var(--card) 0 50%, var(--panel) 0 75%, var(--card) 0)
+    0 0 / 144px 144px;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+}
+
+.metro > svg {
+  position: absolute;
+  inset: 0;
+}
+
+.metro .track {
+  stroke: var(--line);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.metro .track.lit {
+  stroke: var(--c);
+}
+
+.metro .link {
+  stroke: var(--muted);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 0 8;
+}
+
+.metro .stop {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  min-height: 0;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: .3rem solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--line) 60%, #000);
+  cursor: pointer;
+}
+
+.metro .stop.earned {
+  border-color: var(--c);
+  background: #fff;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 65%, #000);
+}
+
+.metro .stop.next {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-color: var(--c);
+  background: #232a33;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 65%, #000);
+}
+
+.metro .stop.start,
+.metro .stop.flag {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: .6rem;
+}
+
+.metro .stop.start,
+.metro .stop.flag.earned {
+  border: .2rem solid color-mix(in srgb, var(--c) 70%, #fff);
+  background: var(--c);
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--c) 65%, #000);
+}
+
+.metro .stop svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.metro .stop svg .fill {
+  fill: #fff;
+  stroke: none;
+}
+
+.metro .stop.flag.locked svg {
+  stroke: var(--muted);
+}
+
+.metro .stop[aria-pressed="true"] {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
+
+.metro .stop:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.metro .linename {
+  position: absolute;
+  transform: translateX(-50%);
+  max-width: 7.5rem;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--fg);
+  pointer-events: none;
+}
+
+.metrodetail {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  max-width: 34rem;
+  min-height: 4.5rem;
+  margin-top: .6rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  background: var(--card);
+}
+
+.metrodetail .title {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.metrodetail .what,
+.metrodetail .when {
+  font-size: var(--fs-ui);
+  color: var(--muted);
+}
+
+.metrodetail .meter {
+  max-width: 14rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Only the next stations move: they are where the student goes from here. */
+  .metro .stop.next {
+    animation: station 2.6s ease-in-out infinite;
+  }
+
+  @keyframes station {
+    0%,
+    100% {
+      box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 65%, #000), 0 0 0 0 transparent;
+    }
+
+    50% {
+      box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 65%, #000),
+        0 0 0 .45rem color-mix(in srgb, var(--c) 28%, transparent);
+    }
+  }
 }
 
 #viewprogress .help {

@@ -270,7 +270,7 @@ def achievements_view(unlocked, counts, ceiling, achievements):
     """Every achievement earned, or still within reach of the published content."""
     when = {row["id"]: row["unlocked_at"] for row in unlocked or ()}
     return [{"id": a["id"], "name": a["name"], "description": a["description"],
-             "unlocked_at": when.get(a["id"]),
+             "on": a["on"], "unlocked_at": when.get(a["id"]),
              "count": min(counts.get(a["on"], 0), a["threshold"]),
              "threshold": a["threshold"]}
             for a in achievements or ()

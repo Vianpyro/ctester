@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { fetchCollection } from "../../lib/api/account";
   import { whenSignedOut } from "../../lib/auth/session.svelte";
+  import AchievementMap from "./AchievementMap.svelte";
   import CardArt from "./CardArt.svelte";
   import { tier } from "../../lib/domain/rarity";
   import { drops } from "../../lib/state/drops.svelte";
@@ -75,27 +76,31 @@
         total: payload.achievements.length,
       })}
     </p>
-    <ul class="achievements">
-      {#each payload.achievements as a (a.id)}
-        <!-- Only the collection measures rarity: elsewhere an earned tile keeps the plain bar. -->
-        <li
-          class={a.unlocked_at ? "earned" : "locked"}
-          data-tier={a.unlocked_at && a.rarity !== undefined ? tier(a.rarity) : undefined}
-        >
-          <span class="title">{a.name}</span>
-          <span class="what">{a.description}</span>
-          {#if a.unlocked_at}
-            <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
-          {:else}
-            <span class="when">
-              {t("progress.achievement_count", { count: a.count, threshold: a.threshold })}
-            </span>
-            <span class="meter" aria-hidden="true">
-              <i style={"width:" + Math.round((a.count / a.threshold) * 100) + "%"}></i>
-            </span>
-          {/if}
-        </li>
-      {/each}
-    </ul>
+    {#if payload.lines?.length}
+      <AchievementMap lines={payload.lines} achievements={payload.achievements} />
+    {:else}
+      <ul class="achievements">
+        {#each payload.achievements as a (a.id)}
+          <!-- Only the collection measures rarity: elsewhere an earned tile keeps the plain bar. -->
+          <li
+            class={a.unlocked_at ? "earned" : "locked"}
+            data-tier={a.unlocked_at && a.rarity !== undefined ? tier(a.rarity) : undefined}
+          >
+            <span class="title">{a.name}</span>
+            <span class="what">{a.description}</span>
+            {#if a.unlocked_at}
+              <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
+            {:else}
+              <span class="when">
+                {t("progress.achievement_count", { count: a.count, threshold: a.threshold })}
+              </span>
+              <span class="meter" aria-hidden="true">
+                <i style={"width:" + Math.round((a.count / a.threshold) * 100) + "%"}></i>
+              </span>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
   {/if}
 {/if}
