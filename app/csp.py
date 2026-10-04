@@ -1,4 +1,4 @@
-# Standard library only: test_ctester.py imports this on the host, without /deps.
+# Standard library only: test_ctester.py imports this through deploy/python.sh, without /deps.
 import re
 
 import config

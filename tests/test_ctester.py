@@ -694,15 +694,19 @@ def test_typst_the_cache_key_covers_everything_the_render_depends_on():
         _write_json(os.path.join(exercise, "assessment", "io.json"),
                     {"cases": [{"stdin": "9\n", "expect": [9]}]})
         assert typst_build.fingerprint(exercise, version="0.15.1") == after_image
-        theme = os.path.join(typst_build.LIB, "themes", "ctester-dark.tmTheme")
-        saved = read_file(theme)
+        # A copy, not the checkout: deploy/python.sh mounts the source read-only.
+        packages = os.path.join(root, "packages")
+        shutil.copytree(typst_build.PACKAGES, packages)
+        saved, typst_build.PACKAGES = typst_build.PACKAGES, packages
         try:
+            assert typst_build.fingerprint(exercise, version="0.15.1") == after_image
+            theme = os.path.join(packages, os.path.relpath(typst_build.LIB, saved),
+                                 "themes", "ctester-dark.tmTheme")
             with open(theme, "a", encoding="utf-8", newline="") as fh:
                 fh.write("\n<!-- x -->\n")
             assert typst_build.fingerprint(exercise, version="0.15.1") != after_image
         finally:
-            with open(theme, "w", encoding="utf-8", newline="") as fh:
-                fh.write(saved)
+            typst_build.PACKAGES = saved
         assert typst_build.fingerprint(exercise, version="0.15.1") == after_image
     finally:
         shutil.rmtree(root)

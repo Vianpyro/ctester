@@ -56,8 +56,11 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
 - **The spool holds only the API's inputs; the judge writes only to `results/`.** The judge reads the
   spool without following links and mounts nothing from it (mounts are staged in `CTESTER_WORK`).
   `results/` is root's and mounted read-only into web: the API reads verdicts, never writes one.
-- **Anything `test_ctester.py` imports must be standard-library only.** It runs with the host Python on
-  the Dell. The same goes for `csp.py`, `log.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
+- **Anything `test_ctester.py` imports must be standard-library only.** On the server it runs through
+  `deploy/python.sh`, in web's bare image without the deps volume and with the checkout read-only.
+  The same goes for `csp.py`, `log.py`, `services/source.py`, `worker/` and `bot/bridge.py`.
+- **The host runs no Python.** Every host-side Python call goes through `deploy/python.sh`, so
+  `CTESTER_WEB_IMAGE` alone sets the version.
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares
   them. No inline scripts. The page names no host: `vite.config.ts` fills `%API_ORIGIN%`,
   `%API_WS%`, `%AUTH_ORIGIN%`, `%TITLE%`, `%TAGLINE%` and `%LANG%` at build time from

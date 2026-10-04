@@ -1,6 +1,6 @@
 """Renders Typst statements to SVG and HTML at publish time, never per request.
 
-Standard library only: test_ctester.py imports it on the host.
+Standard library only: test_ctester.py imports it through deploy/python.sh, without /deps.
 """
 import hashlib
 import os
