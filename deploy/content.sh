@@ -48,7 +48,7 @@ if [ -n "$any_repo" ]; then
     head="$head$(date +%F)"
     # Access is frozen into catalog.json, so an opening that has passed needs a republish
     # even when no commit changed.
-    due=$(python3 -c 'import datetime as d, json, sys
+    due=$(sh "$dir/src/deploy/python.sh" -v "$published:$published:ro" -- python3 -c 'import datetime as d, json, sys
 try:
     n = json.load(open(sys.argv[1])).get("next_release")
 except (OSError, ValueError, AttributeError):
@@ -60,11 +60,23 @@ print("yes" if n and d.datetime.fromisoformat(n) <= d.datetime.now(d.timezone.ut
     fi
 fi
 
+# Each root is mounted at its own path, so CTESTER_CONTENT means the same thing inside.
+set --
+IFS='
+'
+for root in $roots; do
+    set -- "$@" -v "$root:$root:ro"
+done
+IFS=$old_ifs
+cache=${CTESTER_TYPST_CACHE:-$(dirname "$published")/typst-cache}
+mkdir -p "$cache"
+
 # One publish for every root: a bad commit in one repository blocks them all, so students
 # never see a half-updated catalogue.
-CTESTER_CONTENT="$content" CTESTER_PUBLISHED="$published" \
-PYTHONPATH="$dir/src/worker" PYTHONDONTWRITEBYTECODE=1 \
-    python3 -c 'import sys, publish_content; sys.exit(publish_content.service())'
+sh "$dir/src/deploy/python.sh" "$@" -v "$published:$published" -v "$cache:$cache" \
+    -e CTESTER_CONTENT="$content" -e CTESTER_PUBLISHED="$published" \
+    -e CTESTER_TYPST_CACHE="$cache" -e CTESTER_PREVIEW -e CTESTER_LANG \
+    -- python3 -c 'import sys, publish_content; sys.exit(publish_content.service())'
 
 if grep -rl answer "$published" 2>/dev/null; then
     echo "ctester: ALERT, an answer key reached the published release (files above)" >&2

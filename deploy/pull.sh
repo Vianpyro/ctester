@@ -36,7 +36,7 @@ if changed app admin bot requirements.txt deploy/compose.yml \
     full=1
 fi
 
-PYTHONDONTWRITEBYTECODE=1 python3 "$src/tests/test_ctester.py"
+sh "$src/deploy/python.sh" -- python3 /src/tests/test_ctester.py
 
 # The judge binary comes from CI for this exact commit; without it nothing is deployed.
 repo=${CTESTER_REPO:-Vianpyro/ctester}
