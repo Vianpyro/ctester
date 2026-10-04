@@ -8,6 +8,10 @@ which only adds gVisor, deploy keys, secrets and the PostgreSQL role.
 
 - The API container runs the stock `python:3.13-slim` image on read-only mounted code. The `deps`
   service installs `requirements.txt` into a volume whenever the file changes. There is no Dockerfile.
+- The host runs no Python of its own. `deploy/python.sh` runs `test_ctester.py` and the content
+  publication in that same image (`CTESTER_WEB_IMAGE`), without network, read-only, with the pinned
+  typst copied out of `CTESTER_TYPST_IMAGE` into the `ctester-typst` volume. One variable sets the
+  Python version everywhere.
 - The judge (`judge/`, Rust) is built by CI into the release `judge-<commit>`. `ctester-pull`
   installs it into `/opt/ctester/bin` after checking its SHA-256 and build attestation, and does not
   deploy a commit whose judge is not published yet.
@@ -43,7 +47,7 @@ when they break an invariant, such as `CTESTER_LOCK_STALE` outside `JOB_TIMEOUT`
 ## Deploying
 
 Requirements: Linux 5.6+ with systemd (the judge refuses to start without `openat2`), Docker with the
-gVisor runtime (`runsc`), Python 3, git, curl, and the GitHub CLI with a read-only `GH_TOKEN` in `.env`
+gVisor runtime (`runsc`), git, curl, and the GitHub CLI with a read-only `GH_TOKEN` in `.env`
 for `gh attestation verify`.
 
 ```text
@@ -169,9 +173,11 @@ CTESTER_DB_DSN=postgresql://ctester_app:y@127.0.0.1:55432/ctester python3 tests/
 docker stop pg
 ```
 
-- `tests/test_ctester.py` also runs on the Dell with the host Python, which has no third-party packages.
-  Anything it imports must stay standard-library only, or the automatic deployment stops on an
-  `ImportError`.
+- `tests/test_ctester.py` also runs on the server through `deploy/python.sh`: the bare image, without
+  the `deps` volume, with the checkout mounted read-only. Anything it imports must stay
+  standard-library only and must not write into the checkout, or the automatic deployment stops.
+- On a development machine, the Python tools need the same version as `CTESTER_WEB_IMAGE`. Any of
+  them also runs through the wrapper: `sh deploy/python.sh -- python3 /src/tests/test_ctester.py`.
 
 ## Content
 
@@ -289,7 +295,7 @@ ls /opt/ctester/spool                            # empty when idle
 ls /opt/ctester/results                          # verdicts, swept after CTESTER_SWEEP_AFTER
 cat /opt/ctester/published/current.json          # served revision
 grep -rl answer /opt/ctester/published/          # must print nothing
-python3 /opt/ctester/src/tests/test_ctester.py
+sh /opt/ctester/src/deploy/python.sh -- python3 /src/tests/test_ctester.py
 ```
 
 Verdict cache activity is logged by the workers:
