@@ -17,9 +17,11 @@ async function afterVerdict(): Promise<void> {
 
 // Kept out of ActionBar: the workspace stays mounted (hidden) while other views are open.
 export async function runTest(scoped: boolean): Promise<void> {
+  // A second click while a test is out would abandon it and queue the same code again.
+  if (submission.busy) return;
   const here = catalog.selected;
   if (!here) {
-    system.say(t("run.pick_exercise"));
+    submission.say(t("run.pick_exercise"));
     return;
   }
   if (!sessionKey()) {
@@ -29,7 +31,7 @@ export async function runTest(scoped: boolean): Promise<void> {
   if (here.mode === "quiz") {
     const answers = { ...quiz.answers };
     if (!Object.values(answers).some(answered)) {
-      system.say(t("run.no_answer"));
+      submission.say(t("run.no_answer"));
       return;
     }
     quiz.snapshot();
@@ -38,7 +40,7 @@ export async function runTest(scoped: boolean): Promise<void> {
   }
   const files = { ...editor.sources };
   if (!Object.values(files).some((v) => v.trim())) {
-    system.say(t("run.empty"));
+    submission.say(t("run.empty"));
     return;
   }
   await submission.submit(here, sessionKey(), { files }, null, afterVerdict);

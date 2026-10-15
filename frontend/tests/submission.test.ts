@@ -111,28 +111,45 @@ describe("a submission that lands", () => {
 });
 
 describe("a submission that does not", () => {
-  it("puts a quota in the service channel and counts it down on the button", async () => {
+  it("puts a quota beside the verdict and counts it down on the button", async () => {
     accepted = [{ status: 429, body: { error: "trop de soumissions", retry_after: 8 } }];
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     expect(submission.phase).toEqual({ kind: "cooldown", seconds: 8 });
     expect(submission.busy).toBe(true);
-    expect(system.failed).toBe(false);
-    expect(system.text).toMatch(/ton code est enregistré/);
+    expect(submission.note?.kind).toBe("info");
+    expect(submission.note?.text).toMatch(/ton code est enregistré/);
     submission.reset();
+    expect(submission.note).toBeNull();
   });
 
   it("says the server is unreachable and goes idle rather than freezing on `Envoi…`", async () => {
     vi.stubGlobal("fetch", () => Promise.reject(new Error("hors ligne")));
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     expect(submission.phase.kind).toBe("idle");
-    expect(system.failed).toBe(true);
-    expect(system.text).toMatch(/enregistré/);
+    expect(submission.note?.kind).toBe("fault");
+    expect(submission.note?.text).toMatch(/enregistré/);
+  });
+
+  it("never says it in the page banner, where it would sit far from the Test button", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("hors ligne")));
+    await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
+    expect(system.text).toBe("");
+  });
+
+  it("forgets the fault as soon as the next test leaves", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("hors ligne")));
+    await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
+    expect(submission.note).not.toBeNull();
+    vi.stubGlobal("fetch", fakeFetch);
+    queue("t", { status: 200, body: OK });
+    await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
+    expect(submission.note).toBeNull();
   });
 
   it("reuses the API's own refusal message", async () => {
     accepted = [{ status: 400, body: { error: "TP inconnu" } }];
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
-    expect(system.text).toBe("TP inconnu");
+    expect(submission.note).toEqual({ kind: "fault", text: "TP inconnu" });
     expect(submission.phase.kind).toBe("idle");
   });
 
@@ -140,8 +157,8 @@ describe("a submission that does not", () => {
     queue("g", { status: 404, body: { state: "gone" } });
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     expect(submission.phase.kind).toBe("lost");
-    expect(system.failed).toBe(true);
-    expect(system.text).toMatch(/relance simplement le test/);
+    expect(submission.note?.kind).toBe("fault");
+    expect(submission.note?.text).toMatch(/relance simplement le test/);
   });
 
   it("keeps a judge failure out of the verdict channel entirely", async () => {
@@ -151,8 +168,8 @@ describe("a submission that does not", () => {
     });
     await submission.submit(EXERCISE, KEY, { files: uniqueCode() }, null, noop);
     expect(submission.phase.kind).toBe("idle");
-    expect(system.failed).toBe(true);
-    expect(system.text).toMatch(/Ton code est enregistré/);
+    expect(submission.note?.kind).toBe("fault");
+    expect(submission.note?.text).toMatch(/Ton code est enregistré/);
   });
 });
 
@@ -244,7 +261,7 @@ describe("do not ask again for what was just asked", () => {
     await submission.submit(EXERCISE, KEY, { files }, null, noop);
     expect(submits()).toHaveLength(1);
     expect(submission.phase.kind).toBe("done");
-    expect(system.text).toMatch(/Même code que ta dernière soumission/);
+    expect(submission.note?.text).toMatch(/Même code que ta dernière soumission/);
   });
 
   it("sends anyway on the second click", async () => {
@@ -275,7 +292,7 @@ describe("do not ask again for what was just asked", () => {
     const space = { "submission.c": files["submission.c"] + "   " };
     await submission.submit(EXERCISE, KEY, { files: space }, null, noop);
     expect(submits()).toHaveLength(1);
-    expect(system.text).toMatch(/Même code que ta dernière soumission/);
+    expect(submission.note?.text).toMatch(/Même code que ta dernière soumission/);
   });
 
   it("but a real extra line is", async () => {

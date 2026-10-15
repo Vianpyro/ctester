@@ -47,11 +47,16 @@
   const frames = $derived(held?.frames ?? []);
 
   const assignments = $derived(catalog.assignments.filter((a) => a && a.team));
+
+  let title: HTMLHeadingElement | undefined = $state();
+  $effect(() => {
+    if (bar.identityOpen) title?.focus();
+  });
 </script>
 
-<div id="identitypanel" use:barPanel hidden={!bar.identityOpen}>
+<div id="identitypanel" role="dialog" aria-labelledby="identitytitle" use:barPanel hidden={!bar.identityOpen}>
   <div>
-    <h2>{t("identity.title")}</h2>
+    <h2 id="identitytitle" tabindex="-1" bind:this={title}>{t("identity.title")}</h2>
     {#if identity.said}<p class="notice">{identity.said}</p>{/if}
 
     {#if !held}

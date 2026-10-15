@@ -18,6 +18,10 @@ export type Phase =
   | { kind: "cooldown"; seconds: number }
   | { kind: "lost" };
 
+// What the student is told about the attempt itself lives beside its verdict, not in the page
+// banner: a fault is the service failing, never a judgment on the code.
+export type Note = { text: string; kind: "fault" | "info" };
+
 // Most jobs finish in well under a second: a fixed 2 s step showed their verdict ~2 s late.
 // The judge only writes a file, so there is no event to wait on; polling fast early is cheap.
 const POLL_STEPS = [250, 250, 500, 500, 1000];
@@ -36,6 +40,8 @@ class SubmissionState {
   phase = $state<Phase>({ kind: "idle" });
 
   lastVerdict = $state<{ exercise: string; title: string } | null>(null);
+
+  note = $state<Note | null>(null);
 
   get busy(): boolean {
     const k = this.phase.kind;
@@ -58,7 +64,12 @@ class SubmissionState {
     this.#token++;
     if (this.#cooldownTimer) clearTimeout(this.#cooldownTimer);
     this.#cooldownTimer = null;
+    this.note = null;
     this.idle();
+  }
+
+  say(text: string, kind: Note["kind"] = "info"): void {
+    this.note = { text, kind };
   }
 
   #record(verdict: Verdict, scope: Scope | null, exercise: string): void {
@@ -81,13 +92,14 @@ class SubmissionState {
       // A second click resends: a test fixed since then can make the kept verdict wrong.
       this.#forcedResend = submissionKey;
       this.#record(held.verdict, scope, exercise.id);
-      system.say(t("submit.same_code"));
+      this.say(t("submit.same_code"));
       return;
     }
     this.#forcedResend = null;
     const token = ++this.#token;
     this.#inFlight = { token, exercise: exercise.id, key: submissionKey };
     system.clear();
+    this.note = null;
     this.phase = { kind: "sending" };
     // /submit ignores an expired token instead of refusing it: the attempt would lose its owner.
     if (session.token) await ensureValid();
@@ -98,15 +110,12 @@ class SubmissionState {
       return;
     }
     if (answer.status === 0) {
-      system.say(t("submit.no_answer"), true);
+      this.say(t("submit.no_answer"), "fault");
       this.idle();
       return;
     }
     if (!answer.ok || !answer.body?.id) {
-      system.say(
-        serverMessage(answer.body) || t("submit.refused", { status: answer.status }),
-        true,
-      );
+      this.say(serverMessage(answer.body) || t("submit.refused", { status: answer.status }), "fault");
       this.idle();
       return;
     }
@@ -129,7 +138,7 @@ class SubmissionState {
       const verdict = body as Verdict;
       system.clear();
       if (isJudgeFailure(verdict)) {
-        system.say(verdictExplain(verdict) + t("submit.saved"), true);
+        this.say(verdictExplain(verdict) + t("submit.saved"), "fault");
         this.idle();
         return;
       }
@@ -146,7 +155,7 @@ class SubmissionState {
       return;
     }
     if (answer.status === 404 || attempt >= POLL_TRIES) {
-      system.say(t("submit.lost"), true);
+      this.say(t("submit.lost"), "fault");
       this.phase = { kind: "lost" };
       return;
     }
@@ -166,11 +175,11 @@ class SubmissionState {
     const tick = () => {
       if (remaining <= 0) {
         this.idle();
-        system.clear();
+        this.note = null;
         return;
       }
       this.phase = { kind: "cooldown", seconds: remaining };
-      system.say(t("submit.cooldown", { seconds: remaining }));
+      this.say(t("submit.cooldown", { seconds: remaining }));
       remaining--;
       this.#cooldownTimer = setTimeout(tick, 1000);
     };

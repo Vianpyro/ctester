@@ -150,10 +150,14 @@
     const stopBeating = presence.start();
     const stopListening = maintenance.start();
     whenSessionLost(() => system.say(t("app.session_lost"), true));
+    // Closing the tab within the autosave delay would lose the last keystrokes.
+    const keep = () => exercise.saveNow();
+    addEventListener("pagehide", keep);
     void start(params.get("tp") ?? "", authCode, authState);
     return () => {
       stopBeating();
       stopListening();
+      removeEventListener("pagehide", keep);
     };
   });
 
@@ -320,7 +324,13 @@
 />
 <ConsentPanel />
 {#if ShortcutsPanel}
-  <ShortcutsPanel open={helpOpen} onClose={() => (helpOpen = false)} />
+  <ShortcutsPanel
+    open={helpOpen}
+    onClose={() => {
+      helpOpen = false;
+      document.getElementById("shortcutsbutton")?.focus();
+    }}
+  />
 {/if}
 {#if IdentityPanel}
   <IdentityPanel />
@@ -347,7 +357,7 @@
     <div id="right">
       <div id="now" class="phead" aria-live="polite">
         {#if here}
-          <b>{here.label}</b>
+          <h2>{here.label}</h2>
           <span class="badge">{expectedOf(here.mode)}</span>
           {#if here.verification}
             <span class="badge verification">{t("app.verification")}</span>

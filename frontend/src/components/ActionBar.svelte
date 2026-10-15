@@ -71,7 +71,15 @@
   <span id="draft" class={drafts.exportFailed ? "failed" : ""} aria-live="polite"
     >{drafts.exportNote}</span
   >
-  <button type="button" id="purge" class="nav" hidden={!drafts.hasAny} onclick={() => drafts.clearAll()}>
+  <button
+    type="button"
+    id="purge"
+    class="nav"
+    hidden={!drafts.hasAny}
+    onclick={() => {
+      if (typeof confirm !== "function" || confirm(t("actions.clear_drafts_confirm"))) drafts.clearAll();
+    }}
+  >
     {t("actions.clear_drafts")}
   </button>
   <button

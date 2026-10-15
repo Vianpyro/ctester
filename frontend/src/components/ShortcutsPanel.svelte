@@ -25,8 +25,8 @@
   const cap = (name: string) => tOr("key." + name, name);
 </script>
 
-<div id="shortcuts" hidden={!open} use:barPanel>
-  <h2 bind:this={title} tabindex="-1">{t("shortcuts.title")}</h2>
+<div id="shortcuts" role="dialog" aria-labelledby="shortcutstitle" hidden={!open} use:barPanel>
+  <h2 id="shortcutstitle" bind:this={title} tabindex="-1">{t("shortcuts.title")}</h2>
   <p class="sub">{t("shortcuts.intro")}</p>
 
   {#each SECTIONS as section (section.title)}

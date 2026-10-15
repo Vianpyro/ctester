@@ -96,7 +96,10 @@ class Identity {
 
   close(): void {
     this.said = "";
+    const wasOpen = bar.identityOpen;
     bar.identityOpen = false;
+    // Whatever closed it, focus goes back to the account plate the panel was opened from.
+    if (wasOpen) document.getElementById("plate")?.focus();
   }
 
   forget(): void {

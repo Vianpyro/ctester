@@ -29,7 +29,11 @@
       );
       await away.finished.catch(() => {});
     }
+    // The panel never takes focus (it lands while the student types), but leaving it from
+    // inside must not drop focus on the page.
+    const inside = !!panel?.contains(document.activeElement);
     dismiss();
+    if (inside) document.getElementById("go")?.focus();
   }
 
   // Names, drawings and rarity are the content's, so they are fetched on arrival.
@@ -69,7 +73,16 @@
 </script>
 
 {#if items.length}
-  <aside class="drops" aria-labelledby="dropstitle" bind:this={panel}>
+  <aside
+    class="drops"
+    aria-labelledby="dropstitle"
+    bind:this={panel}
+    onkeydown={(e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      void close();
+    }}
+  >
     <h2 id="dropstitle">{t("drops.title")}</h2>
     <ul>
       {#each items as item, i (item.id)}
