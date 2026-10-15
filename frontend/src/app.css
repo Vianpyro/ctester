@@ -258,7 +258,7 @@ body {
   .chathead .wide, .chathead .close, #announcement .nav, #system .close, #system, .padlock,
   .verdict:is(.ok, .bad, .fault), #out .note, .suite .next, .suite .retry, .suite .help, .gcc > .nav,
   #identity, #leaderboard, #collection, #logout, #forget, #saving.saved, #saving.failed,
-  .typsthtml .copy)::before {
+  .typsthtml .copy, #out .fold)::before {
   content: "";
   flex: none;
   display: inline-block;
@@ -1457,8 +1457,10 @@ main {
   text-transform: none;
 }
 
+/* A zero basis: the editor takes what the bench has left instead of claiming the height of its
+   whole code, which squeezed the verdict sheet below it into a scrollbar. It scrolls already. */
 #editor {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -1971,10 +1973,10 @@ main {
   font-size: var(--fs-label);
 }
 
+/* The sheet takes the height it needs; it only scrolls once the editor is down to its minimum. */
 #out {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: min(46vh, 26rem);
   overflow-y: auto;
   padding: .9rem var(--gut) .95rem calc(var(--gut) - 3px);
   border-top: 1px solid var(--line);
@@ -1986,6 +1988,46 @@ main {
 
 #out:focus-visible {
   outline-offset: -3px;
+}
+
+/* Folding the sheet keeps what a glance needs: the judge's line, the headline, the ticks. */
+#out .fold {
+  float: right;
+  width: var(--tap);
+  min-width: var(--tap);
+  margin: -.35rem -.4rem .2rem .6rem;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+#out .fold:hover:not(:disabled) {
+  background: var(--card);
+}
+
+#out .fold::before {
+  mask-image: url(./icons/chevron-right.svg);
+  width: 1.25em;
+  height: 1.25em;
+  rotate: 90deg;
+  transition: rotate var(--t-3) var(--ease-spring);
+}
+
+#out[data-folded] .fold::before {
+  rotate: -90deg;
+}
+
+#out[data-folded] > :not(.fold, .steps, .howto, .verdict, .ticks, .bar) {
+  display: none;
+}
+
+#out[data-folded] .verdict {
+  margin-bottom: 0;
+}
+
+#out[data-folded] .ticks {
+  margin: .4rem 0 0;
 }
 
 /* The state colours the headline and the rail, never the whole sheet's text. */
@@ -3729,7 +3771,6 @@ pre {
   }
 
   #out {
-    max-height: min(40vh, 18rem);
     overflow-y: auto;
   }
 

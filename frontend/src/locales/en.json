@@ -116,6 +116,8 @@
   "verdict.open_next": "Open “{{name}}”",
   "verdict.discuss": "Talk about it in the discussions",
   "verdict.retry": "Run the test again",
+  "verdict.fold": "Collapse the result",
+  "verdict.unfold": "Show the whole result",
   "verdict.howto": "What “Test” checks",
   "verdict.howto_quiz.answer": "Answer",
   "verdict.howto_quiz.test": "Test the page",

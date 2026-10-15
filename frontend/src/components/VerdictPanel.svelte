@@ -7,6 +7,7 @@
   import { system } from "../lib/state/system.svelte";
   import { editor } from "../lib/state/editor.svelte";
   import { runTest } from "../lib/state/run";
+  import { localDrop, localGet, localSet } from "../lib/storage";
   import { t } from "../lib/i18n.svelte";
   import {
     OUTCOMES,
@@ -26,6 +27,17 @@
   import type { Verdict } from "../lib/api/types";
 
   let box: HTMLDivElement | undefined = $state();
+
+  // A student may fold the sheet to give the editor its room; the choice is kept, and read
+  // before the first paint so the bench never moves.
+  const FOLD = "ctester.verdict";
+  let folded = $state(localGet(FOLD) === "folded");
+
+  function setFolded(value: boolean) {
+    folded = value;
+    if (value) localSet(FOLD, "folded");
+    else localDrop(FOLD);
+  }
 
   const phase = $derived(submission.phase);
   const note = $derived(submission.note);
@@ -118,6 +130,11 @@
     await chat.toggleWide();
   }
 
+  // A test that leaves unfolds the sheet: its result is what the student is waiting for.
+  $effect(() => {
+    if (phase.kind === "sending" && folded) setFolded(false);
+  });
+
   let lastSeen = $state<unknown>(null);
   $effect(() => {
     if (phase.kind !== "done" || phase === lastSeen) return;
@@ -170,7 +187,16 @@
   });
 </script>
 
-<div bind:this={box} id="out" class={cls} tabindex="-1">
+<div bind:this={box} id="out" class={cls} tabindex="-1" data-folded={folded ? "true" : undefined}>
+  <button
+    type="button"
+    class="nav fold"
+    aria-expanded={!folded}
+    aria-controls="out"
+    aria-label={folded ? t("verdict.unfold") : t("verdict.fold")}
+    title={folded ? t("verdict.unfold") : t("verdict.fold")}
+    onclick={() => setFolded(!folded)}
+  ></button>
   {#if lintFirst}
     <p class="lintnote">
       <span>{t("verdict.lint_before", { count: editor.issues.length })}</span>

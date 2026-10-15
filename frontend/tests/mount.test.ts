@@ -614,6 +614,33 @@ describe("the critical journeys", () => {
     expect(localStorage.getItem("ctester.drafts")).toBeNull();
   });
 
+  it("folds the result to its headline, and keeps the choice", async () => {
+    await render();
+    const fold = out().querySelector<HTMLButtonElement>(".fold")!;
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    fold.click();
+    flushSync();
+    expect(out().dataset.folded).toBe("true");
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    expect(out().className).toBe("idle");
+    expect(localStorage.getItem("ctester.verdict")).toBe("folded");
+    fold.click();
+    flushSync();
+    expect(out().dataset.folded).toBeUndefined();
+    expect(localStorage.getItem("ctester.verdict")).toBeNull();
+  });
+
+  it("unfolds the result by itself when a test leaves", async () => {
+    localStorage.setItem("ctester.verdict", "folded");
+    verdictIs({ state: "done", status: "ok", kind: "io", total: 3, passed: 3 });
+    await render();
+    expect(out().dataset.folded).toBe("true");
+    test();
+    await until("the verdict", () => out().className === "ok");
+    expect(out().dataset.folded).toBeUndefined();
+    expect(localStorage.getItem("ctester.verdict")).toBeNull();
+  });
+
   it("6. names the exercise as a heading", async () => {
     await render();
     expect(document.querySelector("#now h2")!.textContent).toContain("ex.1 conversion");
