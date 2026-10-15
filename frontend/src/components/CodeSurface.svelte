@@ -7,6 +7,11 @@
   import { system } from "../lib/state/system.svelte";
   import type { Issue } from "../lib/domain/syntax";
   import { measure, place, rowColumn, selectionBands, type Metrics } from "../lib/collab/carets";
+  import { localDrop, localGet, localSet } from "../lib/storage";
+
+  // The list of problems folds to its first one; a student who opens it finds it open next time.
+  const DIAGS = "ctester.diags";
+  let diagsOpen = $state(localGet(DIAGS) === "open");
 
   interface Scroll {
     left: number;
@@ -297,12 +302,31 @@
     <span class="gotohint">{t("editor.goto_hint")}</span>
   </div>
 {/if}
-<div class="diags" aria-live="polite" hidden={issues.length === 0}>
-  <p class="diagsum">{t("editor.issues", { count: issues.length })}</p>
-  {#each issues as issue (issue.from + ":" + issue.message)}
-    <button type="button" class={"diag " + issue.level} onclick={() => goTo(issue)}>
-      <span class="diagline">{t("editor.line", { n: rowColumn(value, issue.from).row + 1 })}</span>
-      <span class="diagtext">{issue.message}</span>
-    </button>
-  {/each}
-</div>
+<details
+  class={"diags " + (issues[0]?.level ?? "")}
+  aria-live="polite"
+  hidden={issues.length === 0}
+  open={diagsOpen}
+  ontoggle={(e) => {
+    diagsOpen = e.currentTarget.open;
+    if (diagsOpen) localSet(DIAGS, "open");
+    else localDrop(DIAGS);
+  }}
+>
+  <summary class="diagsum">
+    {#if issues[0]}
+      <span class="first">
+        {t("editor.line", { n: rowColumn(value, issues[0].from).row + 1 })} — {issues[0].message}
+      </span>
+    {/if}
+    <span class="count">{t("editor.issues", { count: issues.length })}</span>
+  </summary>
+  <div class="diaglist">
+    {#each issues as issue (issue.from + ":" + issue.message)}
+      <button type="button" class={"diag " + issue.level} onclick={() => goTo(issue)}>
+        <span class="diagline">{t("editor.line", { n: rowColumn(value, issue.from).row + 1 })}</span>
+        <span class="diagtext">{issue.message}</span>
+      </button>
+    {/each}
+  </div>
+</details>

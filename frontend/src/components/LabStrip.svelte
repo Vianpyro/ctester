@@ -38,7 +38,7 @@
           if (!locked && !current) exercise.open(ex.id);
         }}
       >
-        {stripLabel(ex)}
+        <span class="name">{stripLabel(ex)}</span>
         <span class="offscreen"> — {said}</span>
         {#if statuses.of(ex.id)}
           <i class="mark">{STATUS_MARK[statuses.of(ex.id)!] ?? ""}</i>

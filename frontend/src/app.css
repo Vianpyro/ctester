@@ -926,7 +926,7 @@ button:disabled {
 }
 
 /* One chevron that turns, rather than two glyphs that swap. */
-:is(#exlist .col, #statement, .case)>summary::before {
+:is(#exlist .col, #statement, .case, .diags)>summary::before {
   content: "";
   flex: none;
   display: inline-block;
@@ -937,7 +937,7 @@ button:disabled {
   transition: rotate var(--t-3) var(--ease-spring);
 }
 
-:is(#exlist .col, #statement, .case)[open]>summary::before {
+:is(#exlist .col, #statement, .case, .diags)[open]>summary::before {
   rotate: 90deg;
 }
 
@@ -1677,14 +1677,19 @@ main {
   color: var(--wait);
 }
 
+/* Folded to its first problem: the code already shows it inline, the list is one click away. */
 .diags {
   flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  max-height: 9rem;
-  overflow-y: auto;
   border-top: 1px solid var(--line);
   background: var(--panel);
+}
+
+.diaglist {
+  display: flex;
+  flex-direction: column;
+  max-height: 8rem;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
 }
 
 .diags[hidden] {
@@ -1708,13 +1713,58 @@ main {
 }
 
 .diagsum {
-  position: sticky;
-  top: 0;
-  margin: 0;
-  padding: .35rem .75rem;
-  background: var(--panel);
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  min-height: var(--tap);
+  padding: 0 .75rem;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
   font-size: var(--fs-ui);
-  font-weight: 600;
+}
+
+.diagsum::-webkit-details-marker {
+  display: none;
+}
+
+.diagsum:hover {
+  background: var(--card);
+}
+
+.diagsum:focus-visible {
+  outline-offset: -3px;
+}
+
+.diagsum .first {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+
+.diagsum .first::before {
+  content: "";
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  margin-right: .4rem;
+  vertical-align: -.15em;
+  background: var(--wait);
+  mask: url(./icons/alert.svg) center / contain no-repeat;
+}
+
+.diags.error .diagsum .first::before {
+  background: var(--bad);
+}
+
+.diagsum .count {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--fs-label);
 }
 
 .diag {
@@ -2018,16 +2068,153 @@ main {
   rotate: -90deg;
 }
 
-#out[data-folded] > :not(.fold, .steps, .howto, .verdict, .ticks, .bar) {
-  display: none;
+/* Folded, the sheet is one line: the judge's line in miniature, the headline, the cases. */
+#out[data-folded] {
+  padding: .3rem var(--gut) .3rem calc(var(--gut) - 3px);
 }
 
-#out[data-folded] .verdict {
-  margin-bottom: 0;
+#out .compact {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  width: 100%;
+  min-height: var(--tap-lg);
+  padding: 0 .55rem;
+  border: 0;
+  border-radius: var(--coin);
+  background: none;
+  box-shadow: none;
+  color: var(--fg);
+  font-size: var(--fs-body);
+  font-weight: 650;
+  text-align: left;
 }
 
-#out[data-folded] .ticks {
-  margin: .4rem 0 0;
+#out .compact:hover {
+  background: var(--card);
+}
+
+#out .compact:focus-visible {
+  outline-offset: -3px;
+}
+
+#out .compact .headline {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+#out.idle .compact .headline {
+  color: var(--muted);
+}
+
+#out.ok .compact .headline {
+  color: var(--ok);
+}
+
+#out.bad .compact .headline {
+  color: var(--bad);
+}
+
+#out .compact .dots {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+#out .compact .dots i {
+  width: .7rem;
+  height: .7rem;
+  box-sizing: border-box;
+  border: 2px solid var(--line-2);
+  border-radius: 50%;
+}
+
+#out .compact .dots i.ok {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+#out .compact .dots i.ko {
+  background: var(--bad);
+  border-color: var(--bad);
+  border-radius: 2px;
+  rotate: 45deg;
+  scale: .85;
+}
+
+#out .compact .dots b {
+  width: .5rem;
+  height: 2px;
+  background: var(--line);
+}
+
+#out .compact .dots b.on {
+  background: var(--ok);
+}
+
+#out .compact .alert {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  background: var(--wait);
+  mask: url(./icons/alert.svg) center / contain no-repeat;
+}
+
+#out .compact .miniticks {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+
+#out .compact .miniticks i {
+  width: 7px;
+  height: 5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--bad) 70%, var(--line));
+}
+
+#out .compact .miniticks i.on {
+  background: var(--ok);
+}
+
+#out .compact .more {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  color: var(--muted);
+  font-size: var(--fs-label);
+  font-weight: 600;
+}
+
+#out .compact .more::after {
+  content: "";
+  width: 1.1em;
+  height: 1.1em;
+  background: currentColor;
+  mask: url(./icons/chevron-right.svg) center / contain no-repeat;
+  rotate: -90deg;
+}
+
+#out .compact:hover .more {
+  color: var(--fg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #out .compact {
+    transition: opacity var(--t-2) var(--ease-out), background-color var(--t-2) var(--ease-out);
+  }
+
+  @starting-style {
+    #out .compact {
+      opacity: 0;
+    }
+  }
 }
 
 /* The state colours the headline and the rail, never the whole sheet's text. */
@@ -6480,6 +6667,174 @@ h2:is(#progresstitle, #leaderboardtitle, #collectiontitle, #scratchtitle, #forum
 
 #scratchgo:disabled {
   filter: saturate(.25);
+}
+
+/* ---- Compact lab strip ---------------------------------------------------------------------
+   From six exercises the stations become numbered discs: the current one keeps its name, the
+   others keep theirs for screen readers and in their tooltip. One row, whatever the lab. */
+#labband:has(> .tile:nth-child(6)) {
+  counter-reset: station;
+  flex-wrap: nowrap;
+  column-gap: .7rem;
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile {
+  counter-increment: station;
+  min-width: 0;
+  padding: .2rem;
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile.current {
+  padding-right: .6rem;
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile::before {
+  content: counter(station);
+  display: grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  font-size: .72rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile.solved::before {
+  color: var(--ink-fg);
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile.current:not(.solved)::before {
+  color: var(--fg);
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile + .tile::after {
+  width: .7rem;
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile:not(.current) :is(.name, .what, .mark) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- One header row --------------------------------------------------------------------------
+   On a wide bench the exercise's title and its lab's stations share a row of fixed height, so
+   nothing the catalogue brings can move the editor. The stations are always numbered there, and
+   the title drops its lab's name, which the breadcrumb above already gives: the stations stay
+   whole and the title is what yields. Narrower, the two keep their own rows. */
+#benchhead {
+  display: contents;
+}
+
+@media (min-width: 1600px) {
+  #benchhead {
+    display: flex;
+    align-items: center;
+    min-height: calc(var(--tap) + .9rem + 1px);
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+
+  #benchhead > #now {
+    flex: 1 1 0;
+    flex-wrap: nowrap;
+    min-width: 0;
+    min-height: 0;
+    border-bottom: 0;
+    background: none;
+  }
+
+  #benchhead > #now h2 {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #benchhead > #now h2 .lab {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  #benchhead > #now .badge {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  #benchhead > #labband {
+    flex: 0 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: auto;
+    border-bottom: 0;
+    background: none;
+  }
+
+  #benchhead > #labband > * {
+    flex-shrink: 0;
+  }
+
+  /* The stations already count the exercises. */
+  #benchhead > #labband > .grow + .tag {
+    display: none;
+  }
+
+  #benchhead > #labband {
+    counter-reset: station;
+    flex-wrap: nowrap;
+    column-gap: .7rem;
+  }
+
+  #benchhead > #labband > .tile {
+    counter-increment: station;
+    min-width: 0;
+    padding: .2rem;
+  }
+
+  #benchhead > #labband > .tile.current {
+    padding-right: .6rem;
+  }
+
+  #benchhead > #labband > .tile::before {
+    content: counter(station);
+    display: grid;
+    place-items: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    font-size: .72rem;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+
+  #benchhead > #labband > .tile.solved::before {
+    color: var(--ink-fg);
+  }
+
+  #benchhead > #labband > .tile.current:not(.solved)::before {
+    color: var(--fg);
+  }
+
+  #benchhead > #labband > .tile + .tile::after {
+    width: .7rem;
+  }
+
+  #benchhead > #labband > .tile:not(.current) :is(.name, .what, .mark) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 /* Phones: overrides that must come after every rule they correct. */

@@ -118,6 +118,7 @@
   "verdict.retry": "Relancer le test",
   "verdict.fold": "Réduire le résultat",
   "verdict.unfold": "Afficher le résultat en entier",
+  "verdict.show": "Afficher",
   "verdict.howto": "Ce que « Tester » vérifie",
   "verdict.howto_quiz.answer": "Réponds",
   "verdict.howto_quiz.test": "Teste la page",

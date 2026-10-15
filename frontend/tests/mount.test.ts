@@ -341,6 +341,18 @@ describe("the anonymous page", () => {
     expect(document.querySelector(".diag")?.textContent).toContain("ligne 2");
   });
 
+  it("folds the checker's list to its first problem, one click from the rest", async () => {
+    localStorage.removeItem("ctester.diags");
+    await render();
+    const zone = document.getElementById("code") as HTMLTextAreaElement;
+    zone.value = "int main(void) {\n    int x = 1\n    return 0;\n}\n";
+    zone.dispatchEvent(new Event("input", { bubbles: true }));
+    await until("the checker speaks", () => !!document.querySelector(".diag"));
+    const list = document.querySelector<HTMLDetailsElement>("#editor details.diags")!;
+    expect(list.open).toBe(false);
+    expect(list.querySelector("summary .first")?.textContent).toContain("ligne 2");
+  });
+
   it("keeps the chat dock closed and empty", async () => {
     await render();
     const dock = document.getElementById("chatdock")!;
@@ -614,20 +626,39 @@ describe("the critical journeys", () => {
     expect(localStorage.getItem("ctester.drafts")).toBeNull();
   });
 
-  it("folds the result to its headline, and keeps the choice", async () => {
+  it("folds the result to one line, and keeps the choice", async () => {
     await render();
     const fold = out().querySelector<HTMLButtonElement>(".fold")!;
     expect(fold.getAttribute("aria-expanded")).toBe("true");
     fold.click();
     flushSync();
     expect(out().dataset.folded).toBe("true");
-    expect(fold.getAttribute("aria-expanded")).toBe("false");
     expect(out().className).toBe("idle");
+    const bar = out().querySelector<HTMLButtonElement>(".compact")!;
+    expect(bar.getAttribute("aria-expanded")).toBe("false");
+    expect(bar.textContent).toContain("Pas encore testé.");
+    expect(out().querySelector(".explain")).toBeNull();
+    expect(out().querySelector(".howto")).toBeNull();
     expect(localStorage.getItem("ctester.verdict")).toBe("folded");
-    fold.click();
+    bar.click();
     flushSync();
     expect(out().dataset.folded).toBeUndefined();
+    expect(out().querySelector(".compact")).toBeNull();
+    expect(out().querySelector(".explain")).not.toBeNull();
     expect(localStorage.getItem("ctester.verdict")).toBeNull();
+  });
+
+  it("shows a folded verdict as its headline and its line in miniature", async () => {
+    verdictIs({ state: "done", status: "ok", kind: "io", total: 7, passed: 5, cases: [] });
+    await render();
+    test();
+    await until("the verdict", () => out().className === "partial");
+    (out().querySelector(".fold") as HTMLButtonElement).click();
+    flushSync();
+    const bar = out().querySelector(".compact")!;
+    expect(bar.textContent).toContain("5 / 7");
+    expect([...bar.querySelectorAll(".dots i")].map((i) => i.className)).toEqual(["ok", "ok", "ko"]);
+    expect(bar.querySelectorAll(".miniticks i.on")).toHaveLength(5);
   });
 
   it("unfolds the result by itself when a test leaves", async () => {
@@ -639,6 +670,29 @@ describe("the critical journeys", () => {
     await until("the verdict", () => out().className === "ok");
     expect(out().dataset.folded).toBeUndefined();
     expect(localStorage.getItem("ctester.verdict")).toBeNull();
+  });
+
+  it("numbers the stations of a long lab, the names kept for screen readers", async () => {
+    const long = {
+      ...RELEASE,
+      collections: [{ ...RELEASE.collections[0]!, items: ["a1", "a2", "a3", "a4", "a5", "a6"] }],
+      exercises: ["a1", "a2", "a3", "a4", "a5", "a6"].map((id, i) => ({
+        id,
+        title: "ex." + (i + 1) + " longue étiquette",
+        mode: "io",
+        access: "available",
+      })),
+    };
+    vi.stubGlobal("fetch", (input: RequestInfo | URL) =>
+      String(input) === "catalog.json"
+        ? Promise.resolve(new Response(JSON.stringify(long), { status: 200 }))
+        : fakeFetch(input),
+    );
+    await render();
+    const tiles = document.querySelectorAll("#labband > .tile");
+    expect(tiles).toHaveLength(6);
+    expect(tiles[5]!.querySelector(".name")?.textContent).toContain("ex.6");
+    expect(document.querySelector("#benchhead #labband")).not.toBeNull();
   });
 
   it("6. names the exercise as a heading", async () => {

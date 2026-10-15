@@ -3,11 +3,19 @@
   import { drafts } from "../lib/state/drafts.svelte";
   import { exercise } from "../lib/state/exercise.svelte";
   import CodeSurface from "./CodeSurface.svelte";
+  import type { Component } from "svelte";
   import { t } from "../lib/i18n.svelte";
-  import RemoteCarets from "./RemoteCarets.svelte";
+  import { catalog } from "../lib/state/catalog.svelte";
 
   let zone: HTMLTextAreaElement | null = $state(null);
   let surface: CodeSurface | undefined = $state();
+
+  // Teammates' carets only exist on a team assignment: their code waits in its own chunk.
+  let RemoteCarets = $state<Component<{ scroll: { left: number; top: number } }> | null>(null);
+  $effect(() => {
+    if (RemoteCarets || !catalog.selected?.assignment) return;
+    import("./RemoteCarets.svelte").then((mod) => (RemoteCarets = mod.default), () => {});
+  });
 
   $effect(() => {
     editor.element = zone;
@@ -88,7 +96,7 @@
     wrapRole="tabpanel"
   >
     {#snippet overlay(scroll)}
-      <RemoteCarets {scroll} />
+      {#if RemoteCarets}<RemoteCarets {scroll} />{/if}
     {/snippet}
   </CodeSurface>
 </div>

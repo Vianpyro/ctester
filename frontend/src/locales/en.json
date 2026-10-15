@@ -118,6 +118,7 @@
   "verdict.retry": "Run the test again",
   "verdict.fold": "Collapse the result",
   "verdict.unfold": "Show the whole result",
+  "verdict.show": "Show",
   "verdict.howto": "What “Test” checks",
   "verdict.howto_quiz.answer": "Answer",
   "verdict.howto_quiz.test": "Test the page",

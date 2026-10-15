@@ -376,9 +376,15 @@
     <Statement />
 
     <div id="right">
+      <!-- On a wide screen, the exercise's title and its lab's stations share one row. -->
+      <div id="benchhead">
       <div id="now" class="phead" aria-live="polite">
         {#if here}
-          <h2>{here.label}</h2>
+          <h2 title={here.label}>
+            {#if here.label.endsWith(here.short) && here.label !== here.short}<span class="lab"
+                >{here.label.slice(0, -here.short.length)}</span
+              >{here.short}{:else}{here.label}{/if}
+          </h2>
           <span class={"badge mode " + here.mode}>{expectedOf(here.mode)}</span>
           {#if here.verification}
             <span class="badge verification">{t("app.verification")}</span>
@@ -386,13 +392,14 @@
         {/if}
       </div>
 
+      <LabStrip openMenu={(search) => openMenu(search)} />
+      </div>
+
       {#if showTeamBand}
         <div id="teamband">
           {#if TeamBand}<TeamBand />{/if}
         </div>
       {/if}
-
-      <LabStrip openMenu={(search) => openMenu(search)} />
 
       {#if isQuiz}
         <!-- The placeholder holds the same flex slot, so the chunk arriving shifts nothing. -->

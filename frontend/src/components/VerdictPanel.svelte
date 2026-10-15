@@ -188,6 +188,29 @@
 </script>
 
 <div bind:this={box} id="out" class={cls} tabindex="-1" data-folded={folded ? "true" : undefined}>
+  {#if folded}
+  <!-- One line: the judge's line in miniature, the headline, the cases; the whole bar unfolds. -->
+  <button type="button" class="compact" aria-expanded="false" aria-controls="out" onclick={() => setFolded(false)}>
+    {#if cls === "fault"}
+      <i class="alert" aria-hidden="true"></i>
+    {:else}
+      <span class="dots" aria-hidden="true">
+        {#each steps ?? ["", "", ""] as state, i (i)}
+          {#if i}<b class={steps?.[i - 1] === "ok" ? "on" : ""}></b>{/if}<i class={state || "empty"}></i>
+        {/each}
+      </span>
+    {/if}
+    <span class="headline">{headline}</span>
+    {#if shown && !failed && total > 0}
+      <span class="miniticks" aria-hidden="true">
+        {#each { length: Math.min(total, 12) } as _, n}
+          <i class={n < Math.round((passed * Math.min(total, 12)) / total) ? "on" : "off"}></i>
+        {/each}
+      </span>
+    {/if}
+    <span class="more">{t("verdict.show")}</span>
+  </button>
+  {:else}
   <button
     type="button"
     class="nav fold"
@@ -294,5 +317,6 @@
         </button>
       {/if}
     </div>
+  {/if}
   {/if}
 </div>
