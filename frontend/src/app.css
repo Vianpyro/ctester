@@ -1,39 +1,94 @@
+/* The interface's typeface: Atkinson Hyperlegible Next, drawn so that l, 1 and I, or 0 and O,
+   never pass for one another. `optional`: a slow first visit keeps the system face for that
+   page rather than reflowing it when the file lands; the service worker has it next time. */
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: optional;
+  src: url(./fonts/atkinson-next-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: optional;
+  src: url(./fonts/atkinson-next-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: italic;
+  font-weight: 200 800;
+  font-display: optional;
+  src: url(./fonts/atkinson-next-latin-ext-italic.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: italic;
+  font-weight: 200 800;
+  font-display: optional;
+  src: url(./fonts/atkinson-next-latin-italic.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Cyanotype. Dark is the blueprint: Prussian blue, chalk lines, cyan ink. Light is engineering
+   paper with a blue pencil. One warm colour, the signal, belongs to Test alone. */
 :root {
   color-scheme: dark;
-  --bg: #14171d;
-  --panel: #1a1e26;
-  --card: #21262f;
-  --line: #333a46;
-  --line-2: #7a8291;
-  --fg: #dfe3ea;
-  --muted: #8b94a3;
-  --ink: #8fb6dc;
-  --ink-fg: #10202e;
-  --ink-fill: #597ea3;
-  --ink-wash: #1d2c3a;
-  --ok: #6cc48a;
-  --bad: #f2837c;
-  --wait: #d8bb6a;
-  --syn-comment: #879585;
-  --syn-string: #9ecf8a;
-  --syn-pre: #d68fd0;
-  --syn-key: #7fb0f2;
-  --syn-num: #e0a06a;
-  --syn-fn: #e8d08a;
-  --syn-const: #c9a2e8;
+  --bg: #0b1828;
+  --panel: #0f2033;
+  --card: #152a41;
+  --raised: #1a3350;
+  --line: #22405f;
+  --line-2: #5f82a6;
+  --edge: #5a7fa6;
+  --fg: #e3ecf5;
+  --muted: #93aac2;
+  --ink: #7cc8ee;
+  --ink-fg: #06192a;
+  --ink-fill: #3f86b8;
+  --ink-wash: #13304a;
+  --signal: #f0b239;
+  --signal-fg: #1b1405;
+  --signal-edge: #f0b239;
+  --ok: #63d39b;
+  --bad: #ff8f80;
+  --wait: #e9c46a;
+  --syn-comment: #8fa8a4;
+  --syn-string: #a8db8f;
+  --syn-pre: #e59ad9;
+  --syn-key: #8cbcff;
+  --syn-num: #f2ae76;
+  --syn-fn: #f0d58c;
+  --syn-const: #cdb0f5;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono",
     "Roboto Mono", Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --coin: 0;
-  --fs-label: 12px;
-  --fs-ui: 14px;
-  --fs-body: 15px;
-  --fs-lead: 15px;
+  --sans: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Controls get a small radius, floating surfaces a larger one; the workbench's own panes
+     stay square, drawn like a plan. */
+  --coin: 4px;
+  --r-float: 10px;
+  /* rem, so a student's own text size is honoured everywhere but in the editor, whose
+     metrics are a contract (editorMetrics.test.ts). */
+  --fs-label: .78rem;
+  --fs-ui: .875rem;
+  --fs-body: .94rem;
+  --fs-lead: 1rem;
+  --fs-title: 1.2rem;
+  --fs-display: 1.75rem;
   --fs-code: 14px;
+  --s-1: .25rem;
+  --s-2: .5rem;
+  --s-3: .75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
   --tap: 2.25rem;
   --tap-lg: 2.75rem;
   --gut: .9rem;
-  --edge: #6a7280;
   /* Rarity bands, drawn as bars and glows only (never text), so one set serves both themes. */
   --tier-1: #4b69ff;
   --tier-2: #8847ff;
@@ -63,72 +118,81 @@
     .606 13.3%, .693 15%, .771 16.7%, .84 18.3%, .9 20%, .95 21.7%, .99 23.3%, 1.023 25%,
     1.047 26.7%, 1.064 28.3%, 1.076 30%, 1.082 31.7%, 1.084 33.3%, 1.078 36.7%, 1.013 51.7%,
     .996 60%, 1);
-  --shadow-1: 0 1px 0 rgb(0 0 0 / .3), 0 2px 8px rgb(0 0 0 / .2);
-  --shadow-2: 0 12px 32px rgb(0 0 0 / .42), 0 2px 8px rgb(0 0 0 / .28);
-  --shadow-3: 0 22px 56px rgb(0 0 0 / .55), 0 6px 16px rgb(0 0 0 / .32);
-  --rim: inset 0 1px 0 rgb(255 255 255 / .05);
-  --grid: color-mix(in srgb, var(--line) 38%, transparent);
+  --shadow-1: 0 1px 0 rgb(1 6 14 / .35), 0 2px 8px rgb(1 6 14 / .25);
+  --shadow-2: 0 14px 34px rgb(1 6 14 / .5), 0 2px 8px rgb(1 6 14 / .3);
+  --shadow-3: 0 24px 60px rgb(1 6 14 / .6), 0 6px 16px rgb(1 6 14 / .35);
+  --rim: inset 0 1px 0 rgb(180 220 255 / .06);
+  /* Chalk on the blueprint: the views' grid is drawn in the ink. */
+  --grid: color-mix(in srgb, var(--ink) 9%, transparent);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f2f2f3;
-  --panel: #f5f5f8;
-  --card: #fff;
-  --line: #d0d0d5;
-  --line-2: #74747a;
-  --edge: #8a8a8e;
-  --fg: #1d1f20;
-  --muted: #5d5d60;
-  --ink: #416180;
-  --ink-fg: #f5f5f8;
-  --ink-fill: #597ea3;
-  --ink-wash: #eef6ff;
-  --ok: #1f7a3d;
-  --bad: #b3261e;
-  --wait: #8a6d1f;
-  --syn-comment: #5f6b60;
+  --bg: #e9eee8;
+  --panel: #f4f7f2;
+  --card: #fbfcfa;
+  --raised: #ffffff;
+  --line: #cbd5cd;
+  --line-2: #6b7a70;
+  --edge: #76857b;
+  --fg: #18231e;
+  --muted: #4f5e56;
+  --ink: #1d4f94;
+  --ink-fg: #f4f7f2;
+  --ink-fill: #3d6fb5;
+  --ink-wash: #e1eaf6;
+  --signal-edge: #8a6100;
+  --ok: #17733f;
+  --bad: #b42318;
+  --wait: #7a5a00;
+  --syn-comment: #5b6b60;
   --syn-string: #1f7a3d;
-  --syn-pre: #9b2f8f;
+  --syn-pre: #8e2c84;
   --syn-key: #1d4ed8;
-  --syn-num: #a55200;
-  --syn-fn: #7a5c00;
-  --syn-const: #8a3d9b;
-  --shadow-1: 0 1px 0 rgb(20 24 32 / .06), 0 2px 6px rgb(20 24 32 / .08);
-  --shadow-2: 0 12px 28px rgb(20 24 32 / .14), 0 2px 6px rgb(20 24 32 / .08);
-  --shadow-3: 0 22px 52px rgb(20 24 32 / .2), 0 6px 14px rgb(20 24 32 / .1);
-  --rim: inset 0 1px 0 rgb(255 255 255 / .7);
+  --syn-num: #9a4a00;
+  --syn-fn: #6e5300;
+  --syn-const: #7c3a93;
+  /* Green engineering paper: the views' grid is printed, not chalked. */
+  --grid: color-mix(in srgb, #3e7a5e 14%, transparent);
+  --shadow-1: 0 1px 0 rgb(18 40 30 / .06), 0 2px 6px rgb(18 40 30 / .08);
+  --shadow-2: 0 12px 28px rgb(18 40 30 / .14), 0 2px 6px rgb(18 40 30 / .08);
+  --shadow-3: 0 22px 52px rgb(18 40 30 / .2), 0 6px 14px rgb(18 40 30 / .1);
+  --rim: inset 0 1px 0 rgb(255 255 255 / .8);
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --bg: #f2f2f3;
-    --panel: #f5f5f8;
-    --card: #fff;
-    --line: #d0d0d5;
-    --line-2: #74747a;
-    --edge: #8a8a8e;
-    --fg: #1d1f20;
-    --muted: #5d5d60;
-    --ink: #416180;
-    --ink-fg: #f5f5f8;
-    --ink-fill: #597ea3;
-    --ink-wash: #eef6ff;
-    --ok: #1f7a3d;
-    --bad: #b3261e;
-    --wait: #8a6d1f;
-    --syn-comment: #5f6b60;
+    --bg: #e9eee8;
+    --panel: #f4f7f2;
+    --card: #fbfcfa;
+    --raised: #ffffff;
+    --line: #cbd5cd;
+    --line-2: #6b7a70;
+    --edge: #76857b;
+    --fg: #18231e;
+    --muted: #4f5e56;
+    --ink: #1d4f94;
+    --ink-fg: #f4f7f2;
+    --ink-fill: #3d6fb5;
+    --ink-wash: #e1eaf6;
+    --signal-edge: #8a6100;
+    --ok: #17733f;
+    --bad: #b42318;
+    --wait: #7a5a00;
+    --syn-comment: #5b6b60;
     --syn-string: #1f7a3d;
-    --syn-pre: #9b2f8f;
+    --syn-pre: #8e2c84;
     --syn-key: #1d4ed8;
-    --syn-num: #a55200;
-    --syn-fn: #7a5c00;
-    --syn-const: #8a3d9b;
-    --shadow-1: 0 1px 0 rgb(20 24 32 / .06), 0 2px 6px rgb(20 24 32 / .08);
-    --shadow-2: 0 12px 28px rgb(20 24 32 / .14), 0 2px 6px rgb(20 24 32 / .08);
-    --shadow-3: 0 22px 52px rgb(20 24 32 / .2), 0 6px 14px rgb(20 24 32 / .1);
-    --rim: inset 0 1px 0 rgb(255 255 255 / .7);
+    --syn-num: #9a4a00;
+    --syn-fn: #6e5300;
+    --syn-const: #7c3a93;
+    /* Green engineering paper: the views' grid is printed, not chalked. */
+    --grid: color-mix(in srgb, #3e7a5e 14%, transparent);
+    --shadow-1: 0 1px 0 rgb(18 40 30 / .06), 0 2px 6px rgb(18 40 30 / .08);
+    --shadow-2: 0 12px 28px rgb(18 40 30 / .14), 0 2px 6px rgb(18 40 30 / .08);
+    --shadow-3: 0 22px 52px rgb(18 40 30 / .2), 0 6px 14px rgb(18 40 30 / .1);
+    --rim: inset 0 1px 0 rgb(255 255 255 / .8);
   }
 }
 
@@ -163,26 +227,102 @@ body {
   height: 100dvh;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.5 var(--sans);
+  font: var(--fs-ui)/1.5 var(--sans);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* The first stop of the keyboard: straight to the code, past the whole bar. */
+.skip {
+  position: absolute;
+  z-index: 40;
+  left: var(--gut);
+  top: -4rem;
+  padding: .55rem .9rem;
+  color: var(--ink-fg);
+  background: var(--ink);
+  border-radius: var(--coin);
+  font-weight: 700;
+  text-decoration: none;
+  transition: top var(--t-2) var(--ease-out);
+}
+
+.skip:focus {
+  top: .5rem;
+}
+
+/* Icons are files drawn as masks: they take the control's own colour, follow its state, and
+   cost the page no markup and no script. Each control names its file below. */
+:where(#prev, #next, #burger, #theme, #shortcutsbutton, #myprogress, #discussions, #scratch, #login,
+  #go, #goex, #toconsole, #filewrap .btn, #purge, #exporttp, .edhead .reindent, .edhead .reset,
+  .chathead .wide, .chathead .close, #announcement .nav, #system .close, #system, .padlock,
+  .verdict:is(.ok, .bad, .fault), #out .note, .suite .next, .suite .retry, .suite .help, .gcc > .nav,
+  #identity, #leaderboard, #collection, #logout, #forget, #saving.saved, #saving.failed,
+  .typsthtml .copy)::before {
+  content: "";
+  flex: none;
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  background: currentColor;
+  mask: url(./icons/info.svg) center / contain no-repeat;
+}
+
+#prev::before { mask-image: url(./icons/chevron-left.svg); }
+#next::before { mask-image: url(./icons/chevron-right.svg); }
+#burger::before { mask-image: url(./icons/menu.svg); }
+#theme::before { mask-image: url(./icons/sun.svg); }
+:root[data-theme="light"] #theme::before { mask-image: url(./icons/moon.svg); }
+#shortcutsbutton::before { mask-image: url(./icons/keyboard.svg); }
+#myprogress::before { mask-image: url(./icons/chart.svg); }
+#discussions::before { mask-image: url(./icons/chat.svg); }
+#scratch::before,
+#toconsole::before { mask-image: url(./icons/terminal.svg); }
+#login::before,
+#identity::before { mask-image: url(./icons/user.svg); }
+#go::before,
+#goex::before { mask-image: url(./icons/play.svg); }
+#filewrap .btn::before { mask-image: url(./icons/upload.svg); }
+#purge::before,
+#forget::before { mask-image: url(./icons/trash.svg); }
+#exporttp::before { mask-image: url(./icons/download.svg); }
+.edhead .reindent::before { mask-image: url(./icons/indent.svg); }
+.edhead .reset::before { mask-image: url(./icons/undo.svg); }
+.chathead .wide::before { mask-image: url(./icons/expand.svg); }
+:is(.chathead .close, #announcement .nav, #system .close)::before { mask-image: url(./icons/close.svg); }
+:is(#system, .verdict.fault)::before { mask-image: url(./icons/alert.svg); }
+#system.flash::before { mask-image: url(./icons/info.svg); }
+.padlock::before { mask-image: url(./icons/lock.svg); }
+.verdict.ok::before,
+#saving.saved::before { mask-image: url(./icons/check.svg); }
+.verdict.bad::before { mask-image: url(./icons/cross.svg); }
+#saving.failed::before { mask-image: url(./icons/alert.svg); }
+.suite .next::before { mask-image: url(./icons/chevron-right.svg); }
+.suite .retry::before { mask-image: url(./icons/retry.svg); }
+.suite .help::before { mask-image: url(./icons/chat.svg); }
+.gcc > .nav::before { mask-image: url(./icons/goto.svg); }
+#leaderboard::before { mask-image: url(./icons/podium.svg); }
+#collection::before { mask-image: url(./icons/cards.svg); }
+#logout::before { mask-image: url(./icons/logout.svg); }
+.typsthtml .copy::before { mask-image: url(./icons/copy.svg); }
 
 #top {
   position: relative;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: .7rem;
+  gap: .6rem;
   flex-wrap: wrap;
-  padding: .5rem var(--gut);
+  padding: .45rem var(--gut);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
-  box-shadow: var(--rim);
+  box-shadow: var(--rim), 0 1px 0 color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 h1 {
-  font-size: .95rem;
-  font-weight: 700;
-  letter-spacing: .02em;
+  font-size: 1.02rem;
+  font-weight: 760;
+  letter-spacing: -.01em;
   margin: 0;
   white-space: nowrap;
 }
@@ -232,19 +372,20 @@ h1 {
 #live {
   /* An explicit display is what lets the [hidden] rule below hide it by visibility
      instead: the slot is held until /live answers, so the bar never re-spaces. */
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   min-width: 9rem;
 }
 
 /* #top wraps, and a second row moves every element on the page. The tagline beside the mark
    yields first (the tab title still carries it), then the byline. */
-@media (max-width: 1300px) {
+@media (max-width: 1440px) {
   #home .tagline {
     display: none;
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1240px) {
   .credit {
     display: none;
   }
@@ -341,21 +482,20 @@ h1 {
   }
 }
 
-#live::before {
-  content: "";
-  display: inline-block;
-  width: .4rem;
-  height: .4rem;
-  margin-right: .35rem;
+#live .dot {
+  flex: none;
+  width: .45rem;
+  height: .45rem;
+  margin-right: .4rem;
   border-radius: 999px;
   background: var(--ok);
-  vertical-align: baseline;
 }
 
-/* A slow ping, far from the editor: the count is live, nothing more. */
+/* One ping each time the count changes (TopBar keys the dot on it): the motion says someone
+   arrived or left, and the bar is still the rest of the time (WCAG 2.2.2). */
 @media (prefers-reduced-motion: no-preference) {
-  #live::before {
-    animation: ping 3.2s var(--ease-out) infinite;
+  #live .dot {
+    animation: ping 1.6s var(--ease-out) 1;
   }
 
   @keyframes ping {
@@ -389,13 +529,12 @@ h1 {
   font-weight: 600;
 }
 
-/* Instrument labels: small capitals, spaced. Titles inside a header opt out. */
+/* Labels stay in sentence case: weight and colour carry the hierarchy, not capitals. */
 .phead,
 .kicker,
 .subtitle,
 .menutitle {
-  letter-spacing: .07em;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .grow {
@@ -404,11 +543,12 @@ h1 {
 
 .pill {
   display: inline-block;
-  width: .45rem;
-  height: .45rem;
+  width: .5rem;
+  height: .5rem;
   margin-left: .35rem;
   border-radius: 999px;
-  background: var(--ink);
+  background: var(--signal);
+  box-shadow: 0 0 0 2px var(--panel);
   flex: 0 0 auto;
 }
 
@@ -442,6 +582,7 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: .45rem;
 }
 
 #go,
@@ -496,9 +637,9 @@ button:disabled {
 }
 
 .nav {
-  padding: .3rem .6rem;
+  padding: .3rem .65rem;
   line-height: 1.2;
-  font-weight: 400;
+  font-weight: 500;
   font-size: var(--fs-ui);
   color: var(--muted);
 }
@@ -507,13 +648,64 @@ button:disabled {
   color: var(--fg);
 }
 
+/* The bar's destinations: the open one is underlined in ink, the loading one draws a line. */
+#tools .group .nav {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+#tools .group .nav:hover:not(:disabled) {
+  background: var(--card);
+}
+
+#tools .group .nav[aria-current="page"] {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+
+#tools .group .nav[aria-busy="true"] {
+  cursor: progress;
+  background: linear-gradient(var(--ink), var(--ink)) 0 100% / 35% 2px no-repeat;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #tools .group .nav[aria-busy="true"] {
+    animation: underway 1s var(--ease-in-out) infinite;
+  }
+
+  @keyframes underway {
+    from {
+      background-position: -40% 100%;
+    }
+
+    to {
+      background-position: 140% 100%;
+    }
+  }
+}
+
+/* The utilities shrink to their icon first: their names stay as their accessible label. */
+@media (max-width: 1440px) {
+  #shortcutsbutton .label,
+  #shortcutsbutton .shortcut {
+    display: none;
+  }
+
+  #shortcutsbutton {
+    width: var(--tap);
+    padding: 0;
+  }
+}
+
 /* Signed out, the Console and the chat are absent from the bar: this button is the only way to
-   them. The halo breathes slowly so it registers in peripheral vision without reading as motion. */
+   them. Its halo breathes once after the page lands, and again when pointed at: an invitation,
+   not a light that keeps blinking beside the code (WCAG 2.2.2). */
 #login {
   color: var(--ink);
   border-color: var(--ink);
   background: var(--ink-wash);
-  font-weight: 500;
+  font-weight: 650;
 }
 
 #login:hover:not(:disabled) {
@@ -523,12 +715,12 @@ button:disabled {
 
 @media (prefers-reduced-motion: no-preference) {
   #login {
-    animation: respire 4.5s ease-in-out infinite;
+    animation: respire 4.5s ease-in-out 1.2s 1;
   }
 
   #login:hover,
   #login:focus-visible {
-    animation: none;
+    animation: respire 1.6s ease-in-out 1;
   }
 
   @keyframes respire {
@@ -552,6 +744,15 @@ button:disabled {
   padding: 0;
   text-align: center;
   justify-content: center;
+}
+
+#theme::before,
+#prev::before,
+#next::before,
+#burger::before,
+#shortcutsbutton::before {
+  width: 1.25em;
+  height: 1.25em;
 }
 
 .group {
@@ -588,14 +789,19 @@ button:disabled {
 }
 
 .menu>summary::after {
-  content: "▾";
+  content: "";
   display: inline-block;
-  margin-left: .2rem;
+  width: .9em;
+  height: .9em;
+  margin-left: .15rem;
+  background: currentColor;
+  mask: url(./icons/chevron-right.svg) center / contain no-repeat;
+  rotate: 90deg;
   transition: rotate var(--t-3) var(--ease-spring);
 }
 
 .menu[open]>summary::after {
-  rotate: 180deg;
+  rotate: -90deg;
 }
 
 .menu>summary:hover,
@@ -615,9 +821,9 @@ button:disabled {
   gap: .35rem;
   min-width: 13rem;
   padding: .5rem;
-  background: var(--panel);
+  background: var(--raised);
   border: 1px solid var(--line);
-  border-radius: var(--coin);
+  border-radius: var(--r-float);
   box-shadow: var(--shadow-2), var(--rim);
   transform-origin: top right;
   transition: opacity var(--t-3) var(--ease-out), translate var(--t-3) var(--ease-out),
@@ -651,11 +857,22 @@ button:disabled {
 }
 
 .menutitle {
-  padding: .45rem .2rem .15rem;
+  padding: .5rem .3rem .15rem;
   font-size: var(--fs-label);
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 650;
   border-top: 1px solid var(--line);
+}
+
+.menupanel :is(#identity, #leaderboard, #collection, #logout, #forget) {
+  justify-content: flex-start;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.menupanel :is(#identity, #leaderboard, #collection, #logout, #forget):hover {
+  background: var(--card);
 }
 
 .menupanel>.menutitle:first-child {
@@ -683,20 +900,40 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: .5rem;
-  padding: .35rem .2rem;
-  color: var(--muted);
+  padding: .45rem .3rem;
+  color: var(--fg);
+  font-size: var(--fs-ui);
+  font-weight: 700;
+  border-radius: var(--coin);
+}
+
+#exlist .col>summary .name {
+  flex: 1 1 auto;
+}
+
+#exlist .col>summary .progress {
+  flex: none;
+  padding: .05rem .5rem;
   font-size: var(--fs-label);
-  font-weight: 600;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--card);
+  border-radius: 999px;
 }
 
 #exlist .col>summary::-webkit-details-marker {
   display: none;
 }
 
-/* One glyph that turns, rather than two that swap. */
+/* One chevron that turns, rather than two glyphs that swap. */
 :is(#exlist .col, #statement, .case)>summary::before {
-  content: "\25B8";
+  content: "";
+  flex: none;
   display: inline-block;
+  width: .95em;
+  height: .95em;
+  background: currentColor;
+  mask: url(./icons/chevron-right.svg) center / contain no-repeat;
   transition: rotate var(--t-3) var(--ease-spring);
 }
 
@@ -739,10 +976,26 @@ button:disabled {
 }
 
 #exlist .exline.on {
-  border-color: var(--ink);
+  border-color: transparent;
   color: var(--fg);
-  font-weight: 600;
+  font-weight: 650;
+  background: var(--ink-wash);
   box-shadow: inset 3px 0 0 var(--ink);
+}
+
+#exlist .exline:focus-visible {
+  outline-offset: -3px;
+}
+
+/* The row a deep link pointed at: the reason the menu opened by itself. */
+#exlist .exline.spot {
+  box-shadow: inset 3px 0 0 var(--signal), 0 0 0 1px color-mix(in srgb, var(--signal) 55%, transparent);
+}
+
+.padlock {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
 }
 
 #exlist .padlock {
@@ -764,15 +1017,30 @@ button:disabled {
 }
 
 #excurrent {
-  max-width: 20rem;
+  max-width: 23rem;
   font-size: var(--fs-body);
   color: var(--fg);
 }
 
+/* A breadcrumb: the lab, then the exercise. */
 #excurrent .what {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
-  font-size: var(--fs-label);
+  font-size: var(--fs-ui);
+}
+
+#excurrent .what::after {
+  content: "\203A";
+  margin-left: .45rem;
+  color: var(--line-2);
+}
+
+#excurrent .title {
+  font-weight: 650;
 }
 
 #excurrent .title {
@@ -789,7 +1057,7 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: .6rem;
-  padding: .45rem var(--gut);
+  padding: .5rem var(--gut);
   border-bottom: 1px solid var(--line);
   background: var(--panel);
 }
@@ -832,8 +1100,34 @@ main {
 }
 
 #statement summary::before {
-  margin-right: .35rem;
+  margin-right: .1rem;
   color: var(--muted);
+}
+
+#statement summary {
+  color: var(--fg);
+  font-size: var(--fs-ui);
+  font-weight: 700;
+}
+
+/* Folded, the statement becomes a rail on the edge of the bench: one click brings it back. */
+@media (min-width: 1001px) {
+  #statement:not([open]) {
+    background: var(--panel);
+  }
+
+  #statement:not([open]) summary {
+    writing-mode: vertical-rl;
+    height: 100%;
+    padding: .9rem .55rem;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+  }
+
+  #statement:not([open]) summary:hover {
+    color: var(--ink);
+    background: var(--card);
+  }
 }
 
 #work:has(#statement:not([open])) {
@@ -868,6 +1162,32 @@ main {
   color: var(--muted);
 }
 
+/* Loading: ruled lines where the text will be. A few passes only: if the statement never
+   comes, the lines stop moving rather than promising forever. */
+#statementtext.loading {
+  min-height: 12rem;
+  color: transparent;
+  background:
+    linear-gradient(var(--card) 0 0) var(--gut) 1rem / 55% .8rem no-repeat,
+    linear-gradient(var(--card) 0 0) var(--gut) 2.6rem / 85% .7rem no-repeat,
+    linear-gradient(var(--card) 0 0) var(--gut) 3.8rem / 78% .7rem no-repeat,
+    linear-gradient(var(--card) 0 0) var(--gut) 5rem / 62% .7rem no-repeat,
+    linear-gradient(var(--card) 0 0) var(--gut) 7rem / 40% .8rem no-repeat,
+    linear-gradient(var(--card) 0 0) var(--gut) 8.6rem / 82% .7rem no-repeat;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #statementtext.loading {
+    animation: develop 1.4s var(--ease-in-out) 6 alternate;
+  }
+
+  @keyframes develop {
+    to {
+      opacity: .45;
+    }
+  }
+}
+
 #statementtext.typstpages {
   margin: 0;
   padding: 0;
@@ -876,11 +1196,12 @@ main {
 
 #statementtext.md {
   margin: 0;
-  padding: .85rem var(--gut);
+  padding: 1rem var(--gut) 1.5rem;
+  max-width: 68ch;
   white-space: normal;
   font-family: var(--sans);
-  font-size: var(--fs-body);
-  line-height: 1.65;
+  font-size: var(--fs-lead);
+  line-height: 1.6;
 }
 
 #statementtext.md> :first-child {
@@ -892,14 +1213,30 @@ main {
 }
 
 #statementtext.md p {
-  margin: 0 0 .7rem;
+  margin: 0 0 .8rem;
 }
 
 #statementtext.md :is(h1, h2, h3, h4) {
-  margin: 0 0 .45rem;
-  font-size: var(--fs-lead);
-  font-weight: 600;
+  margin: 1.4rem 0 .5rem;
+  font-size: 1.05rem;
+  font-weight: 750;
+  line-height: 1.3;
+  letter-spacing: -.005em;
   color: var(--fg);
+}
+
+/* Each heading starts on a short ink rule, like a section of a drawing. */
+#statementtext.md :is(h1, h2, h3)::before {
+  content: "";
+  display: block;
+  width: 1.5rem;
+  height: 2px;
+  margin-bottom: .45rem;
+  background: var(--ink);
+}
+
+#statementtext.md strong {
+  font-weight: 750;
 }
 
 #statementtext.md ul,
@@ -913,11 +1250,12 @@ main {
 }
 
 #statementtext.md pre {
-  margin: 0 0 .7rem;
-  padding: .55rem .65rem;
+  margin: 0 0 .9rem;
+  padding: .65rem .8rem;
   overflow-x: auto;
   background: var(--panel);
   border: 1px solid var(--line);
+  border-left: 2px solid var(--ink);
   border-radius: var(--coin);
   font-family: var(--mono);
   font-size: var(--fs-ui);
@@ -940,7 +1278,10 @@ main {
   position: absolute;
   top: .3rem;
   right: .3rem;
-  padding: .05rem .4rem;
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .15rem .45rem;
   font: inherit;
   font-family: var(--sans);
   font-size: .8em;
@@ -1003,6 +1344,19 @@ main {
   -webkit-user-select: none;
 }
 
+/* Copy is refused on purpose here; the block says so instead of failing in silence. */
+.typsthtml .typ-retype[data-hint]::after {
+  content: attr(data-hint);
+  display: block;
+  margin-top: .5rem;
+  padding-top: .4rem;
+  border-top: 1px dashed var(--line-2);
+  font-family: var(--sans);
+  font-size: var(--fs-label);
+  color: var(--muted);
+  white-space: normal;
+}
+
 :is(.typsthtml, #statementtext.md) table {
   border-collapse: collapse;
   margin: 0 0 .7rem;
@@ -1060,22 +1414,23 @@ main {
   min-height: 2.4rem;
 }
 
-#now b {
+#now h2 {
+  margin: 0;
   color: var(--fg);
-  font-size: var(--fs-ui);
-  font-weight: 700;
-  text-transform: none;
-  letter-spacing: 0;
+  font-size: var(--fs-title);
+  font-weight: 760;
+  line-height: 1.25;
+  letter-spacing: -.012em;
 }
 
 #now .badge {
   font-size: var(--fs-label);
-  letter-spacing: .02em;
-  text-transform: none;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: var(--coin);
-  padding: .05rem .5rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--ink-wash);
+  border: 1px solid color-mix(in srgb, var(--ink) 35%, transparent);
+  border-radius: 999px;
+  padding: .1rem .6rem;
 }
 
 #now .learning {
@@ -1129,10 +1484,12 @@ main {
   color: var(--fg);
 }
 
+/* File tabs are index cards: the open one joins the sheet below it. */
 .tab.on {
   background: var(--card);
   color: var(--fg);
-  border-color: var(--edge);
+  border-color: var(--line);
+  box-shadow: inset 0 2px 0 var(--ink);
 }
 
 .tab:focus-visible {
@@ -1141,7 +1498,9 @@ main {
 }
 
 #edtitle {
+  font-family: var(--mono);
   font-size: var(--fs-ui);
+  font-weight: 600;
   color: var(--fg);
   text-transform: none;
   letter-spacing: 0;
@@ -1154,8 +1513,13 @@ main {
   background: var(--card);
 }
 
-#editor .edwrap {
+/* The editor never gives up its last ten lines to the verdict: the sheet scrolls instead. */
+#editor {
   min-height: 14rem;
+}
+
+#editor .edwrap {
+  min-height: 10rem;
 }
 
 .gutter {
@@ -1410,11 +1774,30 @@ main {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: .7rem;
+  gap: .5rem .6rem;
   flex-wrap: wrap;
-  padding: .5rem var(--gut);
+  padding: .55rem var(--gut);
   border-top: 1px solid var(--line);
   background: var(--panel);
+}
+
+/* Rare and destructive actions are quiet: text and icon, no frame, until pointed at. */
+#actions :is(#purge, #exporttp) {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--fs-label);
+  padding: .3rem .45rem;
+}
+
+#actions :is(#purge, #exporttp):hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--card);
+}
+
+#actions #purge:hover:not(:disabled) {
+  color: var(--bad);
 }
 
 #file {
@@ -1429,7 +1812,8 @@ main {
   display: inline-block;
   cursor: pointer;
   font-size: var(--fs-ui);
-  padding: .35rem .6rem;
+  font-weight: 500;
+  padding: .35rem .65rem;
   border: 1px solid var(--edge);
   border-radius: var(--coin);
   background: var(--card);
@@ -1446,20 +1830,22 @@ main {
   outline-offset: 2px;
 }
 
+/* The signal: the one warm colour of the interface, the highlighter on the corrector's desk. */
 #go,
 #goex {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  background: var(--ink);
-  color: var(--ink-fg);
-  border-color: var(--ink);
-  font-weight: 700;
+  background: var(--signal);
+  color: var(--signal-fg);
+  border-color: var(--signal-edge);
+  font-weight: 760;
   font-size: var(--fs-lead);
-  gap: .5rem;
+  gap: .55rem;
   min-width: 11rem;
-  padding: .4rem 1.1rem;
-  box-shadow: var(--rim), 0 1px 0 rgb(0 0 0 / .3);
+  padding: .4rem 1.15rem;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), 0 1px 0 rgb(0 0 0 / .3),
+    0 6px 18px -8px color-mix(in srgb, var(--signal) 70%, transparent);
 }
 
 /* A light sweeps the button once on hover and keeps sweeping while a test runs. The layer only
@@ -1499,18 +1885,30 @@ main {
   margin-left: 0;
 }
 
-#go:hover:not(:disabled),
-#goex:hover:not(:disabled) {
-  filter: brightness(1.12);
-  border-color: var(--ink);
-  box-shadow: var(--rim), 0 0 0 4px color-mix(in srgb, var(--ink) 24%, transparent);
+#go:hover:not(:disabled, [aria-disabled="true"]),
+#goex:hover:not(:disabled, [aria-disabled="true"]) {
+  filter: brightness(1.06);
+  border-color: var(--signal-edge);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .35),
+    0 0 0 4px color-mix(in srgb, var(--signal) 28%, transparent);
+}
+
+/* Busy or cooling down: the signal goes grey, the play mark becomes a clock, the cursor says
+   why and the label counts. */
+:is(#go, #goex)[aria-disabled="true"] {
+  filter: saturate(.25) brightness(.92);
+  cursor: progress;
+}
+
+:is(#go, #goex)[aria-disabled="true"]::before {
+  mask-image: url(./icons/clock.svg);
 }
 
 #go.secondary {
   background: var(--card);
   color: var(--muted);
   border-color: var(--edge);
-  font-weight: 400;
+  font-weight: 500;
   letter-spacing: 0;
   padding: .35rem .6rem;
   font-size: var(--fs-ui);
@@ -1541,14 +1939,28 @@ main {
 #out {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: min(45vh, 22rem);
+  max-height: min(46vh, 26rem);
   overflow-y: auto;
-  padding: .85rem var(--gut) .85rem calc(var(--gut) - 3px);
+  padding: .9rem var(--gut) .95rem calc(var(--gut) - 3px);
   border-top: 1px solid var(--line);
-  border-left: 3px solid var(--muted);
+  border-left: 3px solid var(--line-2);
   background: var(--panel);
   background-origin: border-box;
   transition: border-left-color var(--t-4) var(--ease-out), background-color var(--t-5) var(--ease-out);
+}
+
+#out:focus-visible {
+  outline-offset: -3px;
+}
+
+/* The state colours the headline and the rail, never the whole sheet's text. */
+#out:is(.ok, .bad, .wait) {
+  color: var(--fg);
+}
+
+/* A heading that receives focus when its panel opens is a landing point, not a control. */
+h2[tabindex="-1"]:focus {
+  outline: none;
 }
 
 #out .lintnote {
@@ -1565,23 +1977,34 @@ main {
 
 #out.ok {
   border-left-color: var(--ok);
-  background-color: color-mix(in srgb, var(--ok) 5%, var(--panel));
+  background-color: color-mix(in srgb, var(--ok) 6%, var(--panel));
 }
 
 #out.bad {
   border-left-color: var(--bad);
 }
 
-#out.wait {
+/* Some tests pass: progress in ink, never a red screen. */
+#out.partial {
+  border-left-color: var(--ink);
+}
+
+/* The service failed, not the code: caution, with the way to run it again. */
+#out.fault {
   border-left-color: var(--wait);
+  background-color: color-mix(in srgb, var(--wait) 6%, var(--panel));
+}
+
+#out.wait {
+  border-left-color: var(--ink);
 }
 
 /* Scan: a beam travels down the edge while the judge works. A background, so it stays on the
    visible edge however far the panel is scrolled. */
 @media (prefers-reduced-motion: no-preference) {
   #out.wait {
-    border-left-color: color-mix(in srgb, var(--wait) 30%, transparent);
-    background-image: linear-gradient(transparent, var(--wait), transparent);
+    border-left-color: color-mix(in srgb, var(--ink) 30%, transparent);
+    background-image: linear-gradient(transparent, var(--ink), transparent);
     background-size: 3px 45%;
     background-repeat: no-repeat;
     animation: scan 1.1s var(--ease-in-out) infinite;
@@ -1599,30 +2022,74 @@ main {
 }
 
 .verdict {
-  font-size: 1.5rem;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  font-size: 1.4rem;
+  font-weight: 760;
   line-height: 1.2;
-  letter-spacing: -.01em;
-  margin-bottom: .45rem;
+  letter-spacing: -.012em;
+  margin-bottom: .5rem;
   transform-origin: 0 60%;
+}
+
+.verdict::before {
+  width: 1.05em;
+  height: 1.05em;
 }
 
 .verdict.count {
   font-size: 2.1rem;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -.02em;
+  letter-spacing: -.025em;
+}
+
+.verdict.partial {
+  color: var(--fg);
+}
+
+.verdict.fault {
+  font-size: var(--fs-lead);
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0;
+  align-items: flex-start;
+  color: var(--fg);
+}
+
+.verdict.fault::before {
+  margin-top: .15em;
+  color: var(--wait);
 }
 
 .verdict.idle,
 .verdict.wait {
-  font-size: .95rem;
-  font-weight: 400;
-  letter-spacing: .02em;
+  font-size: var(--fs-lead);
+  font-weight: 600;
+  letter-spacing: 0;
 }
 
 .verdict.idle {
+  color: var(--fg);
+}
+
+.verdict.wait {
+  color: var(--ink);
+}
+
+#out .note {
+  display: flex;
+  gap: .5rem;
+  align-items: flex-start;
+  margin: 0 0 .6rem;
   color: var(--muted);
+  font-size: var(--fs-body);
+}
+
+#out .note::before {
+  margin-top: .2em;
+  color: var(--ink);
 }
 
 .ok {
@@ -1656,9 +2123,9 @@ main {
 }
 
 .ticks i {
-  width: 11px;
-  height: 6px;
-  border-radius: var(--coin);
+  width: 14px;
+  height: 7px;
+  border-radius: 2px;
   background: var(--line);
 }
 
@@ -1666,11 +2133,15 @@ main {
   background: var(--ok);
 }
 
+.ticks i.off {
+  background: color-mix(in srgb, var(--bad) 70%, var(--line));
+}
+
 .bar {
   height: 2px;
   margin: 0 0 .6rem;
   border-radius: var(--coin);
-  background: color-mix(in srgb, var(--wait) 16%, var(--line));
+  background: color-mix(in srgb, var(--ink) 16%, var(--line));
   overflow: hidden;
 }
 
@@ -1679,8 +2150,8 @@ main {
   display: block;
   height: 100%;
   width: 34%;
-  background: linear-gradient(90deg, transparent, var(--wait));
-  box-shadow: 4px 0 10px var(--wait);
+  background: linear-gradient(90deg, transparent, var(--ink));
+  box-shadow: 4px 0 10px var(--ink);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -1783,7 +2254,7 @@ main {
     }
   }
 
-  :is(.case, .failures, #out > ul, .warn, .lintnote) {
+  :is(.case, .failures, .wrong, .warn, .lintnote, #out .note) {
     animation: rise var(--t-4) var(--ease-out) 260ms both;
   }
 
@@ -1800,6 +2271,10 @@ main {
   overflow: hidden;
 }
 
+.case[open] {
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--line));
+}
+
 .case>summary {
   display: flex;
   align-items: center;
@@ -1807,8 +2282,9 @@ main {
   cursor: pointer;
   user-select: none;
   list-style: none;
-  padding: .4rem .6rem;
+  padding: .45rem .65rem;
   font-size: var(--fs-ui);
+  font-weight: 650;
   color: var(--bad);
 }
 
@@ -2059,11 +2535,11 @@ pre {
   top: 100%;
   right: .9rem;
   margin-top: .4rem;
-  padding: .85rem 1rem;
-  background: var(--panel);
+  padding: 1rem 1.1rem;
+  background: var(--raised);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--ink);
-  border-radius: var(--coin);
+  border-top: 3px solid var(--ink);
+  border-radius: var(--r-float);
   box-shadow: var(--shadow-3), var(--rim);
   transform-origin: top right;
   transition: opacity var(--t-3) var(--ease-out), translate var(--t-3) var(--ease-out),
@@ -2090,10 +2566,25 @@ pre {
   width: min(30rem, calc(100vw - 2rem));
 }
 
+#consent h2,
+#identitypanel h2 {
+  margin: 0 0 .5rem;
+  font-size: var(--fs-title);
+  font-weight: 760;
+  letter-spacing: -.01em;
+}
+
 #consent p {
   font-family: var(--sans);
-  margin: 0 0 .5rem;
+  margin: 0 0 .55rem;
   font-size: var(--fs-body);
+  color: var(--muted);
+}
+
+#consent p.lead {
+  color: var(--fg);
+  font-size: var(--fs-lead);
+  font-weight: 600;
 }
 
 #consent .row {
@@ -2590,10 +3081,15 @@ pre {
     }
   }
 
-  /* Only the next stations keep moving: they are where the student goes from here. */
+  /* Only the next stations move: they are where the student goes from here. Twice, then
+     still, and again when pointed at (WCAG 2.2.2). */
   .metro .stop.next {
     animation: pop var(--t-4) var(--ease-spring) var(--at) both,
-      station 2.6s ease-in-out calc(var(--at) + 400ms) infinite;
+      station 2.4s ease-in-out calc(var(--at) + 400ms) 2;
+  }
+
+  .metro .stop.next:is(:hover, :focus-visible) {
+    animation: station 2.4s ease-in-out 1;
   }
 
   @keyframes station {
@@ -3092,19 +3588,43 @@ pre {
   }
 }
 
+/* A toast, out of the flow: a message arriving never moves the bench under the student. A
+   flash goes by itself; anything else stays, with its own close button. */
 #system {
-  flex: 0 0 auto;
-  padding: .55rem var(--gut) .55rem calc(var(--gut) - 3px);
+  position: fixed;
+  z-index: 25;
+  left: 50%;
+  bottom: 1.25rem;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  width: max-content;
+  max-width: min(40rem, calc(100vw - 2rem));
+  padding: .55rem .5rem .55rem .85rem;
   font-family: var(--sans);
   font-size: var(--fs-body);
+  line-height: 1.45;
   color: var(--fg);
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
+  background: var(--raised);
+  border: 1px solid var(--line);
   border-left: 3px solid var(--wait);
+  border-radius: var(--r-float);
+  box-shadow: var(--shadow-3), var(--rim);
 }
 
 #system[hidden] {
   display: none;
+}
+
+#system .text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#system.flash {
+  padding-right: .85rem;
+  border-left-color: var(--ink);
 }
 
 #system.outage {
@@ -3112,12 +3632,25 @@ pre {
 }
 
 #system::before {
-  content: "\26A0\00a0\00a0";
   color: var(--wait);
+}
+
+#system.flash::before {
+  color: var(--ink);
 }
 
 #system.outage::before {
   color: var(--bad);
+}
+
+#system .close,
+#announcement .nav {
+  width: var(--tap);
+  min-width: var(--tap);
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
 }
 
 #maintenance {
@@ -3162,14 +3695,19 @@ pre {
 
 /* Banners slide in. They leave at once: a fade would only delay the workbench's own move. */
 :is(#system, #maintenance, #announcement) {
-  transition: opacity var(--t-4) var(--ease-out), translate var(--t-4) var(--ease-out),
+  transition: opacity var(--t-4) var(--ease-out), translate var(--t-4) var(--ease-spring),
     border-left-color var(--t-4) var(--ease-out);
 }
 
 @starting-style {
-  :is(#system, #maintenance, #announcement) {
+  :is(#maintenance, #announcement) {
     opacity: 0;
     translate: 0 -.35rem;
+  }
+
+  #system {
+    opacity: 0;
+    translate: -50% .9rem;
   }
 }
 
@@ -3185,27 +3723,53 @@ pre {
   white-space: nowrap;
 }
 
-.steps {
+/* The line. The judge's three stations, drawn like the lab strip and the collection map:
+   a station is a disc, filled when passed, crossed when it stopped the run, hollow when not
+   reached; the track between two stations is inked once the first is passed. */
+:is(.steps, .howto) {
   display: flex;
   flex-wrap: wrap;
-  gap: .3rem;
-  margin: 0 0 .7rem;
+  align-items: center;
+  row-gap: .4rem;
+  margin: 0 0 .75rem;
+  padding: 0;
+  list-style: none;
 }
 
-.steps .step {
+:is(.steps, .howto) > li {
+  --disc: var(--line-2);
   display: flex;
-  flex-direction: column;
-  gap: .1rem;
-  padding: .3rem .6rem;
-  border: 1px solid var(--edge);
-  border-radius: var(--coin);
-  border-left-width: 3px;
-  border-left-color: var(--line-2);
+  align-items: center;
+  gap: .45rem;
+  font-size: var(--fs-ui);
+}
+
+/* The station. */
+:is(.steps, .howto) > li::before {
+  content: "";
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  box-sizing: border-box;
+  border: 2px solid var(--disc);
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+/* The track to the next station. */
+:is(.steps, .howto) > li:not(:last-child)::after {
+  content: "";
+  flex: none;
+  width: clamp(1.25rem, 4vw, 2.75rem);
+  height: 2px;
+  margin: 0 .3rem 0 .15rem;
+  background: var(--line);
+  border-radius: 1px;
+  transform-origin: left center;
 }
 
 .steps b {
-  font-size: var(--fs-ui);
-  font-weight: 600;
+  font-weight: 650;
   color: var(--muted);
 }
 
@@ -3213,63 +3777,118 @@ pre {
   font-style: normal;
   font-size: var(--fs-label);
   color: var(--muted);
-  font-family: var(--sans);
 }
 
 .steps .ok {
-  border-left-color: var(--ok);
+  --disc: var(--ok);
 }
 
-.steps .ok b {
-  color: var(--fg);
+.steps .ok::before {
+  background-color: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
 }
 
-.steps .ok b::after {
-  content: "\00a0\2713";
-  color: var(--ok);
+.steps .ok:not(:last-child)::after {
+  background: var(--ok);
 }
 
 .steps .ko {
-  border-left-color: var(--bad);
+  --disc: var(--bad);
 }
 
-.steps .ko b {
+/* Where the run stopped: a diamond, not a disc, so it reads without the red. */
+.steps .ko::before {
+  background-color: var(--bad);
+  border-radius: 2px;
+  rotate: 45deg;
+  scale: .85;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 22%, transparent);
+}
+
+.steps :is(.ok, .ko) b {
   color: var(--fg);
 }
 
-.steps .ko b::after {
-  content: "\00a0\2717";
-  color: var(--bad);
+/* Before the first test: the same line, ghosted and numbered, saying what Test will check. */
+.howto {
+  counter-reset: station;
+  color: var(--muted);
 }
 
-.steps .empty {
-  opacity: .9;
+.howto > li {
+  counter-increment: station;
 }
 
-/* Compile, run, check: lit one after the other, each verdict mark stamped as its step lands. */
+.howto > li::before {
+  content: counter(station);
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-style: dashed;
+  font-size: .7rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.howto > li:not(:last-child)::after {
+  background: repeating-linear-gradient(90deg, var(--line-2) 0 4px, transparent 4px 8px);
+}
+
+/* While the judge works: hollow stations, and an ink pulse that runs along the line. */
+#out.wait .steps > li::before {
+  border-color: color-mix(in srgb, var(--ink) 55%, var(--line));
+}
+
+/* Compile, run, check: the line draws itself station by station, each mark stamped as it
+   lands. Only transform and opacity move, and nothing waits for them. */
 @media (prefers-reduced-motion: no-preference) {
-  .steps .step {
-    animation: step-in var(--t-4) var(--ease-out) var(--d, 0ms) both;
+  #out:not(.wait) .steps > li::before {
+    animation: stamp var(--t-4) var(--ease-spring) calc(var(--i, 0) * 160ms + 60ms) both;
   }
 
-  .steps .step:nth-child(2) {
-    --d: 90ms;
+  #out:not(.wait) .steps > li:not(:last-child)::after {
+    animation: draw var(--t-4) var(--ease-out) calc(var(--i, 0) * 160ms + 140ms) both;
   }
 
-  .steps .step:nth-child(3) {
-    --d: 180ms;
+  #out:not(.wait) .steps > li > :is(b, i) {
+    animation: fade-in var(--t-3) var(--ease-out) calc(var(--i, 0) * 160ms + 80ms) both;
   }
 
-  .steps b::after {
-    display: inline-block;
-    animation: stamp var(--t-4) var(--ease-spring) calc(var(--d, 0ms) + 180ms) both;
+  #out.wait .steps > li:not(:last-child)::after {
+    background: linear-gradient(90deg, var(--line) 0 30%, var(--ink) 50%, var(--line) 70%) 0 0 / 300% 100%;
+    animation: pulse-run 1.1s linear infinite;
+    animation-delay: calc(var(--i, 0) * 180ms);
   }
 
-  @keyframes step-in {
+  #out.wait .steps > li::before {
+    animation: beacon 1.1s var(--ease-in-out) infinite;
+    animation-delay: calc(var(--i, 0) * 180ms);
+  }
+
+  .howto > li {
+    animation: fade-in var(--t-4) var(--ease-out) calc(var(--i, 0) * 90ms) both;
+  }
+
+  @keyframes draw {
     from {
-      opacity: 0;
-      translate: -.4rem 0;
-      border-left-color: var(--line-2);
+      scale: 0 1;
+    }
+  }
+
+  @keyframes pulse-run {
+    from {
+      background-position: 100% 0;
+    }
+
+    to {
+      background-position: 0 0;
+    }
+  }
+
+  @keyframes beacon {
+    50% {
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 25%, transparent);
     }
   }
 }
@@ -3282,35 +3901,50 @@ pre {
   margin: .1rem 0 .6rem;
 }
 
+/* What to do now: the recovery path, always the last thing on the sheet. */
 .suite {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: .6rem;
   margin: 1rem 0 0;
-  padding: .55rem .7rem;
+  padding: .6rem .7rem .6rem .8rem;
   font-family: var(--sans);
   font-size: var(--fs-body);
+  font-weight: 600;
   background: var(--card);
   border: 1px solid var(--line);
   border-left: 3px solid var(--ink);
   border-radius: var(--coin);
 }
 
-.suite>span::before {
-  content: "\2192\00a0";
-  color: var(--ink);
+.suite > span {
+  flex: 1 1 14rem;
+}
+
+/* The next exercise and "run it again" are the way forward: filled in ink. */
+.suite :is(.next, .retry),
+.gcc > .nav {
+  color: var(--ink-fg);
+  background: var(--ink);
+  border-color: var(--ink);
+  font-weight: 700;
+}
+
+.suite :is(.next, .retry):hover:not(:disabled),
+.gcc > .nav:hover:not(:disabled) {
+  color: var(--ink-fg);
+  filter: brightness(1.08);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 24%, transparent);
+}
+
+.gcc > .nav {
+  margin-top: .5rem;
 }
 
 #go.busy,
 #goex.busy {
   cursor: progress;
-  opacity: .75;
-}
-
-#go[aria-disabled="true"],
-#goex[aria-disabled="true"] {
-  pointer-events: none;
 }
 
 #saving {
@@ -3323,8 +3957,13 @@ pre {
   white-space: nowrap;
 }
 
-#saving::before {
-  content: "\2713\00a0";
+#saving {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+
+#saving.saved::before {
   color: var(--ok);
 }
 
@@ -3334,7 +3973,6 @@ pre {
 }
 
 #saving.failed::before {
-  content: "\26A0\00a0";
   color: var(--bad);
 }
 
@@ -3404,10 +4042,15 @@ pre {
   min-height: calc(var(--tap) + .9rem);
   display: flex;
   flex-wrap: wrap;
-  gap: .3rem;
-  padding: .4rem var(--gut);
+  align-items: center;
+  gap: .3rem 1.4rem;
+  padding: .45rem var(--gut);
   border-bottom: 1px solid var(--line);
   background: var(--bg);
+}
+
+#labband > .grow {
+  margin-left: -1rem;
 }
 
 #labband[hidden] {
@@ -3492,9 +4135,9 @@ pre {
   gap: .25rem;
   font-size: var(--fs-label);
   line-height: 1.4;
-  padding: .1rem .45rem;
-  border: 1px solid var(--edge);
-  border-radius: var(--coin);
+  padding: .1rem .55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -3515,40 +4158,103 @@ pre {
   color: var(--bad);
 }
 
+/* A station: a disc and its name. Its shape says what it is (round, square for a check,
+   dashed for a bonus) and its fill says how far the student got, so colour is never alone. */
 .tile {
+  --disc: var(--line-2);
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: .3rem;
+  gap: .4rem;
   min-width: 2.4rem;
   justify-content: center;
-  padding: .2rem .45rem;
-  font-size: var(--fs-label);
+  padding: .2rem .5rem .2rem .35rem;
+  font-size: var(--fs-ui);
+  font-weight: 600;
   line-height: 1.4;
-  border: 1px solid var(--edge);
-  border-radius: var(--coin);
+  border: 1px solid transparent;
+  border-radius: 999px;
   background: none;
+  box-shadow: none;
   color: var(--muted);
   cursor: pointer;
 }
 
+.tile::before {
+  content: "";
+  flex: none;
+  width: .95rem;
+  height: .95rem;
+  box-sizing: border-box;
+  border: 2px solid var(--disc);
+  border-radius: 50%;
+  background: var(--bg);
+  transition: background-color var(--t-3) var(--ease-out), box-shadow var(--t-3) var(--ease-out);
+}
+
+/* The track from the previous station, inked once that one is solved. */
+.tile + .tile::after {
+  content: "";
+  position: absolute;
+  right: calc(100% + 1px);
+  top: 50%;
+  width: 1.4rem;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--line);
+  pointer-events: none;
+}
+
+.tile.solved + .tile::after {
+  background: var(--ink);
+}
+
 .tile:hover:not([aria-disabled="true"]) {
-  border-color: var(--line-2);
   color: var(--fg);
-  translate: 0 -1px;
+  background: var(--card);
 }
 
 .tile.solved {
-  border-color: var(--ink);
-  background: var(--ink-wash);
+  --disc: var(--ink);
   color: var(--fg);
+}
+
+.tile.solved::before {
+  background: var(--ink);
+}
+
+.tile.verification::before {
+  border-radius: 3px;
+}
+
+.tile.bonus::before {
+  border-style: dashed;
 }
 
 /* A ring, not a thicker border or a bolder face: the strip keeps its widths when the
    current exercise changes, so the lock-on below can glide instead of the tiles jumping. */
 .tile.current {
-  border-color: var(--fg);
-  box-shadow: inset 0 0 0 1px var(--fg);
+  --disc: var(--fg);
   color: var(--fg);
+  background: var(--card);
+}
+
+.tile.current::before {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+/* After a full pass, the next station beckons twice: that is where the student goes now. */
+@media (prefers-reduced-motion: no-preference) {
+  #right:has(#out.ok) .tile.current + .tile:not([aria-disabled="true"])::before {
+    animation: beckon 1.2s var(--ease-in-out) 900ms 2;
+  }
+
+  @keyframes beckon {
+    50% {
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--ink) 35%, transparent);
+      scale: 1.15;
+    }
+  }
 }
 
 /* Lock-on: brackets anchored to the current tile, which spring to the next one. */
@@ -3600,24 +4306,32 @@ pre {
   }
 }
 
-.tile.todo {
-  border-color: var(--edge);
+.tile .what {
+  font-style: normal;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  padding: 0 .35rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
 }
 
-.tile.bonus {
-  border-style: dashed;
-}
-
-.tile.verification {
-  border-color: var(--ink);
+.tile.verification .what {
+  border-color: color-mix(in srgb, var(--ink) 45%, transparent);
   color: var(--ink);
-  font-weight: 600;
 }
 
 .tile[aria-disabled="true"] {
   cursor: not-allowed;
+  opacity: .7;
 }
 
+.tile .padlock::before {
+  width: .9rem;
+  height: .9rem;
+}
+
+/* The disc carries the state; the textual mark stays for the attempted dot only. */
 .tile .mark {
   display: inline-block;
   font-style: normal;
@@ -3625,9 +4339,13 @@ pre {
   color: var(--ink);
 }
 
-/* The second beat of a success: the tile is stamped when statuses.load() marks it solved. */
+.tile.solved .mark {
+  display: none;
+}
+
+/* The second beat of a success: the station fills with ink when statuses.load() marks it. */
 @media (prefers-reduced-motion: no-preference) {
-  .tile.solved .mark {
+  .tile.solved::before {
     animation: stamp var(--t-4) var(--ease-spring) both;
   }
 
@@ -5103,7 +5821,9 @@ pre {
 }
 
 #shortcuts h2 {
-  font-size: .95rem;
+  font-size: var(--fs-title);
+  font-weight: 760;
+  letter-spacing: -.01em;
   margin: 0 0 .35rem;
 }
 
@@ -5140,13 +5860,14 @@ pre {
 
 .keys kbd {
   display: inline-block;
-  padding: .05rem .3rem;
+  padding: .05rem .35rem;
   margin-right: .15rem;
   font-family: var(--mono);
   font-size: var(--fs-label);
   color: var(--fg);
   background: var(--card);
   border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
   border-radius: var(--coin);
 }
 
@@ -5474,20 +6195,23 @@ html:active-view-transition * {
 
 .burst i:nth-child(3n) {
   background: var(--ink);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
 .burst i:nth-child(4n) {
   width: 4px;
   height: 4px;
   margin: -2px 0 0 -2px;
-  background: var(--wait);
+  background: var(--signal);
 }
 
+/* An ink ring, like the station that just filled on the line. */
 .burst b {
   width: 28px;
   height: 28px;
   margin: -14px 0 0 -14px;
-  border: 2px solid var(--ok);
+  border: 2px solid var(--ink);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 45%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5503,5 +6227,54 @@ html:active-view-transition * {
   ::view-transition-old(*),
   ::view-transition-new(*) {
     animation: none !important;
+  }
+}
+
+/* Phones: overrides that must come after every rule they correct. */
+@media (max-width: 700px) {
+  /* On a phone the bench is a scrolling page: Test rides along at the bottom of the screen. */
+  #actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    box-shadow: 0 -8px 20px -10px rgb(1 6 14 / .45);
+  }
+
+  #go,
+  #goex {
+    flex: 1 1 100%;
+    order: 9;
+  }
+
+  #system {
+    bottom: calc(var(--tap-lg) + 2.5rem);
+  }
+
+  /* The editor's tools keep their icon; their name stays their accessible label. */
+  .edhead :is(.reindent, .reset) {
+    width: var(--tap);
+    padding: 0;
+    font-size: 0;
+  }
+
+  .edhead :is(.reindent, .reset)::before {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+
+  .edhead #saving {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The stations keep their shape and colour; the state words stay for screen readers. */
+  .steps i {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }

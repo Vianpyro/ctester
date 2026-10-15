@@ -72,17 +72,17 @@
   });
 </script>
 
+<!-- Capture: Escape from inside the panel closes it before App's chain sends focus to the code. -->
+<svelte:window
+  onkeydowncapture={(e) => {
+    if (e.key !== "Escape" || !panel?.contains(document.activeElement)) return;
+    e.preventDefault();
+    void close();
+  }}
+/>
+
 {#if items.length}
-  <aside
-    class="drops"
-    aria-labelledby="dropstitle"
-    bind:this={panel}
-    onkeydown={(e) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      void close();
-    }}
-  >
+  <aside class="drops" aria-labelledby="dropstitle" bind:this={panel}>
     <h2 id="dropstitle">{t("drops.title")}</h2>
     <ul>
       {#each items as item, i (item.id)}

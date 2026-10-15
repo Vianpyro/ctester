@@ -33,6 +33,8 @@
   import VerdictPanel from "./components/VerdictPanel.svelte";
 
   let menuOpen = $state(false);
+  // The destination whose chunk is on its way, so its button can say so.
+  let opening = $state("");
   let focusSearch = $state(false);
   let helpOpen = $state(false);
 
@@ -63,6 +65,15 @@
       view.show("");
       return;
     }
+    opening = name;
+    try {
+      await bringDestination(name);
+    } finally {
+      opening = "";
+    }
+  }
+
+  async function bringDestination(name: "progress" | "leaderboard" | "collection" | "scratch") {
     if (name === "progress") {
       const parts = await bring("progress", () =>
         Promise.all([
@@ -310,6 +321,8 @@
 
 <svelte:window onkeydown={onKeydown} />
 
+<a class="skip" href={isQuiz ? "#quiz" : "#code"}>{t("app.skip_to_code")}</a>
+
 <TopBar
   {menuOpen}
   {focusSearch}
@@ -318,6 +331,7 @@
     if (!open) focusSearch = false;
   }}
   openView={openDestination}
+  {opening}
   openChat={toggleChat}
   {helpOpen}
   openHelp={() => void toggleHelp()}
@@ -346,10 +360,17 @@
       <strong>{t("announcement.title")}</strong>
       <span class="text">{maintenance.shown.text}</span>
       <button type="button" class="nav" aria-label={t("announcement.dismiss")}
-        onclick={() => maintenance.dismiss()}>×</button>
+        onclick={() => maintenance.dismiss()}></button>
     </div>
   {/if}
-  <div id="system"class={system.failed ? "outage" : ""} hidden={!system.text}>{system.text}</div>
+  <!-- A toast out of the flow: a message arriving never moves the workbench. #notice speaks. -->
+  <div id="system" class={system.failed ? "outage" : system.transient ? "flash" : ""} hidden={!system.text}>
+    <span class="text">{system.text}</span>
+    {#if !system.transient}
+      <button type="button" class="nav close" aria-label={t("system.close")} onclick={() => system.clear()}
+      ></button>
+    {/if}
+  </div>
 
   <div id="work" class={dock.open || dock.reserved ? "withchat" : ""} hidden={!showWorkbench}>
     <Statement />
@@ -358,7 +379,7 @@
       <div id="now" class="phead" aria-live="polite">
         {#if here}
           <h2>{here.label}</h2>
-          <span class="badge">{expectedOf(here.mode)}</span>
+          <span class={"badge mode " + here.mode}>{expectedOf(here.mode)}</span>
           {#if here.verification}
             <span class="badge verification">{t("app.verification")}</span>
           {/if}

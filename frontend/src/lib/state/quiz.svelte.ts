@@ -71,6 +71,8 @@ class QuizState {
   answers = $state<Record<string, Answer>>({});
   exerciseId = $state("");
   loading = $state(false);
+  // The questions never came: the panel says so and offers to fetch them again.
+  failed = $state(false);
   groupOf = $state<Record<string, string>>({});
   /** The answers as they were last sent, so a mark is dropped the moment a field is retyped. */
   submitted = $state<Record<string, string>>({});
@@ -80,6 +82,7 @@ class QuizState {
     // screen until the new ones land, so the panel never collapses to nothing.
     const same = this.exerciseId === id && this.pages.length > 0;
     this.loading = true;
+    this.failed = false;
     this.exerciseId = id;
     if (!same) {
       this.pages = [];
@@ -88,7 +91,10 @@ class QuizState {
     }
     const data = await fetchQuiz(id, catalog.staff);
     this.loading = false;
-    if (!data || !Array.isArray(data.questions)) return;
+    if (!data || !Array.isArray(data.questions)) {
+      this.failed = !this.pages.length;
+      return;
+    }
     const held = drafts.get(id) ?? {};
     const pages: QuizPage[] = [];
     const groups: Record<string, string> = {};
@@ -138,6 +144,7 @@ class QuizState {
   }
 
   clear(): void {
+    this.failed = false;
     this.pages = [];
     this.answers = {};
     this.groupOf = {};

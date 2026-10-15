@@ -19,12 +19,13 @@
     focusSearch: boolean;
     onMenu: (open: boolean, focusSearch?: boolean) => void;
     openView: (name: "progress" | "leaderboard" | "collection" | "scratch") => void;
+    opening: string;
     openChat: () => void;
     helpOpen: boolean;
     openHelp: () => void;
   }
 
-  const { menuOpen, focusSearch, onMenu, openView, openChat, helpOpen, openHelp }: Props = $props();
+  const { menuOpen, focusSearch, onMenu, openView, opening, openChat, helpOpen, openHelp }: Props = $props();
 
   const signedIn = $derived(session.signedIn);
   const plate = $derived(profile.plate);
@@ -68,6 +69,7 @@
   </h1>
   <span class="tagline credit">{t("topbar.by")} <a href="https://www.linkedin.com/in/vianney-veremme-1b88a5177" target="_blank">Vianney Veremme</a></span>
   <span id="live" class="tagline" aria-live="polite" hidden={presence.count === null}>
+    {#key presence.count}<i class="dot" aria-hidden="true"></i>{/key}
     <span class="wide">{presence.label}</span><span class="narrow">{t("presence.online_short", { count: presence.count ?? 0 })}</span>
   </span>
   <span class="sep"></span>
@@ -82,7 +84,7 @@
       aria-label={t("topbar.prev")}
       title={t("topbar.prev")}
       disabled={index <= 0}
-      onclick={() => step(-1)}>‹</button
+      onclick={() => step(-1)}></button
     >
     <button
       type="button"
@@ -91,7 +93,7 @@
       aria-label={t("topbar.next")}
       title={t("topbar.next")}
       disabled={index < 0 || index >= catalog.catalog.length - 1}
-      onclick={() => step(1)}>›</button
+      onclick={() => step(1)}></button
     >
   </span>
   <span class="grow"></span>
@@ -105,7 +107,7 @@
     aria-label={t("topbar.menu")}
     onclick={() => (toolsOpen = !toolsOpen)}
   >
-    ☰{#if dock.unread && !toolsOpen}<span class="pill"></span>{/if}
+    {#if dock.unread && !toolsOpen}<span class="pill"></span>{/if}
   </button>
 
   <!-- On wide screens #tools has display: contents, so these sit in the bar as before. -->
@@ -120,11 +122,24 @@
   >
     <span class="group">
       {#if signedIn}
-        <button type="button" id="myprogress" class="nav" onclick={() => openView("progress")}>
+        <button
+          type="button"
+          id="myprogress"
+          class="nav"
+          aria-current={view.current === "progress" ? "page" : undefined}
+          aria-busy={opening === "progress" ? "true" : undefined}
+          onclick={() => openView("progress")}
+        >
           {view.label("progress", t("topbar.progress"))}
         </button>
         {#if session.forumOffered}
-          <button type="button" id="discussions" class="nav" onclick={openChat}>
+          <button
+            type="button"
+            id="discussions"
+            class="nav"
+            aria-current={view.current === "forum" || view.current === "moderation" ? "page" : undefined}
+            onclick={openChat}
+          >
             {view.current === "forum" || view.current === "moderation"
               ? t("view.back")
               : t("topbar.chat")}
@@ -132,7 +147,14 @@
           </button>
         {/if}
         {#if session.scratchOffered}
-          <button type="button" id="scratch" class="nav" onclick={() => openView("scratch")}>
+          <button
+            type="button"
+            id="scratch"
+            class="nav"
+            aria-current={view.current === "scratch" ? "page" : undefined}
+            aria-busy={opening === "scratch" ? "true" : undefined}
+            onclick={() => openView("scratch")}
+          >
             {view.label("scratch", t("topbar.console"))}
           </button>
         {/if}
@@ -149,7 +171,7 @@
       title={t("topbar.shortcuts_title")}
       onclick={openHelp}
     >
-      {t("topbar.shortcuts")}<span class="shortcut">F1</span>
+      <span class="label">{t("topbar.shortcuts")}</span><span class="shortcut">F1</span>
     </button>
     <button
       type="button"
@@ -157,7 +179,7 @@
       class="nav"
       title={light ? t("topbar.to_dark") : t("topbar.to_light")}
       aria-label={light ? t("topbar.to_dark") : t("topbar.to_light")}
-      onclick={(e) => theme.toggle(signedIn, e.currentTarget)}>{light ? "☾" : "☀"}</button
+      onclick={(e) => theme.toggle(signedIn, e.currentTarget)}></button
     >
     {#if LANGUAGES.length > 1}
       <select

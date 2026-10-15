@@ -30,7 +30,7 @@
 </script>
 
 <div id="editor">
-  <div class="phead">
+  <div class="phead edhead">
     <span id="edtitle" hidden={editor.files.length > 1}>{editor.activeFile ?? ""}</span>
     <!-- svelte-ignore a11y_interactive_supports_focus -->
     <div
@@ -54,20 +54,23 @@
     </div>
     <span class="grow"></span>
     {#if !editor.readOnly}
-      <button type="button" class="nav" title={t("shortcuts.format")} onclick={() => surface?.command("format")}
+      <button type="button" class="nav reindent" title={t("shortcuts.format")} onclick={() => surface?.command("format")}
         >{t("editor.format")}</button
       >
       {#if editor.files.some((f) => f.template)}
         <button
           type="button"
-          class="nav"
+          class="nav reset"
           onclick={() => {
             if (typeof confirm !== "function" || confirm(t("editor.reset_confirm"))) exercise.reset();
           }}>{t("editor.reset")}</button
         >
       {/if}
     {/if}
-    <span id="saving" class={drafts.statusFailed ? "failed" : ""} aria-live="polite"
+    <span
+      id="saving"
+      class={drafts.statusFailed ? "failed" : drafts.statusSaved ? "saved" : ""}
+      aria-live="polite"
       >{drafts.status}</span
     >
   </div>

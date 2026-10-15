@@ -14,7 +14,7 @@ export type Phase =
   | { kind: "sending" }
   | { kind: "queued"; position: number; eta?: number }
   | { kind: "running" }
-  | { kind: "done"; verdict: Verdict; scope: Scope | null }
+  | { kind: "done"; verdict: Verdict; scope: Scope | null; recalled?: true }
   | { kind: "cooldown"; seconds: number }
   | { kind: "lost" };
 
@@ -70,6 +70,14 @@ class SubmissionState {
 
   say(text: string, kind: Note["kind"] = "info"): void {
     this.note = { text, kind };
+  }
+
+  // Back on an exercise whose code has not changed since its verdict: that verdict still
+  // holds, so it comes back with the code. Nothing new happened, so nothing is celebrated.
+  recall(exerciseId: string, files: Record<string, string>): void {
+    const held = this.#known.get(exerciseId);
+    if (!held || held.key !== JSON.stringify(canonicalizeFiles(files))) return;
+    this.phase = { kind: "done", verdict: held.verdict, scope: null, recalled: true };
   }
 
   #record(verdict: Verdict, scope: Scope | null, exercise: string): void {

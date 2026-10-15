@@ -2902,6 +2902,8 @@ def test_document_csp():
                      "form-action 'none'", "img-src 'self'"):
         assert forbidden in policy, forbidden
     assert "style-src 'self' 'unsafe-inline'" in policy
+    # The typeface is served with the page; a CDN would be a host the page names.
+    assert "font-src 'self';" in policy, policy
     assert "unsafe-inline" not in policy.split("style-src")[0], policy
     assert "unsafe-eval" not in policy
 

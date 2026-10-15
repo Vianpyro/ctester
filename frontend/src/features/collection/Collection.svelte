@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { dayOf } from "../../lib/domain/dates";
   import { fetchCollection } from "../../lib/api/account";
   import { whenSignedOut } from "../../lib/auth/session.svelte";
   import AchievementMap from "./AchievementMap.svelte";
@@ -109,7 +110,7 @@
           <span class="title">{a.name}</span>
           <span class="what">{a.description}</span>
           {#if a.unlocked_at}
-            <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
+            {#if dayOf(a.unlocked_at)}<time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: dayOf(a.unlocked_at) })}</time>{/if}
           {:else}
             <span class="when">
               {t("progress.achievement_count", { count: a.count, threshold: a.threshold })}

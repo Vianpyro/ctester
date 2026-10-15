@@ -325,3 +325,17 @@ describe("busy", () => {
     expect(submission.busy).toBe(false);
   });
 });
+
+describe("coming back to an exercise", () => {
+  it("brings its verdict back while the code is unchanged, and only then", async () => {
+    const files = uniqueCode();
+    queue("rc", { status: 200, body: OK });
+    await submission.submit(EXERCISE, KEY, { files }, null, noop);
+    submission.reset();
+    submission.recall(EXERCISE.id, files);
+    expect(submission.phase).toEqual({ kind: "done", verdict: OK, scope: null, recalled: true });
+    submission.reset();
+    submission.recall(EXERCISE.id, { "submission.c": files["submission.c"] + "\nint x;" });
+    expect(submission.phase.kind).toBe("idle");
+  });
+});

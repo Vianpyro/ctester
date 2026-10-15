@@ -7,7 +7,6 @@
   import { runTest } from "../lib/state/run";
   import { isGroupExportable } from "../lib/domain/catalog";
   import { decodeImported } from "../lib/domain/source";
-  import { exportGroup } from "../lib/state/export";
   import { session } from "../lib/auth/session.svelte";
   import { t } from "../lib/i18n.svelte";
 
@@ -55,8 +54,10 @@
     input.value = "";
   }
 
+  // Gathering a lab is a rare click: its builder waits in its own chunk until then.
   async function doExport() {
     if (!here) return;
+    const { exportGroup } = await import("../lib/state/export");
     await exportGroup(catalog.catalog, here.group, (text, failed) =>
       drafts.sayExport(text, failed),
     );
@@ -108,6 +109,7 @@
     id="go"
     class={(isQuiz ? "secondary" : "") + (submission.busy ? " busy" : "")}
     aria-busy={working ? "true" : "false"}
+    aria-disabled={submission.busy ? "true" : undefined}
     onclick={() => runTest(false)}
   >
     {submission.busy ? busyLabel : goLabel}
@@ -119,6 +121,7 @@
     hidden={!isQuiz}
     class={submission.busy ? "busy" : ""}
     aria-busy={working ? "true" : "false"}
+    aria-disabled={submission.busy ? "true" : undefined}
     onclick={() => runTest(true)}
   >
     {submission.busy ? busyLabel : t("actions.test_exercise")}

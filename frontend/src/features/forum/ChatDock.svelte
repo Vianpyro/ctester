@@ -18,17 +18,17 @@
   <span class="grow"></span>
   <button
     type="button"
-    class="nav"
+    class="nav wide"
     title={t("chat.wide_title")}
     aria-label={t("chat.wide")}
-    onclick={() => chat.toggleWide()}>⤢</button
+    onclick={() => chat.toggleWide()}></button
   >
   <button
     type="button"
-    class="nav"
+    class="nav close"
     title={t("chat.close")}
     aria-label={t("chat.close")}
-    onclick={() => chat.toggleDock()}>✕</button
+    onclick={() => chat.toggleDock()}></button
   >
 </div>
 

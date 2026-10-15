@@ -81,6 +81,7 @@ class ExerciseState {
     await drafts.pullFromAccount(ex.id);
     if (thisLoad !== this.#load) return;
     this.#fillEditor(ex, detail.files);
+    submission.recall(ex.id, editor.sources);
     await this.#enterWorkspace(ex, thisLoad);
     await followChannel?.();
   }

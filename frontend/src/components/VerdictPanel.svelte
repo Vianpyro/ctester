@@ -5,23 +5,17 @@
   import { session } from "../lib/auth/session.svelte";
   import { submission } from "../lib/state/submission.svelte";
   import { system } from "../lib/state/system.svelte";
-  import { quiz } from "../lib/state/quiz.svelte";
   import { editor } from "../lib/state/editor.svelte";
+  import { runTest } from "../lib/state/run";
   import { t } from "../lib/i18n.svelte";
   import {
     OUTCOMES,
     afterFailure,
-    caseClass,
-    caseInputs,
-    caseNumbers,
-    caseReason,
     estimatedWait,
     firstError,
     outcomeNext,
     outcomeTitle,
-    quizHint,
     restrictToScope,
-    showsContract,
     stepLabel,
     stepState,
     verdictCount,
@@ -34,6 +28,7 @@
   let box: HTMLDivElement | undefined = $state();
 
   const phase = $derived(submission.phase);
+  const note = $derived(submission.note);
 
   const shown = $derived.by((): { r: Verdict; scope: Scope | null } | null => {
     if (phase.kind !== "done") return null;
@@ -49,6 +44,21 @@
     shown && failed ? (OUTCOMES[shown.r.status] ?? OUTCOMES.error!) : null,
   );
   const complete = $derived(!!shown && !failed && shown.r.passed === shown.r.total);
+  const waiting = $derived(
+    phase.kind === "sending" || phase.kind === "queued" || phase.kind === "running",
+  );
+
+  // Six states, each with its own colour and its own shape: a fault is the service failing,
+  // never a judgment on the code, and a partial pass is progress, not a red screen.
+  const cls = $derived.by(() => {
+    if (waiting) return "wait";
+    if (phase.kind === "done") return failed ? "bad" : complete ? "ok" : "partial";
+    if (phase.kind === "lost" || phase.kind === "cooldown" || note?.kind === "fault") return "fault";
+    return "idle";
+  });
+
+  const passed = $derived(shown?.r.passed ?? 0);
+  const total = $derived(shown?.r.total ?? 0);
 
   const headline = $derived.by(() => {
     if (phase.kind === "sending") return t("verdict.sending");
@@ -60,9 +70,8 @@
           : t("verdict.queued", { position: phase.position })) + estimatedWait(phase.eta)
       );
     }
-    if (phase.kind === "idle" || phase.kind === "lost" || phase.kind === "cooldown") {
-      return catalog.catalog.length ? t("verdict.idle") : t("verdict.nothing_open");
-    }
+    if (cls === "fault") return note?.text ?? t("verdict.idle");
+    if (cls === "idle") return catalog.catalog.length ? t("verdict.idle") : t("verdict.nothing_open");
     if (!shown) return "";
     if (failed) return outcomeTitle(shown.r.status);
     const frame = shown.scope && shown.r.kind === "quiz" ? " — " + shown.scope.title : "";
@@ -70,20 +79,15 @@
   });
 
   const explanation = $derived(shown ? verdictExplain(shown.r) : "");
-  const passed = $derived(shown?.r.passed ?? 0);
-  const total = $derived(shown?.r.total ?? 0);
-  const failedNames = $derived(shown?.r.failed ?? []);
   const gcc = $derived(shown?.r.gcc ?? "");
 
-  const cls = $derived.by(() => {
-    if (phase.kind === "sending" || phase.kind === "queued" || phase.kind === "running") {
-      return "wait";
-    }
-    if (phase.kind === "done") return failed || !complete ? "bad" : "ok";
-    return "idle";
-  });
+  // A quiz is neither compiled nor run: the judge's line belongs to code exercises.
+  const quizMode = $derived(catalog.selected?.mode === "quiz");
 
+  // While the judge works, the line is drawn empty and an ink pulse runs along it.
   const steps = $derived.by((): StepState[] | null => {
+    if (quizMode) return null;
+    if (waiting) return ["", "", ""];
     if (phase.kind !== "done") return null;
     if (failed) return outcome!.steps;
     return complete ? ["ok", "ok", "ok"] : ["ok", "ok", "ko"];
@@ -99,7 +103,9 @@
       : { text: t("verdict.last_open"), next: null };
   });
 
-  const offersHelp = $derived(cls === "bad" && session.signedIn && session.forumOffered);
+  const offersHelp = $derived(
+    (cls === "bad" || cls === "partial") && session.signedIn && session.forumOffered,
+  );
 
   async function openDiscussions() {
     const { chat } = await import("../features/forum/chat.svelte");
@@ -110,6 +116,8 @@
   $effect(() => {
     if (phase.kind !== "done" || phase === lastSeen) return;
     lastSeen = phase;
+    // A recalled verdict comes with the exercise; the page stays where the student put it.
+    if (phase.recalled) return;
     // 700px, matching app.css: from there up the verdict is pinned in view already, so
     // only the stacked phone layout needs scrolling to it.
     const narrow =
@@ -119,15 +127,17 @@
     box.focus?.();
   });
 
+  // One string, so a verdict and the note that comes with it are never cut off by each other.
   $effect(() => {
-    if (headline) system.announce(headline);
+    const extra = note && cls !== "fault" ? " " + note.text : "";
+    if (headline) system.announce(headline + extra);
   });
-
-  const quizGroup = (id: string): string => quiz.groupOf[id] ?? "";
 
   // Never a gate: gcc stays the judge, and a heuristic can be wrong.
   const lintFirst = $derived(
-    (cls === "wait" || cls === "bad") && editor.issues.length ? editor.issues[0]! : null,
+    (cls === "wait" || cls === "bad" || cls === "partial") && editor.issues.length
+      ? editor.issues[0]!
+      : null,
   );
 
   function showLint() {
@@ -144,6 +154,14 @@
     // A failed load leaves the raw gcc error, which is still enough to fix it.
     import("./GccHelp.svelte").then((mod) => (GccHelp = mod.default), () => {});
   });
+
+  // The cases, checks and wrong answers wait in their own chunk, fetched as soon as a test
+  // leaves: it is there before the verdict is, and the anonymous page never pays for it.
+  let Details = $state<Component<{ r: Verdict; complete: boolean }> | null>(null);
+  $effect(() => {
+    if (phase.kind === "idle" || Details) return;
+    import("./VerdictDetails.svelte").then((mod) => (Details = mod.default), () => {});
+  });
 </script>
 
 <div bind:this={box} id="out" class={cls} tabindex="-1">
@@ -155,14 +173,20 @@
       </button>
     </p>
   {/if}
-  {#if steps}
-    <div class="steps">
-      {#each steps as state, i}
-        <span class={"step " + (state || "empty")}>
-          <b>{stepLabel(i)}</b><i>{stepState(i, state)}</i>
-        </span>
+
+  {#if cls === "idle" && !quizMode}
+    <ol class="howto" aria-label={t("verdict.howto")}>
+      {#each [0, 1, 2] as i (i)}<li style={"--i:" + i}>{stepLabel(i)}</li>{/each}
+    </ol>
+  {:else if steps}
+    <ol class="steps" aria-hidden={cls === "wait" ? "true" : undefined}>
+      {#each steps as state, i (i)}
+        <li class={"step " + (state || "empty")} style={"--i:" + i}>
+          <b>{stepLabel(i)}</b>
+          {#if cls !== "wait"}<i>{stepState(i, state)}</i>{/if}
+        </li>
       {/each}
-    </div>
+    </ol>
   {/if}
 
   <div class={"verdict " + cls + (phase.kind === "done" && !failed ? " count" : "")}>
@@ -173,15 +197,19 @@
     <div class="bar"><i></i></div>
   {/if}
 
+  {#if note && cls !== "fault"}
+    <p class="note">{note.text}</p>
+  {/if}
+
   {#if shown && !failed && total > 0}
     <div class="ticks">
       {#each { length: total } as _, n}
-        <i class={n < passed ? "on" : ""} style={"--i:" + Math.min(n, 12)}></i>
+        <i class={n < passed ? "on" : "off"} style={"--i:" + Math.min(n, 12)}></i>
       {/each}
     </div>
   {/if}
 
-  {#if phase.kind === "idle" || phase.kind === "lost" || phase.kind === "cooldown"}
+  {#if cls === "idle"}
     <p class="explain">
       <!-- Also the text shown before /catalog.json answers: swapping it afterwards
            reflows the panel and pushes the editor up. -->
@@ -189,6 +217,12 @@
         ? t("verdict.idle_help")
         : t("verdict.opening_dates")}
     </p>
+  {:else if cls === "fault" && phase.kind !== "cooldown"}
+    <div class="suite">
+      <button type="button" class="nav retry" onclick={() => runTest(catalog.selected?.mode === "quiz")}>
+        {t("verdict.retry")}
+      </button>
+    </div>
   {:else if explanation && explanation !== headline}
     <p class="explain">{explanation}</p>
   {/if}
@@ -208,81 +242,15 @@
     </div>
   {/if}
 
-  {#if shown && !failed && !complete && shown.r.kind === "io"}
-    <div>
-      {#each shown.r.cases ?? [] as c, i}
-        {@const kind = caseClass(c.reason)}
-        {@const inputs = caseInputs(c.stdin)}
-        {@const numbers = caseNumbers(c)}
-        <details class="case" open={i === 0}>
-          <summary>{t("verdict.case", { n: c.case, kind: t(`verdict.case.${kind}`) })}</summary>
-          <div class="body">
-            <div class="case-field">
-              <span class="what"
-                >{t("verdict.receives", { count: inputs.length })}</span
-              >
-              <pre class="value">{inputs.length
-                  ? inputs.join(t("verdict.then"))
-                  : t("verdict.no_input")}</pre>
-            </div>
-            <div class="case-field">
-              <span class="what">{t("verdict.printed")}</span>
-              <pre class="value">{c.stdout || t("verdict.nothing")}</pre>
-            </div>
-            {#if numbers}
-              <div class="case-field">
-                <span class="what">{t("verdict.numbers_read")}</span>
-                <pre class="value">{numbers.length ? numbers.join(", ") : t("verdict.no_numbers")}</pre>
-              </div>
-            {/if}
-            {#if c.stderr}
-              <div class="case-field">
-                <span class="what">{t("verdict.stderr")}</span>
-                <pre class="value">{c.stderr}</pre>
-              </div>
-            {/if}
-            <p class="why">{caseReason(c)}</p>
-            {#if showsContract(c)}
-              <p class="contract">{t("verdict.contract")}</p>
-            {/if}
-          </div>
-        </details>
-      {/each}
-    </div>
-  {/if}
-
-  {#if shown && !failed && !complete && shown.r.kind === "unity" && failedNames.length}
-    <div class="failures">
-      <p class="what">
-        {t("verdict.failed_checks", { count: failedNames.length })}
-      </p>
-      <ul>
-        {#each failedNames as name (name)}<li>{name}</li>{/each}
-      </ul>
-      <p class="contract">{t("verdict.hidden_values")}</p>
-    </div>
-  {/if}
-
-  {#if shown && !failed && !complete && shown.r.kind === "quiz"}
-    <ul>
-      {#each shown.r.wrong ?? [] as w}
-        {@const group = quizGroup(w.id)}
-        {@const empty = !(w.given && w.given.trim())}
-        <li class={empty ? "nothing" : ""}>
-          {(group ? group + " — " : "") +
-            w.label +
-            (empty ? "" : t("verdict.you_answered", { given: w.given ?? "" })) +
-            (w.hint ? " — " + quizHint(w.hint) : "")}
-        </li>
-      {/each}
-    </ul>
+  {#if shown && Details}
+    <Details r={shown.r} {complete} />
   {/if}
 
   {#if nextAction}
     <div class="suite">
       <span>{nextAction.text}</span>
       {#if nextAction.next}
-        <button type="button" class="nav" onclick={() => exercise.open(nextAction.next!.id)}>
+        <button type="button" class="nav next" onclick={() => exercise.open(nextAction.next!.id)}>
           {t("verdict.open_next", { name: nextAction.next.short })}
         </button>
       {/if}
@@ -291,21 +259,6 @@
           {t("verdict.discuss")}
         </button>
       {/if}
-    </div>
-  {/if}
-
-  {#if shown?.r.warnings || shown?.r.long_source}
-    <div class="warn">
-      <div class="title">{t("verdict.warnings")}</div>
-      <div class="what">{t("verdict.warnings_explain")}</div>
-      <pre
-        >{[
-          shown.r.warnings ?? "",
-          shown.r.long_source ? t("verdict.long_source", shown.r.long_source) : "",
-        ]
-          .filter(Boolean)
-          .join("\n")}</pre
-      >
     </div>
   {/if}
 </div>

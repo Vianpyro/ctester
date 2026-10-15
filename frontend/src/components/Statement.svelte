@@ -6,6 +6,10 @@
   import TypstStatement from "./TypstStatement.svelte";
   import { t } from "../lib/i18n.svelte";
   import TypstHtml from "./TypstHtml.svelte";
+  import { localDrop, localGet, localSet } from "../lib/storage";
+
+  // A student who folds the statement away to widen the editor finds it folded next time.
+  const FOLD = "ctester.statement";
 
   const current = $derived(exercise.statement);
   const closed = $derived(lockNote(catalog.selected));
@@ -13,13 +17,17 @@
   let htmlFailedFor = $state<string | null>(null);
 </script>
 
-<details id="statement" open>
+<details
+  id="statement"
+  open={localGet(FOLD) !== "folded"}
+  ontoggle={(e) => (e.currentTarget.open ? localDrop(FOLD) : localSet(FOLD, "folded"))}
+>
   <summary class="phead">{t("statement.title")}</summary>
   {#if closed}
     <p class="preview">{t("statement.hidden", { note: closed })}</p>
   {/if}
   {#if current.kind === "loading"}
-    <pre id="statementtext" class="empty">{t("statement.loading")}</pre>
+    <pre id="statementtext" class="empty loading">{t("statement.loading")}</pre>
   {:else if current.kind === "text"}
     <div id="statementtext" class="md">{@html renderStatement(current.text)}</div>
   {:else if current.kind === "typst" && current.html && htmlFailedFor !== current.id}

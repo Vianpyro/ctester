@@ -12,6 +12,15 @@
   const { id, staff, onfail }: Props = $props();
 
   let html = $state("");
+  let host: HTMLDivElement | undefined = $state();
+
+  // Copy is refused inside a retype block; app.css shows this sentence under it, so the
+  // refusal never looks like a broken page.
+  $effect(() => {
+    if (!html || !host) return;
+    const hint = t("statement.retype_hint");
+    for (const block of host.querySelectorAll(".typ-retype")) block.setAttribute("data-hint", hint);
+  });
 
   $effect(() => {
     const path = "statement/" + encodeURIComponent(id) + "/statement.html";
@@ -60,6 +69,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -- clicks are delegated to the real Copy buttons, which keyboard users reach directly -->
   <div
     class="typsthtml"
+    bind:this={host}
     onclick={click}
     oncopy={block}
     oncut={block}

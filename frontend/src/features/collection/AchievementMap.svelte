@@ -1,5 +1,6 @@
 <script lang="ts">
   import { layout, type Cell, type MetroLine, type MetroNode, type MetroStation } from "../../lib/domain/metro";
+  import { dayOf } from "../../lib/domain/dates";
   import { t } from "../../lib/i18n.svelte";
   import CardArt from "./CardArt.svelte";
   import type { Achievement, Card } from "../../lib/api/types";
@@ -206,7 +207,7 @@
             <span class="title">{a.name}</span>
             <span class="what">{a.description}</span>
             {#if a.unlocked_at}
-              <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
+              {#if dayOf(a.unlocked_at)}<time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: dayOf(a.unlocked_at) })}</time>{/if}
             {:else}
               <div class="goal">
                 <span>{t(`collection.state.${shown.state}`)}</span>

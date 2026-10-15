@@ -135,3 +135,37 @@ describe("the order question", () => {
     expect(node.querySelector(".qsaid")?.textContent).toBe("« gcc » déplacé en position 2 sur 3");
   });
 });
+
+describe("the quiz's pages", () => {
+  it("lists every page with its state, and opens one on click", () => {
+    quiz.pages = [...PAGES, { key: "h", title: "Bits", questions: [question("c", "5")] }];
+    quiz.answers = { a: "10111", b: "1", c: "" };
+    const root = show();
+    const steps = root.querySelectorAll<HTMLButtonElement>(".qpages .qstep");
+    expect(steps).toHaveLength(2);
+    expect(steps[0]!.getAttribute("aria-current")).toBe("step");
+    expect(steps[0]!.className).toContain("done");
+    expect(steps[1]!.className).toContain("todo");
+    expect(steps[1]!.getAttribute("aria-label")).toContain("à remplir");
+    steps[1]!.click();
+    flushSync();
+    expect(quiz.page).toBe(1);
+    expect(steps[1]!.getAttribute("aria-current")).toBe("step");
+  });
+
+  it("marks the page to review once the judge has crossed one of its answers", () => {
+    quiz.pages = [...PAGES, { key: "h", title: "Bits", questions: [question("c", "5")] }];
+    quiz.answers = { a: "10111", b: "1", c: "101" };
+    quiz.submitted = packAll(quiz.answers);
+    submission.phase = { kind: "done", scope: null, verdict: graded([{ id: "c", label: "5" }]) };
+    const steps = show().querySelectorAll(".qpages .qstep");
+    expect(steps[1]!.className).toContain("fix");
+  });
+
+  it("says when the questions could not be loaded, and offers to fetch them again", () => {
+    quiz.failed = true;
+    const box = show().querySelector(".qfailed")!;
+    expect(box.textContent).toContain("n'ont pas pu");
+    expect(box.querySelector("button")).not.toBeNull();
+  });
+});

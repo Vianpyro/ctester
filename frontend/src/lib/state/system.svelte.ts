@@ -3,6 +3,8 @@ class SystemChannel {
   failed = $state(false);
 
   announcement = $state("");
+  // A flash goes by itself; anything else stays until it is dismissed or replaced.
+  transient = $state(false);
 
   #held: { text: string; failed: boolean } | null = null;
   #timer: ReturnType<typeof setTimeout> | null = null;
@@ -15,11 +17,13 @@ class SystemChannel {
     const mine = ++this.#token;
     this.text = text;
     this.failed = false;
+    this.transient = true;
     this.announce(text);
     this.#timer = setTimeout(() => {
       if (this.#token !== mine) return;
       this.text = this.#held!.text;
       this.failed = this.#held!.failed;
+      this.transient = false;
       this.#held = null;
       this.#timer = null;
       this.announcement = "";
@@ -40,6 +44,7 @@ class SystemChannel {
   }
 
   #abandon(): void {
+    this.transient = false;
     this.#token++;
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;

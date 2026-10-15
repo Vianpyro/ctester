@@ -1,4 +1,5 @@
 <script lang="ts">  import { onMount, untrack } from "svelte";
+  import { dayOf } from "../../lib/domain/dates";
   import { tween } from "../../lib/motion";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { exercise } from "../../lib/state/exercise.svelte";
@@ -204,7 +205,7 @@
               >
                 {gridLabel(ex)}
                 <span class="offscreen"> — {cell.word}</span>
-                {#if cell.note}<span class="padlock">🔒</span>{/if}
+                {#if cell.note}<span class="padlock"></span>{/if}
               </button>
             {/each}
           </div>
@@ -327,7 +328,7 @@
             <span class="title">{a.name}</span>
             <span class="what">{a.description}</span>
             {#if a.unlocked_at}
-              <time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: a.unlocked_at })}</time>
+              {#if dayOf(a.unlocked_at)}<time class="when" datetime={a.unlocked_at}>{t("progress.unlocked_on", { date: dayOf(a.unlocked_at) })}</time>{/if}
             {:else}
               <span class="when">
                 {t("progress.achievement_count", { count: a.count, threshold: a.threshold })}

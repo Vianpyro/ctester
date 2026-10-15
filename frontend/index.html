@@ -9,7 +9,7 @@
 <meta charset="utf-8">
 <!-- Must follow <meta charset> and match app/csp.py; frame-ancestors is header-only.
      The %TOKENS% are filled by the deployment plugin in vite.config.ts. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' %API_ORIGIN% blob:; connect-src 'self' %API_ORIGIN% %API_WS% %AUTH_ORIGIN%; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' %API_ORIGIN% blob:; connect-src 'self' %API_ORIGIN% %API_WS% %AUTH_ORIGIN%; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>%TITLE% — %TAGLINE%</title>

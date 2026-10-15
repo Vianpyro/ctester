@@ -26,6 +26,8 @@ def csp(body, issuer=""):
         # not every browser does. app/routers/page.py serves sw.js from the root.
         "worker-src 'self'",
         "style-src 'self' 'unsafe-inline'",
+        # The interface's typeface ships with the page (frontend/src/fonts), never from a CDN.
+        "font-src 'self'",
         " ".join(["img-src 'self'"] + ([config.API_ORIGIN] if config.API_ORIGIN else [])
                  + ["blob:"]),
         " ".join(["connect-src 'self'"] + origins),

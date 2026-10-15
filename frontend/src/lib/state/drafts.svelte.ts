@@ -36,6 +36,8 @@ class DraftStore {
 
   status = $state(this.#initialStatus());
   statusFailed = $state(false);
+  // Only a draft that is really kept somewhere earns the check mark beside the status.
+  statusSaved = $state(false);
   exportNote = $state("");
   exportFailed = $state(false);
   hasAny = $state(Object.keys(readStore()).length > 0);
@@ -50,9 +52,10 @@ class DraftStore {
     return this.#store[exerciseId] ?? null;
   }
 
-  say(text: string, failed = false): void {
+  say(text: string, failed = false, saved = false): void {
     this.status = text;
     this.statusFailed = failed;
+    this.statusSaved = saved;
   }
 
   sayExport(text: string, failed = false): void {
@@ -65,7 +68,7 @@ class DraftStore {
       this.say(t("drafts.not_saved"), true);
       return false;
     }
-    this.say(t("drafts.saved_device", { time: clockNow() }));
+    this.say(t("drafts.saved_device", { time: clockNow() }), false, true);
     this.hasAny = true;
     return true;
   }
@@ -90,6 +93,8 @@ class DraftStore {
       answer.ok
         ? t("drafts.saved_account", { time: clockNow() })
         : t("drafts.device_only"),
+      false,
+      true,
     );
   }
 
@@ -97,7 +102,7 @@ class DraftStore {
 
   opened(exerciseId: string, found: boolean): void {
     this.#current = exerciseId;
-    this.say(found ? t("drafts.found") : t("drafts.auto"));
+    this.say(found ? t("drafts.found") : t("drafts.auto"), false, found);
   }
 
   schedule(save: () => void): void {

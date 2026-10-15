@@ -45,7 +45,7 @@
         {/if}
         {#if ex.verification}<i class="what">{t("catalog.verification_short")}</i>{/if}
         {#if ex.bonus}<i class="what">{t("lab.bonus_tag")}</i>{/if}
-        {#if note}<span class="padlock">🔒</span>{/if}
+        {#if note}<span class="padlock"></span>{/if}
       </button>
     {/each}
 
