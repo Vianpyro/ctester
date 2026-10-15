@@ -49,7 +49,9 @@
 </script>
 
 {#if shapes.length}
+  <!-- pathLength="1" lets app.css trace every shape the same way, whatever its real length. -->
   <svg
+    class="art"
     viewBox="0 0 96 64"
     width="96"
     height="64"
@@ -61,11 +63,11 @@
   >
     {#each shapes as s}
       {#if s.tag === "path"}
-        <path d={s.d} />
+        <path d={s.d} pathLength="1" />
       {:else if s.tag === "circle"}
-        <circle cx={s.cx} cy={s.cy} r={s.r} />
+        <circle cx={s.cx} cy={s.cy} r={s.r} pathLength="1" />
       {:else}
-        <rect x={s.x} y={s.y} width={s.width} height={s.height} />
+        <rect x={s.x} y={s.y} width={s.width} height={s.height} pathLength="1" />
       {/if}
     {/each}
   </svg>

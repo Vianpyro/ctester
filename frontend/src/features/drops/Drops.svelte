@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { fetchCollection } from "../../lib/api/account";
+  import { still } from "../../lib/motion";
   import { whenSignedOut } from "../../lib/auth/session.svelte";
   import { tier } from "../../lib/domain/rarity";
   import { t } from "../../lib/i18n.svelte";
@@ -16,6 +17,20 @@
 
   const dismiss = () => (drops.ids = []);
   onDestroy(whenSignedOut(dismiss));
+
+  // The student's own close lets the panel sink away first. Web Animations rather than an
+  // out: transition, whose runtime Rolldown would hoist into the eager bundle.
+  let panel: HTMLElement | undefined = $state();
+  async function close() {
+    if (panel && !still()) {
+      const away = panel.animate(
+        [{ opacity: 1, translate: "0 0" }, { opacity: 0, translate: "0 1.5rem" }],
+        { duration: 260, easing: "cubic-bezier(.65, 0, .35, 1)", fill: "forwards" },
+      );
+      await away.finished.catch(() => {});
+    }
+    dismiss();
+  }
 
   // Names, drawings and rarity are the content's, so they are fetched on arrival.
   let cards = $state<Record<string, Card>>({});
@@ -54,16 +69,22 @@
 </script>
 
 {#if items.length}
-  <aside class="drops" aria-labelledby="dropstitle">
+  <aside class="drops" aria-labelledby="dropstitle" bind:this={panel}>
     <h2 id="dropstitle">{t("drops.title")}</h2>
     <ul>
       {#each items as item, i (item.id)}
+        <!-- A card dealt face down, then turned: the back is decoration only. -->
         <li class="drop" data-tier={item.tier} style={"--i:" + i}>
-          {#if item.card}<div class="drawing"><CardArt art={item.card.art} /></div>{/if}
-          <div class="text">
-            <span class="kind">{item.card ? t("drops.card") : t("drops.achievement")}</span>
-            <span class="name">{item.name}</span>
-            <span class="what">{item.what}</span>
+          <div class="flip">
+            <div class="back" aria-hidden="true"></div>
+            <div class="face">
+              {#if item.card}<div class="drawing"><CardArt art={item.card.art} /></div>{/if}
+              <div class="text">
+                <span class="kind">{item.card ? t("drops.card") : t("drops.achievement")}</span>
+                <span class="name">{item.name}</span>
+                <span class="what">{item.what}</span>
+              </div>
+            </div>
           </div>
         </li>
       {/each}
@@ -74,11 +95,11 @@
           type="button"
           onclick={() => {
             if (view.current !== "collection") openView("collection");
-            dismiss();
+            void close();
           }}>{t("drops.see_collection")}</button
         >
       {/if}
-      <button type="button" class="nav" onclick={dismiss}>{t("drops.close")}</button>
+      <button type="button" class="nav" onclick={close}>{t("drops.close")}</button>
     </div>
   </aside>
 {/if}

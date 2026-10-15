@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { still } from "../../lib/motion";
   import { groupNumber, localTime } from "../../lib/domain/labels";
   import { t } from "../../lib/i18n.svelte";
   import { thread } from "./thread.svelte";
@@ -14,6 +15,18 @@
   const { message: m, reply = false }: Props = $props();
 
   const isReply = $derived(!!m.reply_to);
+
+  // ponytail: "just posted" is a 15 s age, not a live-frame flag; a reload in that window
+  // replays it, and a skewed clock skips it. Web Animations in an action rather than an in:
+  // transition, whose runtime Rolldown would hoist into the eager bundle.
+  const FRESH = 15_000;
+  function arrive(li: HTMLElement) {
+    if (still() || !(Math.abs(Date.now() - new Date(m.created_at).getTime()) < FRESH)) return;
+    li.animate([{ opacity: 0, translate: "0 10px" }, { opacity: 1, translate: "0 0" }], {
+      duration: 300,
+      easing: "cubic-bezier(.16, 1, .3, 1)",
+    });
+  }
 
   function authorLabel(message: ForumMessage): string {
     if (message.role === "me") {
@@ -31,6 +44,7 @@
     (m.retained ? " retained" : "") +
     (m.visibility === "private" ? " private" : "") +
     (reply ? " answer" : "")}
+  use:arrive
 >
   <p class="who">
     {#if m.retained}<span class="tag accent">{t("message.retained")}</span>{/if}

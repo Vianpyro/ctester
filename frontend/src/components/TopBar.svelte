@@ -157,7 +157,7 @@
       class="nav"
       title={light ? t("topbar.to_dark") : t("topbar.to_light")}
       aria-label={light ? t("topbar.to_dark") : t("topbar.to_light")}
-      onclick={() => theme.toggle(signedIn)}>{light ? "☾" : "☀"}</button
+      onclick={(e) => theme.toggle(signedIn, e.currentTarget)}>{light ? "☾" : "☀"}</button
     >
     {#if LANGUAGES.length > 1}
       <select

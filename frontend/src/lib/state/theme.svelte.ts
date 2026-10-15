@@ -1,6 +1,7 @@
 import { localSet } from "../storage";
 import { fetchPreferences, savePreferences } from "../api/account";
 import { i18n } from "../i18n.svelte";
+import { transit } from "../transit";
 
 export type Theme = "light" | "dark";
 
@@ -28,9 +29,16 @@ class ThemeState {
     localSet(THEME_KEY, name);
   }
 
-  toggle(signedIn: boolean): void {
+  // `from` is the button: the new theme is revealed in a circle growing out of it.
+  toggle(signedIn: boolean, from?: Element): void {
     const next: Theme = this.current === "light" ? "dark" : "light";
-    this.apply(next);
+    if (from) {
+      const box = from.getBoundingClientRect();
+      const root = document.documentElement.style;
+      root.setProperty("--vt-x", box.x + box.width / 2 + "px");
+      root.setProperty("--vt-y", box.y + box.height / 2 + "px");
+    }
+    transit("theme", () => this.apply(next));
     this.remember(next);
     if (signedIn) void savePreferences({ theme: next });
   }

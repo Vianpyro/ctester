@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The favicon's drawing, tracing itself once when the page loads. Loaded as a CSS
+       background, so it costs no script; its last frame is the plain logo. -->
+  <style>
+    @media (prefers-reduced-motion: no-preference) {
+      .shell { transform-box: fill-box; transform-origin: center; animation: land .5s cubic-bezier(.16, 1, .3, 1) both; }
+      .trace { stroke-dasharray: 1; animation: trace .7s cubic-bezier(.65, 0, .35, 1) both; }
+      .frame { animation-delay: .15s; }
+      .c { animation-delay: .45s; }
+      .brace { animation: open .5s cubic-bezier(.16, 1, .3, 1) .55s both; }
+      .right { --from: -40px; }
+      .badge { transform-box: fill-box; transform-origin: center; animation: pop .45s cubic-bezier(.34, 1.56, .64, 1) .95s both; }
+      .tick { animation-duration: .35s; animation-delay: 1.2s; }
+      @keyframes land { from { opacity: 0; transform: scale(.7) rotate(-30deg); } }
+      /* The opacity hides the round cap that would otherwise sit at the start before the stroke. */
+      @keyframes trace { from { stroke-dashoffset: 1; opacity: 0; } 8% { opacity: 1; } }
+      @keyframes open { from { opacity: 0; transform: translateX(var(--from, 40px)); } }
+      @keyframes pop { from { transform: scale(0); } }
+    }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#24313d"/>
+      <stop offset="1" stop-color="#101a23"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff1744"/>
+      <stop offset="1" stop-color="#e40032"/>
+    </linearGradient>
+  </defs>
+
+  <path class="shell"
+    d="M256 28 L447 138 Q460 146 460 161 L460 351 Q460 366 447 374 L277 472 Q256 484 235 472
+       L65 374 Q52 366 52 351 L52 161 Q52 146 65 138 Z"
+    fill="url(#bg)" stroke="#15222d" stroke-width="18" stroke-linejoin="round"/>
+
+  <path class="trace frame" pathLength="1"
+    d="M256 67 L414 158 L414 344 L256 435 L98 344 L98 158 Z"
+    fill="none" stroke="#ffffff" stroke-width="16" stroke-linejoin="round"/>
+
+  <path class="brace"
+    d="M174 157 C151 157 145 169 145 188 L145 215 C145 232 137 243 119 250 C137 257 145 268 145 285
+       L145 312 C145 331 151 343 174 343"
+    fill="none" stroke="url(#red)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path class="brace right"
+    d="M338 157 C361 157 367 169 367 188 L367 215 C367 232 375 243 393 250 C375 257 367 268 367 285
+       L367 312 C367 331 361 343 338 343"
+    fill="none" stroke="url(#red)" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path class="trace c" pathLength="1"
+    d="M309 183 C294 168 275 160 253 160 C204 160 178 196 178 250 C178 304 204 340 253 340
+       C275 340 294 332 309 317"
+    fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round"/>
+
+  <g class="badge">
+    <circle cx="390" cy="382" r="83" fill="#15222d"/>
+    <circle cx="390" cy="382" r="69" fill="#ffffff"/>
+    <circle cx="390" cy="382" r="58" fill="url(#red)"/>
+  </g>
+
+  <path class="trace tick" pathLength="1"
+    d="M358 382 L379 403 L424 352"
+    fill="none" stroke="#ffffff" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

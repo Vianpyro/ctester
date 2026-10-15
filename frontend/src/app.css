@@ -49,6 +49,25 @@
   --metro-blue: #1ea5dc;
   --metro-purple: #8e5cc7;
   --metro-pink: #de4f98;
+  /* Motion. Quiet while the student codes, expressive when they win. Every duration collapses
+     to 1ms under prefers-reduced-motion (the Motion section at the end of this file). */
+  --t-1: 90ms;
+  --t-2: 160ms;
+  --t-3: 240ms;
+  --t-4: 420ms;
+  --t-5: 900ms;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  /* A damped spring (one 8% overshoot), sampled. Older engines get the bezier below instead. */
+  --ease-spring: linear(0, .018 1.7%, .067 3.3%, .139 5%, .225 6.7%, .319 8.3%, .514 11.7%,
+    .606 13.3%, .693 15%, .771 16.7%, .84 18.3%, .9 20%, .95 21.7%, .99 23.3%, 1.023 25%,
+    1.047 26.7%, 1.064 28.3%, 1.076 30%, 1.082 31.7%, 1.084 33.3%, 1.078 36.7%, 1.013 51.7%,
+    .996 60%, 1);
+  --shadow-1: 0 1px 0 rgb(0 0 0 / .3), 0 2px 8px rgb(0 0 0 / .2);
+  --shadow-2: 0 12px 32px rgb(0 0 0 / .42), 0 2px 8px rgb(0 0 0 / .28);
+  --shadow-3: 0 22px 56px rgb(0 0 0 / .55), 0 6px 16px rgb(0 0 0 / .32);
+  --rim: inset 0 1px 0 rgb(255 255 255 / .05);
+  --grid: color-mix(in srgb, var(--line) 38%, transparent);
 }
 
 :root[data-theme="light"] {
@@ -75,6 +94,10 @@
   --syn-num: #a55200;
   --syn-fn: #7a5c00;
   --syn-const: #8a3d9b;
+  --shadow-1: 0 1px 0 rgb(20 24 32 / .06), 0 2px 6px rgb(20 24 32 / .08);
+  --shadow-2: 0 12px 28px rgb(20 24 32 / .14), 0 2px 6px rgb(20 24 32 / .08);
+  --shadow-3: 0 22px 52px rgb(20 24 32 / .2), 0 6px 14px rgb(20 24 32 / .1);
+  --rim: inset 0 1px 0 rgb(255 255 255 / .7);
 }
 
 @media (prefers-color-scheme: light) {
@@ -102,6 +125,10 @@
     --syn-num: #a55200;
     --syn-fn: #7a5c00;
     --syn-const: #8a3d9b;
+    --shadow-1: 0 1px 0 rgb(20 24 32 / .06), 0 2px 6px rgb(20 24 32 / .08);
+    --shadow-2: 0 12px 28px rgb(20 24 32 / .14), 0 2px 6px rgb(20 24 32 / .08);
+    --shadow-3: 0 22px 52px rgb(20 24 32 / .2), 0 6px 14px rgb(20 24 32 / .1);
+    --rim: inset 0 1px 0 rgb(255 255 255 / .7);
   }
 }
 
@@ -112,6 +139,15 @@
 :focus-visible {
   outline: 3px solid var(--ink);
   outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ink) 32%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
 }
 
 html,
@@ -140,6 +176,7 @@ body {
   padding: .5rem var(--gut);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+  box-shadow: var(--rim);
 }
 
 h1 {
@@ -163,6 +200,21 @@ h1 {
   cursor: pointer;
 }
 
+/* The mark traces itself once, inside the SVG: a background image costs the page no script. */
+#home::before {
+  content: "";
+  flex: none;
+  width: 1.45rem;
+  height: 1.45rem;
+  background: url(./mark.svg) center / contain no-repeat;
+  transition: rotate var(--t-4) var(--ease-spring), scale var(--t-4) var(--ease-spring);
+}
+
+#home:hover::before {
+  rotate: -10deg;
+  scale: 1.08;
+}
+
 #home:hover {
   color: var(--ink);
 }
@@ -184,7 +236,14 @@ h1 {
   min-width: 9rem;
 }
 
-/* #top wraps, and a second row moves every element on the page. The byline yields first. */
+/* #top wraps, and a second row moves every element on the page. The tagline beside the mark
+   yields first (the tab title still carries it), then the byline. */
+@media (max-width: 1300px) {
+  #home .tagline {
+    display: none;
+  }
+}
+
 @media (max-width: 1100px) {
   .credit {
     display: none;
@@ -229,10 +288,16 @@ h1 {
   #tools {
     display: none;
     right: var(--gut);
+    opacity: 0;
+    translate: 0 -.4rem;
+    scale: .97;
   }
 
   #tools.open {
     display: flex;
+    opacity: 1;
+    translate: none;
+    scale: none;
   }
 
   #tools .group {
@@ -287,6 +352,24 @@ h1 {
   vertical-align: baseline;
 }
 
+/* A slow ping, far from the editor: the count is live, nothing more. */
+@media (prefers-reduced-motion: no-preference) {
+  #live::before {
+    animation: ping 3.2s var(--ease-out) infinite;
+  }
+
+  @keyframes ping {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent);
+    }
+
+    45%,
+    100% {
+      box-shadow: 0 0 0 .45rem transparent;
+    }
+  }
+}
+
 .sep {
   width: 1px;
   align-self: stretch;
@@ -304,6 +387,15 @@ h1 {
   color: var(--muted);
   font-size: var(--fs-label);
   font-weight: 600;
+}
+
+/* Instrument labels: small capitals, spaced. Titles inside a header opt out. */
+.phead,
+.kicker,
+.subtitle,
+.menutitle {
+  letter-spacing: .07em;
+  text-transform: uppercase;
 }
 
 .grow {
@@ -364,6 +456,43 @@ button:hover:not(:disabled) {
 button:disabled {
   cursor: not-allowed;
   opacity: .45;
+}
+
+/* `display` on these classes beats the browser's own [hidden] rule: #purge and #exporttp
+   were always shown. */
+:is(.nav, .btn, .tile, .tab)[hidden] {
+  display: none;
+}
+
+/* Zero specificity: any control that styles its own shadow or transition keeps it. */
+:where(button, .btn, .menu > summary, select) {
+  transition: border-color var(--t-2) var(--ease-out), color var(--t-2) var(--ease-out),
+    background-color var(--t-2) var(--ease-out), box-shadow var(--t-3) var(--ease-out),
+    scale var(--t-1) var(--ease-out), translate var(--t-2) var(--ease-out),
+    filter var(--t-2) var(--ease-out);
+}
+
+:where(button, .btn, .menu > summary, select):not(:where(#home, .tab, .diag)) {
+  box-shadow: var(--rim);
+}
+
+/* A press you can feel. `scale` composes with any transform a control already has. */
+:where(button, .btn, .menu > summary):active:not(:disabled, [aria-disabled="true"]) {
+  scale: .97;
+}
+
+/* The focus ring locks on rather than appearing. */
+@media (prefers-reduced-motion: no-preference) {
+  :focus-visible {
+    animation: lock-on var(--t-3) var(--ease-out);
+  }
+
+  @keyframes lock-on {
+    from {
+      outline-color: transparent;
+      outline-offset: 7px;
+    }
+  }
 }
 
 .nav {
@@ -459,7 +588,14 @@ button:disabled {
 }
 
 .menu>summary::after {
-  content: " ▾";
+  content: "▾";
+  display: inline-block;
+  margin-left: .2rem;
+  transition: rotate var(--t-3) var(--ease-spring);
+}
+
+.menu[open]>summary::after {
+  rotate: 180deg;
 }
 
 .menu>summary:hover,
@@ -482,7 +618,31 @@ button:disabled {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--coin);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  box-shadow: var(--shadow-2), var(--rim);
+  transform-origin: top right;
+  transition: opacity var(--t-3) var(--ease-out), translate var(--t-3) var(--ease-out),
+    scale var(--t-3) var(--ease-out), display var(--t-3) allow-discrete;
+}
+
+/* Menus unfold from their button. An animation rather than @starting-style: a <details> keeps
+   its closed content styled, so only a selector that starts matching can start the motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .menu[open]>.menupanel,
+  #tools.open {
+    animation: unfold var(--t-3) var(--ease-out);
+  }
+
+  @keyframes unfold {
+    from {
+      opacity: 0;
+      translate: 0 -.4rem;
+      scale: .97;
+    }
+  }
+}
+
+#menuex>.menupanel {
+  transform-origin: top left;
 }
 
 .menupanel button {
@@ -533,12 +693,15 @@ button:disabled {
   display: none;
 }
 
-#exlist .col>summary::before {
+/* One glyph that turns, rather than two that swap. */
+:is(#exlist .col, #statement, .case)>summary::before {
   content: "\25B8";
+  display: inline-block;
+  transition: rotate var(--t-3) var(--ease-spring);
 }
 
-#exlist .col[open]>summary::before {
-  content: "\25BE";
+:is(#exlist .col, #statement, .case)[open]>summary::before {
+  rotate: 90deg;
 }
 
 #exlist .col>summary:hover {
@@ -554,10 +717,12 @@ button:disabled {
   font-weight: 400;
   font-size: var(--fs-ui);
   border-color: transparent;
+  box-shadow: none;
 }
 
-#exlist .exline:hover:not(:disabled) {
+#exlist .exline:hover:not(:disabled, .locked) {
   border-color: var(--line-2);
+  background: color-mix(in srgb, var(--ink) 6%, var(--card));
 }
 
 #exlist .exline.locked {
@@ -577,6 +742,7 @@ button:disabled {
   border-color: var(--ink);
   color: var(--fg);
   font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--ink);
 }
 
 #exlist .padlock {
@@ -666,13 +832,8 @@ main {
 }
 
 #statement summary::before {
-  content: "\25BE";
   margin-right: .35rem;
   color: var(--muted);
-}
-
-#statement:not([open]) summary::before {
-  content: "\25B8";
 }
 
 #work:has(#statement:not([open])) {
@@ -910,6 +1071,7 @@ main {
 #now .badge {
   font-size: var(--fs-label);
   letter-spacing: .02em;
+  text-transform: none;
   color: var(--muted);
   border: 1px solid var(--line);
   border-radius: var(--coin);
@@ -1146,6 +1308,22 @@ main {
   display: none;
 }
 
+/* The editor never moves under the student's fingers: the checker's findings only fade in. */
+.diags {
+  transition: opacity var(--t-4) var(--ease-out);
+}
+
+@starting-style {
+  .diags {
+    opacity: 0;
+  }
+}
+
+.gutter span {
+  transition: background-color var(--t-3) var(--ease-out), box-shadow var(--t-3) var(--ease-out),
+    color var(--t-3) var(--ease-out);
+}
+
 .diagsum {
   position: sticky;
   top: 0;
@@ -1270,6 +1448,9 @@ main {
 
 #go,
 #goex {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
   background: var(--ink);
   color: var(--ink-fg);
   border-color: var(--ink);
@@ -1278,6 +1459,35 @@ main {
   gap: .5rem;
   min-width: 11rem;
   padding: .4rem 1.1rem;
+  box-shadow: var(--rim), 0 1px 0 rgb(0 0 0 / .3);
+}
+
+/* A light sweeps the button once on hover and keeps sweeping while a test runs. The layer only
+   exists in those two states, so the contrast audit never meets it over the label. */
+@media (prefers-reduced-motion: no-preference) {
+  :is(#go, #goex):is(:hover:not(:disabled), .busy)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(105deg, transparent 30%, rgb(255 255 255 / .3) 50%, transparent 70%);
+    animation: sheen .9s var(--ease-in-out) both;
+  }
+
+  :is(#go, #goex).busy::after {
+    animation: sheen 1.4s var(--ease-in-out) infinite;
+  }
+
+  @keyframes sheen {
+    from {
+      translate: -100% 0;
+    }
+
+    to {
+      translate: 100% 0;
+    }
+  }
 }
 
 /* currentColor, not the inverse ink: on a quiz #go also wears .secondary, the fill is
@@ -1293,6 +1503,7 @@ main {
 #goex:hover:not(:disabled) {
   filter: brightness(1.12);
   border-color: var(--ink);
+  box-shadow: var(--rim), 0 0 0 4px color-mix(in srgb, var(--ink) 24%, transparent);
 }
 
 #go.secondary {
@@ -1336,6 +1547,8 @@ main {
   border-top: 1px solid var(--line);
   border-left: 3px solid var(--muted);
   background: var(--panel);
+  background-origin: border-box;
+  transition: border-left-color var(--t-4) var(--ease-out), background-color var(--t-5) var(--ease-out);
 }
 
 #out .lintnote {
@@ -1352,6 +1565,7 @@ main {
 
 #out.ok {
   border-left-color: var(--ok);
+  background-color: color-mix(in srgb, var(--ok) 5%, var(--panel));
 }
 
 #out.bad {
@@ -1362,12 +1576,35 @@ main {
   border-left-color: var(--wait);
 }
 
+/* Scan: a beam travels down the edge while the judge works. A background, so it stays on the
+   visible edge however far the panel is scrolled. */
+@media (prefers-reduced-motion: no-preference) {
+  #out.wait {
+    border-left-color: color-mix(in srgb, var(--wait) 30%, transparent);
+    background-image: linear-gradient(transparent, var(--wait), transparent);
+    background-size: 3px 45%;
+    background-repeat: no-repeat;
+    animation: scan 1.1s var(--ease-in-out) infinite;
+  }
+
+  @keyframes scan {
+    from {
+      background-position: 0 -120%;
+    }
+
+    to {
+      background-position: 0 220%;
+    }
+  }
+}
+
 .verdict {
   font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -.01em;
   margin-bottom: .45rem;
+  transform-origin: 0 60%;
 }
 
 .verdict.count {
@@ -1433,44 +1670,125 @@ main {
   height: 2px;
   margin: 0 0 .6rem;
   border-radius: var(--coin);
-  background: var(--line);
+  background: color-mix(in srgb, var(--wait) 16%, var(--line));
   overflow: hidden;
 }
 
+/* A comet: a fading tail and a glowing head. */
 .bar i {
   display: block;
   height: 100%;
-  width: 30%;
-  background: var(--ink);
+  width: 34%;
+  background: linear-gradient(90deg, transparent, var(--wait));
+  box-shadow: 4px 0 10px var(--wait);
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  /* Each test lands, then the passed ones fill in a wave; a perfect run gets a glint. */
   .ticks i {
-    opacity: 0;
-    transform: translateY(2px);
-    animation: tick .16s ease forwards;
+    animation: tick var(--t-3) var(--ease-out) both;
     animation-delay: calc(var(--i, 0) * 32ms);
   }
 
+  .ticks i.on {
+    animation: tick var(--t-3) var(--ease-out) both, tick-on var(--t-4) var(--ease-spring) both;
+    animation-delay: calc(var(--i, 0) * 32ms), calc(140ms + var(--i, 0) * 45ms);
+  }
+
+  #out.ok .ticks i.on {
+    animation: tick var(--t-3) var(--ease-out) both, tick-on var(--t-4) var(--ease-spring) both,
+      glint .5s var(--ease-out) both;
+    animation-delay: calc(var(--i, 0) * 32ms), calc(140ms + var(--i, 0) * 45ms),
+      calc(700ms + var(--i, 0) * 30ms);
+  }
+
   @keyframes tick {
-    to {
-      opacity: 1;
-      transform: none;
+    from {
+      opacity: 0;
+      translate: 0 3px;
+    }
+  }
+
+  @keyframes tick-on {
+    from {
+      background-color: var(--line);
+      scale: 1 .5;
+    }
+
+    55% {
+      scale: 1 1.6;
+    }
+  }
+
+  @keyframes glint {
+    50% {
+      filter: brightness(1.7);
     }
   }
 
   .bar i {
-    animation: glisse 1.1s ease-in-out infinite;
+    animation: comet 1.1s var(--ease-in-out) infinite;
   }
 
-  @keyframes glisse {
+  @keyframes comet {
     from {
-      transform: translateX(-110%);
+      translate: -110% 0;
     }
 
     to {
-      transform: translateX(370%);
+      translate: 300% 0;
     }
+  }
+
+  /* The headline settles with a spring; a graded result arrives a beat after its steps. */
+  .verdict.count {
+    animation: verdict-in var(--t-4) var(--ease-spring) 120ms both;
+  }
+
+  .verdict.bad:not(.count) {
+    animation: verdict-in var(--t-4) var(--ease-out) both;
+  }
+
+  .verdict.wait {
+    animation: verdict-wait var(--t-3) var(--ease-out) both;
+  }
+
+  /* No scale here: lib/verdictFx.ts owns the count's scale for its one-shot punch. */
+  @keyframes verdict-in {
+    from {
+      opacity: 0;
+      translate: 0 .4rem;
+    }
+  }
+
+  @keyframes verdict-wait {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* gcc's first error is unrolled like a printout. */
+  .gcc>pre:first-child {
+    animation: printout var(--t-4) var(--ease-out) 150ms both;
+  }
+
+  /* gcc's help speaks once the printout has unrolled. */
+  .gcc> :is(.explain, .nav) {
+    animation: rise var(--t-4) var(--ease-out) 480ms both;
+  }
+
+  @keyframes printout {
+    from {
+      clip-path: inset(0 100% 0 0);
+    }
+  }
+
+  :is(.case, .failures, #out > ul, .warn, .lintnote) {
+    animation: rise var(--t-4) var(--ease-out) 260ms both;
+  }
+
+  .suite {
+    animation: rise var(--t-4) var(--ease-out) 380ms both;
   }
 }
 
@@ -1499,12 +1817,7 @@ main {
 }
 
 .case>summary::before {
-  content: "\25B8";
   color: var(--muted);
-}
-
-.case[open]>summary::before {
-  content: "\25BE";
 }
 
 .case>summary:hover {
@@ -1751,7 +2064,26 @@ pre {
   border: 1px solid var(--line);
   border-left: 3px solid var(--ink);
   border-radius: var(--coin);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+  box-shadow: var(--shadow-3), var(--rim);
+  transform-origin: top right;
+  transition: opacity var(--t-3) var(--ease-out), translate var(--t-3) var(--ease-out),
+    scale var(--t-3) var(--ease-out), display var(--t-3) allow-discrete;
+}
+
+/* They float in and out: allow-discrete holds display until the fade has run. */
+:is(#consent, #charter, #identitypanel, #shortcuts)[hidden] {
+  display: none;
+  opacity: 0;
+  translate: 0 -.5rem;
+  scale: .98;
+}
+
+@starting-style {
+  :is(#consent, #charter, #identitypanel, #shortcuts) {
+    opacity: 0;
+    translate: 0 -.5rem;
+    scale: .98;
+  }
 }
 
 #consent {
@@ -2027,7 +2359,8 @@ pre {
   height: 1.6rem;
   min-height: 0;
   padding: 0;
-  transform: translate(-50%, -50%);
+  /* The individual property, so a `scale` (the pop, a press) stays centred on the station. */
+  translate: -50% -50%;
   border: .3rem solid var(--line);
   border-radius: 50%;
   background: var(--card);
@@ -2082,7 +2415,8 @@ pre {
   stroke: var(--muted);
 }
 
-.metro .stop[aria-pressed="true"] {
+/* The station whose card is open (the stops carry aria-expanded, never aria-pressed). */
+.metro .stop[aria-expanded="true"] {
   outline: 2px solid var(--fg);
   outline-offset: 3px;
 }
@@ -2217,9 +2551,49 @@ pre {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Only the next stations move: they are where the student goes from here. */
+  /* The map is surveyed as it opens: each track traces itself, then its stations pop up along
+     it (AchievementMap.svelte numbers both with --i). */
+  .metro .track {
+    stroke-dasharray: 1;
+    animation: trace var(--t-4) var(--ease-in-out) calc(150ms + min(var(--i, 0), 30) * 60ms) both;
+  }
+
+  .metro .link,
+  .metro .linename {
+    animation: fade-in var(--t-4) var(--ease-out) 150ms both;
+  }
+
+  .metro .stop {
+    --at: calc(260ms + min(var(--i, 0), 30) * 60ms);
+    animation: pop var(--t-4) var(--ease-spring) var(--at) both;
+  }
+
+  .metro .stop .art {
+    --trace-at: calc(var(--at) + 120ms);
+  }
+
+  .metrotip {
+    animation: tip-in var(--t-3) var(--ease-out) both;
+  }
+
+  @keyframes pop {
+    from {
+      opacity: 0;
+      scale: 0;
+    }
+  }
+
+  @keyframes tip-in {
+    from {
+      opacity: 0;
+      translate: 0 .3rem;
+    }
+  }
+
+  /* Only the next stations keep moving: they are where the student goes from here. */
   .metro .stop.next {
-    animation: station 2.6s ease-in-out infinite;
+    animation: pop var(--t-4) var(--ease-spring) var(--at) both,
+      station 2.6s ease-in-out calc(var(--at) + 400ms) infinite;
   }
 
   @keyframes station {
@@ -2786,6 +3160,19 @@ pre {
   overflow-wrap: anywhere;
 }
 
+/* Banners slide in. They leave at once: a fade would only delay the workbench's own move. */
+:is(#system, #maintenance, #announcement) {
+  transition: opacity var(--t-4) var(--ease-out), translate var(--t-4) var(--ease-out),
+    border-left-color var(--t-4) var(--ease-out);
+}
+
+@starting-style {
+  :is(#system, #maintenance, #announcement) {
+    opacity: 0;
+    translate: 0 -.35rem;
+  }
+}
+
 .offscreen {
   position: absolute;
   width: 1px;
@@ -2857,6 +3244,34 @@ pre {
 
 .steps .empty {
   opacity: .9;
+}
+
+/* Compile, run, check: lit one after the other, each verdict mark stamped as its step lands. */
+@media (prefers-reduced-motion: no-preference) {
+  .steps .step {
+    animation: step-in var(--t-4) var(--ease-out) var(--d, 0ms) both;
+  }
+
+  .steps .step:nth-child(2) {
+    --d: 90ms;
+  }
+
+  .steps .step:nth-child(3) {
+    --d: 180ms;
+  }
+
+  .steps b::after {
+    display: inline-block;
+    animation: stamp var(--t-4) var(--ease-spring) calc(var(--d, 0ms) + 180ms) both;
+  }
+
+  @keyframes step-in {
+    from {
+      opacity: 0;
+      translate: -.4rem 0;
+      border-left-color: var(--line-2);
+    }
+  }
 }
 
 .explain {
@@ -2981,6 +3396,7 @@ pre {
 }
 
 #labband {
+  position: relative;
   flex: 0 0 auto;
   /* One row of tiles, claimed before /catalog.json answers. Keyed to --tap so the reserve
      follows the tile height on every screen: a media query would land above this rule and
@@ -3118,6 +3534,7 @@ pre {
 .tile:hover:not([aria-disabled="true"]) {
   border-color: var(--line-2);
   color: var(--fg);
+  translate: 0 -1px;
 }
 
 .tile.solved {
@@ -3126,11 +3543,61 @@ pre {
   color: var(--fg);
 }
 
+/* A ring, not a thicker border or a bolder face: the strip keeps its widths when the
+   current exercise changes, so the lock-on below can glide instead of the tiles jumping. */
 .tile.current {
-  border-width: 2px;
   border-color: var(--fg);
+  box-shadow: inset 0 0 0 1px var(--fg);
   color: var(--fg);
-  font-weight: 600;
+}
+
+/* Lock-on: brackets anchored to the current tile, which spring to the next one. */
+@supports (anchor-name: --a) {
+  .tile.current {
+    anchor-name: --current-tile;
+  }
+
+  #labband::after {
+    --c: var(--ink);
+    content: "";
+    position: absolute;
+    position-anchor: --current-tile;
+    left: calc(anchor(left) - 4px);
+    top: calc(anchor(top) - 4px);
+    width: calc(anchor-size(width) + 8px);
+    height: calc(anchor-size(height) + 8px);
+    opacity: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--c) 0 0) left top / 7px 2px no-repeat,
+      linear-gradient(var(--c) 0 0) left top / 2px 7px no-repeat,
+      linear-gradient(var(--c) 0 0) right top / 7px 2px no-repeat,
+      linear-gradient(var(--c) 0 0) right top / 2px 7px no-repeat,
+      linear-gradient(var(--c) 0 0) left bottom / 7px 2px no-repeat,
+      linear-gradient(var(--c) 0 0) left bottom / 2px 7px no-repeat,
+      linear-gradient(var(--c) 0 0) right bottom / 7px 2px no-repeat,
+      linear-gradient(var(--c) 0 0) right bottom / 2px 7px no-repeat;
+    transition: left var(--t-4) var(--ease-spring), top var(--t-4) var(--ease-spring),
+      width var(--t-4) var(--ease-spring), height var(--t-4) var(--ease-spring);
+  }
+
+  #labband:has(> .tile.current)::after {
+    opacity: 1;
+  }
+
+  /* It acquires its target once the strip has landed, then only glides. */
+  @media (prefers-reduced-motion: no-preference) {
+    #labband:has(> .tile.current)::after {
+      animation: acquire var(--t-4) var(--ease-spring) 420ms both;
+    }
+
+    @keyframes acquire {
+      from {
+        opacity: 0;
+        scale: 1.6;
+      }
+    }
+  }
 }
 
 .tile.todo {
@@ -3152,9 +3619,24 @@ pre {
 }
 
 .tile .mark {
+  display: inline-block;
   font-style: normal;
   font-size: var(--fs-label);
   color: var(--ink);
+}
+
+/* The second beat of a success: the tile is stamped when statuses.load() marks it solved. */
+@media (prefers-reduced-motion: no-preference) {
+  .tile.solved .mark {
+    animation: stamp var(--t-4) var(--ease-spring) both;
+  }
+
+  @keyframes stamp {
+    from {
+      opacity: 0;
+      scale: 2.4;
+    }
+  }
 }
 
 .calendar {
@@ -3206,11 +3688,50 @@ pre {
 }
 
 .card.held {
+  --foil: .55;
+  position: relative;
   border-color: var(--ink);
+  transform: perspective(40rem) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform var(--t-5) var(--ease-spring), box-shadow var(--t-3) var(--ease-out);
+}
+
+/* While the pointer drives it (features/collection/holo.ts), the tilt follows closely; once it
+   leaves, the card springs back flat. */
+.card.held:hover {
+  box-shadow: var(--shadow-2);
+  transition-duration: var(--t-2), var(--t-3);
+}
+
+.card.held[data-tier="3"] {
+  --foil: .75;
+}
+
+.card.held[data-tier="4"] {
+  --foil: 1;
+}
+
+/* The foil: a highlight under the pointer and a band of the rarity's colour that it drags. */
+.card.held::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgb(255 255 255 / .2), transparent 42%),
+    linear-gradient(115deg, transparent 30%, color-mix(in srgb, var(--tier) 38%, transparent) 46%,
+      color-mix(in srgb, var(--metro-teal) 26%, transparent) 54%, transparent 70%)
+      var(--mx, 50%) var(--my, 50%) / 260% 260%;
+  transition: opacity var(--t-3) var(--ease-out);
+}
+
+.card.held:hover::after {
+  opacity: var(--foil);
 }
 
 .card.locked {
   opacity: .68;
+  filter: grayscale(.5);
 }
 
 .card .code {
@@ -3291,7 +3812,7 @@ pre {
   border: 1px solid var(--line);
   border-radius: var(--coin);
   background: var(--panel);
-  box-shadow: 0 .6rem 2rem rgb(0 0 0 / .35);
+  box-shadow: var(--shadow-3), var(--rim);
 }
 
 .drops h2 {
@@ -3307,20 +3828,60 @@ pre {
   list-style: none;
 }
 
-/* The item tile of a loot site: a bar in the band's colour and a glow rising from it. */
+/* A card dealt face down and turned over. The rarer the band, the brighter the rays behind it:
+   rarity is measured by the server, the page only gives it a light. */
 .drop {
+  --glow: .4;
+  position: relative;
+  perspective: 50rem;
+}
+
+.drop[data-tier="2"] {
+  --glow: .55;
+}
+
+.drop[data-tier="3"] {
+  --glow: .75;
+}
+
+.drop[data-tier="4"] {
+  --glow: 1;
+}
+
+.drop .flip {
+  display: grid;
+  transform-style: preserve-3d;
+}
+
+.drop :is(.back, .face) {
+  grid-area: 1 / 1;
+  backface-visibility: hidden;
+  border: 1px solid var(--line);
+  border-bottom: 3px solid var(--tier);
+  border-radius: var(--coin);
+}
+
+/* The item tile of a loot site: a bar in the band's colour and a glow rising from it. */
+.drop .face {
   position: relative;
   overflow: hidden;
   display: flex;
   align-items: center;
   gap: .7rem;
   padding: .55rem .65rem;
-  border: 1px solid var(--line);
-  border-bottom: 3px solid var(--tier);
-  border-radius: var(--coin);
   background:
     radial-gradient(120% 90% at 50% 130%, color-mix(in srgb, var(--tier) 30%, transparent), transparent 70%),
     var(--card);
+}
+
+/* The back: a blueprint, crossed by the band's colour. */
+.drop .back {
+  rotate: y 180deg;
+  background:
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 12px 12px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 12px 12px,
+    linear-gradient(135deg, transparent 45%, color-mix(in srgb, var(--tier) 35%, transparent) 50%, transparent 55%),
+    var(--panel);
 }
 
 .drop .drawing {
@@ -3361,54 +3922,114 @@ pre {
   margin-top: .7rem;
 }
 
+@property --spin {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .drops {
-    animation: drop-in .22s ease-out;
+    animation: drops-in var(--t-4) var(--ease-spring) both;
   }
 
+  /* Dealt face down, then turned one after the other. The deal fades the card in from its <li>:
+     opacity or a filter on .flip itself would flatten the 3D and show the face mirrored. */
   .drop {
-    animation: drop-flip .45s cubic-bezier(.2, .7, .2, 1) both;
-    animation-delay: calc(120ms + var(--i, 0) * 140ms);
+    --at: calc(260ms + var(--i, 0) * 240ms);
+    animation: deal var(--t-3) var(--ease-out) calc(var(--at) - 200ms) both;
   }
 
-  /* One light sweep per tile, after it has turned face up. */
-  .drop::after {
+  .drop .flip {
+    animation: turn .8s var(--ease-spring) var(--at) both;
+  }
+
+  /* Rays turn behind the card for a few seconds, then rest: the panel stays near the editor. */
+  .drop::before {
+    content: "";
+    position: absolute;
+    inset: -60% -15%;
+    z-index: -1;
+    pointer-events: none;
+    background: repeating-conic-gradient(from var(--spin),
+        color-mix(in srgb, var(--tier) 55%, transparent) 0 5deg, transparent 5deg 22deg);
+    mask: radial-gradient(closest-side, #000 20%, transparent);
+    opacity: 0;
+    animation: rays 4.5s var(--ease-out) calc(var(--i, 0) * 240ms + 600ms) both,
+      spin 4.5s linear calc(var(--i, 0) * 240ms + 600ms) both;
+  }
+
+  .drop[data-tier="4"] .face {
+    animation: flare 1.2s var(--ease-out) calc(var(--at) + 500ms) 2 both;
+  }
+
+  /* One light sweep per card, once it is face up; then its drawing traces itself. */
+  .drop .face::after {
     content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
     background: linear-gradient(105deg, transparent 35%,
         color-mix(in srgb, var(--tier) 45%, white) 50%, transparent 65%);
-    animation: drop-sweep .9s ease-out both;
-    animation-delay: calc(480ms + var(--i, 0) * 140ms);
+    animation: drop-sweep .9s var(--ease-out) calc(var(--i, 0) * 240ms + 900ms) both;
   }
 
-  @keyframes drop-in {
+  .drop .art {
+    --trace-at: calc(var(--i, 0) * 240ms + 700ms);
+  }
+
+  @keyframes drops-in {
     from {
       opacity: 0;
-      transform: translateY(1rem);
+      translate: 0 1.5rem;
+      scale: .96;
     }
   }
 
-  @keyframes drop-flip {
+  @keyframes deal {
     from {
       opacity: 0;
-      transform: perspective(40rem) rotateY(-90deg);
+      translate: 0 -.8rem;
+    }
+  }
+
+  @keyframes turn {
+    from {
+      rotate: y 180deg;
+    }
+  }
+
+  @keyframes rays {
+    0% {
+      opacity: 0;
     }
 
-    60% {
-      opacity: 1;
+    15%,
+    70% {
+      opacity: var(--glow);
     }
 
+    100% {
+      opacity: calc(var(--glow) * .25);
+    }
+  }
+
+  @keyframes spin {
     to {
-      transform: perspective(40rem) rotateY(0);
+      --spin: 120deg;
+    }
+  }
+
+  @keyframes flare {
+    50% {
+      filter: drop-shadow(0 0 .8rem var(--tier));
     }
   }
 
   @keyframes drop-sweep {
     from {
       opacity: 0;
-      transform: translateX(-100%);
+      translate: -100% 0;
     }
 
     25% {
@@ -3417,7 +4038,7 @@ pre {
 
     to {
       opacity: 0;
-      transform: translateX(100%);
+      translate: 100% 0;
     }
   }
 }
@@ -3630,7 +4251,25 @@ pre {
 .tabs .nav[aria-pressed="true"],
 .tabs .nav.on {
   color: var(--fg);
-  border-bottom: 2px solid var(--ink);
+}
+
+/* The underline unrolls from the centre, drawn over the border so the tab keeps its height. */
+.tabs .nav {
+  position: relative;
+}
+
+.tabs .nav::after {
+  content: "";
+  position: absolute;
+  inset: auto .4rem -1px;
+  height: 2px;
+  background: var(--ink);
+  scale: 0 1;
+  transition: scale var(--t-3) var(--ease-spring);
+}
+
+.tabs .nav:is([aria-pressed="true"], .on)::after {
+  scale: 1;
 }
 
 #viewleaderboard .rank {
@@ -3640,10 +4279,39 @@ pre {
 }
 
 #viewleaderboard .figure {
+  display: inline-flex;
   font-size: 2rem;
   font-weight: 700;
   line-height: 1;
   color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The rank rolls into place, one reel per digit (Leaderboard.svelte keeps the number itself
+   for screen readers). */
+.reel {
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+}
+
+.reel>span {
+  display: flex;
+  flex-direction: column;
+  translate: 0 calc(var(--n) * -1em);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reel>span {
+    animation: reel var(--t-5) var(--ease-spring) both;
+    animation-delay: calc(200ms + var(--i, 0) * 90ms);
+  }
+
+  @keyframes reel {
+    from {
+      translate: 0 0;
+    }
+  }
 }
 
 .aliasrow {
@@ -3689,6 +4357,30 @@ pre {
 .rank-table .mine {
   background: var(--ink-wash);
   font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rank-table tbody tr {
+    animation: rise var(--t-4) var(--ease-out) both;
+  }
+
+  @supports (width: calc(1px * sibling-index())) {
+    .rank-table tbody tr {
+      animation-delay: calc(120ms + min(sibling-index(), 15) * 35ms);
+    }
+  }
+
+  /* Your row lights up once the table has settled, then rests on its wash. */
+  .rank-table tbody tr.mine {
+    animation: rise var(--t-4) var(--ease-out) both, mine 1.1s var(--ease-out) 700ms both;
+  }
+
+  @keyframes mine {
+    from {
+      background-color: color-mix(in srgb, var(--ink) 40%, var(--ink-wash));
+    }
+  }
 }
 
 .divisions {
@@ -3706,8 +4398,33 @@ pre {
 }
 
 .division.on {
-  border: 2px solid var(--ink);
+  position: relative;
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
   background: var(--ink-wash);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .division.on::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    border: 2px solid var(--ink);
+    animation: acquire-ring .9s var(--ease-out) .6s both;
+  }
+
+  @keyframes acquire-ring {
+    from {
+      opacity: .9;
+      scale: 1;
+    }
+
+    to {
+      opacity: 0;
+      scale: 1.15;
+    }
+  }
 }
 
 .division .name {
@@ -4443,4 +5160,348 @@ pre {
   display: flex;
   justify-content: flex-end;
   margin-top: .9rem;
+}
+
+/* ---- Motion -------------------------------------------------------------------------------
+   Native CSS first: none of this costs the anonymous bundle a byte. What must play only once
+   per event (a celebration) is Web Animations in a deferred chunk, because display:none restarts
+   every CSS animation below it whenever the workbench comes back. */
+
+@supports not (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: cubic-bezier(.34, 1.45, .64, 1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise {
+    from {
+      opacity: 0;
+      translate: 0 .5rem;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* The workbench assembles itself: at load, and as the entrance of the page whenever another
+     view closes. Only opacity and translate, so nothing reserved moves; the editor only fades
+     (its overlays are measured, a transform would put them off). */
+  #statement {
+    animation: fade-in var(--t-4) var(--ease-out) both;
+  }
+
+  #statementtext {
+    animation: rise var(--t-4) var(--ease-out) 60ms both;
+  }
+
+  #now {
+    animation: rise var(--t-4) var(--ease-out) 40ms both;
+  }
+
+  #labband>.tile {
+    animation: rise var(--t-4) var(--ease-out) 60ms both;
+  }
+
+  @supports (width: calc(1px * sibling-index())) {
+    #labband>.tile {
+      animation-delay: calc(40ms + min(sibling-index(), 12) * 26ms);
+    }
+  }
+
+  #editor,
+  #quizwrap {
+    animation: fade-in var(--t-4) var(--ease-out) 90ms both;
+  }
+
+  #actions {
+    animation: rise var(--t-4) var(--ease-out) 130ms both;
+  }
+}
+
+/* View Transitions, started by lib/transit.ts with data-vt naming the kind. */
+
+/* Changing view: the old page dissolves above the new one, which plays its own entrance. */
+html:is([data-vt="in"], [data-vt="out"])::view-transition-old(root) {
+  z-index: 1;
+  mix-blend-mode: normal;
+  animation: vt-dissolve var(--t-3) var(--ease-out) both;
+}
+
+html:is([data-vt="in"], [data-vt="out"])::view-transition-new(root) {
+  mix-blend-mode: normal;
+  animation: none;
+}
+
+@keyframes vt-dissolve {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The theme: the new palette grows out of the button that asked for it. */
+html[data-vt="theme"]::view-transition-old(root) {
+  mix-blend-mode: normal;
+  animation: none;
+}
+
+html[data-vt="theme"]::view-transition-new(root) {
+  mix-blend-mode: normal;
+  animation: vt-reveal .7s var(--ease-in-out) both;
+}
+
+@keyframes vt-reveal {
+  from {
+    clip-path: circle(0 at var(--vt-x, 100%) var(--vt-y, 0));
+  }
+
+  to {
+    clip-path: circle(150vmax at var(--vt-x, 100%) var(--vt-y, 0));
+  }
+}
+
+/* The chat dock slides in while the workbench narrows. Named only during the transition; the
+   snapshots are not stretched (object-fit: none), so the code never looks squeezed. */
+html[data-vt="dock"]:active-view-transition #right {
+  view-transition-name: bench;
+}
+
+html[data-vt="dock"]:active-view-transition #chatdock {
+  view-transition-name: dock;
+}
+
+::view-transition-group(bench) {
+  overflow: clip;
+  animation-duration: var(--t-4);
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(bench),
+::view-transition-new(bench) {
+  width: auto;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+
+::view-transition-new(dock) {
+  animation: dock-in var(--t-4) var(--ease-out) both;
+}
+
+::view-transition-old(dock) {
+  animation: dock-in var(--t-3) var(--ease-in-out) reverse both;
+}
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    translate: 100% 0;
+  }
+}
+
+@media (max-width: 1000px) {
+  ::view-transition-new(dock),
+  ::view-transition-old(dock) {
+    animation-name: dock-up;
+  }
+
+  @keyframes dock-up {
+    from {
+      opacity: 0;
+      translate: 0 100%;
+    }
+  }
+}
+
+/* Inside a View Transition the new page is live: nothing should still be easing from the old
+   palette while the circle reveals the new one. */
+html:active-view-transition * {
+  transition: none !important;
+}
+
+/* The views are drawn on graph paper. Only there: the workbench keeps solid grounds behind its
+   text, which the contrast audit needs to measure. */
+:is(#viewprogress, #viewleaderboard, #viewcollection, #viewforum, #viewmoderation, #viewscratch) {
+  background:
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--bg);
+  background-attachment: local;
+}
+
+:is(#viewprogress, #viewforum, #viewmoderation) .block,
+:is(#viewleaderboard, #viewcollection) .block {
+  box-shadow: var(--shadow-1), var(--rim);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Each view assembles itself, one block after the other. Views remount on every visit. */
+  :is(#viewprogress, #viewleaderboard, #viewcollection, #viewforum, #viewmoderation, #viewscratch)>*,
+  #viewprogress .board>*,
+  .cards>*,
+  .achievements>li {
+    animation: rise var(--t-4) var(--ease-out) both;
+  }
+
+  @supports (width: calc(1px * sibling-index())) {
+    :is(#viewprogress, #viewleaderboard, #viewcollection, #viewforum, #viewmoderation, #viewscratch)>*,
+    #viewprogress .board>* {
+      animation-delay: calc(min(sibling-index(), 10) * 45ms);
+    }
+  }
+
+  /* Cards and achievements carry their own --i, so every engine deals them in order. */
+  .cards>*,
+  .achievements>li {
+    animation-delay: calc(150ms + min(var(--i, 0), 16) * 40ms);
+  }
+
+  /* CardArt's parts are traced like a technical drawing (pathLength="1" on every shape). */
+  .art :is(path, circle, rect) {
+    stroke-dasharray: 1;
+    animation: trace var(--t-5) var(--ease-in-out) var(--trace-at, 200ms) both;
+  }
+
+  .cards .art {
+    --trace-at: calc(420ms + min(var(--i, 0), 16) * 40ms);
+  }
+
+  @keyframes trace {
+    from {
+      opacity: 0;
+      stroke-dashoffset: 1;
+    }
+
+    12% {
+      opacity: 1;
+    }
+  }
+
+  /* Lock-on: the blueprint corners close in on their block once it has landed. */
+  .plan::before {
+    animation: corner-in var(--t-4) var(--ease-spring) 320ms both;
+    --from: -8px -8px;
+  }
+
+  .plan::after {
+    animation: corner-in var(--t-4) var(--ease-spring) 320ms both;
+    --from: 8px 8px;
+  }
+
+  @keyframes corner-in {
+    from {
+      opacity: 0;
+      translate: var(--from);
+    }
+  }
+
+  /* Gauges fill rather than appear (scale, so the width the server sent is never touched). */
+  :is(.gauge, .meter) i {
+    transform-origin: left center;
+    animation: fill var(--t-5) var(--ease-out) 300ms both;
+  }
+
+  @keyframes fill {
+    from {
+      scale: 0 1;
+    }
+  }
+
+  /* The practice calendar develops along its diagonal (Progress.svelte sets --d). */
+  .calendar span {
+    animation: cell var(--t-4) var(--ease-spring) both;
+    animation-delay: calc(200ms + var(--d, 0) * 22ms);
+  }
+
+  @keyframes cell {
+    from {
+      opacity: 0;
+      scale: .3;
+    }
+  }
+
+  /* A long view shows how far down it is read: a hairline driven by its own scroll. */
+  @supports (animation-timeline: scroll()) {
+    /* Hidden at rest: a view too short to scroll has no timeline, and shows nothing. The
+       sticky offset undoes the section's padding, so the line rides the very top edge. */
+    :is(#viewprogress, #viewleaderboard, #viewcollection)::before {
+      content: "";
+      position: sticky;
+      top: -.9rem;
+      z-index: 2;
+      display: block;
+      height: 2px;
+      margin: -.9rem -.9rem calc(.9rem - 2px);
+      background: var(--ink);
+      transform-origin: left center;
+      scale: 0 1;
+      animation: read linear both;
+      animation-timeline: scroll();
+    }
+
+    @keyframes read {
+      to {
+        scale: 1 1;
+      }
+    }
+  }
+}
+
+/* The celebration's sparks (lib/verdictFx.ts): a fixed layer over the count, never in #out. */
+.burst {
+  position: fixed;
+  z-index: 30;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.burst :is(i, b) {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.burst i {
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  background: var(--ok);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 70%, transparent);
+}
+
+.burst i:nth-child(3n) {
+  background: var(--ink);
+}
+
+.burst i:nth-child(4n) {
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  background: var(--wait);
+}
+
+.burst b {
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border: 2px solid var(--ok);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-1: 1ms;
+    --t-2: 1ms;
+    --t-3: 1ms;
+    --t-4: 1ms;
+    --t-5: 1ms;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }

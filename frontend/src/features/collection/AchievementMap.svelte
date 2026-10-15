@@ -121,15 +121,24 @@
       {#each map.segments as s, i (i)}
         {@const [x1, y1] = centre(s.from)}
         {@const [x2, y2] = centre(s.to)}
-        <line class={"track" + (s.lit ? " lit" : "")} style={`--c:var(--metro-${s.color})`} {x1} {y1} {x2} {y2} />
+        <!-- pathLength and --i let app.css trace the tracks in order as the map opens. -->
+        <line
+          class={"track" + (s.lit ? " lit" : "")}
+          style={`--c:var(--metro-${s.color});--i:${i}`}
+          pathLength="1"
+          {x1}
+          {y1}
+          {x2}
+          {y2}
+        />
       {/each}
     </svg>
-    {#each map.nodes as n (n.id)}
+    {#each map.nodes as n, i (n.id)}
       {@const [x, y] = centre(n.at)}
       <button
         type="button"
         class={`stop ${n.kind} ${n.state}`}
-        style={`left:${x}px;top:${y}px;--c:var(--metro-${n.color})`}
+        style={`left:${x}px;top:${y}px;--c:var(--metro-${n.color});--i:${i}`}
         aria-label={label(n)}
         aria-describedby={open === n.id ? "metrotip" : undefined}
         aria-expanded={open === n.id}
@@ -156,6 +165,8 @@
 
     {#if shown}
       {@const line = lineOf.get(shown.line)}
+      <!-- Keyed, so the card opens afresh (and its drawing traces) for each station. -->
+      {#key shown.id}
       <div id="metrotip" class="metrotip" role="tooltip" style={place(shown)}>
         <span class="linetitle">{line?.name}</span>
         {#if line?.description}<span class="about">{line.description}</span>{/if}
@@ -206,6 +217,7 @@
           {/if}
         {/if}
       </div>
+      {/key}
     {/if}
   </div>
 </div>

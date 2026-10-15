@@ -69,6 +69,12 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   page**: those settings live in the `github-pages` environment, which no other job enters.
 - **The anonymous bundle stays small.** Anything that needs an account is loaded lazily, and
   `bundle.test.ts` checks the built output.
+- **Motion is CSS first, and never required.** Animations live in `app.css` behind
+  `prefers-reduced-motion`; the only eager script is `lib/transit.ts` (View Transitions).
+  `lib/motion.ts` and `lib/verdictFx.ts` are imported lazily, and no component uses `in:`,
+  `out:` or `animate:`: Rolldown hoists their runtime into the eager chunk. jsdom has no
+  `matchMedia`, `animate`, `getAnimations` or `startViewTransition`, so every helper falls back
+  to an instant change.
 - **Tables and grants live together** in `app/schema.sql`. Any table with an `account` column must be
   cleared by `state.forget()`, and tests enforce both rules.
 - **Persisted ids never change:** achievement, card and frame ids, event ids (`solved:<exercise>`), and

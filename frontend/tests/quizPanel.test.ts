@@ -121,3 +121,17 @@ describe("the shape note, while typing", () => {
     expect(node.querySelectorAll(".qshape")).toHaveLength(0);
   });
 });
+
+describe("the order question", () => {
+  it("names the item that moved, not the one it traded places with", () => {
+    quiz.pages = [
+      { key: "o", title: "Chaîne", questions: [{ ...question("o", "Dans l'ordre", "order"), options: ["gcc", "ld", "a.out"] }] },
+    ];
+    quiz.answers = { o: ["gcc", "ld", "a.out"] };
+    const node = show();
+    node.querySelectorAll(".qorder li")[0]!.querySelectorAll("button")[1]!.click();
+    flushSync();
+    expect([...node.querySelectorAll(".qitem")].map((i) => i.textContent)).toEqual(["ld", "gcc", "a.out"]);
+    expect(node.querySelector(".qsaid")?.textContent).toBe("« gcc » déplacé en position 2 sur 3");
+  });
+});

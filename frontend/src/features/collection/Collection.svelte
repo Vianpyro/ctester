@@ -4,6 +4,7 @@
   import { whenSignedOut } from "../../lib/auth/session.svelte";
   import AchievementMap from "./AchievementMap.svelte";
   import CardArt from "./CardArt.svelte";
+  import { holo } from "./holo";
   import { tier } from "../../lib/domain/rarity";
   import { drops } from "../../lib/state/drops.svelte";
   import { t } from "../../lib/i18n.svelte";
@@ -61,8 +62,13 @@
     {t("collection.held", { count: held, total: payload.cards.length })}
   </p>
   <div class="cards">
-    {#each payload.cards as c (c.id)}
-      <div class={"card " + (c.held ? "held" : "locked")} data-tier={c.held ? tier(c.rarity) : undefined}>
+    {#each payload.cards as c, i (c.id)}
+      <div
+        class={"card " + (c.held ? "held" : "locked")}
+        data-tier={c.held ? tier(c.rarity) : undefined}
+        style={"--i:" + i}
+        use:holo={c.held}
+      >
         <div class="header">
           <span class="code">{c.id}</span>
           <span class="code">{c.rarity === null || c.rarity === undefined ? "—" : c.rarity + " %"}</span>
@@ -93,11 +99,12 @@
       })}
     </p>
     <ul class="achievements">
-      {#each payload.achievements as a (a.id)}
+      {#each payload.achievements as a, i (a.id)}
         <!-- Only the collection measures rarity: elsewhere an earned tile keeps the plain bar. -->
         <li
           class={a.unlocked_at ? "earned" : "locked"}
           data-tier={a.unlocked_at && a.rarity !== undefined ? tier(a.rarity) : undefined}
+          style={"--i:" + i}
         >
           <span class="title">{a.name}</span>
           <span class="what">{a.description}</span>

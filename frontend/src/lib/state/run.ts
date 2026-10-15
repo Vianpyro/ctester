@@ -8,6 +8,8 @@ import { sessionKey } from "./accesskey";
 import { t } from "../i18n.svelte";
 
 async function afterVerdict(): Promise<void> {
+  // The celebration adds nothing the verdict does not say, so it stays out of the eager bundle.
+  void import("../verdictFx").then((fx) => fx.play(), () => {});
   await statuses.load();
   const progress = await import("../../features/progress/projection.svelte").catch(() => null);
   await progress?.projection.refreshIfOpen();

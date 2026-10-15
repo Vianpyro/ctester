@@ -113,7 +113,12 @@
 
   {#if payload.me}
     <div class="block plan rank">
-      <span class="figure">{payload.me.rank}</span>
+      <span class="figure" aria-hidden="true">
+        {#each String(payload.me.rank) as digit, i}
+          <span class="reel" style={`--n:${digit};--i:${i}`}><span>{#each "0123456789" as d}<span>{d}</span>{/each}</span></span>
+        {/each}
+      </span>
+      <span class="offscreen">{payload.me.rank}</span>
       <div>
         <p>
           {t(payload.scope === "course" ? "leaderboard.out_of_course" : "leaderboard.out_of_group", {
@@ -139,6 +144,8 @@
 
   {#if payload.rows.length}
     <div class="block">
+      <!-- Keyed on the answer, so a new tab replays the rows' entrance with its own data. -->
+      {#key payload}
       <table class="rank-table">
         <thead>
           <tr>
@@ -159,6 +166,7 @@
           {/each}
         </tbody>
       </table>
+      {/key}
       <p class="help">{t("leaderboard.table_help")}</p>
     </div>
   {:else}

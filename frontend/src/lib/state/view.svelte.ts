@@ -1,4 +1,5 @@
 import { t } from "../i18n.svelte";
+import { transit } from "../transit";
 
 export type ViewName =
   | ""
@@ -12,8 +13,9 @@ export type ViewName =
 class ViewState {
   current = $state<ViewName>("");
 
+  // Asynchronous under a View Transition: no caller reads `current` right after.
   show(name: ViewName): void {
-    this.current = name;
+    transit(name ? "in" : "out", () => (this.current = name));
   }
 
   label(name: ViewName, closed: string): string {

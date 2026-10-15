@@ -1,4 +1,5 @@
-<script lang="ts">  import { onMount } from "svelte";
+<script lang="ts">  import { onMount, untrack } from "svelte";
+  import { tween } from "../../lib/motion";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { exercise } from "../../lib/state/exercise.svelte";
   import { statuses } from "../../lib/state/statuses.svelte";
@@ -22,6 +23,13 @@
   onMount(() => title?.focus());
 
   const p = $derived(projection.payload);
+
+  // The XP counts up to what the server sent; only the shown figure eases, never the value.
+  let xp = $state(0);
+  $effect(() => {
+    const target = p?.xp ?? 0;
+    return tween(untrack(() => xp), target, 1100, (value) => (xp = Math.round(value)));
+  });
 
   const CALENDAR_DAYS = 91;
 
@@ -157,8 +165,9 @@
     <div class="block plan">
       <div class="kicker">{t("progress.practiced")}</div>
       <div class="calendar">
-        {#each calendar.cells as cell (cell.key)}
-          <span class={cell.step} title={cell.title}></span>
+        {#each calendar.cells as cell, i (cell.key)}
+          <!-- Column plus row: the calendar develops along its diagonal. -->
+          <span class={cell.step} title={cell.title} style={`--d:${(i % 13) + Math.floor(i / 13)}`}></span>
         {/each}
       </div>
       <p>{t("progress.days", { count: calendar.active })}</p>
@@ -290,7 +299,7 @@
   <div class="block second">
     <h3 class="subtitle">{t("progress.level")}</h3>
     <p>
-      {t("progress.level_line", { rank: p.level.rank, xp: p.xp }) +
+      {t("progress.level_line", { rank: p.level.rank, xp }) +
         (p.level.next === null
           ? t("progress.level_last")
           : t("progress.level_next", { remaining: p.level.remaining, next: p.level.rank + 1 }))}
@@ -313,8 +322,8 @@
         })}
       </p>
       <ul class="achievements">
-        {#each p.achievements as a (a.id)}
-          <li class={a.unlocked_at ? "earned" : "locked"}>
+        {#each p.achievements as a, i (a.id)}
+          <li class={a.unlocked_at ? "earned" : "locked"} style={"--i:" + i}>
             <span class="title">{a.name}</span>
             <span class="what">{a.description}</span>
             {#if a.unlocked_at}

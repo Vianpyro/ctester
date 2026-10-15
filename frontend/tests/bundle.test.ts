@@ -121,12 +121,20 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     }
   });
 
-  it("stays under 150 KB of eager JavaScript", () => {
+  it("keeps Svelte's transition runtime out: Rolldown hoists it into the shared eager chunk", () => {
+    // `playState` only appears in svelte/internal's transitions.js. Motion uses CSS and Web
+    // Animations instead of in:, out: and animate:, wherever the component lives.
+    expect(eagerSource()).not.toContain("playState");
+  });
+
+  // 151 KB since the motion work: the View Transitions, the theme reveal and the deferred
+  // celebration's loader cost about 0.5 KB here. Everything else that moves is CSS or deferred.
+  it("stays under 151 KB of eager JavaScript", () => {
     const bytes = eagerChunks().reduce(
       (n, name) => n + readFileSync(join(DIST, "assets", name)).byteLength,
       0,
     );
-    expect(bytes).toBeLessThan(150_000);
+    expect(bytes).toBeLessThan(151_000);
   });
 
   it("keeps the quiz widgets out: most exercises are not a quiz", () => {
