@@ -8,22 +8,22 @@
   <key>name</key><string>ctester-light</string>
   <key>settings</key><array>
     <dict><key>settings</key><dict>
-      <key>background</key><string>#F5F5F8</string>
-      <key>foreground</key><string>#1D1F20</string>
+      <key>background</key><string>#F4F7F2</string>
+      <key>foreground</key><string>#18231E</string>
     </dict></dict>
     <dict><key>scope</key><string>comment</string>
-      <key>settings</key><dict><key>foreground</key><string>#5F6B60</string><key>fontStyle</key><string>italic</string></dict></dict>
+      <key>settings</key><dict><key>foreground</key><string>#5B6B60</string><key>fontStyle</key><string>italic</string></dict></dict>
     <dict><key>scope</key><string>string, constant.character.escape</string>
       <key>settings</key><dict><key>foreground</key><string>#1F7A3D</string></dict></dict>
     <dict><key>scope</key><string>meta.preprocessor, keyword.control.import, keyword.control.directive</string>
-      <key>settings</key><dict><key>foreground</key><string>#9B2F8F</string></dict></dict>
+      <key>settings</key><dict><key>foreground</key><string>#8E2C84</string></dict></dict>
     <dict><key>scope</key><string>keyword, storage.type, storage.modifier, keyword.control</string>
       <key>settings</key><dict><key>foreground</key><string>#1D4ED8</string><key>fontStyle</key><string>bold</string></dict></dict>
     <dict><key>scope</key><string>constant.numeric</string>
-      <key>settings</key><dict><key>foreground</key><string>#A55200</string></dict></dict>
+      <key>settings</key><dict><key>foreground</key><string>#9A4A00</string></dict></dict>
     <dict><key>scope</key><string>variable.function, entity.name.function, support.function</string>
-      <key>settings</key><dict><key>foreground</key><string>#7A5C00</string></dict></dict>
+      <key>settings</key><dict><key>foreground</key><string>#6E5300</string></dict></dict>
     <dict><key>scope</key><string>entity.name.constant, variable.other.constant, constant.other, constant.language</string>
-      <key>settings</key><dict><key>foreground</key><string>#8A3D9B</string></dict></dict>
+      <key>settings</key><dict><key>foreground</key><string>#7C3A93</string></dict></dict>
   </array>
 </dict></plist>

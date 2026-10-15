@@ -120,7 +120,11 @@
               type="button"
               class={"qstep " + state}
               aria-current={n === quiz.page ? "step" : undefined}
-              aria-label={t("quiz.page_" + state, { n: n + 1 })}
+              aria-label={state === "fix"
+                ? t("quiz.page_fix", { n: n + 1 })
+                : state === "done"
+                  ? t("quiz.page_done", { n: n + 1 })
+                  : t("quiz.page_todo", { n: n + 1 })}
               title={page.title}
               onclick={() => quiz.showPage(n)}>{n + 1}</button
             >

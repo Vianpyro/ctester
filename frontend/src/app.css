@@ -374,7 +374,7 @@ h1 {
      instead: the slot is held until /live answers, so the bar never re-spaces. */
   display: inline-flex;
   align-items: center;
-  min-width: 9rem;
+  min-width: 8rem;
 }
 
 /* #top wraps, and a second row moves every element on the page. The tagline beside the mark
@@ -385,7 +385,7 @@ h1 {
   }
 }
 
-@media (max-width: 1240px) {
+@media (max-width: 1400px) {
   .credit {
     display: none;
   }
@@ -1018,6 +1018,22 @@ button:disabled {
 
 #excurrent {
   max-width: 23rem;
+}
+
+/* On a wide bar the picker keeps one width whatever it names, so ‹ › never slide sideways
+   when the catalogue lands (that slide, in the same frame as the bench, cost 0.03 of CLS). */
+@media (min-width: 701px) {
+  #excurrent {
+    width: 23rem;
+    justify-content: flex-start;
+  }
+
+  #excurrent::after {
+    margin-left: auto;
+  }
+}
+
+#excurrent {
   font-size: var(--fs-body);
   color: var(--fg);
 }
@@ -1410,8 +1426,9 @@ main {
 
 #now {
   flex-wrap: wrap;
-  /* The label and its badges land with the catalogue; keep their line either way. */
-  min-height: 2.4rem;
+  /* The label and its badges land with the catalogue; keep their line either way: the title's
+     line, the padding and the border, so the editor below never moves when they arrive. */
+  min-height: calc(var(--fs-title) * 1.25 + 1rem + 1px);
 }
 
 #now h2 {
@@ -2527,6 +2544,121 @@ pre {
 #quiznav .pos {
   color: var(--muted);
   font-size: var(--fs-ui);
+}
+
+#quiznav {
+  flex-wrap: wrap;
+}
+
+#quiznav .saved {
+  margin-left: auto;
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+/* The quiz's pages as stations: filled once answered, a diamond to review, ringed where the
+   student is. The same drawing as the lab strip and the judge's line. */
+.qpages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qpages li {
+  display: flex;
+  align-items: center;
+}
+
+.qpages li + li::before {
+  content: "";
+  width: .9rem;
+  height: 2px;
+  background: var(--line);
+}
+
+.qpages .qstep {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 2px solid var(--line-2);
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--fs-label);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.qpages .qstep.done {
+  color: var(--ink-fg);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.qpages .qstep.fix {
+  color: var(--bad);
+  border-color: var(--bad);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bad) 12%, var(--panel));
+}
+
+.qpages .qstep[aria-current="step"] {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 35%, transparent);
+}
+
+.qpages .qstep:not(.done)[aria-current="step"] {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .qpages .qstep.done {
+    animation: stamp var(--t-4) var(--ease-spring) both;
+  }
+}
+
+/* A judged answer lights its whole row, not only a 14px glyph. */
+#quiz .qrow {
+  padding: .3rem .5rem;
+  margin-inline: -.5rem;
+  border-radius: var(--coin);
+  transition: background-color var(--t-3) var(--ease-out), box-shadow var(--t-3) var(--ease-out);
+}
+
+#quiz .qrow.right {
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+
+#quiz .qrow.wrong {
+  background: color-mix(in srgb, var(--bad) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--bad);
+}
+
+#quiz .qrow .qmark {
+  font-weight: 800;
+}
+
+#quiz .qfailed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+  color: var(--fg);
+}
+
+#quiz .qfailed p {
+  margin: 0;
+}
+
+#quiz .qloading {
+  color: var(--muted);
 }
 
 :is(#consent, #charter, #identitypanel, #shortcuts) {
@@ -4039,18 +4171,27 @@ pre {
   /* One row of tiles, claimed before /catalog.json answers. Keyed to --tap so the reserve
      follows the tile height on every screen: a media query would land above this rule and
      lose the cascade. */
-  min-height: calc(var(--tap) + .9rem);
+  min-height: calc(var(--tap) + .9rem + 1px);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: .3rem 1.4rem;
+  gap: .3rem 1.1rem;
   padding: .45rem var(--gut);
   border-bottom: 1px solid var(--line);
   background: var(--bg);
 }
 
 #labband > .grow {
-  margin-left: -1rem;
+  margin-left: -.8rem;
+}
+
+/* The strip keeps to one row, the height it reserved: on mid-size screens the count of
+   exercises (the stations already show it) and the shortcut hint give way first. */
+@media (max-width: 1440px) {
+  #labband > .grow + .tag,
+  #labband > .nav .shortcut {
+    display: none;
+  }
 }
 
 #labband[hidden] {
@@ -4198,7 +4339,7 @@ pre {
   position: absolute;
   right: calc(100% + 1px);
   top: 50%;
-  width: 1.4rem;
+  width: 1.1rem;
   height: 2px;
   margin-top: -1px;
   background: var(--line);
@@ -6228,6 +6369,58 @@ html:active-view-transition * {
   ::view-transition-new(*) {
     animation: none !important;
   }
+}
+
+/* ---- Views ---------------------------------------------------------------------------------
+   Every screen opens on a real title: the place has a name before it has details. */
+h2:is(#progresstitle, #leaderboardtitle, #collectiontitle, #scratchtitle, #forumtitle, #moderationtitle) {
+  margin: .2rem 0 .4rem;
+  font-size: var(--fs-display);
+  font-weight: 780;
+  line-height: 1.15;
+  letter-spacing: -.022em;
+  color: var(--fg);
+}
+
+/* The Console had no frame of its own: it sat flush against the window's edge. */
+#viewscratch {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: .9rem;
+}
+
+#viewscratch[hidden] {
+  display: none;
+}
+
+/* Run is the Console's one action, so it wears the signal like Test does on the bench. */
+#scratchgo {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  color: var(--signal-fg);
+  background: var(--signal);
+  border-color: var(--signal-edge);
+  font-weight: 760;
+  padding: .35rem 1rem;
+}
+
+#scratchgo::before {
+  content: "";
+  width: 1em;
+  height: 1em;
+  background: currentColor;
+  mask: url(./icons/play.svg) center / contain no-repeat;
+}
+
+#scratchgo:hover:not(:disabled) {
+  border-color: var(--signal-edge);
+  filter: brightness(1.06);
+}
+
+#scratchgo:disabled {
+  filter: saturate(.25);
 }
 
 /* Phones: overrides that must come after every rule they correct. */

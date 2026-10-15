@@ -62,7 +62,8 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
 - **The host runs no Python.** Every host-side Python call goes through `deploy/python.sh`, so
   `CTESTER_WEB_IMAGE` alone sets the version.
 - **The CSP exists twice:** `app/csp.py` and the `<meta>` in `frontend/index.html`. A test compares
-  them. No inline scripts. The page names no host: `vite.config.ts` fills `%API_ORIGIN%`,
+  them. No inline scripts. The typeface ships with the page (`frontend/src/fonts/`, `font-src 'self'`),
+  never from a CDN. The page names no host: `vite.config.ts` fills `%API_ORIGIN%`,
   `%API_WS%`, `%AUTH_ORIGIN%`, `%TITLE%`, `%TAGLINE%` and `%LANG%` at build time from
   `CTESTER_API_ORIGIN`, `CTESTER_AUTH_ORIGIN`, `CTESTER_TITLE` and `CTESTER_LANG`, the variables
   the server reads, so the two copies stay comparable. **Only the `pages` job builds the deployed
@@ -74,7 +75,10 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   `lib/motion.ts` and `lib/verdictFx.ts` are imported lazily, and no component uses `in:`,
   `out:` or `animate:`: Rolldown hoists their runtime into the eager chunk. jsdom has no
   `matchMedia`, `animate`, `getAnimations` or `startViewTransition`, so every helper falls back
-  to an instant change.
+  to an instant change. Only a loading indicator may loop forever (WCAG 2.2.2); anything else
+  plays a bounded number of times, and `motionRules.test.ts` reads `app.css` for it.
+- **Icons are SVG files in `frontend/src/icons/`**, drawn by CSS masks on `::before` and aimed at
+  the control by its id or class: no icon lives in the markup, so they cost the bundle nothing.
 - **Tables and grants live together** in `app/schema.sql`. Any table with an `account` column must be
   cleared by `state.forget()`, and tests enforce both rules.
 - **Persisted ids never change:** achievement, card and frame ids, event ids (`solved:<exercise>`), and

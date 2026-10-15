@@ -83,6 +83,12 @@
 
   // A quiz is neither compiled nor run: the judge's line belongs to code exercises.
   const quizMode = $derived(catalog.selected?.mode === "quiz");
+  const quizStep = (i: number): string =>
+    i === 0
+      ? t("verdict.howto_quiz.answer")
+      : i === 1
+        ? t("verdict.howto_quiz.test")
+        : t("verdict.howto_quiz.fix");
 
   // While the judge works, the line is drawn empty and an ink pulse runs along it.
   const steps = $derived.by((): StepState[] | null => {
@@ -174,9 +180,11 @@
     </p>
   {/if}
 
-  {#if cls === "idle" && !quizMode}
+  {#if cls === "idle"}
+    <!-- Drawn on a quiz too, with its own three steps: the panel keeps one height whichever
+         kind of exercise the catalogue turns out to open. -->
     <ol class="howto" aria-label={t("verdict.howto")}>
-      {#each [0, 1, 2] as i (i)}<li style={"--i:" + i}>{stepLabel(i)}</li>{/each}
+      {#each [0, 1, 2] as i (i)}<li style={"--i:" + i}>{quizMode ? quizStep(i) : stepLabel(i)}</li>{/each}
     </ol>
   {:else if steps}
     <ol class="steps" aria-hidden={cls === "wait" ? "true" : undefined}>

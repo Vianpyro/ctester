@@ -97,6 +97,13 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     }
   });
 
+  it("keeps a verdict's details and the lab export out: they wait for a test or a click", () => {
+    const source = eagerSource();
+    for (const sentence of ["verdict.receives", "verdict.failed_checks", "export.building"]) {
+      expect(source, sentence).not.toContain(sentence);
+    }
+  });
+
   it("still carries everything the anonymous path does need", () => {
     const source = eagerSource();
     for (const sentence of [
