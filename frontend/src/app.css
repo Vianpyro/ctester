@@ -2094,6 +2094,13 @@ main {
   background: var(--card);
 }
 
+/* No press scale here: on a bar this wide, 3% pulls its right end, where "Show" sits, out from
+   under the pointer before the button is released, and the click lands on the sheet instead. */
+:is(#out .compact, .diag):active {
+  scale: none;
+  background: color-mix(in srgb, var(--ink) 12%, var(--card));
+}
+
 #out .compact:focus-visible {
   outline-offset: -3px;
 }
