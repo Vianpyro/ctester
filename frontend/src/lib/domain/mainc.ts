@@ -109,16 +109,21 @@ export function build(
   name: string,
   group: string,
   at?: Date,
+  selected?: string,
 ): Built {
   const includes: { key: string; line: string }[] = [];
   const blocks: string[] = [];
   const numbers: number[] = [];
   const empty: number[] = [];
   let first: number | null = null;
+  // The file opens on the exercise the student is working on, unless it has no code yet: its
+  // block would compile to a file with no main().
+  let current: number | null = null;
   exercises.forEach((ex, rank) => {
     const number = numberOf(ex, rank + 1);
     numbers.push(number);
     const code = codeOf(ex, sources[ex.id]);
+    if (code && ex.id === selected) current = number;
     const title = t("mainc.block", { n: number, name: ex.short || ex.id });
     if (!code) {
       empty.push(number);
@@ -132,7 +137,7 @@ export function build(
     }
     blocks.push(title + "\n#if exercice == " + number + "\n" + trim(piece.body) + "\n#endif");
   });
-  const opening = first === null ? (numbers[0] === undefined ? 1 : numbers[0]) : first;
+  const opening = current ?? first ?? numbers[0] ?? 1;
   const text =
     [
       header(name, group, numbers, opening, at),

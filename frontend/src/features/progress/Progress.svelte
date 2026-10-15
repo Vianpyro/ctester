@@ -110,7 +110,7 @@
   async function exportLab(group: string) {
     await exportGroup(catalog.catalog, group, (text, failed) => {
       exportNotes[group] = { text, failed: !!failed };
-    });
+    }, catalog.selectedId);
   }
 </script>
 

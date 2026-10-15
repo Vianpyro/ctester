@@ -58,8 +58,11 @@
   async function doExport() {
     if (!here) return;
     const { exportGroup } = await import("../lib/state/export");
-    await exportGroup(catalog.catalog, here.group, (text, failed) =>
-      drafts.sayExport(text, failed),
+    await exportGroup(
+      catalog.catalog,
+      here.group,
+      (text, failed) => drafts.sayExport(text, failed),
+      here.id,
     );
   }
 </script>

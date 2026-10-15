@@ -50,6 +50,7 @@ export async function exportGroup(
   catalog: Exercise[],
   group: string,
   say: (text: string, failed?: boolean) => void,
+  selected?: string,
 ): Promise<Built | null> {
   const exercises = exportableExercises(catalog, group);
   if (!exercises.length) {
@@ -58,7 +59,7 @@ export async function exportGroup(
   }
   say(t("export.building", { group }));
   const sources = await gather(exercises);
-  const built = build(exercises, sources, await author(), group);
+  const built = build(exercises, sources, await author(), group, undefined, selected);
   if (built.empty.length === built.total) {
     say(t("export.no_code", { group }), true);
     return built;

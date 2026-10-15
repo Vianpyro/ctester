@@ -120,6 +120,26 @@ describe("build", () => {
     expect(built.text).toContain("#define exercice 0");
   });
 
+  it("opens on the exercise the student has selected", () => {
+    const code = { "submission.c": "int main(void){return 0;}" };
+    const built = build(
+      [exercise("tp2-ex0", "ex.0"), exercise("tp2-ex1", "ex.1")],
+      { "tp2-ex0": code, "tp2-ex1": code },
+      "",
+      "TP 2",
+      AT,
+      "tp2-ex1",
+    );
+    expect(built.text).toContain("#define exercice 1");
+  });
+
+  it("falls back to the first with code when the selected one has none, or is elsewhere", () => {
+    const exercises = [exercise("tp2-ex0", "ex.0"), exercise("tp2-ex1", "ex.1")];
+    const sources = { "tp2-ex0": { "submission.c": "int main(void){return 0;}" } };
+    expect(build(exercises, sources, "", "TP 2", AT, "tp2-ex1").text).toContain("#define exercice 0");
+    expect(build(exercises, sources, "", "TP 2", AT, "tp3-ex4").text).toContain("#define exercice 0");
+  });
+
   it("keeps an exercise with no draft, with a comment saying so", () => {
     const built = build([exercise("tp2-ex3", "ex.3")], {}, "", "TP 2", AT);
     expect(built.text).toContain("#if exercice == 3");
