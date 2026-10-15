@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./shortcuts.css";
   import { barPanel } from "../lib/barPanel";
   import { t, tOr } from "../lib/i18n.svelte";
   import { ALREADY, GROUPS, HELP, NATIVE, type HelpRow } from "../lib/domain/shortcutHelp";

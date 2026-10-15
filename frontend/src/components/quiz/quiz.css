@@ -1,0 +1,287 @@
+/* Loaded with QuizPanel.svelte, after app.css. */
+
+#quiz .qgroup {
+  margin: 1.2rem 0 .4rem;
+  font-weight: 700;
+  font-size: .95rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: .3rem;
+}
+
+#quiz .qgroup:first-child {
+  margin-top: 0;
+}
+
+#quiz .qrow {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+  margin: .35rem 0;
+}
+
+#quiz .qrow span {
+  flex: 1 1 20rem;
+}
+
+/* The slot is always there, so a mark appearing never moves its field. The extra class
+   outranks `#quiz .qrow span`, whose `flex: 1 1 20rem` would push the fields over. */
+#quiz .qrow .qmark {
+  flex: 0 0 1.25rem;
+  text-align: center;
+  font-size: var(--fs-ui);
+}
+
+#quiz .qrow .qmark.right {
+  color: var(--ok);
+}
+
+#quiz .qrow .qmark.wrong {
+  color: var(--bad);
+}
+
+/* A shape that is not there yet is not a wrong answer: --wait, never --bad, so it cannot
+   be mistaken for the judge's ✗ -- which stays the only thing that decides. */
+#quiz .qrow .qshape {
+  flex: 0 1 auto;
+  font-size: var(--fs-label);
+  color: var(--wait);
+}
+
+#quiz .qrow input {
+  flex: 0 0 11rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+#quiz .qrow:has(.qchoices) {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+#quiz .qchoices {
+  display: flex;
+  flex: 1 1 20rem;
+  flex-wrap: wrap;
+  gap: .4rem 1.2rem;
+}
+
+#quiz .qchoice {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: var(--fs-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#quiz .qchoice input {
+  flex: none;
+  margin: 0;
+}
+
+#quiz .qmulti {
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+#quiz .qlegend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+#quiz .qmatch,
+#quiz .qorder {
+  flex: 1 1 20rem;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+
+#quiz .qpair {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: var(--fs-ui);
+}
+
+#quiz .qpair label {
+  flex: 1 1 8rem;
+}
+
+#quiz .qorder ol {
+  margin: 0;
+  padding-left: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+
+#quiz .qorder li {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: var(--fs-ui);
+}
+
+#quiz .qorder .qitem {
+  flex: 1 1 auto;
+}
+
+#quiz .qsaid {
+  margin: .3rem 0 0;
+  font-size: .85rem;
+  color: var(--muted);
+}
+
+#quiz .qcloze {
+  flex: 1 1 100%;
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: var(--fs-ui);
+  line-height: 1.9;
+}
+
+#quiz .qcloze input,
+#quiz .qcloze select {
+  flex: none;
+  width: auto;
+  min-width: 5rem;
+  margin: 0 .15rem;
+}
+
+#quiznav {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin-top: 1.2rem;
+  padding-top: .8rem;
+  border-top: 1px solid var(--line);
+}
+
+#quiznav[hidden] {
+  display: none;
+}
+
+#quiznav .pos {
+  color: var(--muted);
+  font-size: var(--fs-ui);
+}
+
+#quiznav {
+  flex-wrap: wrap;
+}
+
+#quiznav .saved {
+  margin-left: auto;
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+/* The quiz's pages as stations: filled once answered, a diamond to review, ringed where the
+   student is. The same drawing as the lab strip and the judge's line. */
+.qpages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qpages li {
+  display: flex;
+  align-items: center;
+}
+
+.qpages li + li::before {
+  content: "";
+  width: .9rem;
+  height: 2px;
+  background: var(--line);
+}
+
+.qpages .qstep {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 2px solid var(--line-2);
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: none;
+  color: var(--muted);
+  font-size: var(--fs-label);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.qpages .qstep.done {
+  color: var(--ink-fg);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.qpages .qstep.fix {
+  color: var(--bad);
+  border-color: var(--bad);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bad) 12%, var(--panel));
+}
+
+.qpages .qstep[aria-current="step"] {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 35%, transparent);
+}
+
+.qpages .qstep:not(.done)[aria-current="step"] {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .qpages .qstep.done {
+    animation: stamp var(--t-4) var(--ease-spring) both;
+  }
+}
+
+/* A judged answer lights its whole row, not only a 14px glyph. */
+#quiz .qrow {
+  padding: .3rem .5rem;
+  margin-inline: -.5rem;
+  border-radius: var(--coin);
+  transition: background-color var(--t-3) var(--ease-out), box-shadow var(--t-3) var(--ease-out);
+}
+
+#quiz .qrow.right {
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+
+#quiz .qrow.wrong {
+  background: color-mix(in srgb, var(--bad) 9%, transparent);
+  box-shadow: inset 3px 0 0 var(--bad);
+}
+
+#quiz .qrow .qmark {
+  font-weight: 800;
+}
+
+#quiz .qfailed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+  color: var(--fg);
+}
+
+#quiz .qfailed p {
+  margin: 0;
+}
+
+#quiz .qloading {
+  color: var(--muted);
+}

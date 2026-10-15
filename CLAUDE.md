@@ -70,13 +70,17 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   page**: those settings live in the `github-pages` environment, which no other job enters.
 - **The anonymous bundle stays small.** Anything that needs an account is loaded lazily, and
   `bundle.test.ts` checks the built output.
-- **Motion is CSS first, and never required.** Animations live in `app.css` behind
+- **The CSS is split in two.** `app.css` imports `styles/*.css`, the eager sheet, in cascade order.
+  A lazy screen imports its own rules (`features/<screen>/*.css`), which load after the eager
+  sheet. So a rule that a later rule in `styles/` must beat at equal specificity stays in
+  `styles/`. Keep every file under about 2,000 lines.
+- **Motion is CSS first, and never required.** Animations live in the stylesheets behind
   `prefers-reduced-motion`; the only eager script is `lib/transit.ts` (View Transitions).
   `lib/motion.ts` and `lib/verdictFx.ts` are imported lazily, and no component uses `in:`,
   `out:` or `animate:`: Rolldown hoists their runtime into the eager chunk. jsdom has no
   `matchMedia`, `animate`, `getAnimations` or `startViewTransition`, so every helper falls back
   to an instant change. Only a loading indicator may loop forever (WCAG 2.2.2); anything else
-  plays a bounded number of times, and `motionRules.test.ts` reads `app.css` for it.
+  plays a bounded number of times, and `motionRules.test.ts` reads every `.css` file for it.
 - **Icons are SVG files in `frontend/src/icons/`**, drawn by CSS masks on `::before` and aimed at
   the control by its id or class: no icon lives in the markup, so they cost the bundle nothing.
 - **Tables and grants live together** in `app/schema.sql`. Any table with an `account` column must be

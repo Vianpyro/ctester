@@ -1,4 +1,5 @@
 <script lang="ts">  import { barPanel } from "../../lib/barPanel";
+  import "./forum.css";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { profile as bar } from "../../lib/state/profile.svelte";
   import { groupNumber, initialsOf, memberName, teamLabel } from "../../lib/domain/labels";

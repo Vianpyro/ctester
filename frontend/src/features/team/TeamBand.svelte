@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./team.css";
   import { collaborators } from "../../lib/state/collaborators.svelte";
   import { room } from "../../lib/collab/room.svelte";
   import { fetchArchive, fetchRevisions, handIn, restoreRevision } from "../../lib/api/team";

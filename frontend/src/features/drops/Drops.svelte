@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./drops.css";
   import { onDestroy } from "svelte";
   import { fetchCollection } from "../../lib/api/account";
   import { still } from "../../lib/motion";

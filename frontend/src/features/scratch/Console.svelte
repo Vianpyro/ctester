@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./console.css";
   import { onDestroy, onMount } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import CodeSurface from "../../components/CodeSurface.svelte";

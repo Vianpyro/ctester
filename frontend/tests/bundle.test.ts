@@ -163,6 +163,20 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
     expect(readFileSync(join(DIST, "assets", panel!), "utf8")).toContain("shortcuts.group.write");
   });
 
+  it("keeps the deferred screens' rules out of the eager stylesheet", () => {
+    const links = [...document_().matchAll(/href="\/assets\/([^"]+\.css)"/g)].map((m) => m[1]!);
+    expect(links.length).toBeGreaterThan(0);
+    const eager = links.map((name) => readFileSync(join(DIST, "assets", name), "utf8")).join("\n");
+    for (const selector of [".metrowrap", ".chatflux", ".scratchprompt", ".qpages", ".divisions"]) {
+      expect(eager, selector).not.toContain(selector);
+    }
+    const lazy = readdirSync(join(DIST, "assets"))
+      .filter((name) => name.endsWith(".css") && !links.includes(name))
+      .map((name) => readFileSync(join(DIST, "assets", name), "utf8"))
+      .join("\n");
+    expect(lazy).toContain(".metrowrap");
+  });
+
   it("really did split: the deferred screens exist as their own chunks", () => {
     expect(allChunks().length).toBeGreaterThan(10);
     const all = allChunks()

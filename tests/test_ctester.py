@@ -742,7 +742,7 @@ def test_typst_mermaid_has_a_single_gate():
 
 
 def test_the_typst_theme_carries_the_page_colors():
-    css = read_file(os.path.join(ROOT, "frontend", "src", "app.css"))
+    css = read_file(os.path.join(ROOT, "frontend", "src", "styles", "base.css"))
     css_classes = ("comment", "string", "pre", "key", "num", "fn", "const")
     for theme, block in (("dark", css.split(":root {")[1].split("}")[0]),
                         ("light", css.split(':root[data-theme="light"] {')[1].split("}")[0])):
@@ -1767,7 +1767,7 @@ def test_discover_reads_achievements_in_ladder_order():
 
 
 def test_the_line_colours_are_the_ones_the_page_draws():
-    css = read_file(os.path.join(ROOT, "frontend", "src", "app.css"))
+    css = read_file(os.path.join(ROOT, "frontend", "src", "styles", "base.css"))
     drawn = re.findall(r"--metro-([a-z]+):", css)
     assert drawn == list(content_catalogue.LINE_COLORS), drawn
     metro = read_file(os.path.join(ROOT, "frontend", "src", "lib", "domain", "metro.ts"))

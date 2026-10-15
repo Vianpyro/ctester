@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./collection.css";
   import { onMount } from "svelte";
   import { dayOf } from "../../lib/domain/dates";
   import { fetchCollection } from "../../lib/api/account";

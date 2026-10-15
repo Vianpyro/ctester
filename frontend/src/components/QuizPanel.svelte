@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./quiz/quiz.css";
   import type { Component } from "svelte";
   import { t } from "../lib/i18n.svelte";
   import { answered, quiz, type QuizQuestion } from "../lib/state/quiz.svelte";

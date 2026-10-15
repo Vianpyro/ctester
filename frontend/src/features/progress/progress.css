@@ -1,0 +1,254 @@
+/* Loaded with Progress.svelte, after app.css. */
+
+.exportline {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.exportstate {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.exportstate.failed {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+#viewprogress .block {
+  margin: .9rem 0 0;
+  padding: .75rem .85rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+}
+
+#viewprogress .block.second {
+  background: none;
+  border-style: dashed;
+}
+
+#viewprogress .subtitle {
+  margin: 0 0 .45rem;
+  font-size: var(--fs-label);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+#viewprogress p {
+  margin: 0 0 .5rem;
+  font-size: var(--fs-body);
+}
+
+#viewprogress p:last-child {
+  margin-bottom: 0;
+}
+
+#viewprogress .failed {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+#viewprogress .gauge {
+  display: block;
+  height: 6px;
+  margin: .3rem 0 .5rem;
+  border-radius: var(--coin);
+  background: var(--line);
+  overflow: hidden;
+}
+
+#viewprogress .gauge i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+
+#viewprogress .skills {
+  list-style: none;
+  margin: 0 0 .6rem;
+  padding: 0;
+}
+
+#viewprogress .skills li {
+  margin-bottom: .55rem;
+}
+
+#viewprogress .name {
+  display: block;
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+#viewprogress .figures {
+  display: block;
+  color: var(--muted);
+  font-size: var(--fs-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+#viewprogress .band {
+  display: inline-block;
+  font-size: var(--fs-label);
+  letter-spacing: .02em;
+  padding: .05rem .4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  color: var(--muted);
+}
+
+#viewprogress .band.verifie {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+#viewprogress .bands {
+  margin: 0;
+}
+
+#viewprogress .bands dt {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  margin-top: .6rem;
+}
+
+#viewprogress .bands dt:first-child {
+  margin-top: 0;
+}
+
+#viewprogress .bands dd {
+  margin: 0;
+  font-size: var(--fs-ui);
+  color: var(--muted);
+}
+
+#viewprogress .when {
+  display: block;
+}
+
+#viewprogress .help {
+  font-family: var(--sans);
+}
+
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 3px;
+  margin: .5rem 0;
+}
+
+.calendar span {
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  background: var(--card);
+}
+
+.calendar span.n1 {
+  background: color-mix(in srgb, var(--ink-fill) 30%, var(--card));
+}
+
+.calendar span.n2 {
+  background: color-mix(in srgb, var(--ink-fill) 55%, var(--card));
+}
+
+.calendar span.n3 {
+  background: color-mix(in srgb, var(--ink-fill) 78%, var(--card));
+}
+
+.calendar span.n4 {
+  background: var(--ink-fill);
+  border-color: var(--ink-fill);
+}
+
+#viewprogress .board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: .7rem;
+  margin-bottom: .7rem;
+}
+
+#viewprogress .kicker {
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: .3rem;
+}
+
+#viewprogress .big {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+#viewprogress .bandline {
+  display: flex;
+  gap: .4rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: var(--fs-ui);
+}
+
+#viewprogress .grid {
+  display: grid;
+  gap: 0;
+}
+
+#viewprogress .lab {
+  display: grid;
+  gap: .5rem;
+  align-items: center;
+  padding: .55rem 0;
+  border-top: 1px solid var(--line);
+}
+
+@media (min-width: 56rem) {
+  #viewprogress .lab {
+    grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr) auto;
+  }
+}
+
+#viewprogress .lab .name {
+  display: block;
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+#viewprogress .lab .theme {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+#viewprogress .lab .tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+}
+
+#viewprogress .lab .tiles .tile {
+  min-height: 2rem;
+}
+
+#viewprogress .lab .count {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  font-size: var(--fs-ui);
+  color: var(--muted);
+}
+
+#viewprogress .lab .exportline {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The practice calendar develops along its diagonal (Progress.svelte sets --d). */
+  .calendar span {
+    animation: cell var(--t-4) var(--ease-spring) both;
+    animation-delay: calc(200ms + var(--d, 0) * 22ms);
+  }
+}

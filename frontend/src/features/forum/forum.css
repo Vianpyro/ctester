@@ -1,0 +1,652 @@
+/* Loaded with the forum's screens and the chat dock, after app.css. */
+
+.chathead .wide::before { mask-image: url(../../icons/expand.svg); }
+
+:is(#viewforum, #viewmoderation)>h2,
+:is(#viewforum, #viewmoderation)>p {
+  grid-column: 1 / -1;
+}
+
+:is(#viewforum, #viewmoderation) .column {
+  min-width: 0;
+}
+
+:is(#viewforum, #viewmoderation) .block {
+  margin: .9rem 0 0;
+  padding: .75rem .85rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+}
+
+:is(#viewforum, #viewmoderation) .block.second {
+  background: none;
+  border-style: dashed;
+}
+
+:is(#viewforum, #viewmoderation) .subtitle {
+  margin: 0 0 .45rem;
+  font-size: var(--fs-label);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+:is(#viewforum, #viewmoderation) p {
+  margin: 0 0 .5rem;
+  font-size: var(--fs-body);
+}
+
+:is(#viewforum, #viewmoderation) .text p,
+:is(#viewforum, #viewmoderation) .text li,
+:is(#viewforum, #viewmoderation) .text blockquote {
+  max-width: none;
+}
+
+:is(#viewforum, #viewmoderation) p:last-child {
+  margin-bottom: 0;
+}
+
+:is(#viewforum, #viewmoderation) .failed {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+:is(#viewforum, #viewmoderation) .notice:empty {
+  display: none;
+}
+
+:is(#viewforum, #viewmoderation) .notice {
+  margin: .3rem 0 0;
+  font-size: var(--fs-body);
+  color: var(--ink);
+}
+
+:is(#viewforum, #viewmoderation) label {
+  display: block;
+  font-size: var(--fs-ui);
+  color: var(--muted);
+  margin-bottom: .3rem;
+}
+
+:is(#viewforum, #viewmoderation) select,
+:is(#viewforum, #viewmoderation) textarea,
+:is(#viewforum, #viewmoderation) input[type="text"],
+:is(#viewforum, #viewmoderation) input[type="number"] {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  padding: .4rem .5rem;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--coin);
+}
+
+:is(#viewforum, #viewmoderation) textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  margin: .5rem 0 0;
+  color: var(--fg);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+
+.check input {
+  width: auto;
+  margin: 0;
+}
+
+:is(#viewforum, #viewmoderation) .group {
+  font-size: var(--fs-label);
+  color: var(--muted);
+  padding: 0 .4rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--coin);
+}
+
+:is(#viewforum, #viewmoderation) button {
+  margin-top: .5rem;
+}
+
+:is(#viewforum, #viewmoderation) .rules {
+  margin: 0 0 .5rem;
+  padding-left: 1.1rem;
+}
+
+:is(#viewforum, #viewmoderation) .rules li {
+  font-size: var(--fs-body);
+  margin-bottom: .25rem;
+}
+
+:is(#viewforum, #viewmoderation) .thread {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+:is(#viewforum, #viewmoderation) .message {
+  padding: .55rem .6rem;
+  margin-bottom: .5rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+}
+
+:is(#viewforum, #viewmoderation) .who {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: baseline;
+  margin: 0 0 .3rem;
+}
+
+:is(#viewforum, #viewmoderation) .author {
+  font-weight: 600;
+  font-size: var(--fs-body);
+}
+
+:is(#viewforum, #viewmoderation) .when {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums;
+}
+
+:is(#viewforum, #viewmoderation) .state {
+  font-size: var(--fs-label);
+  color: var(--wait);
+  border: 1px solid var(--wait);
+  border-radius: var(--coin);
+  padding: 0 .4rem;
+}
+
+:is(#viewforum, #viewmoderation) .text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
+:is(#viewforum, #viewmoderation) .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+
+:is(#viewforum, #viewmoderation) .md>* {
+  white-space: normal;
+}
+
+:is(#viewforum, #viewmoderation) .md p {
+  margin: 0 0 .4rem;
+}
+
+:is(#viewforum, #viewmoderation) .md p:last-child {
+  margin-bottom: 0;
+}
+
+:is(#viewforum, #viewmoderation) .md ul,
+:is(#viewforum, #viewmoderation) .md ol {
+  margin: 0 0 .4rem;
+  padding-left: 1.2rem;
+}
+
+:is(#viewforum, #viewmoderation) .md li {
+  font-size: var(--fs-body);
+  margin-bottom: .15rem;
+}
+
+:is(#viewforum, #viewmoderation) .md blockquote {
+  margin: 0 0 .4rem;
+  padding-left: .6rem;
+  color: var(--muted);
+  border-left: 2px solid var(--line-2);
+}
+
+:is(#viewforum, #viewmoderation) .md code {
+  font-family: var(--mono);
+  font-size: var(--fs-ui);
+  padding: 0 .25rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+}
+
+:is(#viewforum, #viewmoderation) .md a {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+:is(#viewforum, #viewmoderation) .preview {
+  margin: 0;
+  padding: .5rem .6rem;
+  min-height: 2.2rem;
+  background: var(--card);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--coin);
+  font-size: var(--fs-body);
+}
+
+#charter[hidden] {
+  display: none;
+}
+
+#charter h2 {
+  font-size: .95rem;
+  margin: 0 0 .5rem;
+}
+
+#charter p {
+  margin: .5rem 0 0;
+  font-size: var(--fs-body);
+}
+
+#charter .rules {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+#charter .rules li {
+  font-size: var(--fs-body);
+  margin-bottom: .25rem;
+}
+
+#charter .row {
+  display: flex;
+  gap: .6rem;
+  margin-top: .7rem;
+}
+
+#identitypanel[hidden] {
+  display: none;
+}
+
+#identitypanel h2 {
+  font-size: .95rem;
+  margin: 0 0 .5rem;
+}
+
+#identitypanel p {
+  margin: .5rem 0 0;
+  font-size: var(--fs-body);
+  color: var(--muted);
+}
+
+#identitypanel .notice {
+  color: var(--ink);
+}
+
+#identitypanel .failed {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+#identitypanel label {
+  display: block;
+  font-size: var(--fs-ui);
+  color: var(--muted);
+  margin: .6rem 0 .3rem;
+}
+
+#identitypanel input[type="text"],
+#identitypanel input[type="number"] {
+  width: 100%;
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  padding: .4rem .5rem;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--coin);
+}
+
+#identitypanel .row {
+  display: flex;
+  gap: .6rem;
+  margin-top: .7rem;
+}
+
+:is(#viewforum, #viewmoderation) .reminder {
+  grid-column: 1 / -1;
+  margin: 0 0 .3rem;
+  font-size: var(--fs-body);
+  color: var(--fg);
+}
+
+:is(#viewforum, #viewmoderation) .reminder .what {
+  color: var(--muted);
+}
+
+.tag.outline {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.previewplate {
+  margin: .3rem 0 .5rem;
+}
+
+.previewplate .plate {
+  display: inline-flex;
+  flex-direction: column;
+  gap: .3rem;
+  align-items: flex-start;
+  padding: .5rem .6rem;
+  background: var(--card);
+}
+
+.previewplate .row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.previewplate .name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.previewplate .tags {
+  display: flex;
+  gap: .25rem;
+  flex-wrap: wrap;
+}
+
+.previewplate .frame-coupe {
+  border: 2px solid var(--ink);
+}
+
+.previewplate .frame-tolerance {
+  border: 1px dashed var(--ink);
+}
+
+.choice {
+  margin: .4rem 0 .6rem;
+}
+
+.choice>label:first-child {
+  display: block;
+  font-size: var(--fs-ui);
+  color: var(--muted);
+  margin-bottom: .2rem;
+}
+
+.choice .check {
+  margin: .15rem 0;
+}
+
+.choice .check .help {
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.threadstate {
+  display: flex;
+  gap: .3rem;
+  flex-wrap: wrap;
+  margin-bottom: .5rem;
+}
+
+.message.retained {
+  border: 1px solid var(--ink);
+  background: var(--ink-wash);
+  padding: .5rem;
+  border-radius: var(--coin);
+}
+
+.message.private {
+  border-left: 3px solid var(--line-2);
+  padding-left: .5rem;
+}
+
+.message.answer {
+  margin-left: 1.5rem;
+  border-left: 2px solid var(--line-2);
+  padding-left: .6rem;
+}
+
+.excerpt {
+  margin: .3rem 0;
+  color: var(--text-2, inherit);
+  font-size: .95em;
+  overflow-wrap: anywhere;
+}
+
+.myteams {
+  margin: .5rem 0 .8rem;
+}
+
+.myteams .team {
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  background: var(--ink-wash);
+  padding: .4rem .55rem;
+  margin-bottom: .35rem;
+}
+
+.myteams .teamtitle,
+.myteams .teammembers {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  flex-wrap: wrap;
+}
+
+.myteams .teammembers {
+  margin-top: .35rem;
+}
+
+.myteams .teamtitle b {
+  font-size: var(--fs-ui);
+}
+
+.myteams .tag {
+  font-size: var(--fs-label);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  padding: .05rem .4rem;
+}
+
+.myteams .teamcode {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  margin: .35rem 0;
+}
+
+.myteams .teamcode .what {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.myteams .teamcode .code {
+  font-family: var(--mono);
+  font-size: var(--fs-lead);
+  letter-spacing: .12em;
+  color: var(--ink);
+  user-select: all;
+}
+
+.myteams label {
+  display: block;
+  font-size: var(--fs-label);
+  color: var(--muted);
+  margin-top: .5rem;
+}
+
+.myteams input,
+.myteams select {
+  margin-top: .2rem;
+}
+
+.myteams .row {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: .35rem;
+}
+
+.myteams .mate .mark {
+  font-style: normal;
+  font-size: var(--fs-label);
+}
+
+.myteams .teams {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.myteams .teamline {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .3rem .5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  margin-bottom: .25rem;
+  font-size: var(--fs-label);
+}
+
+.myteams .teamline.on {
+  border-color: var(--ink);
+  background: var(--ink-wash);
+}
+
+.myteams .teamline .name {
+  font-size: var(--fs-ui);
+}
+
+.myteams .teamline .places {
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.chathead {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  padding: .4rem .6rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-wash);
+}
+
+.chathead .chattitre {
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+}
+
+.channels li {
+  min-width: 0;
+}
+
+.channels button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channels button[aria-current="true"] {
+  border-color: var(--ink);
+  background: var(--ink-wash);
+  color: var(--fg);
+}
+
+#chatdock .channels {
+  flex: 0 0 auto;
+  gap: .3rem;
+  padding: .4rem .6rem 0;
+}
+
+#chatdock .channels li {
+  flex: 1 1 0;
+}
+
+#viewforum .channels {
+  flex-direction: column;
+  gap: .25rem;
+}
+
+.chatflux {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 .6rem;
+}
+
+.chatflux .thread {
+  margin: .4rem 0;
+}
+
+.chatflux .message {
+  padding: .35rem 0;
+  font-size: var(--fs-ui);
+}
+
+.chatflux .message .row {
+  gap: .3rem;
+  font-size: var(--fs-label);
+}
+
+.chatflux .text {
+  font-size: var(--fs-ui);
+}
+
+.chatsaisie {
+  flex: 0 0 auto;
+  padding: .5rem .6rem;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.chatsaisie textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.chatsaisie .row {
+  margin-top: .4rem;
+  align-items: center;
+}
+
+.chatsaisie .help {
+  margin: .3rem 0 0;
+  font-size: var(--fs-label);
+}
+
+.chatprive {
+  margin-top: .4rem;
+}
+
+.chatprive .choice {
+  margin: .35rem 0 0;
+}
+
+.discordlink {
+  display: inline-block;
+  text-decoration: none;
+}

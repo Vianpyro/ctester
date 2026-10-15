@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./cards.css";
   interface Props {
     /** A drawing from the gallery below. The content base names it on its card. */
     art: string;
@@ -49,7 +50,7 @@
 </script>
 
 {#if shapes.length}
-  <!-- pathLength="1" lets app.css trace every shape the same way, whatever its real length. -->
+  <!-- pathLength="1" lets cards.css trace every shape the same way, whatever its real length. -->
   <svg
     class="art"
     viewBox="0 0 96 64"

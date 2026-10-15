@@ -1,4 +1,5 @@
 <script lang="ts">  import { onMount } from "svelte";
+  import "./leaderboard.css";
   import { fetchLeaderboard } from "../../lib/api/leaderboard";
   import { redrawAlias } from "../../lib/api/forum";
   import { whenSignedOut } from "../../lib/auth/session.svelte";

@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const CSS = readFileSync(join(import.meta.dirname, "..", "src", "app.css"), "utf8");
+const CSS = readFileSync(join(import.meta.dirname, "..", "src", "styles", "bench.css"), "utf8");
 
 function body(selector: string): string {
   const pattern = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/,\s*/g, ",\\s*");
   const start = CSS.search(new RegExp("(?:^|\\n)" + pattern + "\\s*\\{"));
-  expect(start, "règle introuvable dans app.css : " + selector).toBeGreaterThan(-1);
+  expect(start, "règle introuvable dans bench.css : " + selector).toBeGreaterThan(-1);
   const open = CSS.indexOf("{", start);
   const close = CSS.indexOf("}", open);
   expect(close, "règle non fermée : " + selector).toBeGreaterThan(open);

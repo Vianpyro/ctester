@@ -1,0 +1,330 @@
+/* ---- Motion -------------------------------------------------------------------------------
+   Native CSS first: none of this costs the anonymous bundle a byte. What must play only once
+   per event (a celebration) is Web Animations in a deferred chunk, because display:none restarts
+   every CSS animation below it whenever the workbench comes back. */
+
+@supports not (transition-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: cubic-bezier(.34, 1.45, .64, 1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise {
+    from {
+      opacity: 0;
+      translate: 0 .5rem;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* The workbench assembles itself: at load, and as the entrance of the page whenever another
+     view closes. Only opacity and translate, so nothing reserved moves; the editor only fades
+     (its overlays are measured, a transform would put them off). */
+  #statement {
+    animation: fade-in var(--t-4) var(--ease-out) both;
+  }
+
+  #statementtext {
+    animation: rise var(--t-4) var(--ease-out) 60ms both;
+  }
+
+  #now {
+    animation: rise var(--t-4) var(--ease-out) 40ms both;
+  }
+
+  #labband>.tile {
+    animation: rise var(--t-4) var(--ease-out) 60ms both;
+  }
+
+  @supports (width: calc(1px * sibling-index())) {
+    #labband>.tile {
+      animation-delay: calc(40ms + min(sibling-index(), 12) * 26ms);
+    }
+  }
+
+  #editor,
+  #quizwrap {
+    animation: fade-in var(--t-4) var(--ease-out) 90ms both;
+  }
+
+  #actions {
+    animation: rise var(--t-4) var(--ease-out) 130ms both;
+  }
+}
+
+/* View Transitions, started by lib/transit.ts with data-vt naming the kind. */
+
+/* Changing view: the old page dissolves above the new one, which plays its own entrance. */
+html:is([data-vt="in"], [data-vt="out"])::view-transition-old(root) {
+  z-index: 1;
+  mix-blend-mode: normal;
+  animation: vt-dissolve var(--t-3) var(--ease-out) both;
+}
+
+html:is([data-vt="in"], [data-vt="out"])::view-transition-new(root) {
+  mix-blend-mode: normal;
+  animation: none;
+}
+
+@keyframes vt-dissolve {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The theme: the new palette grows out of the button that asked for it. */
+html[data-vt="theme"]::view-transition-old(root) {
+  mix-blend-mode: normal;
+  animation: none;
+}
+
+html[data-vt="theme"]::view-transition-new(root) {
+  mix-blend-mode: normal;
+  animation: vt-reveal .7s var(--ease-in-out) both;
+}
+
+@keyframes vt-reveal {
+  from {
+    clip-path: circle(0 at var(--vt-x, 100%) var(--vt-y, 0));
+  }
+
+  to {
+    clip-path: circle(150vmax at var(--vt-x, 100%) var(--vt-y, 0));
+  }
+}
+
+/* The chat dock slides in while the workbench narrows. Named only during the transition; the
+   snapshots are not stretched (object-fit: none), so the code never looks squeezed. */
+html[data-vt="dock"]:active-view-transition #right {
+  view-transition-name: bench;
+}
+
+html[data-vt="dock"]:active-view-transition #chatdock {
+  view-transition-name: dock;
+}
+
+::view-transition-group(bench) {
+  overflow: clip;
+  animation-duration: var(--t-4);
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(bench),
+::view-transition-new(bench) {
+  width: auto;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
+}
+
+::view-transition-new(dock) {
+  animation: dock-in var(--t-4) var(--ease-out) both;
+}
+
+::view-transition-old(dock) {
+  animation: dock-in var(--t-3) var(--ease-in-out) reverse both;
+}
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    translate: 100% 0;
+  }
+}
+
+@media (max-width: 1000px) {
+  ::view-transition-new(dock),
+  ::view-transition-old(dock) {
+    animation-name: dock-up;
+  }
+
+  @keyframes dock-up {
+    from {
+      opacity: 0;
+      translate: 0 100%;
+    }
+  }
+}
+
+/* Inside a View Transition the new page is live: nothing should still be easing from the old
+   palette while the circle reveals the new one. */
+html:active-view-transition * {
+  transition: none !important;
+}
+
+/* The views are drawn on graph paper. Only there: the workbench keeps solid grounds behind its
+   text, which the contrast audit needs to measure. */
+:is(#viewprogress, #viewleaderboard, #viewcollection, #viewforum, #viewmoderation, #viewscratch) {
+  background:
+    linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--bg);
+  background-attachment: local;
+}
+
+:is(#viewprogress, #viewforum, #viewmoderation) .block,
+:is(#viewleaderboard, #viewcollection) .block {
+  box-shadow: var(--shadow-1), var(--rim);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Each view assembles itself, one block after the other. Views remount on every visit. */
+  :is(#viewprogress, #viewleaderboard, #viewcollection, #viewforum, #viewmoderation, #viewscratch)>*,
+  #viewprogress .board>*,
+  .cards>*,
+  .achievements>li {
+    animation: rise var(--t-4) var(--ease-out) both;
+  }
+
+  @supports (width: calc(1px * sibling-index())) {
+    :is(#viewprogress, #viewleaderboard, #viewcollection, #viewforum, #viewmoderation, #viewscratch)>*,
+    #viewprogress .board>* {
+      animation-delay: calc(min(sibling-index(), 10) * 45ms);
+    }
+  }
+
+  /* Cards and achievements carry their own --i, so every engine deals them in order. */
+  .cards>*,
+  .achievements>li {
+    animation-delay: calc(150ms + min(var(--i, 0), 16) * 40ms);
+  }
+
+  @keyframes trace {
+    from {
+      opacity: 0;
+      stroke-dashoffset: 1;
+    }
+
+    12% {
+      opacity: 1;
+    }
+  }
+
+  /* Lock-on: the blueprint corners close in on their block once it has landed. */
+  .plan::before {
+    animation: corner-in var(--t-4) var(--ease-spring) 320ms both;
+    --from: -8px -8px;
+  }
+
+  .plan::after {
+    animation: corner-in var(--t-4) var(--ease-spring) 320ms both;
+    --from: 8px 8px;
+  }
+
+  @keyframes corner-in {
+    from {
+      opacity: 0;
+      translate: var(--from);
+    }
+  }
+
+  /* Gauges fill rather than appear (scale, so the width the server sent is never touched). */
+  :is(.gauge, .meter) i {
+    transform-origin: left center;
+    animation: fill var(--t-5) var(--ease-out) 300ms both;
+  }
+
+  @keyframes fill {
+    from {
+      scale: 0 1;
+    }
+  }
+
+  @keyframes cell {
+    from {
+      opacity: 0;
+      scale: .3;
+    }
+  }
+
+  /* A long view shows how far down it is read: a hairline driven by its own scroll. */
+  @supports (animation-timeline: scroll()) {
+    /* Hidden at rest: a view too short to scroll has no timeline, and shows nothing. The
+       sticky offset undoes the section's padding, so the line rides the very top edge. */
+    :is(#viewprogress, #viewleaderboard, #viewcollection)::before {
+      content: "";
+      position: sticky;
+      top: -.9rem;
+      z-index: 2;
+      display: block;
+      height: 2px;
+      margin: -.9rem -.9rem calc(.9rem - 2px);
+      background: var(--ink);
+      transform-origin: left center;
+      scale: 0 1;
+      animation: read linear both;
+      animation-timeline: scroll();
+    }
+
+    @keyframes read {
+      to {
+        scale: 1 1;
+      }
+    }
+  }
+}
+
+/* The celebration's sparks (lib/verdictFx.ts): a fixed layer over the count, never in #out. */
+.burst {
+  position: fixed;
+  z-index: 30;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.burst :is(i, b) {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.burst i {
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  background: var(--ok);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 70%, transparent);
+}
+
+.burst i:nth-child(3n) {
+  background: var(--ink);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+.burst i:nth-child(4n) {
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  background: var(--signal);
+}
+
+/* An ink ring, like the station that just filled on the line. */
+.burst b {
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border: 2px solid var(--ink);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 45%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-1: 1ms;
+    --t-2: 1ms;
+    --t-3: 1ms;
+    --t-4: 1ms;
+    --t-5: 1ms;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

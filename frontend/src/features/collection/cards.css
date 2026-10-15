@@ -1,0 +1,125 @@
+/* Loaded with CardArt.svelte, after app.css. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  padding: .6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  background: var(--card);
+}
+
+.card.held {
+  --foil: .55;
+  position: relative;
+  border-color: var(--ink);
+  transform: perspective(40rem) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform var(--t-5) var(--ease-spring), box-shadow var(--t-3) var(--ease-out);
+}
+
+/* While the pointer drives it (features/collection/holo.ts), the tilt follows closely; once it
+   leaves, the card springs back flat. */
+.card.held:hover {
+  box-shadow: var(--shadow-2);
+  transition-duration: var(--t-2), var(--t-3);
+}
+
+.card.held[data-tier="3"] {
+  --foil: .75;
+}
+
+.card.held[data-tier="4"] {
+  --foil: 1;
+}
+
+/* The foil: a highlight under the pointer and a band of the rarity's colour that it drags. */
+.card.held::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at var(--mx, 50%) var(--my, 50%), rgb(255 255 255 / .2), transparent 42%),
+    linear-gradient(115deg, transparent 30%, color-mix(in srgb, var(--tier) 38%, transparent) 46%,
+      color-mix(in srgb, var(--metro-teal) 26%, transparent) 54%, transparent 70%)
+      var(--mx, 50%) var(--my, 50%) / 260% 260%;
+  transition: opacity var(--t-3) var(--ease-out);
+}
+
+.card.held:hover::after {
+  opacity: var(--foil);
+}
+
+.card.locked {
+  opacity: .68;
+  filter: grayscale(.5);
+}
+
+.card .code {
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.card .header {
+  display: flex;
+  justify-content: space-between;
+  gap: .4rem;
+}
+
+.card .drawing {
+  height: 4rem;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  margin: .2rem 0;
+}
+
+.card.held .drawing {
+  color: var(--ink);
+}
+
+.card .name {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.card .what {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.card.held[data-tier] {
+  border-bottom: 3px solid var(--tier);
+}
+
+.card .progress {
+  margin-top: auto;
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.card .gauge {
+  display: block;
+  height: 6px;
+  border-radius: var(--coin);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.card .gauge i {
+  display: block;
+  height: 100%;
+  background: var(--ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* CardArt's parts are traced like a technical drawing (pathLength="1" on every shape). */
+  .art :is(path, circle, rect) {
+    stroke-dasharray: 1;
+    animation: trace var(--t-5) var(--ease-in-out) var(--trace-at, 200ms) both;
+  }
+}

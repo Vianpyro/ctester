@@ -1,0 +1,104 @@
+/* Loaded with TeamBand.svelte, after app.css. */
+
+#teamband .teamhead,
+#teamband .teamwho,
+#teamband .teamactions {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+#teamband .teamtitle {
+  font-size: var(--fs-body);
+  color: var(--fg);
+}
+
+#teamband .tag {
+  font-size: var(--fs-label);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  padding: .05rem .5rem;
+}
+
+#teamband .tag.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+#teamband .tag.failed {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+
+#teamband .state {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+#teamband .state.failed {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+#teamband .help {
+  font-size: var(--fs-label);
+  margin: 0;
+}
+
+#teamband .mate {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: var(--fs-label);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  padding: .05rem .45rem;
+  opacity: .55;
+}
+
+#teamband .mate.on {
+  opacity: 1;
+  color: var(--fg);
+  border-color: var(--line-2);
+}
+
+#teamband .mate .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+#teamband .teamhistory {
+  border-top: 1px solid var(--line);
+  padding-top: .4rem;
+}
+
+#teamband .teamhistory h3 {
+  margin: 0 0 .3rem;
+  font-size: var(--fs-label);
+  font-weight: 700;
+  color: var(--muted);
+}
+
+#teamband .revline {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  font-size: var(--fs-label);
+  padding: .15rem 0;
+}
+
+#teamband .revline .who {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+#teamband .revline .when {
+  color: var(--muted);
+  font-family: var(--mono);
+}

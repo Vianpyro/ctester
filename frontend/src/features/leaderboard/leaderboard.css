@@ -1,0 +1,96 @@
+/* Loaded with Leaderboard.svelte, after app.css. */
+
+#viewleaderboard .notice {
+  color: var(--ink);
+}
+
+#viewleaderboard .rank {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+}
+
+#viewleaderboard .figure {
+  display: inline-flex;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The rank rolls into place, one reel per digit (Leaderboard.svelte keeps the number itself
+   for screen readers). */
+.reel {
+  display: inline-block;
+  height: 1em;
+  overflow: hidden;
+}
+
+.reel>span {
+  display: flex;
+  flex-direction: column;
+  translate: 0 calc(var(--n) * -1em);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .reel>span {
+    animation: reel var(--t-5) var(--ease-spring) both;
+    animation-delay: calc(200ms + var(--i, 0) * 90ms);
+  }
+}
+
+.divisions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: .4rem;
+  margin-bottom: .5rem;
+}
+
+.division {
+  padding: .5rem;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+}
+
+.division.on {
+  position: relative;
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+  background: var(--ink-wash);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .division.on::after {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    border: 2px solid var(--ink);
+    animation: acquire-ring .9s var(--ease-out) .6s both;
+  }
+
+  @keyframes acquire-ring {
+    from {
+      opacity: .9;
+      scale: 1;
+    }
+
+    to {
+      opacity: 0;
+      scale: 1.15;
+    }
+  }
+}
+
+.division .name {
+  display: block;
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.division .what {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}

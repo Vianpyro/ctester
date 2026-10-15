@@ -122,7 +122,7 @@
       {#each map.segments as s, i (i)}
         {@const [x1, y1] = centre(s.from)}
         {@const [x2, y2] = centre(s.to)}
-        <!-- pathLength and --i let app.css trace the tracks in order as the map opens. -->
+        <!-- pathLength and --i let collection.css trace the tracks in order as the map opens. -->
         <line
           class={"track" + (s.lit ? " lit" : "")}
           style={`--c:var(--metro-${s.color});--i:${i}`}

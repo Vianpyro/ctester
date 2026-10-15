@@ -25,7 +25,7 @@ ACHIEVEMENT_FACTS = (
     "solved_intermediate", "solved_advanced", "solved_bonus", "skills", "verifications",
     "skills_verified", "comebacks", "persevered", "tests", "days", "cards",
 )
-# The map's line colours: the page draws them (app.css --metro-<colour>); a test binds the two.
+# The map's line colours: the page draws them (styles/base.css --metro-<colour>); a test binds the two.
 LINE_COLORS = ("red", "orange", "yellow", "green", "teal", "blue", "purple", "pink")
 FILE_RE = re.compile(r"\A[A-Za-z0-9_]{1,32}\.[ch]\Z")
 MODES = (("quiz", "quiz.json"), ("io", "io.json"), ("unity", "unity.json"))

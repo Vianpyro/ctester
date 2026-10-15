@@ -1,0 +1,145 @@
+/* Loaded with Console.svelte, after app.css. */
+
+.scratchpan {
+  margin: .75rem 0;
+}
+
+.scratchpan .phead {
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.scratchtabs {
+  display: flex;
+  gap: .2rem;
+  flex-wrap: wrap;
+}
+
+.scratchname {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  padding: .45rem var(--gut);
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  font-size: var(--fs-ui);
+}
+
+#scratchheadername {
+  width: 14rem;
+  max-width: 100%;
+  padding: .3rem .5rem;
+  font-size: var(--fs-ui);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.scratchedit {
+  height: clamp(12rem, 40vh, 26rem);
+  resize: vertical;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+}
+
+.scratchstate {
+  font-size: var(--fs-ui);
+  color: var(--muted);
+}
+
+.scratchstate.failed {
+  color: var(--bad);
+}
+
+.scratchterm {
+  margin: 0;
+  padding: .7rem .8rem;
+  min-height: 9rem;
+  max-height: 40vh;
+  overflow-y: auto;
+  border: 0;
+  border-left: 3px solid var(--ink);
+  border-radius: 0;
+  background: var(--card);
+  color: var(--fg);
+  font-size: var(--fs-ui);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.scratchterm .gccoutput {
+  color: var(--wait);
+}
+
+.scratchterm .scratchecho {
+  color: var(--muted);
+}
+
+.scratchterm {
+  cursor: text;
+}
+
+.scratchterm:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.scratchprompt {
+  width: 24ch;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
+.scratchhint {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  flex-wrap: wrap;
+  padding: .35rem .6rem;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.scratchhint span {
+  flex: 1 1 auto;
+}
+
+.scratchhint button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* Run is the Console's one action, so it wears the signal like Test does on the bench. */
+#scratchgo {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  color: var(--signal-fg);
+  background: var(--signal);
+  border-color: var(--signal-edge);
+  font-weight: 760;
+  padding: .35rem 1rem;
+}
+
+#scratchgo::before {
+  content: "";
+  width: 1em;
+  height: 1em;
+  background: currentColor;
+  mask: url(../../icons/play.svg) center / contain no-repeat;
+}
+
+#scratchgo:hover:not(:disabled) {
+  border-color: var(--signal-edge);
+  filter: brightness(1.06);
+}
+
+#scratchgo:disabled {
+  filter: saturate(.25);
+}

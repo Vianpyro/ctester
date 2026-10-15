@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./forum.css";
   import { onMount } from "svelte";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { submission } from "../../lib/state/submission.svelte";

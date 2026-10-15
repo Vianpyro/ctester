@@ -1,0 +1,299 @@
+/* Loaded with Collection.svelte, after app.css. */
+
+#viewcollection .achievementstitle {
+  margin-top: 1rem;
+}
+
+/* The map: tracks in an SVG behind, stations as buttons on top, on a faint checkerboard. */
+.metrowrap {
+  margin-top: .4rem;
+}
+
+.metro {
+  position: relative;
+  margin: 0 auto;
+  background:
+    conic-gradient(var(--panel) 25%, var(--card) 0 50%, var(--panel) 0 75%, var(--card) 0)
+    0 0 / 144px 144px;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+}
+
+.metro > svg {
+  position: absolute;
+  inset: 0;
+}
+
+.metro .track {
+  stroke: var(--line);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.metro .track.lit {
+  stroke: var(--c);
+}
+
+.metro .link {
+  stroke: var(--muted);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 0 8;
+}
+
+.metro .stop {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  min-height: 0;
+  padding: 0;
+  /* The individual property, so a `scale` (the pop, a press) stays centred on the station. */
+  translate: -50% -50%;
+  border: .3rem solid var(--line);
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--line) 60%, #000);
+  cursor: pointer;
+}
+
+.metro .stop.earned {
+  border-color: var(--c);
+  background: #fff;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 65%, #000);
+}
+
+.metro .stop.next {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-color: var(--c);
+  background: #232a33;
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 65%, #000);
+}
+
+.metro .stop.start,
+.metro .stop.flag {
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: .6rem;
+}
+
+.metro .stop.start,
+.metro .stop.flag.earned {
+  border: .2rem solid color-mix(in srgb, var(--c) 70%, #fff);
+  background: var(--c);
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--c) 65%, #000);
+}
+
+.metro .stop svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.metro .stop svg .fill {
+  fill: #fff;
+  stroke: none;
+}
+
+.metro .stop.flag.locked svg {
+  stroke: var(--muted);
+}
+
+/* The station whose card is open (the stops carry aria-expanded, never aria-pressed). */
+.metro .stop[aria-expanded="true"] {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
+
+.metro .stop:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* A card stands on its line as itself: a small frame holding its drawing. */
+.metro .stop.card {
+  width: 2.5rem;
+  height: 1.9rem;
+  border-width: .2rem;
+  border-radius: .4rem;
+  color: var(--muted);
+}
+
+.metro .stop.card.earned {
+  color: var(--c);
+}
+
+.metro .stop.card.next {
+  color: #fff;
+}
+
+.metro .stop.card svg {
+  width: 1.75rem;
+  height: auto;
+  stroke: currentColor;
+  stroke-width: 4;
+}
+
+.metro .linename {
+  position: absolute;
+  transform: translateX(-50%);
+  max-width: 7.5rem;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--fg);
+  pointer-events: none;
+}
+
+
+/* The tooltip, as on CodinGame: the line first, then what this station asks. The line's
+   colour is a bar, never text: some hues are too faint for small type on --panel. */
+.metrotip {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  padding: .65rem .8rem .7rem 1rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--c);
+  border-radius: var(--coin);
+  background: var(--panel);
+  box-shadow: 0 .6rem 2rem rgb(0 0 0 / .35);
+  font-size: var(--fs-ui);
+  pointer-events: none;
+}
+
+.metrotip .linetitle {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.metrotip .about,
+.metrotip .what,
+.metrotip .when {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.metrotip hr {
+  width: 100%;
+  margin: .35rem 0 .2rem;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.metrotip .title {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.metrotip .goal {
+  display: flex;
+  justify-content: space-between;
+  gap: .6rem;
+  margin-top: .35rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.metrotip .count {
+  font-variant-numeric: tabular-nums;
+}
+
+.metrotip .meter i {
+  background: var(--c);
+}
+
+.metrotip .cardrow {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+}
+
+.metrotip .drawing {
+  flex: none;
+  color: var(--c);
+}
+
+.metrotip .drawing svg {
+  display: block;
+  width: 4rem;
+  height: auto;
+}
+
+.metrotip .named {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+
+#viewcollection .mapnote {
+  margin-top: .7rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The map is surveyed as it opens: each track traces itself, then its stations pop up along
+     it (AchievementMap.svelte numbers both with --i). */
+  .metro .track {
+    stroke-dasharray: 1;
+    animation: trace var(--t-4) var(--ease-in-out) calc(150ms + min(var(--i, 0), 30) * 60ms) both;
+  }
+
+  .metro .link,
+  .metro .linename {
+    animation: fade-in var(--t-4) var(--ease-out) 150ms both;
+  }
+
+  .metro .stop {
+    --at: calc(260ms + min(var(--i, 0), 30) * 60ms);
+    animation: pop var(--t-4) var(--ease-spring) var(--at) both;
+  }
+
+  .metro .stop .art {
+    --trace-at: calc(var(--at) + 120ms);
+  }
+
+  .metrotip {
+    animation: tip-in var(--t-3) var(--ease-out) both;
+  }
+
+  @keyframes tip-in {
+    from {
+      opacity: 0;
+      translate: 0 .3rem;
+    }
+  }
+
+  /* Only the next stations move: they are where the student goes from here. Twice, then
+     still, and again when pointed at (WCAG 2.2.2). */
+  .metro .stop.next {
+    animation: pop var(--t-4) var(--ease-spring) var(--at) both,
+      station 2.4s ease-in-out calc(var(--at) + 400ms) 2;
+  }
+
+  .metro .stop.next:is(:hover, :focus-visible) {
+    animation: station 2.4s ease-in-out 1;
+  }
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: .7rem;
+  margin: .5rem 0 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cards .art {
+    --trace-at: calc(420ms + min(var(--i, 0), 16) * 40ms);
+  }
+}

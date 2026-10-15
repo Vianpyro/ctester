@@ -1,0 +1,1038 @@
+/* The interface's typeface: Atkinson Hyperlegible Next, drawn so that l, 1 and I, or 0 and O,
+   never pass for one another. `optional`: a slow first visit keeps the system face for that
+   page rather than reflowing it when the file lands; the service worker has it next time. */
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: optional;
+  src: url(../fonts/atkinson-next-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 200 800;
+  font-display: optional;
+  src: url(../fonts/atkinson-next-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: italic;
+  font-weight: 200 800;
+  font-display: optional;
+  src: url(../fonts/atkinson-next-latin-ext-italic.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: italic;
+  font-weight: 200 800;
+  font-display: optional;
+  src: url(../fonts/atkinson-next-latin-italic.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Cyanotype. Dark is the blueprint: Prussian blue, chalk lines, cyan ink. Light is engineering
+   paper with a blue pencil. One warm colour, the signal, belongs to Test alone. */
+:root {
+  color-scheme: dark;
+  --bg: #0b1828;
+  --panel: #0f2033;
+  --card: #152a41;
+  --raised: #1a3350;
+  --line: #22405f;
+  --line-2: #5f82a6;
+  --edge: #5a7fa6;
+  --fg: #e3ecf5;
+  --muted: #93aac2;
+  --ink: #7cc8ee;
+  --ink-fg: #06192a;
+  --ink-fill: #3f86b8;
+  --ink-wash: #13304a;
+  --signal: #f0b239;
+  --signal-fg: #1b1405;
+  --signal-edge: #f0b239;
+  --ok: #63d39b;
+  --bad: #ff8f80;
+  --wait: #e9c46a;
+  --syn-comment: #8fa8a4;
+  --syn-string: #a8db8f;
+  --syn-pre: #e59ad9;
+  --syn-key: #8cbcff;
+  --syn-num: #f2ae76;
+  --syn-fn: #f0d58c;
+  --syn-const: #cdb0f5;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", "Segoe UI Mono",
+    "Roboto Mono", Consolas, monospace;
+  --sans: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Controls get a small radius, floating surfaces a larger one; the workbench's own panes
+     stay square, drawn like a plan. */
+  --coin: 4px;
+  --r-float: 10px;
+  /* rem, so a student's own text size is honoured everywhere but in the editor, whose
+     metrics are a contract (editorMetrics.test.ts). */
+  --fs-label: .78rem;
+  --fs-ui: .875rem;
+  --fs-body: .94rem;
+  --fs-lead: 1rem;
+  --fs-title: 1.2rem;
+  --fs-display: 1.75rem;
+  --fs-code: 14px;
+  --s-1: .25rem;
+  --s-2: .5rem;
+  --s-3: .75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --tap: 2.25rem;
+  --tap-lg: 2.75rem;
+  --gut: .9rem;
+  /* Rarity bands, drawn as bars and glows only (never text), so one set serves both themes. */
+  --tier-1: #4b69ff;
+  --tier-2: #8847ff;
+  --tier-3: #d32ce6;
+  --tier-4: #eb4b4b;
+  /* The map's line colours, named by the content (LINE_COLORS in the worker). Strokes and
+     fills only, so one set serves both themes. */
+  --metro-red: #e0263b;
+  --metro-orange: #f27a1a;
+  --metro-yellow: #f2b10f;
+  --metro-green: #22b06a;
+  --metro-teal: #13b3a3;
+  --metro-blue: #1ea5dc;
+  --metro-purple: #8e5cc7;
+  --metro-pink: #de4f98;
+  /* Motion. Quiet while the student codes, expressive when they win. Every duration collapses
+     to 1ms under prefers-reduced-motion (the Motion section at the end of this file). */
+  --t-1: 90ms;
+  --t-2: 160ms;
+  --t-3: 240ms;
+  --t-4: 420ms;
+  --t-5: 900ms;
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  /* A damped spring (one 8% overshoot), sampled. Older engines get the bezier below instead. */
+  --ease-spring: linear(0, .018 1.7%, .067 3.3%, .139 5%, .225 6.7%, .319 8.3%, .514 11.7%,
+    .606 13.3%, .693 15%, .771 16.7%, .84 18.3%, .9 20%, .95 21.7%, .99 23.3%, 1.023 25%,
+    1.047 26.7%, 1.064 28.3%, 1.076 30%, 1.082 31.7%, 1.084 33.3%, 1.078 36.7%, 1.013 51.7%,
+    .996 60%, 1);
+  --shadow-1: 0 1px 0 rgb(1 6 14 / .35), 0 2px 8px rgb(1 6 14 / .25);
+  --shadow-2: 0 14px 34px rgb(1 6 14 / .5), 0 2px 8px rgb(1 6 14 / .3);
+  --shadow-3: 0 24px 60px rgb(1 6 14 / .6), 0 6px 16px rgb(1 6 14 / .35);
+  --rim: inset 0 1px 0 rgb(180 220 255 / .06);
+  /* Chalk on the blueprint: the views' grid is drawn in the ink. */
+  --grid: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #e9eee8;
+  --panel: #f4f7f2;
+  --card: #fbfcfa;
+  --raised: #ffffff;
+  --line: #cbd5cd;
+  --line-2: #6b7a70;
+  --edge: #76857b;
+  --fg: #18231e;
+  --muted: #4f5e56;
+  --ink: #1d4f94;
+  --ink-fg: #f4f7f2;
+  --ink-fill: #3d6fb5;
+  --ink-wash: #e1eaf6;
+  --signal-edge: #8a6100;
+  --ok: #17733f;
+  --bad: #b42318;
+  --wait: #7a5a00;
+  --syn-comment: #5b6b60;
+  --syn-string: #1f7a3d;
+  --syn-pre: #8e2c84;
+  --syn-key: #1d4ed8;
+  --syn-num: #9a4a00;
+  --syn-fn: #6e5300;
+  --syn-const: #7c3a93;
+  /* Green engineering paper: the views' grid is printed, not chalked. */
+  --grid: color-mix(in srgb, #3e7a5e 14%, transparent);
+  --shadow-1: 0 1px 0 rgb(18 40 30 / .06), 0 2px 6px rgb(18 40 30 / .08);
+  --shadow-2: 0 12px 28px rgb(18 40 30 / .14), 0 2px 6px rgb(18 40 30 / .08);
+  --shadow-3: 0 22px 52px rgb(18 40 30 / .2), 0 6px 14px rgb(18 40 30 / .1);
+  --rim: inset 0 1px 0 rgb(255 255 255 / .8);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #e9eee8;
+    --panel: #f4f7f2;
+    --card: #fbfcfa;
+    --raised: #ffffff;
+    --line: #cbd5cd;
+    --line-2: #6b7a70;
+    --edge: #76857b;
+    --fg: #18231e;
+    --muted: #4f5e56;
+    --ink: #1d4f94;
+    --ink-fg: #f4f7f2;
+    --ink-fill: #3d6fb5;
+    --ink-wash: #e1eaf6;
+    --signal-edge: #8a6100;
+    --ok: #17733f;
+    --bad: #b42318;
+    --wait: #7a5a00;
+    --syn-comment: #5b6b60;
+    --syn-string: #1f7a3d;
+    --syn-pre: #8e2c84;
+    --syn-key: #1d4ed8;
+    --syn-num: #9a4a00;
+    --syn-fn: #6e5300;
+    --syn-const: #7c3a93;
+    /* Green engineering paper: the views' grid is printed, not chalked. */
+    --grid: color-mix(in srgb, #3e7a5e 14%, transparent);
+    --shadow-1: 0 1px 0 rgb(18 40 30 / .06), 0 2px 6px rgb(18 40 30 / .08);
+    --shadow-2: 0 12px 28px rgb(18 40 30 / .14), 0 2px 6px rgb(18 40 30 / .08);
+    --shadow-3: 0 22px 52px rgb(18 40 30 / .2), 0 6px 14px rgb(18 40 30 / .1);
+    --rim: inset 0 1px 0 rgb(255 255 255 / .8);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ink) 32%, transparent);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--fs-ui)/1.5 var(--sans);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The first stop of the keyboard: straight to the code, past the whole bar. */
+.skip {
+  position: absolute;
+  z-index: 40;
+  left: var(--gut);
+  top: -4rem;
+  padding: .55rem .9rem;
+  color: var(--ink-fg);
+  background: var(--ink);
+  border-radius: var(--coin);
+  font-weight: 700;
+  text-decoration: none;
+  transition: top var(--t-2) var(--ease-out);
+}
+
+.skip:focus {
+  top: .5rem;
+}
+
+/* Icons are files drawn as masks: they take the control's own colour, follow its state, and
+   cost the page no markup and no script. Each control names its file below. */
+:where(#prev, #next, #burger, #theme, #shortcutsbutton, #myprogress, #discussions, #scratch, #login,
+  #go, #goex, #toconsole, #filewrap .btn, #purge, #exporttp, .edhead .reindent, .edhead .reset,
+  .chathead .wide, .chathead .close, #announcement .nav, #system .close, #system, .padlock,
+  .verdict:is(.ok, .bad, .fault), #out .note, .suite .next, .suite .retry, .suite .help, .gcc > .nav,
+  #identity, #leaderboard, #collection, #logout, #forget, #saving.saved, #saving.failed,
+  .typsthtml .copy, #out .fold)::before {
+  content: "";
+  flex: none;
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  background: currentColor;
+  mask: url(../icons/info.svg) center / contain no-repeat;
+}
+
+#prev::before { mask-image: url(../icons/chevron-left.svg); }
+#next::before { mask-image: url(../icons/chevron-right.svg); }
+#burger::before { mask-image: url(../icons/menu.svg); }
+#theme::before { mask-image: url(../icons/sun.svg); }
+:root[data-theme="light"] #theme::before { mask-image: url(../icons/moon.svg); }
+#shortcutsbutton::before { mask-image: url(../icons/keyboard.svg); }
+#myprogress::before { mask-image: url(../icons/chart.svg); }
+#discussions::before { mask-image: url(../icons/chat.svg); }
+#scratch::before,
+#toconsole::before { mask-image: url(../icons/terminal.svg); }
+#login::before,
+#identity::before { mask-image: url(../icons/user.svg); }
+#go::before,
+#goex::before { mask-image: url(../icons/play.svg); }
+#filewrap .btn::before { mask-image: url(../icons/upload.svg); }
+#purge::before,
+#forget::before { mask-image: url(../icons/trash.svg); }
+#exporttp::before { mask-image: url(../icons/download.svg); }
+.edhead .reindent::before { mask-image: url(../icons/indent.svg); }
+.edhead .reset::before { mask-image: url(../icons/undo.svg); }
+:is(.chathead .close, #announcement .nav, #system .close)::before { mask-image: url(../icons/close.svg); }
+:is(#system, .verdict.fault)::before { mask-image: url(../icons/alert.svg); }
+#system.flash::before { mask-image: url(../icons/info.svg); }
+.padlock::before { mask-image: url(../icons/lock.svg); }
+.verdict.ok::before,
+#saving.saved::before { mask-image: url(../icons/check.svg); }
+.verdict.bad::before { mask-image: url(../icons/cross.svg); }
+#saving.failed::before { mask-image: url(../icons/alert.svg); }
+.suite .next::before { mask-image: url(../icons/chevron-right.svg); }
+.suite .retry::before { mask-image: url(../icons/retry.svg); }
+.suite .help::before { mask-image: url(../icons/chat.svg); }
+.gcc > .nav::before { mask-image: url(../icons/goto.svg); }
+#leaderboard::before { mask-image: url(../icons/podium.svg); }
+#collection::before { mask-image: url(../icons/cards.svg); }
+#logout::before { mask-image: url(../icons/logout.svg); }
+.typsthtml .copy::before { mask-image: url(../icons/copy.svg); }
+
+#top {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+  padding: .45rem var(--gut);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--rim), 0 1px 0 color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+h1 {
+  font-size: 1.02rem;
+  font-weight: 760;
+  letter-spacing: -.01em;
+  margin: 0;
+  white-space: nowrap;
+}
+
+#home {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  min-height: var(--tap);
+  padding: 0 .2rem;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The mark traces itself once, inside the SVG: a background image costs the page no script. */
+#home::before {
+  content: "";
+  flex: none;
+  width: 1.45rem;
+  height: 1.45rem;
+  background: url(../mark.svg) center / contain no-repeat;
+  transition: rotate var(--t-4) var(--ease-spring), scale var(--t-4) var(--ease-spring);
+}
+
+#home:hover::before {
+  rotate: -10deg;
+  scale: 1.08;
+}
+
+#home:hover {
+  color: var(--ink);
+}
+
+#home:hover .tagline {
+  color: var(--fg);
+}
+
+.tagline {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  white-space: nowrap;
+}
+
+#live {
+  /* An explicit display is what lets the [hidden] rule below hide it by visibility
+     instead: the slot is held until /live answers, so the bar never re-spaces. */
+  display: inline-flex;
+  align-items: center;
+  min-width: 8rem;
+}
+
+/* #top wraps, and a second row moves every element on the page. The tagline beside the mark
+   yields first (the tab title still carries it), then the byline. */
+@media (max-width: 1440px) {
+  #home .tagline {
+    display: none;
+  }
+}
+
+@media (max-width: 1400px) {
+  .credit {
+    display: none;
+  }
+}
+
+#live[hidden] {
+  visibility: hidden;
+}
+
+#live .narrow,
+#burger {
+  display: none;
+}
+
+#tools {
+  display: contents;
+}
+
+/* Phones and portrait tablets: the tools fold behind ☰ and the counter shortens, so the bar
+   keeps to one row where it can. */
+@media (max-width: 1000px) {
+  #live {
+    min-width: 5rem;
+  }
+
+  #live .wide {
+    display: none;
+  }
+
+  #live .narrow {
+    display: inline;
+  }
+
+  #burger {
+    display: inline-flex;
+    width: var(--tap);
+    min-width: var(--tap);
+    padding: 0;
+  }
+
+  #tools {
+    display: none;
+    right: var(--gut);
+    opacity: 0;
+    translate: 0 -.4rem;
+    scale: .97;
+  }
+
+  #tools.open {
+    display: flex;
+    opacity: 1;
+    translate: none;
+    scale: none;
+  }
+
+  #tools .group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #tools .sep {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  #home .tagline,
+  #top > .sep {
+    display: none;
+  }
+
+  #menuex {
+    order: 1;
+    flex: 1 1 calc(100% - 7rem);
+    min-width: 0;
+  }
+
+  #top > .field {
+    order: 2;
+  }
+
+  #excurrent {
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+
+  #menuex > .menupanel {
+    left: 0;
+  }
+
+  #exlist {
+    min-width: 0;
+  }
+}
+
+#live .dot {
+  flex: none;
+  width: .45rem;
+  height: .45rem;
+  margin-right: .4rem;
+  border-radius: 999px;
+  background: var(--ok);
+}
+
+/* One ping each time the count changes (TopBar keys the dot on it): the motion says someone
+   arrived or left, and the bar is still the rest of the time (WCAG 2.2.2). */
+@media (prefers-reduced-motion: no-preference) {
+  #live .dot {
+    animation: ping 1.6s var(--ease-out) 1;
+  }
+
+  @keyframes ping {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent);
+    }
+
+    45%,
+    100% {
+      box-shadow: 0 0 0 .45rem transparent;
+    }
+  }
+}
+
+.sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+}
+
+.field label,
+.phead {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  font-weight: 600;
+}
+
+/* Labels stay in sentence case: weight and colour carry the hierarchy, not capitals. */
+.phead,
+.kicker,
+.subtitle,
+.menutitle {
+  letter-spacing: 0;
+}
+
+.grow {
+  flex: 1 1 auto;
+}
+
+.pill {
+  display: inline-block;
+  width: .5rem;
+  height: .5rem;
+  margin-left: .35rem;
+  border-radius: 999px;
+  background: var(--signal);
+  box-shadow: 0 0 0 2px var(--panel);
+  flex: 0 0 auto;
+}
+
+#me {
+  color: var(--muted);
+  font-size: var(--fs-ui);
+}
+
+select,
+button,
+textarea,
+input {
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+  border: 1px solid var(--edge);
+  border-radius: var(--coin);
+  padding: .35rem .55rem;
+}
+
+button {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+:is(.nav, .btn, .tile, .tab, .menu > summary, #exlist .exline, #exlist .col > summary, .diag) {
+  min-height: var(--tap);
+}
+
+:is(.nav, .btn, .tile, .tab, .menu > summary) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+}
+
+#go,
+#goex {
+  min-height: var(--tap-lg);
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--line-2);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+/* `display` on these classes beats the browser's own [hidden] rule: #purge and #exporttp
+   were always shown. */
+:is(.nav, .btn, .tile, .tab)[hidden] {
+  display: none;
+}
+
+/* Zero specificity: any control that styles its own shadow or transition keeps it. */
+:where(button, .btn, .menu > summary, select) {
+  transition: border-color var(--t-2) var(--ease-out), color var(--t-2) var(--ease-out),
+    background-color var(--t-2) var(--ease-out), box-shadow var(--t-3) var(--ease-out),
+    scale var(--t-1) var(--ease-out), translate var(--t-2) var(--ease-out),
+    filter var(--t-2) var(--ease-out);
+}
+
+:where(button, .btn, .menu > summary, select):not(:where(#home, .tab, .diag)) {
+  box-shadow: var(--rim);
+}
+
+/* A press you can feel. `scale` composes with any transform a control already has. */
+:where(button, .btn, .menu > summary):active:not(:disabled, [aria-disabled="true"]) {
+  scale: .97;
+}
+
+/* The focus ring locks on rather than appearing. */
+@media (prefers-reduced-motion: no-preference) {
+  :focus-visible {
+    animation: lock-on var(--t-3) var(--ease-out);
+  }
+
+  @keyframes lock-on {
+    from {
+      outline-color: transparent;
+      outline-offset: 7px;
+    }
+  }
+}
+
+.nav {
+  padding: .3rem .65rem;
+  line-height: 1.2;
+  font-weight: 500;
+  font-size: var(--fs-ui);
+  color: var(--muted);
+}
+
+.nav:hover:not(:disabled) {
+  color: var(--fg);
+}
+
+/* The bar's destinations: the open one is underlined in ink, the loading one draws a line. */
+#tools .group .nav {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+#tools .group .nav:hover:not(:disabled) {
+  background: var(--card);
+}
+
+#tools .group .nav[aria-current="page"] {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+
+#tools .group .nav[aria-busy="true"] {
+  cursor: progress;
+  background: linear-gradient(var(--ink), var(--ink)) 0 100% / 35% 2px no-repeat;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #tools .group .nav[aria-busy="true"] {
+    animation: underway 1s var(--ease-in-out) infinite;
+  }
+
+  @keyframes underway {
+    from {
+      background-position: -40% 100%;
+    }
+
+    to {
+      background-position: 140% 100%;
+    }
+  }
+}
+
+/* The utilities shrink to their icon first: their names stay as their accessible label. */
+@media (max-width: 1440px) {
+  #shortcutsbutton .label,
+  #shortcutsbutton .shortcut {
+    display: none;
+  }
+
+  #shortcutsbutton {
+    width: var(--tap);
+    padding: 0;
+  }
+}
+
+/* Signed out, the Console and the chat are absent from the bar: this button is the only way to
+   them. Its halo breathes once after the page lands, and again when pointed at: an invitation,
+   not a light that keeps blinking beside the code (WCAG 2.2.2). */
+#login {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: var(--ink-wash);
+  font-weight: 650;
+}
+
+#login:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  #login {
+    animation: respire 4.5s ease-in-out 1.2s 1;
+  }
+
+  #login:hover,
+  #login:focus-visible {
+    animation: respire 1.6s ease-in-out 1;
+  }
+
+  @keyframes respire {
+
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+
+    50% {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 22%, transparent);
+    }
+  }
+}
+
+#theme,
+#prev,
+#next {
+  width: var(--tap);
+  min-width: var(--tap);
+  padding: 0;
+  text-align: center;
+  justify-content: center;
+}
+
+#theme::before,
+#prev::before,
+#next::before,
+#burger::before,
+#shortcutsbutton::before {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+
+.menu {
+  position: relative;
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu>summary {
+  display: inline-flex;
+  align-items: center;
+  gap: .15rem;
+  list-style: none;
+  cursor: pointer;
+  background: var(--card);
+  border: 1px solid var(--edge);
+  border-radius: var(--coin);
+  padding: .3rem .6rem;
+  line-height: 1.2;
+  font-size: var(--fs-ui);
+  color: var(--muted);
+}
+
+.menu>summary::-webkit-details-marker {
+  display: none;
+}
+
+.menu>summary::after {
+  content: "";
+  display: inline-block;
+  width: .9em;
+  height: .9em;
+  margin-left: .15rem;
+  background: currentColor;
+  mask: url(../icons/chevron-right.svg) center / contain no-repeat;
+  rotate: 90deg;
+  transition: rotate var(--t-3) var(--ease-spring);
+}
+
+.menu[open]>summary::after {
+  rotate: -90deg;
+}
+
+.menu>summary:hover,
+.menu[open]>summary {
+  color: var(--fg);
+  border-color: var(--line-2);
+}
+
+.menupanel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + .35rem);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: .35rem;
+  min-width: 13rem;
+  padding: .5rem;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-float);
+  box-shadow: var(--shadow-2), var(--rim);
+  transform-origin: top right;
+  transition: opacity var(--t-3) var(--ease-out), translate var(--t-3) var(--ease-out),
+    scale var(--t-3) var(--ease-out), display var(--t-3) allow-discrete;
+}
+
+/* Menus unfold from their button. An animation rather than @starting-style: a <details> keeps
+   its closed content styled, so only a selector that starts matching can start the motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .menu[open]>.menupanel,
+  #tools.open {
+    animation: unfold var(--t-3) var(--ease-out);
+  }
+
+  @keyframes unfold {
+    from {
+      opacity: 0;
+      translate: 0 -.4rem;
+      scale: .97;
+    }
+  }
+}
+
+#menuex>.menupanel {
+  transform-origin: top left;
+}
+
+.menupanel button {
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.menutitle {
+  padding: .5rem .3rem .15rem;
+  font-size: var(--fs-label);
+  color: var(--muted);
+  font-weight: 650;
+  border-top: 1px solid var(--line);
+}
+
+.menupanel :is(#identity, #leaderboard, #collection, #logout, #forget) {
+  justify-content: flex-start;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.menupanel :is(#identity, #leaderboard, #collection, #logout, #forget):hover {
+  background: var(--card);
+}
+
+.menupanel>.menutitle:first-child {
+  border-top: 0;
+  padding-top: .2rem;
+}
+
+.menupanel #me {
+  padding: 0 .2rem .2rem;
+}
+
+#exlist {
+  left: 0;
+  right: auto;
+  min-width: 20rem;
+  max-height: min(70vh, 30rem);
+  overflow-y: auto;
+  gap: .15rem;
+}
+
+#exlist .col>summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .3rem;
+  color: var(--fg);
+  font-size: var(--fs-ui);
+  font-weight: 700;
+  border-radius: var(--coin);
+}
+
+#exlist .col>summary .name {
+  flex: 1 1 auto;
+}
+
+#exlist .col>summary .progress {
+  flex: none;
+  padding: .05rem .5rem;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--card);
+  border-radius: 999px;
+}
+
+#exlist .col>summary::-webkit-details-marker {
+  display: none;
+}
+
+/* One chevron that turns, rather than two glyphs that swap. */
+:is(#exlist .col, #statement, .case, .diags)>summary::before {
+  content: "";
+  flex: none;
+  display: inline-block;
+  width: .95em;
+  height: .95em;
+  background: currentColor;
+  mask: url(../icons/chevron-right.svg) center / contain no-repeat;
+  transition: rotate var(--t-3) var(--ease-spring);
+}
+
+:is(#exlist .col, #statement, .case, .diags)[open]>summary::before {
+  rotate: 90deg;
+}
+
+#exlist .col>summary:hover {
+  color: var(--fg);
+}
+
+#exlist .exline {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  width: 100%;
+  padding: .3rem .55rem;
+  font-weight: 400;
+  font-size: var(--fs-ui);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+#exlist .exline:hover:not(:disabled, .locked) {
+  border-color: var(--line-2);
+  background: color-mix(in srgb, var(--ink) 6%, var(--card));
+}
+
+#exlist .exline.locked {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+#exlist .exline.locked:hover {
+  border-color: transparent;
+}
+
+#exlist .exline .title {
+  flex: 1 1 auto;
+}
+
+#exlist .exline.on {
+  border-color: transparent;
+  color: var(--fg);
+  font-weight: 650;
+  background: var(--ink-wash);
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+
+#exlist .exline:focus-visible {
+  outline-offset: -3px;
+}
+
+/* The row a deep link pointed at: the reason the menu opened by itself. */
+#exlist .exline.spot {
+  box-shadow: inset 3px 0 0 var(--signal), 0 0 0 1px color-mix(in srgb, var(--signal) 55%, transparent);
+}
+
+.padlock {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+
+#exlist .padlock {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--fs-label);
+  white-space: nowrap;
+}
+
+#exlist .verification {
+  flex: 0 0 auto;
+  font-size: var(--fs-label);
+  letter-spacing: .02em;
+  white-space: nowrap;
+  padding: .05rem .35rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--coin);
+  color: var(--muted);
+}
+
+#excurrent {
+  max-width: 23rem;
+}
+
+/* On a wide bar the picker keeps one width whatever it names, so ‹ › never slide sideways
+   when the catalogue lands (that slide, in the same frame as the bench, cost 0.03 of CLS). */
+@media (min-width: 701px) {
+  #excurrent {
+    width: 23rem;
+    justify-content: flex-start;
+  }
+
+  #excurrent::after {
+    margin-left: auto;
+  }
+}
+
+#excurrent {
+  font-size: var(--fs-body);
+  color: var(--fg);
+}

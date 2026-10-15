@@ -1,0 +1,1473 @@
+:is(#consent, #charter, #identitypanel, #shortcuts) {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  right: .9rem;
+  margin-top: .4rem;
+  padding: 1rem 1.1rem;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--ink);
+  border-radius: var(--r-float);
+  box-shadow: var(--shadow-3), var(--rim);
+  transform-origin: top right;
+  transition: opacity var(--t-3) var(--ease-out), translate var(--t-3) var(--ease-out),
+    scale var(--t-3) var(--ease-out), display var(--t-3) allow-discrete;
+}
+
+/* They float in and out: allow-discrete holds display until the fade has run. */
+:is(#consent, #charter, #identitypanel, #shortcuts)[hidden] {
+  display: none;
+  opacity: 0;
+  translate: 0 -.5rem;
+  scale: .98;
+}
+
+@starting-style {
+  :is(#consent, #charter, #identitypanel, #shortcuts) {
+    opacity: 0;
+    translate: 0 -.5rem;
+    scale: .98;
+  }
+}
+
+#consent {
+  width: min(30rem, calc(100vw - 2rem));
+}
+
+#consent h2,
+#identitypanel h2 {
+  margin: 0 0 .5rem;
+  font-size: var(--fs-title);
+  font-weight: 760;
+  letter-spacing: -.01em;
+}
+
+#consent p {
+  font-family: var(--sans);
+  margin: 0 0 .55rem;
+  font-size: var(--fs-body);
+  color: var(--muted);
+}
+
+#consent p.lead {
+  color: var(--fg);
+  font-size: var(--fs-lead);
+  font-weight: 600;
+}
+
+#consent .row {
+  display: flex;
+  gap: .6rem;
+  margin-top: .7rem;
+}
+
+#viewprogress {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: .9rem;
+  font-family: var(--sans);
+}
+
+#viewprogress[hidden] {
+  display: none;
+}
+
+#viewprogress h2 {
+  font-size: 1rem;
+  margin: 0 0 .35rem;
+}
+
+/* The collection's tiles. An earned one carries a bar: its rarity band where the
+   collection measures it, the colour of success elsewhere. */
+.achievements {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: .5rem;
+  margin: .5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.achievements li {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  padding: .5rem .6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  background: var(--card);
+}
+
+.achievements .earned {
+  border-bottom: 3px solid var(--tier, var(--ok));
+}
+
+.achievements .locked {
+  opacity: .68;
+}
+
+.achievements .title {
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.achievements .what,
+.achievements .when {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.achievements .when {
+  display: block;
+  margin-top: auto;
+  padding-top: .2rem;
+}
+
+.achievements .meter,
+.metrotip .meter {
+  display: block;
+  height: 6px;
+  margin-top: .2rem;
+  border-radius: var(--coin);
+  background: var(--line);
+  overflow: hidden;
+}
+
+.achievements .meter i,
+.metrotip .meter i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes pop {
+    from {
+      opacity: 0;
+      scale: 0;
+    }
+  }
+
+  @keyframes station {
+    0%,
+    100% {
+      box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 65%, #000), 0 0 0 0 transparent;
+    }
+
+    50% {
+      box-shadow: 0 3px 0 color-mix(in srgb, var(--c) 65%, #000),
+        0 0 0 .45rem color-mix(in srgb, var(--c) 28%, transparent);
+    }
+  }
+}
+
+:is(#viewforum, #viewmoderation) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: .9rem;
+  font-family: var(--sans);
+  display: grid;
+  align-content: start;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 1.1rem;
+}
+
+@media (min-width: 56rem) {
+  :is(#viewforum, #viewmoderation) {
+    grid-template-columns: minmax(17rem, 24rem) minmax(0, 64rem);
+  }
+}
+
+:is(#viewforum, #viewmoderation)[hidden] {
+  display: none;
+}
+
+:is(#viewforum, #viewmoderation) h2 {
+  font-size: 1rem;
+  margin: 0 0 .35rem;
+}
+
+#charter {
+  width: min(32rem, calc(100vw - 2rem));
+  font-family: var(--sans);
+}
+
+#identitypanel {
+  width: min(26rem, calc(100vw - 2rem));
+  font-family: var(--sans);
+}
+
+#identitypanel {
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --tap: 2.75rem;
+  }
+
+  .tile {
+    min-height: var(--tap);
+  }
+
+  html,
+  body {
+    height: auto;
+  }
+
+  main {
+    display: block;
+  }
+
+  body {
+    display: block;
+    height: auto;
+    overflow: auto;
+  }
+
+  #work {
+    display: block;
+  }
+
+  #statement {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  #statement summary {
+    position: static;
+  }
+
+  #right {
+    display: block;
+  }
+
+  .edwrap {
+    height: clamp(12rem, 45vh, 26rem);
+  }
+
+  #editor .edwrap {
+    min-height: 0;
+  }
+
+  #out {
+    max-height: none;
+    overflow: visible;
+  }
+
+  :is(#consent, #charter, #identitypanel, #shortcuts) {
+    position: static;
+    width: auto;
+    margin: .9rem;
+    box-shadow: none;
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
+/* Tablets in portrait (an iPad is 810px): the statement becomes a panel over the editor,
+   one tap away, instead of a block above it, so the Test button stays on screen. */
+@media (min-width: 701px) and (max-width: 1000px) {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    display: flex;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  main {
+    display: flex;
+  }
+
+  #work {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  #statement {
+    flex: 0 0 auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* Out of flow, so the editor below already has its final height. */
+  #statement[open] {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    overflow-y: auto;
+  }
+
+  #statement summary {
+    position: sticky;
+    min-height: var(--tap);
+  }
+
+  #right {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+  }
+
+  .edwrap {
+    height: auto;
+  }
+
+  #out {
+    overflow-y: auto;
+  }
+
+  .tile {
+    min-height: var(--tap);
+  }
+}
+
+/* A toast, out of the flow: a message arriving never moves the bench under the student. A
+   flash goes by itself; anything else stays, with its own close button. */
+#system {
+  position: fixed;
+  z-index: 25;
+  left: 50%;
+  bottom: 1.25rem;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  width: max-content;
+  max-width: min(40rem, calc(100vw - 2rem));
+  padding: .55rem .5rem .55rem .85rem;
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  line-height: 1.45;
+  color: var(--fg);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--wait);
+  border-radius: var(--r-float);
+  box-shadow: var(--shadow-3), var(--rim);
+}
+
+#system[hidden] {
+  display: none;
+}
+
+#system .text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#system.flash {
+  padding-right: .85rem;
+  border-left-color: var(--ink);
+}
+
+#system.outage {
+  border-left-color: var(--bad);
+}
+
+#system::before {
+  color: var(--wait);
+}
+
+#system.flash::before {
+  color: var(--ink);
+}
+
+#system.outage::before {
+  color: var(--bad);
+}
+
+#system .close,
+#announcement .nav {
+  width: var(--tap);
+  min-width: var(--tap);
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+#maintenance {
+  flex: 0 0 auto;
+  padding: .55rem var(--gut) .55rem calc(var(--gut) - 3px);
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  color: var(--fg);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--wait);
+}
+
+#maintenance[hidden] {
+  display: none;
+}
+
+#maintenance.back {
+  border-left-color: var(--ok);
+}
+
+#announcement {
+  flex: 0 0 auto;
+  display: flex;
+  gap: .6rem;
+  align-items: baseline;
+  padding: .55rem var(--gut) .55rem calc(var(--gut) - 3px);
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  color: var(--fg);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--ink);
+}
+
+#announcement .text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* Banners slide in. They leave at once: a fade would only delay the workbench's own move. */
+:is(#system, #maintenance, #announcement) {
+  transition: opacity var(--t-4) var(--ease-out), translate var(--t-4) var(--ease-spring),
+    border-left-color var(--t-4) var(--ease-out);
+}
+
+@starting-style {
+  :is(#maintenance, #announcement) {
+    opacity: 0;
+    translate: 0 -.35rem;
+  }
+
+  #system {
+    opacity: 0;
+    translate: -50% .9rem;
+  }
+}
+
+.offscreen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* The line. The judge's three stations, drawn like the lab strip and the collection map:
+   a station is a disc, filled when passed, crossed when it stopped the run, hollow when not
+   reached; the track between two stations is inked once the first is passed. */
+:is(.steps, .howto) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: .4rem;
+  margin: 0 0 .75rem;
+  padding: 0;
+  list-style: none;
+}
+
+:is(.steps, .howto) > li {
+  --disc: var(--line-2);
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: var(--fs-ui);
+}
+
+/* The station. */
+:is(.steps, .howto) > li::before {
+  content: "";
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  box-sizing: border-box;
+  border: 2px solid var(--disc);
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+/* The track to the next station. */
+:is(.steps, .howto) > li:not(:last-child)::after {
+  content: "";
+  flex: none;
+  width: clamp(1.25rem, 4vw, 2.75rem);
+  height: 2px;
+  margin: 0 .3rem 0 .15rem;
+  background: var(--line);
+  border-radius: 1px;
+  transform-origin: left center;
+}
+
+.steps b {
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.steps i {
+  font-style: normal;
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.steps .ok {
+  --disc: var(--ok);
+}
+
+.steps .ok::before {
+  background-color: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.steps .ok:not(:last-child)::after {
+  background: var(--ok);
+}
+
+.steps .ko {
+  --disc: var(--bad);
+}
+
+/* Where the run stopped: a diamond, not a disc, so it reads without the red. */
+.steps .ko::before {
+  background-color: var(--bad);
+  border-radius: 2px;
+  rotate: 45deg;
+  scale: .85;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 22%, transparent);
+}
+
+.steps :is(.ok, .ko) b {
+  color: var(--fg);
+}
+
+/* Before the first test: the same line, ghosted and numbered, saying what Test will check. */
+.howto {
+  counter-reset: station;
+  color: var(--muted);
+}
+
+.howto > li {
+  counter-increment: station;
+}
+
+.howto > li::before {
+  content: counter(station);
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-style: dashed;
+  font-size: .7rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.howto > li:not(:last-child)::after {
+  background: repeating-linear-gradient(90deg, var(--line-2) 0 4px, transparent 4px 8px);
+}
+
+/* While the judge works: hollow stations, and an ink pulse that runs along the line. */
+#out.wait .steps > li::before {
+  border-color: color-mix(in srgb, var(--ink) 55%, var(--line));
+}
+
+/* Compile, run, check: the line draws itself station by station, each mark stamped as it
+   lands. Only transform and opacity move, and nothing waits for them. */
+@media (prefers-reduced-motion: no-preference) {
+  #out:not(.wait) .steps > li::before {
+    animation: stamp var(--t-4) var(--ease-spring) calc(var(--i, 0) * 160ms + 60ms) both;
+  }
+
+  #out:not(.wait) .steps > li:not(:last-child)::after {
+    animation: draw var(--t-4) var(--ease-out) calc(var(--i, 0) * 160ms + 140ms) both;
+  }
+
+  #out:not(.wait) .steps > li > :is(b, i) {
+    animation: fade-in var(--t-3) var(--ease-out) calc(var(--i, 0) * 160ms + 80ms) both;
+  }
+
+  #out.wait .steps > li:not(:last-child)::after {
+    background: linear-gradient(90deg, var(--line) 0 30%, var(--ink) 50%, var(--line) 70%) 0 0 / 300% 100%;
+    animation: pulse-run 1.1s linear infinite;
+    animation-delay: calc(var(--i, 0) * 180ms);
+  }
+
+  #out.wait .steps > li::before {
+    animation: beacon 1.1s var(--ease-in-out) infinite;
+    animation-delay: calc(var(--i, 0) * 180ms);
+  }
+
+  .howto > li {
+    animation: fade-in var(--t-4) var(--ease-out) calc(var(--i, 0) * 90ms) both;
+  }
+
+  @keyframes draw {
+    from {
+      scale: 0 1;
+    }
+  }
+
+  @keyframes pulse-run {
+    from {
+      background-position: 100% 0;
+    }
+
+    to {
+      background-position: 0 0;
+    }
+  }
+
+  @keyframes beacon {
+    50% {
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 25%, transparent);
+    }
+  }
+}
+
+.explain {
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  color: var(--fg);
+  margin: .1rem 0 .6rem;
+}
+
+/* What to do now: the recovery path, always the last thing on the sheet. */
+.suite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+  margin: 1rem 0 0;
+  padding: .6rem .7rem .6rem .8rem;
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ink);
+  border-radius: var(--coin);
+}
+
+.suite > span {
+  flex: 1 1 14rem;
+}
+
+/* The next exercise and "run it again" are the way forward: filled in ink. */
+.suite :is(.next, .retry),
+.gcc > .nav {
+  color: var(--ink-fg);
+  background: var(--ink);
+  border-color: var(--ink);
+  font-weight: 700;
+}
+
+.suite :is(.next, .retry):hover:not(:disabled),
+.gcc > .nav:hover:not(:disabled) {
+  color: var(--ink-fg);
+  filter: brightness(1.08);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 24%, transparent);
+}
+
+.gcc > .nav {
+  margin-top: .5rem;
+}
+
+#go.busy,
+#goex.busy {
+  cursor: progress;
+}
+
+#saving {
+  flex: 0 0 auto;
+  font-family: var(--sans);
+  font-size: var(--fs-label);
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+#saving {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+}
+
+#saving.saved::before {
+  color: var(--ok);
+}
+
+#saving.failed {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+#saving.failed::before {
+  color: var(--bad);
+}
+
+.case .case-field {
+  margin: 0 0 .45rem;
+}
+
+.case .case-field .what {
+  display: block;
+  font-family: var(--sans);
+  font-size: var(--fs-label);
+  color: var(--muted);
+  margin-bottom: .15rem;
+}
+
+.case .case-field .value {
+  margin: 0;
+}
+
+.case .case-field:first-child .value,
+.case .case-field:nth-child(3) .value {
+  font-size: var(--fs-body);
+  letter-spacing: .02em;
+}
+
+.case .why {
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  color: var(--fg);
+  margin: .6rem 0 0;
+}
+
+.case .contract,
+.failures .contract {
+  font-family: var(--sans);
+  font-size: var(--fs-label);
+  color: var(--muted);
+  margin: .3rem 0 0;
+  padding-left: .6rem;
+  border-left: 2px solid var(--line-2);
+}
+
+.failures .what {
+  font-family: var(--sans);
+  font-size: var(--fs-body);
+  margin: .5rem 0 .2rem;
+}
+
+.gcc>pre {
+  border-left: 3px solid var(--bad);
+}
+
+.gcc>.case {
+  margin-top: .4rem;
+}
+
+.gcc>.case>summary {
+  color: var(--muted);
+}
+
+#labband {
+  position: relative;
+  flex: 0 0 auto;
+  /* One row of tiles, claimed before /catalog.json answers. Keyed to --tap so the reserve
+     follows the tile height on every screen: a media query would land above this rule and
+     lose the cascade. */
+  min-height: calc(var(--tap) + .9rem + 1px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .3rem 1.1rem;
+  padding: .45rem var(--gut);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+#labband > .grow {
+  margin-left: -.8rem;
+}
+
+/* The strip keeps to one row, the height it reserved: on mid-size screens the count of
+   exercises (the stations already show it) and the shortcut hint give way first. */
+@media (max-width: 1440px) {
+  #labband > .grow + .tag,
+  #labband > .nav .shortcut {
+    display: none;
+  }
+}
+
+#labband[hidden] {
+  visibility: hidden;
+}
+
+#exlist .exline .state {
+  flex: 0 0 auto;
+  font-size: var(--fs-label);
+  white-space: nowrap;
+  font-family: var(--sans);
+}
+
+#exlist .exline .state.valid {
+  color: var(--ok);
+}
+
+#exlist .exline .state.tryit {
+  color: var(--wait);
+}
+
+.suite .help {
+  margin-left: auto;
+}
+
+.case .case-field .value,
+.gcc pre,
+.warn pre,
+#out>pre,
+.scratchterm {
+  font-family: var(--mono);
+}
+
+#now .badge.verification {
+  color: var(--fg);
+  border-color: var(--ink);
+}
+
+.plan {
+  position: relative;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.plan::before,
+.plan::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  width: 9px;
+  height: 9px;
+}
+
+.plan::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--ink);
+  border-left: 2px solid var(--ink);
+}
+
+.plan::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid var(--ink);
+  border-right: 2px solid var(--ink);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  font-size: var(--fs-label);
+  line-height: 1.4;
+  padding: .1rem .55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tag.accent {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--ink-wash);
+}
+
+.tag.alert {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* A station: a disc and its name. Its shape says what it is (round, square for a check,
+   dashed for a bonus) and its fill says how far the student got, so colour is never alone. */
+.tile {
+  --disc: var(--line-2);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  min-width: 2.4rem;
+  justify-content: center;
+  padding: .2rem .5rem .2rem .35rem;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tile::before {
+  content: "";
+  flex: none;
+  width: .95rem;
+  height: .95rem;
+  box-sizing: border-box;
+  border: 2px solid var(--disc);
+  border-radius: 50%;
+  background: var(--bg);
+  transition: background-color var(--t-3) var(--ease-out), box-shadow var(--t-3) var(--ease-out);
+}
+
+/* The track from the previous station, inked once that one is solved. */
+.tile + .tile::after {
+  content: "";
+  position: absolute;
+  right: calc(100% + 1px);
+  top: 50%;
+  width: 1.1rem;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--line);
+  pointer-events: none;
+}
+
+.tile.solved + .tile::after {
+  background: var(--ink);
+}
+
+.tile:hover:not([aria-disabled="true"]) {
+  color: var(--fg);
+  background: var(--card);
+}
+
+.tile.solved {
+  --disc: var(--ink);
+  color: var(--fg);
+}
+
+.tile.solved::before {
+  background: var(--ink);
+}
+
+.tile.verification::before {
+  border-radius: 3px;
+}
+
+.tile.bonus::before {
+  border-style: dashed;
+}
+
+/* A ring, not a thicker border or a bolder face: the strip keeps its widths when the
+   current exercise changes, so the lock-on below can glide instead of the tiles jumping. */
+.tile.current {
+  --disc: var(--fg);
+  color: var(--fg);
+  background: var(--card);
+}
+
+.tile.current::before {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 30%, transparent);
+}
+
+/* After a full pass, the next station beckons twice: that is where the student goes now. */
+@media (prefers-reduced-motion: no-preference) {
+  #right:has(#out.ok) .tile.current + .tile:not([aria-disabled="true"])::before {
+    animation: beckon 1.2s var(--ease-in-out) 900ms 2;
+  }
+
+  @keyframes beckon {
+    50% {
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--ink) 35%, transparent);
+      scale: 1.15;
+    }
+  }
+}
+
+/* Lock-on: brackets anchored to the current tile, which spring to the next one. */
+@supports (anchor-name: --a) {
+  .tile.current {
+    anchor-name: --current-tile;
+  }
+
+  #labband::after {
+    --c: var(--ink);
+    content: "";
+    position: absolute;
+    position-anchor: --current-tile;
+    left: calc(anchor(left) - 4px);
+    top: calc(anchor(top) - 4px);
+    width: calc(anchor-size(width) + 8px);
+    height: calc(anchor-size(height) + 8px);
+    opacity: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--c) 0 0) left top / 7px 2px no-repeat,
+      linear-gradient(var(--c) 0 0) left top / 2px 7px no-repeat,
+      linear-gradient(var(--c) 0 0) right top / 7px 2px no-repeat,
+      linear-gradient(var(--c) 0 0) right top / 2px 7px no-repeat,
+      linear-gradient(var(--c) 0 0) left bottom / 7px 2px no-repeat,
+      linear-gradient(var(--c) 0 0) left bottom / 2px 7px no-repeat,
+      linear-gradient(var(--c) 0 0) right bottom / 7px 2px no-repeat,
+      linear-gradient(var(--c) 0 0) right bottom / 2px 7px no-repeat;
+    transition: left var(--t-4) var(--ease-spring), top var(--t-4) var(--ease-spring),
+      width var(--t-4) var(--ease-spring), height var(--t-4) var(--ease-spring);
+  }
+
+  #labband:has(> .tile.current)::after {
+    opacity: 1;
+  }
+
+  /* It acquires its target once the strip has landed, then only glides. */
+  @media (prefers-reduced-motion: no-preference) {
+    #labband:has(> .tile.current)::after {
+      animation: acquire var(--t-4) var(--ease-spring) 420ms both;
+    }
+
+    @keyframes acquire {
+      from {
+        opacity: 0;
+        scale: 1.6;
+      }
+    }
+  }
+}
+
+.tile .what {
+  font-style: normal;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  padding: 0 .35rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.tile.verification .what {
+  border-color: color-mix(in srgb, var(--ink) 45%, transparent);
+  color: var(--ink);
+}
+
+.tile[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: .7;
+}
+
+.tile .padlock::before {
+  width: .9rem;
+  height: .9rem;
+}
+
+/* The disc carries the state; the textual mark stays for the attempted dot only. */
+.tile .mark {
+  display: inline-block;
+  font-style: normal;
+  font-size: var(--fs-label);
+  color: var(--ink);
+}
+
+.tile.solved .mark {
+  display: none;
+}
+
+/* The second beat of a success: the station fills with ink when statuses.load() marks it. */
+@media (prefers-reduced-motion: no-preference) {
+  .tile.solved::before {
+    animation: stamp var(--t-4) var(--ease-spring) both;
+  }
+
+  @keyframes stamp {
+    from {
+      opacity: 0;
+      scale: 2.4;
+    }
+  }
+}
+
+[data-tier="0"] { --tier: var(--ink); }
+[data-tier="1"] { --tier: var(--tier-1); }
+[data-tier="2"] { --tier: var(--tier-2); }
+[data-tier="3"] { --tier: var(--tier-3); }
+[data-tier="4"] { --tier: var(--tier-4); }
+[data-tier="ok"] { --tier: var(--ok); }
+
+@property --spin {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.plate {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+}
+
+.initials {
+  width: 1.4rem;
+  height: 1.4rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-size: var(--fs-label);
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.initials:empty {
+  display: none;
+}
+
+#accountmenu .group {
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+#searchbox {
+  width: 100%;
+  margin-bottom: .4rem;
+  background: var(--bg);
+  font-size: var(--fs-ui);
+}
+
+.shortcut {
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  color: var(--muted);
+  margin-left: .3rem;
+}
+
+.tile .what {
+  font-style: normal;
+  font-size: var(--fs-label);
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.tile.verification .what {
+  color: var(--ink);
+}
+
+#viewleaderboard,
+#viewcollection {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: .9rem;
+}
+
+#viewleaderboard[hidden],
+#viewcollection[hidden] {
+  display: none;
+}
+
+#viewleaderboard h2,
+#viewcollection h2 {
+  font-size: 1rem;
+  margin: 0 0 .35rem;
+}
+
+#viewleaderboard .block,
+#viewcollection .block {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+  padding: .7rem;
+  margin-bottom: .7rem;
+}
+
+#viewleaderboard p,
+#viewcollection p {
+  margin: 0 0 .5rem;
+  font-size: var(--fs-body);
+}
+
+#viewleaderboard p:last-child,
+#viewcollection p:last-child {
+  margin-bottom: 0;
+}
+
+#viewleaderboard .failed,
+#viewcollection .failed {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+#viewleaderboard .help,
+#viewcollection .help {
+  font-family: var(--sans);
+  color: var(--muted);
+  font-size: var(--fs-ui);
+}
+
+#viewleaderboard .subtitle,
+#viewcollection .subtitle {
+  font-size: var(--fs-label);
+  color: var(--muted);
+  font-weight: 600;
+  margin: 0 0 .4rem;
+}
+
+.tabs {
+  display: flex;
+  gap: .3rem;
+  flex-wrap: wrap;
+  margin-bottom: .5rem;
+}
+
+.tabs .nav[aria-pressed="true"],
+.tabs .nav.on {
+  color: var(--fg);
+}
+
+/* The underline unrolls from the centre, drawn over the border so the tab keeps its height. */
+.tabs .nav {
+  position: relative;
+}
+
+.tabs .nav::after {
+  content: "";
+  position: absolute;
+  inset: auto .4rem -1px;
+  height: 2px;
+  background: var(--ink);
+  scale: 0 1;
+  transition: scale var(--t-3) var(--ease-spring);
+}
+
+.tabs .nav:is([aria-pressed="true"], .on)::after {
+  scale: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes reel {
+    from {
+      translate: 0 0;
+    }
+  }
+}
+
+.aliasrow {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.alias-value {
+  padding: .1rem .4rem;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rank-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-body);
+}
+
+.rank-table th {
+  text-align: left;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--muted);
+  padding: .3rem .4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.rank-table td {
+  padding: .3rem .4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.rank-table .num {
+  font-family: var(--mono);
+  text-align: right;
+  width: 3rem;
+}
+
+.rank-table .mine {
+  background: var(--ink-wash);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rank-table tbody tr {
+    animation: rise var(--t-4) var(--ease-out) both;
+  }
+
+  @supports (width: calc(1px * sibling-index())) {
+    .rank-table tbody tr {
+      animation-delay: calc(120ms + min(sibling-index(), 15) * 35ms);
+    }
+  }
+
+  /* Your row lights up once the table has settled, then rests on its wash. */
+  .rank-table tbody tr.mine {
+    animation: rise var(--t-4) var(--ease-out) both, mine 1.1s var(--ease-out) 700ms both;
+  }
+
+  @keyframes mine {
+    from {
+      background-color: color-mix(in srgb, var(--ink) 40%, var(--ink-wash));
+    }
+  }
+}
+
+#teamband {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  padding: .45rem var(--gut);
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-wash);
+}
+
+#teamband[hidden] {
+  display: none;
+}
+
+#carets {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#carets .caret {
+  position: absolute;
+  width: 2px;
+  display: block;
+}
+
+#carets .caretname {
+  position: absolute;
+  top: -1.05em;
+  left: -1px;
+  font: 400 var(--fs-label)/1.1 var(--sans);
+  color: #fff;
+  padding: .1rem .25rem;
+  border-radius: var(--coin);
+  white-space: nowrap;
+}
+
+#carets .sel {
+  position: absolute;
+  display: block;
+  opacity: .22;
+}
+
+#chatdock {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+
+#chatdock[hidden] {
+  display: none;
+}
+
+@media (max-width: 1000px) {
+  /* Below 1000px the tiles do not fit on one row on every font, and a second row moves
+     the editor down after /catalog.json answers. One row that scrolls sideways instead:
+     the reserved height is then the real height. */
+  #labband {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  #labband > * {
+    flex-shrink: 0;
+  }
+
+  #chatdock {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 6;
+    height: 60dvh;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, .35);
+  }
+}
+
+.chatliens {
+  flex: 0 0 auto;
+  padding: .35rem .6rem 0;
+}
+
+.goto {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin-top: .35rem;
+}
+
+.goto input {
+  width: 11rem;
+  padding: .25rem .45rem;
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-radius: var(--coin);
+}
+
+.gotohint {
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+.keys {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .3rem .8rem;
+  margin: 0;
+  font-size: var(--fs-label);
+}
+
+.keys dt {
+  white-space: nowrap;
+}
+
+.keys dd {
+  margin: 0;
+}
+
+.keys kbd {
+  display: inline-block;
+  padding: .05rem .35rem;
+  margin-right: .15rem;
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  border-radius: var(--coin);
+}
+
+.keys .about {
+  display: block;
+  color: var(--muted);
+  font-size: var(--fs-label);
+}

@@ -557,7 +557,7 @@ dialog#code header button {
   overflow: auto;
 }
 
-/* The student editor's palette (frontend/src/app.css), so a file reads alike on both. */
+/* The student editor's palette (frontend/src/styles/base.css), so a file reads alike on both. */
 #code-body pre.c {
   --syn-comment: #7d8a7d; --syn-string: #1f7a3d; --syn-pre: #9b2f8f;
   --syn-key: #1d4ed8; --syn-num: #a55200; --syn-fn: #7a5c00; --syn-const: #8a3d9b;

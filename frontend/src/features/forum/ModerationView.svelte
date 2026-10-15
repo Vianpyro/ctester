@@ -1,4 +1,5 @@
 <script lang="ts">  import { onMount } from "svelte";
+  import "./forum.css";
   import { catalog } from "../../lib/state/catalog.svelte";
   import { groupNumber, localTime } from "../../lib/domain/labels";
   import { t } from "../../lib/i18n.svelte";

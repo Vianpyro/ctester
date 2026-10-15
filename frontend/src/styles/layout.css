@@ -1,0 +1,239 @@
+/* ---- Views ---------------------------------------------------------------------------------
+   Every screen opens on a real title: the place has a name before it has details. */
+h2:is(#progresstitle, #leaderboardtitle, #collectiontitle, #scratchtitle, #forumtitle, #moderationtitle) {
+  margin: .2rem 0 .4rem;
+  font-size: var(--fs-display);
+  font-weight: 780;
+  line-height: 1.15;
+  letter-spacing: -.022em;
+  color: var(--fg);
+}
+
+/* The Console had no frame of its own: it sat flush against the window's edge. */
+#viewscratch {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: .9rem;
+}
+
+#viewscratch[hidden] {
+  display: none;
+}
+
+/* ---- Compact lab strip ---------------------------------------------------------------------
+   From six exercises the stations become numbered discs: the current one keeps its name, the
+   others keep theirs for screen readers and in their tooltip. One row, whatever the lab. */
+#labband:has(> .tile:nth-child(6)) {
+  counter-reset: station;
+  flex-wrap: nowrap;
+  column-gap: .7rem;
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile {
+  counter-increment: station;
+  min-width: 0;
+  padding: .2rem;
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile.current {
+  padding-right: .6rem;
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile::before {
+  content: counter(station);
+  display: grid;
+  place-items: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  font-size: .72rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile.solved::before {
+  color: var(--ink-fg);
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile.current:not(.solved)::before {
+  color: var(--fg);
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile + .tile::after {
+  width: .7rem;
+}
+
+#labband:has(> .tile:nth-child(6)) > .tile:not(.current) :is(.name, .what, .mark) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- One header row --------------------------------------------------------------------------
+   On a wide bench the exercise's title and its lab's stations share a row of fixed height, so
+   nothing the catalogue brings can move the editor. The stations are always numbered there, and
+   the title drops its lab's name, which the breadcrumb above already gives: the stations stay
+   whole and the title is what yields. Narrower, the two keep their own rows. */
+#benchhead {
+  display: contents;
+}
+
+@media (min-width: 1600px) {
+  #benchhead {
+    display: flex;
+    align-items: center;
+    min-height: calc(var(--tap) + .9rem + 1px);
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+
+  #benchhead > #now {
+    flex: 1 1 0;
+    flex-wrap: nowrap;
+    min-width: 0;
+    min-height: 0;
+    border-bottom: 0;
+    background: none;
+  }
+
+  #benchhead > #now h2 {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #benchhead > #now h2 .lab {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  #benchhead > #now .badge {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  #benchhead > #labband {
+    flex: 0 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: auto;
+    border-bottom: 0;
+    background: none;
+  }
+
+  #benchhead > #labband > * {
+    flex-shrink: 0;
+  }
+
+  /* The stations already count the exercises. */
+  #benchhead > #labband > .grow + .tag {
+    display: none;
+  }
+
+  #benchhead > #labband {
+    counter-reset: station;
+    flex-wrap: nowrap;
+    column-gap: .7rem;
+  }
+
+  #benchhead > #labband > .tile {
+    counter-increment: station;
+    min-width: 0;
+    padding: .2rem;
+  }
+
+  #benchhead > #labband > .tile.current {
+    padding-right: .6rem;
+  }
+
+  #benchhead > #labband > .tile::before {
+    content: counter(station);
+    display: grid;
+    place-items: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    font-size: .72rem;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+
+  #benchhead > #labband > .tile.solved::before {
+    color: var(--ink-fg);
+  }
+
+  #benchhead > #labband > .tile.current:not(.solved)::before {
+    color: var(--fg);
+  }
+
+  #benchhead > #labband > .tile + .tile::after {
+    width: .7rem;
+  }
+
+  #benchhead > #labband > .tile:not(.current) :is(.name, .what, .mark) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Phones: overrides that must come after every rule they correct. */
+@media (max-width: 700px) {
+  /* On a phone the bench is a scrolling page: Test rides along at the bottom of the screen. */
+  #actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    box-shadow: 0 -8px 20px -10px rgb(1 6 14 / .45);
+  }
+
+  #go,
+  #goex {
+    flex: 1 1 100%;
+    order: 9;
+  }
+
+  #system {
+    bottom: calc(var(--tap-lg) + 2.5rem);
+  }
+
+  /* The editor's tools keep their icon; their name stays their accessible label. */
+  .edhead :is(.reindent, .reset) {
+    width: var(--tap);
+    padding: 0;
+    font-size: 0;
+  }
+
+  .edhead :is(.reindent, .reset)::before {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+
+  .edhead #saving {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* The stations keep their shape and colour; the state words stay for screen readers. */
+  .steps i {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

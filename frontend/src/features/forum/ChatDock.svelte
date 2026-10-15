@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./forum.css";
   import { onMount } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import { chat } from "./chat.svelte";

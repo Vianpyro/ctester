@@ -1,4 +1,5 @@
 <script lang="ts">  import { onMount, untrack } from "svelte";
+  import "./progress.css";
   import { dayOf } from "../../lib/domain/dates";
   import { tween } from "../../lib/motion";
   import { catalog } from "../../lib/state/catalog.svelte";

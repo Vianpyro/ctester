@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const CSS = readFileSync(join(import.meta.dirname, "..", "src", "app.css"), "utf8");
+// Every stylesheet, the lazy screens' included.
+const SRC = join(import.meta.dirname, "..", "src");
+const CSS = readdirSync(SRC, { recursive: true, encoding: "utf8" })
+  .filter((name) => name.endsWith(".css"))
+  .map((name) => readFileSync(join(SRC, name), "utf8"))
+  .join("\n");
 
 // Every loop that never ends, by the name of its keyframes.
 const endless = [...CSS.matchAll(/animation:\s*([a-z-]+)[^;]*\binfinite\b/g)].map((m) => m[1]!);

@@ -1,0 +1,41 @@
+/* Loaded with ShortcutsPanel.svelte, after app.css. */
+
+#shortcuts {
+  width: min(34rem, calc(100vw - 2rem));
+  font-family: var(--sans);
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#shortcuts[hidden] {
+  display: none;
+}
+
+#shortcuts h2 {
+  font-size: var(--fs-title);
+  font-weight: 760;
+  letter-spacing: -.01em;
+  margin: 0 0 .35rem;
+}
+
+#shortcuts .sub {
+  margin: 0 0 .8rem;
+  font-size: var(--fs-label);
+  color: var(--muted);
+}
+
+#shortcuts h3 {
+  font-size: var(--fs-label);
+  font-weight: 700;
+  color: var(--muted);
+  margin: .9rem 0 .35rem;
+  padding-bottom: .2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+#shortcuts .row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: .9rem;
+}
