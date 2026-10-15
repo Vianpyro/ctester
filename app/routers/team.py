@@ -313,6 +313,8 @@ async def live(socket: WebSocket):
         await socket.close(code=deps.CLOSE_FORBIDDEN)
         return
 
+    # ponytail: membership is checked once; a student who leaves keeps this socket until they
+    # reconnect (writes still go through _gate). Close their sockets in team/leave if that matters.
     key = collab.room_key(team["team_id"], exercise_id)
     if collab.full(key):
         await socket.close(code=deps.CLOSE_BUSY)

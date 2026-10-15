@@ -3458,7 +3458,7 @@ def test_the_assignment_gate_distinguishes_three_refusals():
         assert refusal is None and team["team_id"] == "e1"
         _, team, refusal = teams.workspace(base, "sub-bob", "devoir")
         assert team is None and refusal[0] == 403
-        assert refusal[1] == "not_in_team_frozen", refusal
+        assert refusal[1] == "not_in_team", refusal
         assignment, _, _ = teams.workspace(base, "sub-alice", "devoir")
         assert teams.exercise_in(assignment, "dev-a") is True
         assert teams.exercise_in(assignment, "solo") is False

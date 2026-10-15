@@ -132,7 +132,7 @@
         >
           {view.label("progress", t("topbar.progress"))}
         </button>
-        {#if session.forumOffered}
+        {#if session.chatOffered || (session.forumOffered && catalog.staff)}
           <button
             type="button"
             id="discussions"

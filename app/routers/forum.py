@@ -9,7 +9,7 @@ import headers
 import policy
 import security
 import state
-from deps import SubForum, SubModerator, throttle_forum
+from deps import SubChat, SubForum, SubModerator, throttle_forum
 from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from schemas import (AnnouncementIn, DiscordBridgeIn, ForumTargetIn, ForumMessageIn,
                      ForumModerationIn, ForumProfileIn, ForumReportIn, ForumVoteIn)
@@ -73,7 +73,7 @@ def _message_id(raw):
 
 
 @router.get("/forum")
-def get_thread(sub: SubForum, ex: str = Query("")):
+def get_thread(sub: SubChat, ex: str = Query("")):
     entry = _thread_entry(ex)
     if entry is None:
         return headers.error(400, "unknown_exercise")
@@ -97,7 +97,7 @@ def get_thread(sub: SubForum, ex: str = Query("")):
 
 
 @router.post("/forum")
-def post_message(sub: SubForum, body: ForumMessageIn):
+def post_message(sub: SubChat, body: ForumMessageIn):
     entry = _thread_entry(body.exercise_id)
     if entry is None:
         return headers.error(400, "unknown_exercise")
@@ -157,6 +157,8 @@ def discord_bridge(body: DiscordBridgeIn, request: Request):
     expected = "Bearer " + config.DISCORD_BRIDGE_KEY
     if not hmac.compare_digest(presented, expected):
         return headers.error(401, "invalid_bridge_key")
+    if not config.CHAT:
+        return headers.error(503, "chat_disabled")
 
     entry = _thread_entry(body.exercise_id)
     if entry is None:
@@ -196,7 +198,7 @@ def discord_bridge(body: DiscordBridgeIn, request: Request):
 
 
 @router.get("/forum/activity")
-def get_activity(sub: SubForum):
+def get_activity(sub: SubChat):
     """The last message per thread, so the page can light an unread dot without
     opening every channel."""
     threads = state.forum_activity(
@@ -207,7 +209,7 @@ def get_activity(sub: SubForum):
 
 
 @router.get("/forum/search")
-def search(sub: SubForum, q: str = Query("")):
+def search(sub: SubChat, q: str = Query("")):
     results = state.forum_search(q, sub, config.FORUM_SEARCH_MAX)
     if results is None:
         return headers.error(503, "db_down")
@@ -215,7 +217,7 @@ def search(sub: SubForum, q: str = Query("")):
 
 
 @router.get("/forum/message")
-def permalink(sub: SubForum, id: str = Query("")):
+def permalink(sub: SubChat, id: str = Query("")):
     message_id = _message_id(id)
     if message_id is None:
         return headers.error(400, "invalid_id")
@@ -235,7 +237,7 @@ def permalink(sub: SubForum, id: str = Query("")):
 
 
 @router.post("/forum/visibility")
-def open_to_group(sub: SubForum, body: ForumTargetIn):
+def open_to_group(sub: SubChat, body: ForumTargetIn):
     message_id = _message_id(body.id)
     if message_id is None:
         return headers.error(400, "invalid_id")
@@ -249,7 +251,7 @@ def open_to_group(sub: SubForum, body: ForumTargetIn):
 
 
 @router.post("/forum/helpful")
-def vote(sub: SubForum, body: ForumVoteIn):
+def vote(sub: SubChat, body: ForumVoteIn):
     message_id = _message_id(body.id)
     if message_id is None:
         return headers.error(400, "invalid_id")
@@ -266,7 +268,7 @@ def vote(sub: SubForum, body: ForumVoteIn):
 
 
 @router.delete("/forum")
-def delete_message(sub: SubForum, id: str = Query("")):
+def delete_message(sub: SubChat, id: str = Query("")):
     message_id = _message_id(id)
     if message_id is None:
         return headers.error(400, "invalid_id")
@@ -281,7 +283,7 @@ def delete_message(sub: SubForum, id: str = Query("")):
 
 
 @router.post("/forum/report")
-def report(sub: SubForum, body: ForumReportIn):
+def report(sub: SubChat, body: ForumReportIn):
     message_id = _message_id(body.id)
     if message_id is None:
         return headers.error(400, "invalid_id")
@@ -440,6 +442,9 @@ async def live(socket: WebSocket):
                                   {"Authorization": "Bearer " + token})
     if not sub:
         await socket.close(code=deps.CLOSE_UNAUTHORIZED)
+        return
+    if not config.CHAT and not security.is_moderator(sub):
+        await socket.close(code=deps.CLOSE_UNAVAILABLE)
         return
 
     entry = await run_in_threadpool(_thread_entry, thread)

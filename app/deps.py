@@ -80,6 +80,14 @@ def forum_user(request: Request) -> str:
     return user(request)
 
 
+def chat_user(request: Request) -> str:
+    # Moderators keep the discussions, which also hold the moderation queue and announcements.
+    sub = forum_user(request)
+    if not config.CHAT and not security.is_moderator(sub):
+        raise Refusal(503, "chat_disabled")
+    return sub
+
+
 def moderator(request: Request) -> str:
     sub = forum_user(request)
     if not security.is_moderator(sub):
@@ -94,6 +102,7 @@ def preview(request: Request) -> bool:
 
 Sub = Annotated[str, Depends(user)]
 SubForum = Annotated[str, Depends(forum_user)]
+SubChat = Annotated[str, Depends(chat_user)]
 SubModerator = Annotated[str, Depends(moderator)]
 Preview = Annotated[bool, Depends(preview)]
 

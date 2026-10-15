@@ -122,7 +122,7 @@
   });
 
   const offersHelp = $derived(
-    (cls === "bad" || cls === "partial") && session.signedIn && session.forumOffered,
+    (cls === "bad" || cls === "partial") && session.signedIn && session.chatOffered,
   );
 
   async function openDiscussions() {

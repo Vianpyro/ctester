@@ -300,7 +300,8 @@ Team work: the same shape as a collection, plus `team` (`min`, `max`, `count`) a
 ]}
 ```
 
-An exercise may belong to at most one assignment.
+An exercise may belong to at most one assignment. Students can join or leave a team until
+`deadline`; after it, teams are frozen. An assignment without a deadline never freezes them.
 
 ## `cards.json` — the collection
 

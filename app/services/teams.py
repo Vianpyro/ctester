@@ -70,9 +70,9 @@ def team_handle(group_number, number):
 
 
 def joinable(assignment):
-    # The opening date that freezes teams is the one find_assignment() requires,
-    # so joining a team and reading its document can never overlap.
-    return bool(assignment) and assignment.get("access") != "available"
+    # Teams stay open until the deadline, so a student can switch teams, and read the
+    # new team's document, while the assignment is open. Without a deadline they never freeze.
+    return bool(assignment) and not deadline_passed(assignment)
 
 
 def available_teams(assignment, group_number, existing):
@@ -99,7 +99,8 @@ def workspace(state, sub, assignment_id):
         return assignment, None, (400, "not_a_team_assignment")
     team = state.team_of(sub, assignment_id)
     if team is None:
-        return assignment, None, (403, "not_in_team_frozen")
+        return assignment, None, (403, "not_in_team" if joinable(assignment)
+                                  else "not_in_team_frozen")
     return assignment, team, None
 
 

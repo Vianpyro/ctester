@@ -42,6 +42,10 @@ class Session {
     return !!(this.deployment && this.deployment.forum);
   }
 
+  get chatOffered(): boolean {
+    return this.forumOffered && this.deployment!.chat !== false;
+  }
+
   get scratchOffered(): boolean {
     return !!(this.deployment && this.deployment.scratch);
   }

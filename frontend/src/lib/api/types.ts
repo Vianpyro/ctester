@@ -2,6 +2,7 @@ export interface Deployment {
   issuer?: string;
   client_id?: string;
   forum?: boolean;
+  chat?: boolean;
   scratch?: boolean;
   discord?: string;
 }

@@ -635,7 +635,7 @@ def _publish(tmp, exercises=CONTENT, assignment=None):
 @contextlib.contextmanager
 def context(*, tokens=None, moderators=(), forum_enabled=True, base=None,
              groups=(4, 6), exercises=CONTENT, assignment=None, console=True,
-             bridge="", webhook=""):
+             bridge="", webhook="", chat=True):
     tmp = tempfile.mkdtemp()
     spool, page, results = (os.path.join(tmp, n) for n in ("spool", "web", "results"))
     for path in (spool, page, results):
@@ -648,7 +648,7 @@ def context(*, tokens=None, moderators=(), forum_enabled=True, base=None,
     saved_config = {n: getattr(config, n) for n in
                     ("PUBLISHED", "SPOOL", "RESULTS", "PAGE", "KEY", "OIDC_ISSUER",
                      "OIDC_CLIENT_ID", "MODERATOR_GROUP", "MODERATORS_FILE", "FORUM_GROUPS",
-                     "SCRATCH", "DISCORD_BRIDGE_KEY", "DISCORD_WEBHOOK")}
+                     "SCRATCH", "CHAT", "DISCORD_BRIDGE_KEY", "DISCORD_WEBHOOK")}
     saved_security = (security.current_user, security.current_name)
     saved_quotas = (deps.quota, deps.signed_in_quota, deps.state_quota,
                     deps.forum_quota, deps.presence, deps.scratch_quota)
@@ -666,6 +666,7 @@ def context(*, tokens=None, moderators=(), forum_enabled=True, base=None,
         json.dump(sorted(moderators) if forum_enabled else [], fh)
     config.FORUM_GROUPS = tuple(groups)
     config.SCRATCH = console
+    config.CHAT = chat
     config.DISCORD_BRIDGE_KEY = bridge
     config.DISCORD_WEBHOOK = webhook
     tokens = tokens or {}
@@ -3331,6 +3332,23 @@ def test_oidc_json_announces_the_console():
         assert client.get("/oidc.json").json()["scratch"] is False
 
 
+def test_turning_the_chat_off_keeps_identity_and_moderators():
+    with context(tokens=TEAM_TOKENS, moderators=("sub-prof",), chat=False) as (client, _, _):
+        assert client.get("/oidc.json").json()["chat"] is False
+        r = client.get("/forum?ex=@chat:general", headers=_headers("t-alice"))
+        assert r.status_code == 503 and r.json()["error"] == "chat_disabled", r.text
+        r = client.post("/forum", headers=_headers("t-alice"),
+                        json={"exercise_id": "@chat:general", "text": "salut"})
+        assert r.status_code == 503, r.text
+        assert client.get("/forum/profile", headers=_headers("t-alice")).status_code == 200
+        r = client.get("/forum?ex=@chat:general", headers=_headers("t-prof"))
+        assert r.status_code == 200, r.text
+    with context(tokens=TEAM_TOKENS, moderators=("sub-prof",)) as (client, _, _):
+        assert client.get("/oidc.json").json()["chat"] is True
+        assert client.get("/forum?ex=@chat:general",
+                          headers=_headers("t-alice")).status_code == 200
+
+
 def test_the_console_announces_running_before_any_output():
     """A program that reads first prints nothing; without "running" the page would keep
     showing "compiling" while it waits for input."""
@@ -3442,7 +3460,7 @@ def test_no_team_route_opens_without_proven_membership():
                        "/team/handin.zip?assignment=devoir"):
             r = client.get(path, headers=_headers("t-bob"))
             assert r.status_code == 403, (path, r.status_code)
-            assert r.json()["error"] == "not_in_team_frozen", r.text
+            assert r.json()["error"] == "not_in_team", r.text
         r = client.get("/team/context?assignment=inconnu",
                        headers=_headers("t-alice"))
         assert r.status_code == 404
@@ -3871,9 +3889,9 @@ def test_my_team_reports_an_outage_instead_of_inventing_an_absence():
 
 
 @contextlib.contextmanager
-def choice_deployment(opened=False):
+def choice_deployment(opened=False, deadline=None):
     base = FakeDatabase()
-    assignment = _assignment_json()
+    assignment = _assignment_json(deadline=deadline)
     if not opened:
         assignment = dict(assignment, release={
             "state": "scheduled",
@@ -3945,8 +3963,8 @@ def test_teams_can_change_while_the_assignment_is_closed():
                            json={"assignment_id": "devoir"}).status_code == 404
 
 
-def test_opening_the_assignment_freezes_the_teams():
-    with choice_deployment(opened=True) as (client, fake, _):
+def test_the_deadline_freezes_the_teams():
+    with choice_deployment(opened=True, deadline="2020-01-01T00:00:00-05:00") as (client, fake, _):
         for path, body in (("/team/join", {"assignment_id": "devoir",
                                               "number": 1}),
                               ("/team/leave", {"assignment_id": "devoir"})):
@@ -3958,6 +3976,20 @@ def test_opening_the_assignment_freezes_the_teams():
         r = client.get("/team/document?assignment=devoir&ex=dev-a",
                        headers=_headers("t-alice"))
         assert r.status_code == 403 and r.json()["error"] == "not_in_team_frozen"
+
+    with choice_deployment(opened=True, deadline="2099-01-01T00:00:00-05:00") as (client, fake, _):
+        r = client.get("/team/document?assignment=devoir&ex=dev-a",
+                       headers=_headers("t-alice"))
+        assert r.status_code == 403 and r.json()["error"] == "not_in_team"
+        assert client.post("/team/join", headers=_headers("t-alice"),
+                           json={"assignment_id": "devoir",
+                                 "number": 1}).status_code == 200
+        assert client.get("/team/document?assignment=devoir&ex=dev-a",
+                          headers=_headers("t-alice")).status_code == 200
+        assert client.post("/team/leave", headers=_headers("t-alice"),
+                           json={"assignment_id": "devoir"}).status_code == 200
+        assert client.get("/team/document?assignment=devoir&ex=dev-a",
+                          headers=_headers("t-alice")).status_code == 403
 
     with choice_deployment() as (client, fake, _):
         assert client.post("/team/join", headers=_headers("t-alice"),

@@ -214,7 +214,7 @@
     if (!session.token) return;
     await Promise.all([theme.loadFromAccount(), statuses.load()]);
     if (catalog.selectedId) await exercise.open(catalog.selectedId);
-    if (!deployment.forum) return;
+    if (!session.chatOffered && !(deployment.forum && catalog.staff)) return;
     void import("./lib/state/unread.svelte").then(({ unread }) => unread.start());
     if (!dock.remembered()) return;
     if (!(await bringChat())) return;

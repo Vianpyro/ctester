@@ -47,6 +47,8 @@ OIDC_TTL = _int("CTESTER_OIDC_CACHE_TTL", "300")
 
 MODERATOR_GROUP = os.environ.get("CTESTER_MODERATOR_GROUP", "").strip()
 MODERATORS_FILE = os.path.join(SPOOL, "moderators.json")
+# "0" hides the discussions from students; the identity panel (group, team) stays.
+CHAT = os.environ.get("CTESTER_CHAT", "1") != "0"
 FORUM_MAX_CHARS = _int("CTESTER_FORUM_MAX_CHARS", "1200")
 FORUM_COOLDOWN = _int("CTESTER_FORUM_COOLDOWN", "10")
 FORUM_HOURLY = _int("CTESTER_FORUM_HOURLY_QUOTA", "20")

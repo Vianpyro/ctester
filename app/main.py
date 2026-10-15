@@ -81,6 +81,7 @@ def _started():
     log.event("service.start", log.INFO, "listening on port %d" % config.PORT, {
         "ctester.feature.sign_in": security.oidc_enabled(),
         "ctester.feature.forum": deps.forum_service.forum_enabled(),
+        "ctester.feature.chat": config.CHAT,
         "ctester.feature.scratch": config.SCRATCH,
         "ctester.feature.discord": bool(config.DISCORD_WEBHOOK),
     })

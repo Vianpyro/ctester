@@ -43,5 +43,6 @@ def oidc():
         return {}
     return {"issuer": config.OIDC_ISSUER, "client_id": config.OIDC_CLIENT_ID,
             "forum": forum_service.forum_enabled(),
+            "chat": config.CHAT,
             "discord": config.DISCORD_URL,
             "scratch": config.SCRATCH}
