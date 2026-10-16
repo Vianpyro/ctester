@@ -72,14 +72,15 @@ async def live(socket: WebSocket):
         return
 
     with deps.lock:
-        if sub in _open_sessions:
-            await socket.close(code=deps.CLOSE_BUSY)
-            return
-        wait = deps.scratch_quota.check(sub, time.time())
-        if wait:
-            await socket.close(code=deps.CLOSE_BUSY)
-            return
-        _open_sessions.add(sub)
+        busy = sub in _open_sessions
+        wait = 0 if busy else deps.scratch_quota.check(sub, time.time())
+        if not busy and not wait:
+            _open_sessions.add(sub)
+    if busy or wait:
+        # The reason carries the seconds left, so the page can count down; empty when a
+        # session is still open, since its end cannot be known.
+        await socket.close(code=deps.CLOSE_BUSY, reason=str(wait) if wait else "")
+        return
 
     session = None
     try:
@@ -131,6 +132,11 @@ async def _follow(socket, session, reader):
     running = False
     try:
         while True:
+            # The page left (reload, closed tab, Stop): end the session now, not when a
+            # silent program next prints or times out, or the account stays locked out.
+            # A reader that merely stopped (input over its bound) leaves the program running.
+            if reader.done() and reader.exception() is not None:
+                return
             if not claimed:
                 claimed = await run_in_threadpool(session.is_claimed)
                 if claimed:

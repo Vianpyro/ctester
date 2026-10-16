@@ -3250,6 +3250,8 @@ def test_the_hourly_console_quota_passes_at_N_and_refuses_at_N_plus_1():
             raise AssertionError("the 3rd session got through despite a quota of 2")
         except WebSocketDisconnect as exc:
             assert exc.code == deps.CLOSE_BUSY, exc.code
+            # The seconds left travel in the reason, so the page can count down.
+            assert int(exc.reason) > 0, exc.reason
 
 
 def test_the_notepad_follows_the_account_and_is_bounded():
@@ -3383,6 +3385,36 @@ def test_the_console_announces_running_before_any_output():
                 done = socket.receive_json()
                 assert done["t"] == "exit" and done["code"] == 0, done
                 _scratch.fcntl.flock(claim, _scratch.fcntl.LOCK_UN)
+
+
+def test_leaving_the_page_ends_a_silent_console_session():
+    """A program waiting on scanf prints nothing; the session must still end when the
+    page goes, or the account is refused a new one until the program times out. Driven
+    directly: TestClient cancels the whole app on close, which uvicorn does not."""
+    from routers import scratch as routers_scratch
+    from starlette.websockets import WebSocketDisconnect
+
+    class Silent:
+        job_id = "j"
+        is_claimed = staticmethod(lambda: True)
+        status = staticmethod(lambda: {"state": "running"})
+        read_output = staticmethod(lambda name: "")
+        worker_alive = staticmethod(lambda: True)
+
+    class Socket:
+        sent = []
+
+        async def send_text(self, text):
+            self.sent.append(text)
+
+    async def gone():
+        raise WebSocketDisconnect(1001)
+
+    async def run():
+        reader = asyncio.create_task(gone())
+        await asyncio.wait_for(routers_scratch._follow(Socket(), Silent(), reader), 2)
+
+    asyncio.run(run())
 
 
 def _write_json(path, value):

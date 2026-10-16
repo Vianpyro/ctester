@@ -3,7 +3,7 @@
   import { onDestroy, onMount } from "svelte";
   import { t } from "../../lib/i18n.svelte";
   import CodeSurface from "../../components/CodeSurface.svelte";
-  import { scratch, template } from "./session.svelte";
+  import { scratch, template, waitLabel } from "./session.svelte";
 
   let title: HTMLHeadingElement | undefined = $state();
   let terminal: HTMLPreElement | undefined = $state();
@@ -177,8 +177,17 @@
 <div class="plan scratchpan">
   <div class="phead">
     <span>{t("console.terminal")}</span>
-    <button type="button" id="scratchgo" disabled={scratch.running} onclick={() => scratch.start()}>
-      {scratch.running ? t("console.busy") : t("console.run")}
+    <button
+      type="button"
+      id="scratchgo"
+      disabled={scratch.running || scratch.cooling > 0}
+      onclick={() => scratch.start()}
+    >
+      {scratch.running
+        ? t("console.busy")
+        : scratch.cooling > 0
+          ? t("console.run_in", { time: waitLabel(scratch.cooling) })
+          : t("console.run")}
     </button>
     {#if scratch.running}
       <button type="button" id="scratchstop" class="nav" onclick={() => scratch.stop()}>

@@ -17,6 +17,12 @@ const closedMessage = (code: number): string =>
   CLOSED.includes(code) ? t(`console.closed.${code}`) : "";
 
 const UNAUTHORIZED = 4401;
+const BUSY = 4429;
+
+export const waitLabel = (seconds: number): string =>
+  seconds >= 60
+    ? t("console.wait_minutes", { n: Math.ceil(seconds / 60) })
+    : t("console.wait_seconds", { n: seconds });
 
 // The untouched program, in the language the page is in.
 export const template = (): string =>
@@ -39,8 +45,11 @@ class Scratch {
   noteFailed = $state(false);
   running = $state(false);
   loaded = $state(false);
+  /** Seconds before the server takes another session, counted down from its refusal. */
+  cooling = $state(0);
 
   #socket: WebSocket | null = null;
+  #coolTimer: ReturnType<typeof setInterval> | null = null;
   #saveTimer: ReturnType<typeof setTimeout> | null = null;
   #saved: string | null = null;
   #reauth = false;
@@ -160,7 +169,7 @@ class Scratch {
   }
 
   async start(resumed = false): Promise<void> {
-    if (this.#socket) return;
+    if (this.#socket || this.cooling > 0) return;
     if (!resumed) this.#reauth = false;
     const { code, header_name, header } = this.#draft();
     if (!code.trim()) {
@@ -235,6 +244,11 @@ class Scratch {
         });
         return;
       }
+      const wait = event.code === BUSY ? parseInt(event.reason, 10) : 0;
+      if (wait > 0) {
+        this.#coolDown(wait);
+        return;
+      }
       const said = closedMessage(event.code);
       if (said) this.say(said, true);
     };
@@ -242,6 +256,20 @@ class Scratch {
     socket.onerror = () => {
       this.say(t("console.lost"), true);
     };
+  }
+
+  #coolDown(seconds: number): void {
+    if (this.#coolTimer) clearInterval(this.#coolTimer);
+    const note = t("console.closed.4429_wait", { time: waitLabel(seconds) });
+    this.say(note, true);
+    this.cooling = seconds;
+    this.#coolTimer = setInterval(() => {
+      this.cooling = Math.max(0, this.cooling - 1);
+      if (this.cooling > 0 || !this.#coolTimer) return;
+      clearInterval(this.#coolTimer);
+      this.#coolTimer = null;
+      if (this.note === note) this.say("");
+    }, 1000);
   }
 
   send(text: string): void {
