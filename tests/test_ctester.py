@@ -1568,6 +1568,15 @@ def test_policy_is_declarative():
     assert not re.search(r"%d" % policy.daily_cap(), progress)
 
 
+def test_locale_placeholders_use_double_braces():
+    # i18n.svelte.ts only fills {{name}}; a {name} reaches the student as is.
+    folder = os.path.join(ROOT, "frontend", "src", "locales")
+    for name in os.listdir(folder):
+        with open(os.path.join(folder, name), encoding="utf-8") as fh:
+            for key, text in json.load(fh).items():
+                assert not re.search(r"(?<!\{)\{\w+\}(?!\})", text), (name, key, text)
+
+
 def test_every_api_refusal_is_a_key_the_page_words():
     # The API sends keys, never sentences: each one must be in the source locale, or a
     # student reads "db_down". A scan that finds too few means the patterns went stale.
