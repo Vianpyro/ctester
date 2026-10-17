@@ -111,6 +111,14 @@ async function settle(page) {
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.timeline instanceof DocumentTimeline && a.effect?.getComputedTiming().endTime !== Infinity)
+        .map((a) => a.finished.catch(() => {})),
+    ),
+  );
 }
 
 // The geometry, read in one pass inside the page. Each problem is [check, detail].
@@ -243,9 +251,11 @@ async function audit(browser, c) {
     await settle(page);
   };
   const panel = async (step, selector, keep) => {
+    at = step;
     await settle(page);
     await note(step, await page.evaluate(boxed, { selector, keep }));
   };
+  let at = "load";
   try {
     ({ context, page } = await open(browser, c));
     const { signedIn } = STATES[c.state];
@@ -255,26 +265,31 @@ async function audit(browser, c) {
     await settle(page);
     await note("bench", await page.evaluate(survey, { touch: c.touch, scope: "bench" }));
 
+    at = "catalog";
     await page.click("#excurrent");
     await panel("catalog", "#exlist");
     await close();
 
     if (await visible(page, "#burger")) {
+      at = "menu";
       await page.click("#burger");
       await panel("menu", "#tools");
       await close();
     }
+    at = "shortcuts";
     if (await press(page, "#shortcutsbutton")) {
       await page.waitForSelector("#shortcuts:not([hidden])", { timeout: 10_000 }).catch(() => {});
       await panel("shortcuts", "#shortcuts");
       await close();
     }
     if (!signedIn && (await visible(page, "#login"))) {
+      at = "consent";
       await page.click("#login");
       await panel("consent", "#consent");
       await close();
     }
     if (signedIn) {
+      at = "account";
       await page.click("#plate");
       await panel("account", "#accountmenu .menupanel");
       await page.click("#identity");
@@ -283,6 +298,7 @@ async function audit(browser, c) {
       await close();
       // The plate now carries the long name the profile gave it.
       await note("named", await page.evaluate(survey, { touch: c.touch, scope: "bar" }));
+      at = "view";
       if (await press(page, "#scratch")) {
         await page.waitForSelector("#viewscratch:not([hidden])", { timeout: 10_000 }).catch(() => {});
         await settle(page);
@@ -290,7 +306,7 @@ async function audit(browser, c) {
       }
     }
   } catch (error) {
-    found.push({ context: c.name, step: "run", check: "error", detail: String(error.message || error).split("\n")[0] });
+    found.push({ context: c.name, step: at, check: "error", detail: String(error.message || error).split("\n")[0] });
     if (page) await page.screenshot({ path: path.join(OUT, `${c.name}-error.png`) }).catch(() => {});
   } finally {
     if (context) await context.close();
