@@ -45,15 +45,15 @@ main {
   flex-direction: column;
 }
 
+/* The side columns follow the screen: what they always were up to 1366px, wider beyond, until
+   the statement reaches its full measure on a 4K screen. */
 #work {
+  --statement: minmax(19rem, clamp(25rem, 18rem + 8vw, 38rem));
+  --chat: minmax(17rem, clamp(22rem, 14rem + 6vw, 30rem));
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(19rem, 25rem) minmax(0, 1fr);
-}
-
-#work.withchat {
-  grid-template-columns: minmax(19rem, 25rem) minmax(0, 1fr) minmax(17rem, 22rem);
+  grid-template-columns: var(--statement) minmax(0, 1fr);
 }
 
 #work[hidden] {
@@ -86,8 +86,21 @@ main {
   font-weight: 700;
 }
 
-/* Folded, the statement becomes a rail on the edge of the bench: one click brings it back. */
+/* Folded, the statement becomes a rail on the edge of the bench: one click brings it back.
+   Only the wide grid has these columns: narrower, #work is a column or a row of panes. */
 @media (min-width: 1001px) {
+  #work.withchat {
+    grid-template-columns: var(--statement) minmax(0, 1fr) var(--chat);
+  }
+
+  #work:has(#statement:not([open])) {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  #work.withchat:has(#statement:not([open])) {
+    grid-template-columns: auto minmax(0, 1fr) var(--chat);
+  }
+
   #statement:not([open]) {
     background: var(--panel);
   }
@@ -104,14 +117,6 @@ main {
     color: var(--ink);
     background: var(--card);
   }
-}
-
-#work:has(#statement:not([open])) {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
-#work.withchat:has(#statement:not([open])) {
-  grid-template-columns: auto minmax(0, 1fr) minmax(17rem, 22rem);
 }
 
 #statement:not([open]) {
@@ -171,7 +176,7 @@ main {
 }
 
 #statementtext.md {
-  margin: 0;
+  margin: 0 auto;
   padding: 1rem var(--gut) 1.5rem;
   max-width: 68ch;
   white-space: normal;
@@ -378,10 +383,52 @@ main {
   padding-bottom: .4rem;
 }
 
+/* The bench is a grid of named areas; on a phone #work lays the same names out as panes
+   (layout.css; panes.test.ts binds the two). The verdict takes the height it needs, the editor
+   what is left, and never less than its last ten lines: past that, the sheet scrolls.
+   Its parts ask the bench's width, not the screen's: folding the statement or opening the chat
+   changes it. The editor and the action bar answer for it themselves where #right has no box. */
+#right,
+#editor,
+#actions {
+  container: bench / inline-size;
+}
+
 #right {
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template:
+    "now" auto
+    "lab" auto
+    "team" auto
+    "code" minmax(14rem, 1fr)
+    "act" auto
+    "out" minmax(0, auto) / minmax(0, 1fr);
+}
+
+#now {
+  grid-area: now;
+}
+
+#labband {
+  grid-area: lab;
+}
+
+#teamband {
+  grid-area: team;
+}
+
+#editor,
+#quizwrap {
+  grid-area: code;
+}
+
+#actions {
+  grid-area: act;
+}
+
+#out {
+  grid-area: out;
 }
 
 #now {
@@ -417,10 +464,7 @@ main {
   text-transform: none;
 }
 
-/* A zero basis: the editor takes what the bench has left instead of claiming the height of its
-   whole code, which squeezed the verdict sheet below it into a scrollbar. It scrolls already. */
 #editor {
-  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -431,7 +475,6 @@ main {
 }
 
 #quizwrap {
-  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: .9rem;
@@ -490,11 +533,6 @@ main {
   min-height: 0;
   display: flex;
   background: var(--card);
-}
-
-/* The editor never gives up its last ten lines to the verdict: the sheet scrolls instead. */
-#editor {
-  min-height: 14rem;
 }
 
 #editor .edwrap {
@@ -983,9 +1021,10 @@ main {
   font-size: var(--fs-label);
 }
 
-/* The sheet takes the height it needs; it only scrolls once the editor is down to its minimum. */
+/* The sheet takes the height it needs; it only scrolls once the editor is down to its minimum.
+   Its contents ask its own width: under the code, beside it, or a phone's whole pane. */
 #out {
-  flex: 0 1 auto;
+  container: sheet / inline-size;
   min-height: 0;
   overflow-y: auto;
   padding: .9rem var(--gut) .95rem calc(var(--gut) - 3px);
@@ -1270,7 +1309,7 @@ h2[tabindex="-1"]:focus {
 }
 
 .verdict.count {
-  font-size: 2.1rem;
+  font-size: clamp(1.6rem, 1.1rem + 2cqi, 2.4rem);
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
   letter-spacing: -.025em;

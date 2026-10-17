@@ -1,9 +1,13 @@
-:is(#consent, #charter, #identitypanel, #shortcuts) {
+:is(#consent, #charter, #shortcuts) {
   position: absolute;
   z-index: 5;
   top: 100%;
-  right: .9rem;
+  right: var(--gut);
   margin-top: .4rem;
+  /* 100%: the bar's height, which these hang from. */
+  max-height: calc(100dvh - 100% - env(safe-area-inset-top) - .4rem - var(--gut));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1rem 1.1rem;
   background: var(--raised);
   border: 1px solid var(--line);
@@ -16,7 +20,7 @@
 }
 
 /* They float in and out: allow-discrete holds display until the fade has run. */
-:is(#consent, #charter, #identitypanel, #shortcuts)[hidden] {
+:is(#consent, #charter, #shortcuts)[hidden] {
   display: none;
   opacity: 0;
   translate: 0 -.5rem;
@@ -24,7 +28,7 @@
 }
 
 @starting-style {
-  :is(#consent, #charter, #identitypanel, #shortcuts) {
+  :is(#consent, #charter, #shortcuts) {
     opacity: 0;
     translate: 0 -.5rem;
     scale: .98;
@@ -35,8 +39,7 @@
   width: min(30rem, calc(100vw - 2rem));
 }
 
-#consent h2,
-#identitypanel h2 {
+#consent h2 {
   margin: 0 0 .5rem;
   font-size: var(--fs-title);
   font-weight: 760;
@@ -62,11 +65,16 @@
   margin-top: .7rem;
 }
 
+/* The views fill the screen with graph paper; their content keeps a column that stays readable
+   on a 4K screen (centred, 90rem at most) and clears the home indicator on a phone. */
+:is(#viewprogress, #viewleaderboard, #viewcollection, #viewforum, #viewmoderation, #viewscratch) {
+  padding: var(--gut) max(var(--gut), (100% - 90rem) / 2) calc(var(--gut) + env(safe-area-inset-bottom));
+}
+
 #viewprogress {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: .9rem;
   font-family: var(--sans);
 }
 
@@ -168,7 +176,6 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: .9rem;
   font-family: var(--sans);
   display: grid;
   align-content: start;
@@ -196,100 +203,14 @@
   font-family: var(--sans);
 }
 
-#identitypanel {
-  width: min(26rem, calc(100vw - 2rem));
-  font-family: var(--sans);
+#shortcuts {
+  width: min(34rem, calc(100vw - 2rem));
 }
 
-#identitypanel {
-  max-height: calc(100vh - 5rem);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-@media (max-width: 900px) {
-  :root {
-    --tap: 2.75rem;
-  }
-
-  .tile {
-    min-height: var(--tap);
-  }
-
-  html,
-  body {
-    height: auto;
-  }
-
-  main {
-    display: block;
-  }
-
-  body {
-    display: block;
-    height: auto;
-    overflow: auto;
-  }
-
-  #work {
-    display: block;
-  }
-
-  #statement {
-    overflow: visible;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  #statement summary {
-    position: static;
-  }
-
-  #right {
-    display: block;
-  }
-
-  .edwrap {
-    height: clamp(12rem, 45vh, 26rem);
-  }
-
-  #editor .edwrap {
-    min-height: 0;
-  }
-
-  #out {
-    max-height: none;
-    overflow: visible;
-  }
-
-  :is(#consent, #charter, #identitypanel, #shortcuts) {
-    position: static;
-    width: auto;
-    margin: .9rem;
-    box-shadow: none;
-    max-height: none;
-    overflow-y: visible;
-  }
-}
-
-/* Tablets in portrait (an iPad is 810px): the statement becomes a panel over the editor,
-   one tap away, instead of a block above it, so the Test button stays on screen. */
-@media (min-width: 701px) and (max-width: 1000px) {
-  html,
-  body {
-    height: 100%;
-  }
-
-  body {
-    display: flex;
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  main {
-    display: flex;
-  }
-
+/* Below 1000px the bench is one column: the statement becomes a panel over the editor, one tap
+   away, so the Test button stays on screen. The page itself never scrolls, whatever the width:
+   on a phone the bench turns into panes instead (layout.css). */
+@media (max-width: 1000px) {
   #work {
     display: flex;
     flex-direction: column;
@@ -318,19 +239,6 @@
   #right {
     flex: 1 1 auto;
     min-height: 0;
-    display: flex;
-  }
-
-  .edwrap {
-    height: auto;
-  }
-
-  #out {
-    overflow-y: auto;
-  }
-
-  .tile {
-    min-height: var(--tap);
   }
 }
 
@@ -799,11 +707,16 @@
   margin-left: -.8rem;
 }
 
-/* The strip keeps to one row, the height it reserved: on mid-size screens the count of
-   exercises (the stations already show it) and the shortcut hint give way first. */
-@media (max-width: 1440px) {
-  #labband > .grow + .tag,
-  #labband > .nav .shortcut {
+/* The strip keeps to one row, the height it reserved: on a narrow bench the count of exercises
+   (the stations already show it) and the shortcut hint give way first. On a phone the bench has
+   no box of its own to ask (#right steps aside for the panes), so the screen answers. */
+#labband > .grow + .tag,
+#labband > .nav .shortcut {
+  @container bench (max-width: 70rem) {
+    display: none;
+  }
+
+  @media (max-width: 700px), (orientation: landscape) and (max-height: 30rem) and (pointer: coarse) {
     display: none;
   }
 }
@@ -1165,7 +1078,6 @@
 #viewcollection {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: .9rem;
 }
 
 #viewleaderboard[hidden],
@@ -1403,8 +1315,10 @@
     inset: auto 0 0 0;
     z-index: 6;
     height: 60dvh;
+    padding-bottom: env(safe-area-inset-bottom);
     border-left: 0;
     border-top: 1px solid var(--line);
+    border-radius: var(--r-float) var(--r-float) 0 0;
     box-shadow: 0 -6px 24px rgba(0, 0, 0, .35);
   }
 }

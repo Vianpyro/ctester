@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { TITLE } from "../lib/config";
+  import { foldToFit } from "../lib/fold";
   import { i18n, languageName, LANGUAGES, t } from "../lib/i18n.svelte";
   import { savePreferences } from "../lib/api/account";
   import { catalog } from "../lib/state/catalog.svelte";
@@ -47,6 +49,10 @@
 
   let toolsOpen = $state(false);
 
+  // Eleven levels, from the byline to a phone's bare icons: base.css, "The bar folds".
+  let bar: HTMLDivElement | undefined = $state();
+  onMount(() => foldToFit(bar!, 11));
+
   // Runs before App's window handler, which skips events already defaultPrevented.
   const closeTools = (e: KeyboardEvent) => {
     if (e.key !== "Escape" || !toolsOpen) return;
@@ -56,7 +62,7 @@
   };
 </script>
 
-<div id="top" role="presentation" onkeydown={closeTools}>
+<div id="top" role="presentation" onkeydown={closeTools} bind:this={bar}>
   <h1>
     <button
       type="button"
@@ -128,6 +134,7 @@
           class="nav"
           aria-current={view.current === "progress" ? "page" : undefined}
           aria-busy={opening === "progress" ? "true" : undefined}
+          title={view.label("progress", t("topbar.progress"))}
           onclick={() => openView("progress")}
         >
           {view.label("progress", t("topbar.progress"))}
@@ -138,6 +145,7 @@
             id="discussions"
             class="nav"
             aria-current={view.current === "forum" || view.current === "moderation" ? "page" : undefined}
+            title={view.current === "forum" || view.current === "moderation" ? t("view.back") : t("topbar.chat")}
             onclick={openChat}
           >
             {view.current === "forum" || view.current === "moderation"
@@ -153,6 +161,7 @@
             class="nav"
             aria-current={view.current === "scratch" ? "page" : undefined}
             aria-busy={opening === "scratch" ? "true" : undefined}
+            title={view.label("scratch", t("topbar.console"))}
             onclick={() => openView("scratch")}
           >
             {view.label("scratch", t("topbar.console"))}

@@ -77,8 +77,10 @@
   --fs-ui: .875rem;
   --fs-body: .94rem;
   --fs-lead: 1rem;
-  --fs-title: 1.2rem;
-  --fs-display: 1.75rem;
+  /* Titles and gutters follow the screen, reading text does not. Each equals its old fixed
+     value at 1366px, the laptop Lighthouse measures. */
+  --fs-title: clamp(1.05rem, .9rem + .35vw, 1.5rem);
+  --fs-display: clamp(1.45rem, 1.05rem + .8vw, 2.4rem);
   --fs-code: 14px;
   --s-1: .25rem;
   --s-2: .5rem;
@@ -88,7 +90,7 @@
   --s-6: 2rem;
   --tap: 2.25rem;
   --tap-lg: 2.75rem;
-  --gut: .9rem;
+  --gut: clamp(.75rem, .35rem + .65vw, 1.5rem);
   /* Rarity bands, drawn as bars and glows only (never text), so one set serves both themes. */
   --tier-1: #4b69ff;
   --tier-2: #8847ff;
@@ -196,6 +198,29 @@
   }
 }
 
+/* (0,2,0): after the theme blocks and as specific as the strongest of them, in either theme. */
+@media (prefers-contrast: more) {
+  :root:is([data-theme], :not([data-theme])) {
+    --line: var(--line-2);
+    --muted: color-mix(in srgb, var(--fg) 82%, var(--bg));
+  }
+}
+
+/* A finger, not a pointer: on a phone, and on any touch screen however wide. */
+@media (max-width: 900px), (pointer: coarse) {
+  :root {
+    --tap: 2.75rem;
+  }
+}
+
+/* No keyboard to speak of: its shortcuts are noise. */
+@media not (any-pointer: fine) {
+  .shortcut,
+  #shortcutsbutton {
+    display: none;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -225,6 +250,9 @@ body {
   display: flex;
   flex-direction: column;
   height: 100dvh;
+  /* viewport-fit=cover: the notch and the rounded corners are kept clear here, once; the
+     bottom edge is each bottom element's own business. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
   background: var(--bg);
   color: var(--fg);
   font: var(--fs-ui)/1.5 var(--sans);
@@ -258,7 +286,7 @@ body {
   .chathead .wide, .chathead .close, #announcement .nav, #system .close, #system, .padlock,
   .verdict:is(.ok, .bad, .fault), #out .note, .suite .next, .suite .retry, .suite .help, .gcc > .nav,
   #identity, #leaderboard, #collection, #logout, #forget, #saving.saved, #saving.failed,
-  .typsthtml .copy, #out .fold)::before {
+  .typsthtml .copy, #out .fold, #panes button, #identityclose)::before {
   content: "";
   flex: none;
   display: inline-block;
@@ -266,6 +294,12 @@ body {
   height: 1.15em;
   background: currentColor;
   mask: url(../icons/info.svg) center / contain no-repeat;
+
+  /* Windows' contrast themes repaint every background, a mask's paint included: kept as it is,
+     currentColor is already the theme's own text colour. */
+  @media (forced-colors: active) {
+    forced-color-adjust: none;
+  }
 }
 
 #prev::before { mask-image: url(../icons/chevron-left.svg); }
@@ -304,6 +338,10 @@ body {
 #collection::before { mask-image: url(../icons/cards.svg); }
 #logout::before { mask-image: url(../icons/logout.svg); }
 .typsthtml .copy::before { mask-image: url(../icons/copy.svg); }
+#tostatement::before { mask-image: url(../icons/doc.svg); }
+#tocode::before { mask-image: url(../icons/code.svg); }
+#toresult::before { mask-image: url(../icons/result.svg); }
+#identityclose::before { mask-image: url(../icons/close.svg); }
 
 #top {
   position: relative;
@@ -311,7 +349,6 @@ body {
   display: flex;
   align-items: center;
   gap: .6rem;
-  flex-wrap: wrap;
   padding: .45rem var(--gut);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
@@ -376,20 +413,6 @@ h1 {
   min-width: 8rem;
 }
 
-/* #top wraps, and a second row moves every element on the page. The tagline beside the mark
-   yields first (the tab title still carries it), then the byline. */
-@media (max-width: 1440px) {
-  #home .tagline {
-    display: none;
-  }
-}
-
-@media (max-width: 1400px) {
-  .credit {
-    display: none;
-  }
-}
-
 #live[hidden] {
   visibility: hidden;
 }
@@ -403,57 +426,178 @@ h1 {
   display: contents;
 }
 
-/* Phones and portrait tablets: the tools fold behind ☰ and the counter shortens, so the bar
-   keeps to one row where it can. */
-@media (max-width: 1000px) {
-  #live {
-    min-width: 5rem;
-  }
-
-  #live .wide {
-    display: none;
-  }
-
-  #live .narrow {
-    display: inline;
-  }
-
-  #burger {
-    display: inline-flex;
-    width: var(--tap);
-    min-width: var(--tap);
-    padding: 0;
-  }
-
-  #tools {
-    display: none;
-    right: var(--gut);
-    opacity: 0;
-    translate: 0 -.4rem;
-    scale: .97;
-  }
-
-  #tools.open {
-    display: flex;
-    opacity: 1;
-    translate: none;
-    scale: none;
-  }
-
-  #tools .group {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  #tools .sep {
-    display: none;
-  }
+/* ---- The bar folds, it never wraps ----------------------------------------------------------
+   A second row moves the whole page, and a menu opened from a button that wrapped falls off the
+   screen. What the bar holds is not known here (the title, the language, the student's name,
+   their text size), so lib/fold.ts measures it and raises data-fold one level at a time until
+   it fits. Each level gives up the next least useful thing: ☰ comes eighth, and a small phone
+   goes on to its bare icons. */
+#top[data-measuring] #tools {
+  transition: none;
 }
 
-@media (max-width: 700px) {
-  #home .tagline,
+/* What overflows into the bar's own padding stays inside its box, unseen by scrollWidth: while
+   measured, the padding becomes margin, and the box is exactly the room there is. */
+#top[data-measuring] {
+  padding-inline: 0;
+  margin-inline: var(--gut);
+}
+
+/* Fitting means fitting at their own size: squeezed, they would still wrap on a phone, whose
+   rows break by each item's natural width. */
+#top[data-measuring] > *,
+#top[data-measuring] > #tools > * {
+  flex-shrink: 0;
+}
+
+#top[data-fold~="1"] .credit,
+#top[data-fold~="2"] #home .tagline,
+#top[data-fold~="3"] #live .wide {
+  display: none;
+}
+
+#top[data-fold~="3"] #live {
+  min-width: 5rem;
+}
+
+#top[data-fold~="3"] #live .narrow {
+  display: inline;
+}
+
+/* In the bar, a word gives way to its icon; under ☰ the words come back. The text stays the
+   button's accessible name. */
+#top[data-fold~="4"]:not([data-fold~="8"]) #shortcutsbutton :is(.label, .shortcut) {
+  display: none;
+}
+
+#top[data-fold~="4"]:not([data-fold~="8"]) #shortcutsbutton,
+#top[data-fold~="5"]:not([data-fold~="8"]) #tools .group .nav {
+  width: var(--tap);
+  padding: 0;
+}
+
+#top[data-fold~="5"]:not([data-fold~="8"]) #tools .group .nav {
+  font-size: 0;
+  gap: 0;
+}
+
+#top[data-fold~="5"]:not([data-fold~="8"]) #tools .group .nav::before {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* Initials stand for the name; with none yet, the plate keeps its word. */
+#top[data-fold~="6"] #plate:has(#initials:not(:empty)) :is(#whoami, #mygroup) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+#top[data-fold~="7"] #excurrent {
+  width: 15rem;
+}
+
+#top[data-fold~="7"] #excurrent .what {
+  display: none;
+}
+
+#top[data-fold~="8"] #burger {
+  display: inline-flex;
+  width: var(--tap);
+  min-width: var(--tap);
+  padding: 0;
+}
+
+#top[data-fold~="8"] #tools {
+  display: none;
+  right: var(--gut);
+  opacity: 0;
+  translate: 0 -.4rem;
+  scale: .97;
+}
+
+#top[data-fold~="8"] #tools.open {
+  display: flex;
+  opacity: 1;
+  translate: none;
+  scale: none;
+}
+
+#top[data-fold~="8"] #tools .group {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#top[data-fold~="8"] #tools .sep {
+  display: none;
+}
+
+/* Past ☰, a small phone's row: the head count goes, then the name beside the mark (the mark
+   and the tab still carry it), then the account's words, leaving its initials or its icon. */
+#top[data-fold~="9"] #live {
+  display: none;
+}
+
+#top[data-fold~="10"] #home {
+  min-width: var(--tap);
+  justify-content: center;
+  font-size: 0;
+  gap: 0;
+}
+
+#top[data-fold~="11"] #login {
+  width: var(--tap);
+  padding: 0;
+  font-size: 0;
+}
+
+#top[data-fold~="11"] #login::before {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+#top[data-fold~="11"] #plate:has(#initials:empty) #whoami {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+#top[data-fold~="11"] #plate:has(#initials:empty)::before {
+  content: "";
+  width: 1.25rem;
+  height: 1.25rem;
+  background: currentColor;
+  mask: url(../icons/user.svg) center / contain no-repeat;
+}
+
+/* The name on the plate is the first thing to shorten, before the bar folds at all. */
+#whoami {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A phone held upright, or any screen this narrow: two rows by design, the picker on its own.
+   The fold measures the first row only (on its side, a phone keeps one row and folds it). */
+@media (max-width: 700px) and (orientation: portrait), (max-width: 30rem) {
+  #top {
+    flex-wrap: wrap;
+  }
+
   #top > .sep {
     display: none;
+  }
+
+  #top[data-measuring] :is(#menuex, #top > .field) {
+    position: absolute;
+    visibility: hidden;
   }
 
   #menuex {
@@ -466,17 +610,30 @@ h1 {
     order: 2;
   }
 
-  #excurrent {
+  /* [data-fold]: as specific as the levels above, which a full-width picker overrides. */
+  #excurrent,
+  #top[data-fold] #excurrent {
     width: 100%;
     max-width: none;
     justify-content: flex-start;
   }
 
-  #menuex > .menupanel {
-    left: 0;
+  #top[data-fold] #excurrent .what {
+    display: inline;
   }
 
-  #exlist {
+  /* The catalogue hangs from the bar, as wide as the screen allows (#top: it outranks the
+     wide screen's rule further down). */
+  #menuex {
+    position: static;
+  }
+
+  #top #menuex > .menupanel {
+    left: var(--gut);
+    right: var(--gut);
+  }
+
+  #menuex #exlist {
     min-width: 0;
   }
 }
@@ -684,19 +841,6 @@ button:disabled {
   }
 }
 
-/* The utilities shrink to their icon first: their names stay as their accessible label. */
-@media (max-width: 1440px) {
-  #shortcutsbutton .label,
-  #shortcutsbutton .shortcut {
-    display: none;
-  }
-
-  #shortcutsbutton {
-    width: var(--tap);
-    padding: 0;
-  }
-}
-
 /* Signed out, the Console and the chat are absent from the bar: this button is the only way to
    them. Its halo breathes once after the page lands, and again when pointed at: an invitation,
    not a light that keeps blinking beside the code (WCAG 2.2.2). */
@@ -797,6 +941,10 @@ button:disabled {
   mask: url(../icons/chevron-right.svg) center / contain no-repeat;
   rotate: 90deg;
   transition: rotate var(--t-3) var(--ease-spring);
+
+  @media (forced-colors: active) {
+    forced-color-adjust: none;
+  }
 }
 
 .menu[open]>summary::after {
@@ -819,6 +967,10 @@ button:disabled {
   align-items: stretch;
   gap: .35rem;
   min-width: 13rem;
+  max-width: calc(100vw - 2 * var(--gut));
+  max-height: calc(100dvh - 100% - env(safe-area-inset-top) - 1.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: .5rem;
   background: var(--raised);
   border: 1px solid var(--line);
@@ -846,8 +998,21 @@ button:disabled {
   }
 }
 
+/* The catalogue opens rightwards from the picker, which sits at the bar's left. */
 #menuex>.menupanel {
+  left: 0;
+  right: auto;
   transform-origin: top left;
+}
+
+/* The account menu hangs from the bar's right edge, like ☰ and the bar's panels, not from its
+   button: wherever the button ends up, the menu stays on screen, and its 100% is the bar's. */
+#accountmenu {
+  position: static;
+}
+
+#accountmenu>.menupanel {
+  right: var(--gut);
 }
 
 .menupanel button {
@@ -883,11 +1048,12 @@ button:disabled {
   padding: 0 .2rem .2rem;
 }
 
+/* The list gives way, not the search above it: its panel already ends above the screen's edge. */
 #exlist {
-  left: 0;
-  right: auto;
+  flex: 0 1 auto;
   min-width: 20rem;
-  max-height: min(70vh, 30rem);
+  min-height: 0;
+  max-height: 30rem;
   overflow-y: auto;
   gap: .15rem;
 }
@@ -934,6 +1100,10 @@ button:disabled {
   background: currentColor;
   mask: url(../icons/chevron-right.svg) center / contain no-repeat;
   transition: rotate var(--t-3) var(--ease-spring);
+
+  @media (forced-colors: active) {
+    forced-color-adjust: none;
+  }
 }
 
 :is(#exlist .col, #statement, .case, .diags)[open]>summary::before {

@@ -81,6 +81,16 @@ Languages and how to add one are in [docs/translations.md](docs/translations.md)
   `matchMedia`, `animate`, `getAnimations` or `startViewTransition`, so every helper falls back
   to an instant change. Only a loading indicator may loop forever (WCAG 2.2.2); anything else
   plays a bounded number of times, and `motionRules.test.ts` reads every `.css` file for it.
+- **The bench is placed by area name** (`now lab team code act out`): `#right`'s grid on a wide
+  bench, `#work`'s three panes on a phone (`#right` is then `display: contents`); `panes.test.ts`
+  binds the two. Media queries for what spans the window (the bar), container queries for what
+  lives in a column (`bench`, `sheet`, `identity`). `#work` is never a container: it holds the
+  fixed `#chatdock`. Whether the bench is in panes is asked of the layout (`lib/panes.ts`), never
+  a breakpoint copied into TypeScript.
+- **The bar never wraps.** `lib/fold.ts` measures it and folds it a level at a time
+  (`#top[data-fold~="n"]` in `base.css`, from the byline to a phone's bare icons); its menus hang from the bar's
+  right edge, never from a button that may have moved. `.github/layout/audit.cjs` checks it on
+  some forty screens, signed in and out, in CI (the `laptop` leg of the Lighthouse job).
 - **Icons are SVG files in `frontend/src/icons/`**, drawn by CSS masks on `::before` and aimed at
   the control by its id or class: no icon lives in the markup, so they cost the bundle nothing.
 - **Tables and grants live together** in `app/schema.sql`. Any table with an `account` column must be

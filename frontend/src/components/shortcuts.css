@@ -1,11 +1,8 @@
 /* Loaded with ShortcutsPanel.svelte, after app.css. */
 
+/* Its box (width, height, the phone's sheet) is the bar's panels' own, in the eager sheet. */
 #shortcuts {
-  width: min(34rem, calc(100vw - 2rem));
   font-family: var(--sans);
-  max-height: calc(100vh - 5rem);
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 #shortcuts[hidden] {

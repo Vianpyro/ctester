@@ -31,6 +31,15 @@ environment. Only the `pages` job enters that environment, so it builds its own 
 artifact stays generic for Lighthouse. `pages` refuses to deploy a build with no CNAME or no API
 origin in its CSP, since such a page would ask its own origin for `/catalog.json`.
 
+Lighthouse measures four screens, signed out. The `laptop` leg also runs the layout audit
+(`.github/layout/audit.cjs`) on the same demo server: some forty screens, from a folded phone to
+5120×1440, signed in and out, in both languages and at larger text sizes. It fails when the bar
+wraps, when a control or an open menu leaves the screen, or when a touch target is under 44px,
+and uploads a screenshot of each failure. Locally, with the demo server up as in CI:
+`npm install -g playwright-core@1.63.0`, then `NODE_PATH="$(npm root -g)"
+CHROME_PATH=<a Chrome or Chromium> node .github/layout/audit.cjs`. `LAYOUT_ONLY=390x844` keeps
+the contexts whose name contains it, and `LAYOUT_BASE_URL` points it at another server.
+
 - `CTESTER_TITLE` is the instance's name alone (`TCH009`). The header and the tab add the tagline,
   and the build refuses a title that already contains it.
 - `CTESTER_LANG` is the language a student sees before choosing one (`fr` for ÉTS, `en` by

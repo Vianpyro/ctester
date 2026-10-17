@@ -250,11 +250,11 @@ html:active-view-transition * {
     :is(#viewprogress, #viewleaderboard, #viewcollection)::before {
       content: "";
       position: sticky;
-      top: -.9rem;
+      top: calc(-1 * var(--gut));
       z-index: 2;
       display: block;
       height: 2px;
-      margin: -.9rem -.9rem calc(.9rem - 2px);
+      margin: calc(-1 * var(--gut)) calc(-1 * var(--gut)) calc(var(--gut) - 2px);
       background: var(--ink);
       transform-origin: left center;
       scale: 0 1;

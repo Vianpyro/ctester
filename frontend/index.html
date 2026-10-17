@@ -10,7 +10,9 @@
 <!-- Must follow <meta charset> and match app/csp.py; frame-ancestors is header-only.
      The %TOKENS% are filled by the deployment plugin in vite.config.ts. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' %API_ORIGIN% blob:; connect-src 'self' %API_ORIGIN% %API_WS% %AUTH_ORIGIN%; base-uri 'none'; form-action 'none'">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- cover: edge to edge past the notch (body keeps the content clear of it); resizes-content:
+     the on-screen keyboard shrinks the layout, so the Test bar stays above it. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="robots" content="noindex, nofollow">
 <title>%TITLE% — %TAGLINE%</title>
 <!-- Blocking on purpose: the theme is applied before the first paint. -->

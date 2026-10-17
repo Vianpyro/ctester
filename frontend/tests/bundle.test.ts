@@ -136,12 +136,14 @@ describe.skipIf(!built)("what a student with no account pays for", () => {
 
   // 151 KB since the motion work: the View Transitions, the theme reveal and the deferred
   // celebration's loader cost about 0.5 KB here. Everything else that moves is CSS or deferred.
-  it("stays under 151 KB of eager JavaScript", () => {
+  // 153 KB since the responsive work: the bar's measured fold and the phone's pane switcher
+  // must be there at the first paint, about 1.6 KB together.
+  it("stays under 153 KB of eager JavaScript", () => {
     const bytes = eagerChunks().reduce(
       (n, name) => n + readFileSync(join(DIST, "assets", name)).byteLength,
       0,
     );
-    expect(bytes).toBeLessThan(151_000);
+    expect(bytes).toBeLessThan(153_000);
   });
 
   it("keeps the quiz widgets out: most exercises are not a quiz", () => {

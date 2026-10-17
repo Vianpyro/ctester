@@ -1,0 +1,32 @@
+{
+  "public": {
+    "oidc.json": {
+      "issuer": "https://id.invalid",
+      "client_id": "ctester",
+      "forum": true,
+      "chat": true,
+      "scratch": true
+    }
+  },
+  "signedIn": {
+    "states": { "states": [] },
+    "practice": { "practice": [] },
+    "forum/activity": { "threads": {} },
+    "forum/profile": {
+      "display_name": "Marie-Ève Tremblay-Desjardins",
+      "group_number": 12,
+      "display_name_public": true,
+      "group_number_public": true,
+      "badges_public": true,
+      "leaderboard_opt_in": true,
+      "plate_frame": null,
+      "alias": "Hérisson Ponctuel",
+      "max_display_name": 40,
+      "group_numbers": [1, 2, 3, 12],
+      "frames": [{ "id": "simple" }, { "id": "coupe" }, { "id": "tolerance" }],
+      "suggestion": "Marie-Ève Tremblay-Desjardins"
+    },
+    "team/mine": { "teams": [] },
+    "scratch/draft": { "code": "" }
+  }
+}

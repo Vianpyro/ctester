@@ -8,6 +8,7 @@
   import { editor } from "../lib/state/editor.svelte";
   import { runTest } from "../lib/state/run";
   import { localDrop, localGet, localSet } from "../lib/storage";
+  import { paned, showPane } from "../lib/panes";
   import { t } from "../lib/i18n.svelte";
   import {
     OUTCOMES,
@@ -141,13 +142,11 @@
     lastSeen = phase;
     // A recalled verdict comes with the exercise; the page stays where the student put it.
     if (phase.recalled) return;
-    // 700px, matching app.css: from there up the verdict is pinned in view already, so
-    // only the stacked phone layout needs scrolling to it.
-    const narrow =
-      typeof matchMedia === "function" && matchMedia("(max-width: 700px)").matches;
-    if (!narrow || !box) return;
-    box.scrollIntoView?.({ block: "start", behavior: "smooth" });
-    box.focus?.();
+    // Everywhere but in a phone's panes the verdict is on screen already. There it has a pane
+    // of its own: brought in if the student swiped away meanwhile, and focused either way.
+    if (!paned() || !box) return;
+    showPane(2);
+    box.focus?.({ preventScroll: true });
   });
 
   // One string, so a verdict and the note that comes with it are never cut off by each other.

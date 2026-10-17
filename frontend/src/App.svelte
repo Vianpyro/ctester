@@ -28,6 +28,7 @@
   import CodeEditor from "./components/CodeEditor.svelte";
   import ConsentPanel from "./components/ConsentPanel.svelte";
   import LabStrip from "./components/LabStrip.svelte";
+  import Panes from "./components/Panes.svelte";
   import Statement from "./components/Statement.svelte";
   import TopBar from "./components/TopBar.svelte";
   import VerdictPanel from "./components/VerdictPanel.svelte";
@@ -223,8 +224,9 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
-    // The editor claims its keys with preventDefault().
-    if (event.defaultPrevented) return;
+    // The editor claims its keys with preventDefault(); a modal dialog owns the keyboard, Escape
+    // included.
+    if (event.defaultPrevented || profile.identityOpen) return;
     const id = matchShortcut(event);
     if (!id) return;
 
@@ -281,9 +283,6 @@
       (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
 
     if (helpOpen) return close(event, () => (helpOpen = false), "shortcutsbutton");
-    if (profile.identityOpen && !typing) {
-      return close(event, () => (profile.identityOpen = false), "plate");
-    }
     if (profile.consentOpen) return close(event, () => profile.cancelConsent(), "login");
     if (menuOpen) return close(event, () => ((menuOpen = false), (focusSearch = false)), "excurrent");
     if (profile.menuOpen) return close(event, () => (profile.menuOpen = false), "plate");
@@ -372,6 +371,7 @@
     {/if}
   </div>
 
+  <Panes />
   <div id="work" class={dock.open || dock.reserved ? "withchat" : ""} hidden={!showWorkbench}>
     <Statement />
 

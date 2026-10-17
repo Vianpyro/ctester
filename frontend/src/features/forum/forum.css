@@ -261,53 +261,231 @@
   margin-top: .7rem;
 }
 
-#identitypanel[hidden] {
-  display: none;
+/* ---- My identity ----------------------------------------------------------------------------
+   A modal dialog in the top layer: never under the bar, never off the screen, closed by its ×,
+   by Escape or by a click outside. Its head and foot stay put; the body scrolls between them.
+   It answers its own width: two columns where the preview can sit beside the fields, a sheet
+   rising from the bottom edge on a phone. */
+#identitypanel {
+  container: identity / inline-size;
+  width: min(46rem, 100% - 2rem);
+  max-width: none;
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-family: var(--sans);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--ink);
+  border-radius: var(--r-float);
+  box-shadow: var(--shadow-3), var(--rim);
+  opacity: 0;
+  translate: 0 .75rem;
+  transition: opacity var(--t-3) var(--ease-out), translate var(--t-3) var(--ease-out),
+    display var(--t-3) allow-discrete, overlay var(--t-3) allow-discrete;
 }
 
-#identitypanel h2 {
-  font-size: .95rem;
-  margin: 0 0 .5rem;
+#identitypanel[open] {
+  display: flex;
+  opacity: 1;
+  translate: none;
 }
 
-#identitypanel p {
-  margin: .5rem 0 0;
-  font-size: var(--fs-body);
-  color: var(--muted);
+#identitypanel::backdrop {
+  background: rgb(1 6 14 / .45);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity var(--t-3) var(--ease-out), display var(--t-3) allow-discrete,
+    overlay var(--t-3) allow-discrete;
 }
 
-#identitypanel .notice {
-  color: var(--ink);
+#identitypanel[open]::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  #identitypanel[open] {
+    opacity: 0;
+    translate: 0 .75rem;
+  }
+
+  #identitypanel[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+#identitypanel .idsheet {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+#identitypanel .idhead {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .55rem .55rem .55rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+#identitypanel .idhead h2 {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 760;
+  letter-spacing: -.01em;
+}
+
+#identityclose {
+  width: var(--tap);
+  min-width: var(--tap);
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+#identityclose::before {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+#identitypanel .idbody {
+  display: grid;
+  align-content: start;
+  gap: .8rem;
+  padding: 1rem 1.1rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#identitypanel .idfields {
+  display: grid;
+  gap: .6rem;
+}
+
+#identitypanel .idcard {
+  padding: .7rem .8rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--coin);
+}
+
+#identitypanel .idlabel {
+  display: block;
+  margin: 0 0 .35rem;
+  color: var(--fg);
+  font-size: var(--fs-ui);
+  font-weight: 650;
+}
+
+#identitypanel .idcard > .check:first-child {
+  margin-top: 0;
+}
+
+#identitypanel .help {
+  margin: .45rem 0 0;
+  font-size: var(--fs-label);
+  line-height: 1.45;
 }
 
 #identitypanel .failed {
+  margin: 0;
   color: var(--bad);
   font-weight: 600;
 }
 
-#identitypanel label {
-  display: block;
-  font-size: var(--fs-ui);
-  color: var(--muted);
-  margin: .6rem 0 .3rem;
-}
-
-#identitypanel input[type="text"],
-#identitypanel input[type="number"] {
+#identitypanel :is(input[type="text"], input[type="number"], select) {
   width: 100%;
   font-family: var(--sans);
   font-size: var(--fs-body);
   padding: .4rem .5rem;
   color: var(--fg);
-  background: var(--card);
+  background: var(--bg);
   border: 1px solid var(--line-2);
   border-radius: var(--coin);
 }
 
-#identitypanel .row {
+#identitypanel .aliasrow {
+  margin: 0;
+}
+
+#identitypanel .idpreview .subtitle {
+  margin: 0 0 .3rem;
+}
+
+#identitypanel .myteams {
+  margin: 0;
+}
+
+#identitypanel .idfoot {
   display: flex;
-  gap: .6rem;
-  margin-top: .7rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem .6rem;
+  padding: .6rem 1.1rem;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+#identitypanel .idstate {
+  flex: 1 1 10rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-ui);
+}
+
+#identitysave {
+  color: var(--ink-fg);
+  background: var(--ink);
+  border-color: var(--ink);
+  font-weight: 700;
+}
+
+/* The preview stays in sight beside the fields: a box ticked shows on the plate at once. */
+@container identity (min-width: 40rem) {
+  #identitypanel .idbody {
+    grid-template-columns: 14rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  #identitypanel .idbody > :is(.myteams, .failed) {
+    grid-column: 1 / -1;
+  }
+
+  #identitypanel .idpreview {
+    position: sticky;
+    top: 0;
+  }
+}
+
+/* A phone: a sheet that rises from the bottom edge, its foot clear of the home indicator. */
+@media (max-width: 700px), (orientation: landscape) and (max-height: 30rem) and (pointer: coarse) {
+  #identitypanel {
+    width: 100%;
+    max-height: calc(100dvh - 1rem);
+    margin: auto 0 0;
+    border-width: 3px 0 0;
+    border-radius: var(--r-float) var(--r-float) 0 0;
+    translate: 0 100%;
+  }
+
+  #identitypanel[open] {
+    translate: none;
+  }
+
+  @starting-style {
+    #identitypanel[open] {
+      translate: 0 100%;
+    }
+  }
+
+  #identitypanel .idfoot {
+    padding-bottom: max(.6rem, env(safe-area-inset-bottom));
+  }
 }
 
 :is(#viewforum, #viewmoderation) .reminder {

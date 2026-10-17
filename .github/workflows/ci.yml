@@ -111,6 +111,22 @@ jobs:
           set -euo pipefail
           lhci collect --config=.github/lighthouse/lighthouserc.cjs
           lhci assert --config=.github/lighthouse/lighthouserc.cjs
+      # What Lighthouse cannot see: some forty screens, signed in and out, on the server already
+      # up. Once is enough, so on one leg; the runner's Chrome, as lhci, so nothing is downloaded.
+      - name: Audit the layout on every screen
+        if: ${{ !cancelled() && matrix.profile == 'laptop' }}
+        run: |
+          set -euo pipefail
+          npm install -g playwright-core@1.63.0
+          NODE_PATH="$(npm root -g)" CHROME_PATH="$(command -v google-chrome)" \
+            node .github/layout/audit.cjs
+      - if: failure() && matrix.profile == 'laptop'
+        uses: actions/upload-artifact@v7
+        with:
+          name: layout-audit
+          path: layout-audit
+          retention-days: 7
+          if-no-files-found: ignore
       # always(): the report is most wanted on the run that just failed.
       - if: always()
         uses: actions/upload-artifact@v7

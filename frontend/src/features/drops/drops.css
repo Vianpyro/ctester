@@ -3,10 +3,10 @@
 .drops {
   position: fixed;
   right: var(--gut);
-  bottom: var(--gut);
+  bottom: max(var(--gut), env(safe-area-inset-bottom));
   z-index: 10;
   width: min(22rem, calc(100vw - 2 * var(--gut)));
-  max-height: calc(100vh - 2 * var(--gut));
+  max-height: calc(100dvh - 2 * var(--gut));
   overflow: auto;
   padding: .8rem;
   border: 1px solid var(--line);
