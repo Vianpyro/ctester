@@ -4,7 +4,7 @@
 set -eu
 
 src=$(cd "$(dirname "$0")/.." && pwd)
-image=${CTESTER_WEB_IMAGE:-python:3.13-slim}
+image=${CTESTER_WEB_IMAGE:-python:3.15-slim}
 typst=${CTESTER_TYPST_IMAGE:-ghcr.io/typst/typst:0.15.1}
 
 # The pinned typst is statically linked: copied out of its image, it runs here as

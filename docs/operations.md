@@ -6,8 +6,9 @@ Everything needed to run CTester is in `deploy/`: the Compose stack, the systemd
 two update scripts. The TCH009 instance is deployed by the `VHome` repository (`roles/ctester`),
 which only adds gVisor, deploy keys, secrets and the PostgreSQL role.
 
-- The API container runs the stock `python:3.13-slim` image on read-only mounted code. The `deps`
-  service installs `requirements.txt` into a volume whenever the file changes. There is no Dockerfile.
+- The API container runs the stock `python:3.15-slim` image on read-only mounted code. The `deps`
+  service installs `requirements.txt` into a volume whenever the file or the image's Python changes.
+  There is no Dockerfile.
 - The host runs no Python of its own. `deploy/python.sh` runs `test_ctester.py` and the content
   publication in that same image (`CTESTER_WEB_IMAGE`), without network, read-only, with the pinned
   typst copied out of `CTESTER_TYPST_IMAGE` into the `ctester-typst` volume. One variable sets the

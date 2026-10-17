@@ -96,7 +96,7 @@ Real verdicts also need a worker, which requires Docker and gVisor. See
 
 | Layer         | Technology                     |
 | ------------- | ------------------------------ |
-| Backend       | Python 3.13, FastAPI, Uvicorn  |
+| Backend       | Python 3.15, FastAPI, Uvicorn  |
 | Frontend      | Svelte 5, TypeScript, Vite     |
 | Database      | PostgreSQL                     |
 | Execution     | Rust judge, Docker + gVisor    |

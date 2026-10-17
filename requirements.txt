@@ -1,6 +1,6 @@
-fastapi==0.142.2
-pydantic==2.13.5
-starlette==1.7.0
+fastapi==0.143.3
+pydantic==2.14.1
+starlette==1.8.0
 # Not uvicorn[standard]: wsproto alone provides WebSockets. Without it every
 # handshake gets a silent 501.
 uvicorn==0.54.0
