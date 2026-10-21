@@ -35,15 +35,17 @@ async function keep(cache, request, response) {
 }
 
 // Answer from the cache and refresh behind it. Used where a release-old answer is still
-// usable: the catalogue, an exercise, a rendered statement.
-async function behind(request, name) {
+// usable: an exercise, a rendered statement. waitUntil keeps the worker alive until the
+// refresh lands, or the cache could stay on an old release indefinitely.
+async function behind(event, name) {
+  const request = event.request;
   const cache = await caches.open(name);
   const held = await cache.match(request);
   const fresh = fetch(request)
     .then((response) => keep(cache, request, response))
     .catch(() => held);
   if (!held) return fresh;
-  void fresh;
+  event.waitUntil(fresh);
   return held;
 }
 
@@ -54,9 +56,9 @@ async function held(request) {
 }
 
 // The document names the asset hashes, so it must never be older than them: the cache is
-// the offline fallback, not the fast path.
-async function ahead(request) {
-  const cache = await caches.open(SHELL);
+// the offline fallback, not the fast path. The catalogue too: it carries the openings.
+async function ahead(request, name = SHELL) {
+  const cache = await caches.open(name);
   try {
     return await keep(cache, request, await fetch(request));
   } catch (failure) {
@@ -76,9 +78,11 @@ self.addEventListener("fetch", (event) => {
   } else if (url.origin === self.location.origin) {
     if (url.pathname.startsWith("/assets/")) event.respondWith(held(request));
     else if (url.pathname === "/theme.js" || url.pathname === "/favicon.svg") {
-      event.respondWith(behind(request, SHELL));
+      event.respondWith(behind(event, SHELL));
     }
+  } else if (url.pathname === "/catalog.json") {
+    event.respondWith(ahead(request, DATA));
   } else if (PUBLISHED.test(url.pathname)) {
-    event.respondWith(behind(request, DATA));
+    event.respondWith(behind(event, DATA));
   }
 });

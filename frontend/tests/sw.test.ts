@@ -55,4 +55,10 @@ describe("the service worker", () => {
       /request\.mode === "navigate"\)\s*\{\s*event\.respondWith\(ahead\(request\)\)/,
     );
   });
+
+  it("does not hide an opening behind a cached catalogue", () => {
+    expect(source, "the catalogue must go to the network first").toMatch(
+      /url\.pathname === "\/catalog\.json"\)\s*\{\s*event\.respondWith\(ahead\(request, DATA\)\)/,
+    );
+  });
 });
