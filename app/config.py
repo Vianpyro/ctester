@@ -71,6 +71,19 @@ DISCORD_URL = os.environ.get("CTESTER_DISCORD_URL", "").strip()
 DISCORD_TIMEOUT = _int("CTESTER_DISCORD_TIMEOUT", "5")
 DISCORD_ACCOUNT_PREFIX = "@discord:"
 
+# Every team's work is copied to a private repository of this organization. Empty disables it.
+GITHUB_ORG = os.environ.get("CTESTER_GITHUB_ORG", "").strip()
+# A fine-grained token on GITHUB_ORG: Administration and Contents read-write.
+GITHUB_TOKEN = os.environ.get("CTESTER_GITHUB_TOKEN", "").strip()
+# An OAuth App that only learns who a student is on GitHub: it asks for no scope.
+GITHUB_CLIENT_ID = os.environ.get("CTESTER_GITHUB_CLIENT_ID", "").strip()
+GITHUB_CLIENT_SECRET = os.environ.get("CTESTER_GITHUB_CLIENT_SECRET", "").strip()
+# Minutes without an edit before a team's work is committed on its own.
+GITHUB_IDLE = _int("CTESTER_GITHUB_IDLE", "10")
+GITHUB_TIMEOUT = _int("CTESTER_GITHUB_TIMEOUT", "10")
+# Commit messages are written in the instance's language (the page's CTESTER_LANG).
+LANG = os.environ.get("CTESTER_LANG", "") or "en"
+
 TEAM_REVISION_WINDOW = _int("CTESTER_TEAM_REVISION_WINDOW", "120")
 TEAM_REVISIONS_MAX = _int("CTESTER_TEAM_REVISIONS_MAX", "200")
 TEAM_LIVE_MAX = _int("CTESTER_TEAM_LIVE_MAX", "12")

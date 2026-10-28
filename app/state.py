@@ -956,6 +956,107 @@ def read_teams(assignment_id):
             for team_id, group_number, label, members in rows]
 
 
+def github_link_of(user):
+    rows = _query("SELECT github_id, login FROM github_link WHERE account = %s",
+                  (user,), read=True)
+    if rows is None:
+        return None
+    return {"github_id": int(rows[0][0]), "login": rows[0][1]} if rows else {}
+
+
+def write_github_link(user, github_id, login):
+    return _query(
+        "INSERT INTO github_link (account, github_id, login) VALUES (%s, %s, %s)"
+        " ON CONFLICT (account) DO UPDATE SET github_id = EXCLUDED.github_id,"
+        "   login = EXCLUDED.login, linked_at = now()",
+        (user, github_id, login)) is not None
+
+
+def drop_github_link(user):
+    return _query("DELETE FROM github_link WHERE account = %s", (user,)) is not None
+
+
+def github_links(users):
+    rows = _query("SELECT account, github_id, login FROM github_link"
+                  " WHERE account = ANY(%s)", (list(users),), read=True)
+    if rows is None:
+        return None
+    return {account: {"github_id": int(github_id), "login": login}
+            for account, github_id, login in rows}
+
+
+def read_github_repo(assignment_id, team_id):
+    rows = _query(
+        "SELECT repo, synced_at, collaborators FROM github_repo"
+        " WHERE assignment_id = %s AND team_id = %s",
+        (assignment_id, team_id), read=True)
+    if rows is None:
+        return None
+    if not rows:
+        return {}
+    repo, synced_at, collaborators = rows[0]
+    try:
+        invited = json.loads(collaborators)
+    except ValueError:
+        invited = {}
+    return {"repo": repo, "synced_at": synced_at,
+            "collaborators": invited if isinstance(invited, dict) else {}}
+
+
+def write_github_repo(assignment_id, team_id, repo, synced_at, collaborators):
+    return _query(
+        "INSERT INTO github_repo"
+        "  (assignment_id, team_id, repo, synced_at, collaborators)"
+        " VALUES (%s, %s, %s, %s, %s)"
+        " ON CONFLICT (assignment_id, team_id) DO UPDATE SET"
+        "   repo = EXCLUDED.repo, synced_at = EXCLUDED.synced_at,"
+        "   collaborators = EXCLUDED.collaborators",
+        (assignment_id, team_id, repo, synced_at, json.dumps(collaborators)),
+    ) is not None
+
+
+def github_pending(assignment_id, exercise_ids, idle):
+    """Teams with a linked member whose work changed since their last copy and then
+    rested for idle seconds."""
+    rows = _query(
+        "SELECT t.team_id FROM team t"
+        "  JOIN team_document d ON d.team_id = t.team_id"
+        "                      AND d.exercise_id = ANY(%(e)s)"
+        "  LEFT JOIN github_repo r ON r.assignment_id = t.assignment_id"
+        "                         AND r.team_id = t.team_id"
+        " WHERE t.assignment_id = %(a)s"
+        "   AND EXISTS (SELECT 1 FROM team_member m"
+        "                 JOIN github_link l ON l.account = m.account"
+        "                WHERE m.assignment_id = t.assignment_id"
+        "                  AND m.team_id = t.team_id)"
+        " GROUP BY t.team_id, r.synced_at"
+        " HAVING max(d.updated_at) > coalesce(r.synced_at, '-infinity')"
+        "    AND max(d.updated_at) < now() - make_interval(secs => %(w)s)",
+        {"a": assignment_id, "e": list(exercise_ids), "w": idle}, read=True)
+    if rows is None:
+        return None
+    return [team_id for (team_id,) in rows]
+
+
+def github_authors(team_id, exercise_ids, since):
+    """Who wrote in the team's documents after since (None: ever), latest first."""
+    rows = _query(
+        "SELECT account FROM ("
+        "  SELECT account, created_at AS at FROM team_revision"
+        "   WHERE team_id = %(t)s AND exercise_id = ANY(%(e)s)"
+        "     AND created_at > coalesce(%(s)s::timestamptz, '-infinity')"
+        "  UNION ALL"
+        "  SELECT updated_by, updated_at FROM team_document"
+        "   WHERE team_id = %(t)s AND exercise_id = ANY(%(e)s)"
+        "     AND updated_by IS NOT NULL"
+        "     AND updated_at > coalesce(%(s)s::timestamptz, '-infinity')) written"
+        " GROUP BY account ORDER BY max(at) DESC",
+        {"t": team_id, "e": list(exercise_ids), "s": since}, read=True)
+    if rows is None:
+        return None
+    return [account for (account,) in rows]
+
+
 # The judge's run journal, read and written by the admin app only.
 
 RUN_COLUMNS = ("job_id", "exercise_id", "account", "station", "status", "passed", "total",
@@ -1158,7 +1259,8 @@ def forget(user):
         "     m AS (DELETE FROM team_member         WHERE account = %(u)s),"
         "     n AS (DELETE FROM team_revision       WHERE account = %(u)s),"
         "     p AS (DELETE FROM display_preference  WHERE account = %(u)s),"
-        "     q AS (DELETE FROM judge_run            WHERE account = %(u)s)"
+        "     q AS (DELETE FROM judge_run            WHERE account = %(u)s),"
+        "     r AS (DELETE FROM github_link          WHERE account = %(u)s)"
         " SELECT 1",
         {"u": user},
     ) is not None

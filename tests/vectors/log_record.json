@@ -13,6 +13,7 @@
     "ctester.statements.cached", "ctester.channel", "ctester.channels",
     "ctester.interval_s", "ctester.feature.sign_in", "ctester.feature.forum",
     "ctester.feature.chat", "ctester.feature.scratch", "ctester.feature.discord",
+    "ctester.feature.github",
     "ctester.attempt", "ctester.cache.signature", "ctester.cache.source",
     "ctester.cache.pruned", "ctester.cache.left"
   ],

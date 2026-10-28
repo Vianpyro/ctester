@@ -10,7 +10,7 @@ from deps import Sub, throttle_write
 from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from schemas import (TeamDocumentIn, TeamHandinIn, TeamJoinIn, TeamLeaveIn,
                      TeamRestoreIn)
-from services import collab
+from services import collab, github
 from services import teams as team_service
 from services.catalog import find_exercise, validate_files
 from starlette.concurrency import run_in_threadpool
@@ -53,6 +53,7 @@ def context(sub: Sub, assignment: str = Query("", alias="assignment")):
                  "number": team["number"], "group_number": team["group_number"],
                  "members": team_service.members_view(roster, sub, profiles)},
         "submission": submission,
+        "github": github.view(entry, team["team_id"], sub),
     }
 
 
@@ -276,6 +277,8 @@ def handin(sub: Sub, body: TeamHandinIn, request: Request):
     throttle_write(request)
     if not state.write_team_submission(entry["id"], team["team_id"], sub, files):
         return headers.error(503, "db_down")
+    if github.enabled():
+        github.later(entry, team["team_id"], handin=True, sender=sub)
     submission = state.read_team_submission(entry["id"], team["team_id"])
     return {"ok": True, "submission": submission or {},
             "files": sorted(files)}

@@ -93,6 +93,8 @@ class FakeDatabase:
         self.documents = {}
         self.revisions = []
         self.handins = {}
+        self.github_links_by_account = {}
+        self.github_repos = {}
         self.announcements = []
         self.clock = 1000.0
 
@@ -142,6 +144,7 @@ class FakeDatabase:
         for key in [k for k in self.teams if k[1] == user]:
             del self.teams[key]
         self.revisions = [r for r in self.revisions if r["account"] != user]
+        self.github_links_by_account.pop(user, None)
         return True
 
     def register(self, assignment_id, team_id, accounts, group_number=4,
@@ -265,6 +268,43 @@ class FakeDatabase:
                            "label": meta["label"],
                            "members": len(self.team_roster(assignment, team_id))})
         return lines
+
+    def github_link_of(self, user):
+        return dict(self.github_links_by_account.get(user, {}))
+
+    def write_github_link(self, user, github_id, login):
+        self.github_links_by_account[user] = {"github_id": github_id, "login": login}
+        return True
+
+    def drop_github_link(self, user):
+        self.github_links_by_account.pop(user, None)
+        return True
+
+    def github_links(self, users):
+        return {u: dict(self.github_links_by_account[u]) for u in users
+                if u in self.github_links_by_account}
+
+    def read_github_repo(self, assignment_id, team_id):
+        return dict(self.github_repos.get((assignment_id, team_id), {}))
+
+    def write_github_repo(self, assignment_id, team_id, repo, synced_at, collaborators):
+        # The fake's clock stands in for the timestamp, so authors can be dated.
+        self.github_repos[(assignment_id, team_id)] = {
+            "repo": repo, "synced_at": self.clock, "collaborators": dict(collaborators)}
+        return True
+
+    def github_pending(self, assignment_id, exercise_ids, idle):
+        return sorted({team for (assignment, account), team in self.teams.items()
+                       if assignment == assignment_id
+                       and account in self.github_links_by_account})
+
+    def github_authors(self, team_id, exercise_ids, since):
+        latest = {}
+        for r in self.revisions:
+            if r["team_id"] == team_id and r["exercise_id"] in exercise_ids \
+                    and (since is None or r["at"] > since):
+                latest[r["account"]] = r["at"]
+        return sorted(latest, key=lambda a: -latest[a])
 
     def read_practice_summary(self, user):
         return [{"exercise_id": ex, "attempts": n, "successes": r}
@@ -4069,6 +4109,275 @@ def test_choosing_a_team_opens_no_document():
             assert client.get(path, headers=_headers("t-alice")).status_code == 404
         assert _close_code(client, lambda s: _hello(s, "t-alice")) == 4403
         collab.reset()
+
+
+class FakeGitHub:
+    """Just enough of GitHub's REST API, in memory, for services/github.py."""
+
+    USERS = {"code-alice": {"id": 101, "login": "alice-gh"},
+             "code-cleo": {"id": 303, "login": "cleo-gh"}}
+
+    def __init__(self):
+        self.repos, self.calls, self.revoked = {}, [], []
+        self.down = False
+
+    def files(self, name):
+        repo = self.repos[name]
+        return dict(repo["trees"][repo["commits"][repo["head"]]["tree"]])
+
+    def commits(self, name):
+        repo, out, sha = self.repos[name], [], self.repos[name]["head"]
+        while sha:
+            out.append(repo["commits"][sha])
+            sha = (repo["commits"][sha]["parents"] or [None])[0]
+        return out
+
+    @staticmethod
+    def _sha(value):
+        import hashlib
+        return hashlib.sha1(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+    def _tree(self, repo, files):
+        sha = self._sha(files)
+        repo["trees"][sha] = dict(files)
+        return sha
+
+    def __call__(self, method, path, body=None, headers=None):
+        import base64
+        from services import github
+        if self.down:
+            raise github.Unavailable()
+        self.calls.append((method, path, body))
+        if path == github.TOKEN_URL:
+            if body["code"] not in self.USERS:
+                return 200, {"error": "bad_verification_code"}
+            return 200, {"access_token": "gho-" + body["code"]}
+        if path == "/user":
+            return 200, dict(self.USERS[headers["Authorization"].split("gho-", 1)[1]])
+        if path.startswith("/applications/"):
+            self.revoked.append(body["access_token"])
+            return 204, None
+        if path.startswith("/orgs/"):
+            assert body["private"] is True, body
+            repo = {"trees": {}, "commits": {}, "collaborators": {}, "head": "c0"}
+            tree = self._tree(repo, {"README.md": "# " + body["name"] + "\n"})
+            repo["commits"]["c0"] = {"tree": tree, "parents": [], "message": "Initial commit"}
+            self.repos[body["name"]] = repo
+            return 201, {}
+        parts = path.split("?")[0].split("/")
+        name, rest = parts[3], parts[4:]
+        if name not in self.repos:
+            return 404, {"message": "Not Found"}
+        repo = self.repos[name]
+        if not rest:
+            return 200, {"default_branch": "main"}
+        if rest[:3] == ["git", "ref", "heads"]:
+            return 200, {"object": {"sha": repo["head"]}}
+        if rest[:2] == ["git", "commits"] and method == "GET":
+            return 200, {"tree": {"sha": repo["commits"][rest[2]]["tree"]}}
+        if rest[:2] == ["git", "trees"] and method == "GET":
+            return 200, {"tree": [{"path": p, "type": "blob", "sha": github.blob_sha(t)}
+                                  for p, t in repo["trees"][rest[2]].items()]}
+        if rest[:2] == ["git", "blobs"]:
+            for files in repo["trees"].values():
+                for text in files.values():
+                    if github.blob_sha(text) == rest[2]:
+                        return 200, {"content": base64.b64encode(text.encode()).decode()}
+            return 404, {}
+        if rest == ["git", "trees"]:
+            files = dict(repo["trees"][body["base_tree"]])
+            files.update({e["path"]: e["content"] for e in body["tree"]})
+            return 201, {"sha": self._tree(repo, files)}
+        if rest == ["git", "commits"]:
+            sha = self._sha(body)
+            repo["commits"][sha] = dict(body)
+            return 201, {"sha": sha}
+        if rest[:3] == ["git", "refs", "heads"]:
+            if repo["head"] not in repo["commits"][body["sha"]]["parents"]:
+                return 422, {"message": "Update is not a fast forward"}
+            repo["head"] = body["sha"]
+            return 200, {}
+        if rest[0] == "collaborators":
+            if method == "PUT":
+                repo["collaborators"][rest[1]] = body["permission"]
+                return 201, {}
+            repo["collaborators"].pop(rest[1], None)
+            return 204, None
+        if rest == ["invitations"]:
+            return 200, []
+        raise AssertionError("unexpected GitHub call: %s %s" % (method, path))
+
+
+@contextlib.contextmanager
+def github_deployment(**settings):
+    from services import github
+    names = ("GITHUB_ORG", "GITHUB_TOKEN", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET")
+    saved = {n: getattr(config, n) for n in names}
+    saved_calls = (github._call, github.later)
+    hub = FakeGitHub()
+    values = dict(zip(names, ("cours-org", "jeton-org", "client-gh", "secret-gh")))
+    values.update(settings)
+    for name, value in values.items():
+        setattr(config, name, value)
+    github._call = hub
+    # Synchronous here, so a check can read the commit right after the hand-in.
+    github.later = lambda assignment, team_id, handin=False, sender=None: github.guarded(
+        assignment, team_id, handin=handin, sender=sender)
+    try:
+        with assignment_deployment() as (client, fake, _tmp):
+            yield client, fake, hub
+    finally:
+        for name, value in saved.items():
+            setattr(config, name, value)
+        github._call, github.later = saved_calls
+
+
+def _write_team(client, token, exercise_id, files):
+    r = client.put("/team/document", headers=_headers(token),
+                   json={"assignment_id": "devoir", "exercise_id": exercise_id,
+                         "files": files})
+    assert r.status_code == 200, r.text
+
+
+def _link(client, token, code):
+    r = client.post("/github/link", headers=_headers(token), json={"code": code})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _devoir():
+    from services import teams
+    return teams.find_assignment("devoir")
+
+
+def test_github_is_off_until_all_four_settings_are_there():
+    with github_deployment(GITHUB_CLIENT_SECRET="") as (client, fake, hub):
+        r = client.post("/github/link", headers=_headers("t-alice"), json={"code": "code-alice"})
+        assert r.status_code == 503 and r.json()["error"] == "github_disabled", r.text
+        view = client.get("/team/context?assignment=devoir", headers=_headers("t-alice"))
+        assert view.json()["github"] is None
+        assert not hub.calls
+
+
+def test_linking_keeps_the_github_identity_and_revokes_the_grant():
+    with github_deployment() as (client, fake, hub):
+        assert client.post("/github/link", json={"code": "code-alice"}).status_code == 401
+        assert _link(client, "t-alice", "code-alice")["login"] == "alice-gh"
+        assert fake.github_links_by_account == {
+            "sub-alice": {"github_id": 101, "login": "alice-gh"}}
+        assert hub.revoked == ["gho-code-alice"], "the OAuth token must not outlive the link"
+        wrong = client.post("/github/link", headers=_headers("t-cleo"), json={"code": "faux"})
+        assert wrong.status_code == 400 and wrong.json()["error"] == "github_link_failed"
+        view = client.get("/team/context?assignment=devoir",
+                          headers=_headers("t-alice")).json()["github"]
+        assert view["login"] == "alice-gh" and view["client_id"] == "client-gh"
+        assert view["repo_url"] == ""
+        assert client.get("/team/context?assignment=devoir",
+                          headers=_headers("t-cleo")).json()["github"]["login"] == ""
+        assert client.delete("/github/link", headers=_headers("t-alice")).status_code == 200
+        assert fake.github_links_by_account == {}
+
+
+def test_the_first_copy_creates_a_private_repository_credited_to_the_students():
+    from services import github
+    with github_deployment() as (client, fake, hub):
+        _link(client, "t-alice", "code-alice")
+        _link(client, "t-cleo", "code-cleo")
+        _write_team(client, "t-alice", "dev-a", {"main.c": "int main(void){}\n"})
+        fake.clock += 1
+        _write_team(client, "t-cleo", "dev-b", {"lib.c": "double f(void){return 1;}\n"})
+        github.sweep()
+        assert list(hub.repos) == ["devoir-e1"], list(hub.repos)
+        files = hub.files("devoir-e1")
+        assert files["Devoir/main.c"] == "int main(void){}\n", files
+        assert "Devoir/matrac_lib.c" in files and "README.md" in files
+        latest = hub.commits("devoir-e1")[0]
+        assert latest["author"] == {"name": "cleo-gh",
+                                    "email": "303+cleo-gh@users.noreply.github.com"}
+        assert "Co-authored-by: alice-gh <101+alice-gh@users.noreply.github.com>" \
+            in latest["message"], latest["message"]
+        assert latest["message"].startswith("Update Devoir/main.c, Devoir/matrac_lib.c\n")
+        assert "+1 −0" in latest["message"], latest["message"]
+        assert hub.repos["devoir-e1"]["collaborators"] == {"alice-gh": "pull",
+                                                           "cleo-gh": "pull"}
+        view = client.get("/team/context?assignment=devoir",
+                          headers=_headers("t-alice")).json()["github"]
+        assert view["repo_url"] == "https://github.com/cours-org/devoir-e1"
+        assert "sub-" not in json.dumps(hub.calls), "an account reached GitHub"
+
+        before = len(hub.commits("devoir-e1"))
+        assert github.sync(_devoir(), "e1") == "", "nothing changed"
+        assert len(hub.commits("devoir-e1")) == before
+
+
+def test_a_student_names_the_commit_sent_on_demand():
+    with github_deployment() as (client, fake, hub):
+        r = client.post("/github/commit", headers=_headers("t-alice"),
+                        json={"assignment_id": "devoir", "message": "x"})
+        assert r.status_code == 409 and r.json()["error"] == "github_not_linked"
+        _link(client, "t-alice", "code-alice")
+        _write_team(client, "t-alice", "dev-a", {"main.c": "int main(void){}\n"})
+        r = client.post("/github/commit", headers=_headers("t-alice"),
+                        json={"assignment_id": "devoir",
+                              "message": "  Termine\nla   boucle " + "!" * 100})
+        assert r.status_code == 200 and r.json()["sha"], r.text
+        assert r.json()["github"]["repo_url"].endswith("/devoir-e1")
+        title = hub.commits("devoir-e1")[0]["message"].split("\n")[0]
+        assert title == ("Termine la boucle " + "!" * 100)[:72], title
+        again = client.post("/github/commit", headers=_headers("t-alice"),
+                            json={"assignment_id": "devoir", "message": "Rien"})
+        assert again.status_code == 200 and again.json()["sha"] == "", again.text
+        outsider = client.post("/github/commit", headers=_headers("t-cleo"),
+                               json={"assignment_id": "devoir", "message": "x"})
+        assert outsider.status_code == 409, "cleo has not linked GitHub"
+
+
+def test_a_member_who_leaves_loses_the_repository():
+    from services import github
+    with github_deployment() as (client, fake, hub):
+        _link(client, "t-alice", "code-alice")
+        _link(client, "t-cleo", "code-cleo")
+        _write_team(client, "t-alice", "dev-a", {"main.c": "un\n"})
+        github.sweep()
+        assert set(hub.repos["devoir-e1"]["collaborators"]) == {"alice-gh", "cleo-gh"}
+        fake.teams.pop(("devoir", "sub-cleo"))
+        github.sweep()
+        assert set(hub.repos["devoir-e1"]["collaborators"]) == {"alice-gh"}
+        assert fake.github_repos[("devoir", "e1")]["collaborators"] == {"101": "alice-gh"}
+
+
+def test_deleting_the_account_drops_the_github_link():
+    with github_deployment() as (client, fake, hub):
+        _link(client, "t-alice", "code-alice")
+        assert client.delete("/account", headers=_headers("t-alice")).status_code == 200
+        assert fake.github_links_by_account == {}
+
+
+def test_the_hand_in_is_committed_and_survives_github_being_down():
+    with github_deployment() as (client, fake, hub):
+        _link(client, "t-alice", "code-alice")
+        fake.documents[("e1", "dev-a")] = {"main.c": "int main(void){}\n"}
+        fake.documents[("e1", "dev-b")] = {"lib.c": "double f(void){return 1;}\n"}
+        r = client.post("/team/handin", headers=_headers("t-alice"),
+                        json={"assignment_id": "devoir"})
+        assert r.status_code == 200, r.text
+        title = hub.commits("devoir-e1")[0]["message"].split("\n")[0]
+        assert title == "Hand-in: Le devoir (2 files)", title
+        client.post("/team/handin", headers=_headers("t-alice"),
+                    json={"assignment_id": "devoir"})
+        assert len(hub.commits("devoir-e1")) == 3, "a hand-in is marked even unchanged"
+        assert hub.commits("devoir-e1")[0]["message"] == "Hand-in: Le devoir (2 files)"
+
+        hub.down = True
+        fake.documents[("e1", "dev-a")] = {"main.c": "int main(void){return 1;}\n"}
+        with _logs(log.WARN) as buffer:
+            r = client.post("/team/handin", headers=_headers("t-alice"),
+                            json={"assignment_id": "devoir"})
+        assert r.status_code == 200, "GitHub must never fail a hand-in"
+        assert _records(buffer, "github.sync_failed")
+        r = client.post("/github/commit", headers=_headers("t-alice"),
+                        json={"assignment_id": "devoir"})
+        assert r.status_code == 502 and r.json()["error"] == "github_unavailable"
 
 
 if __name__ == "__main__":

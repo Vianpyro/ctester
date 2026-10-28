@@ -217,6 +217,24 @@ CREATE TABLE IF NOT EXISTS team_submission (
     PRIMARY KEY (assignment_id, team_id)
 );
 
+-- Who a student is on GitHub, proven by OAuth. Nothing else is kept from the grant.
+CREATE TABLE IF NOT EXISTS github_link (
+    account    TEXT        PRIMARY KEY,
+    github_id  BIGINT      NOT NULL,
+    login      TEXT        NOT NULL,
+    linked_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- collaborators holds the GitHub ids CTester invited, so a member who leaves loses access.
+CREATE TABLE IF NOT EXISTS github_repo (
+    assignment_id TEXT        NOT NULL,
+    team_id       TEXT        NOT NULL,
+    repo          TEXT        NOT NULL,
+    synced_at     TIMESTAMPTZ,
+    collaborators TEXT        NOT NULL DEFAULT '[]',
+    PRIMARY KEY (assignment_id, team_id)
+);
+
 -- Repairs for databases created by earlier versions. Every statement must stay
 -- idempotent, and an index must come after the ALTER that adds its column.
 ALTER TABLE judge_run ADD COLUMN IF NOT EXISTS account TEXT NOT NULL DEFAULT '';
@@ -387,6 +405,9 @@ BEGIN
             ' ON team_document, team_submission TO ctester_app';
 
     EXECUTE 'GRANT SELECT, INSERT, DELETE ON team_revision TO ctester_app';
+
+    EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE'
+            ' ON github_link, github_repo TO ctester_app';
 
     EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE'
             ' ON judge_run, judge_journal_cursor'

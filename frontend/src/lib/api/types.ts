@@ -412,6 +412,15 @@ export interface TeamContext {
     members: TeamMember[];
   };
   submission: { submitted_at?: string } | null;
+  github?: GitHubView | null;
+}
+
+export interface GitHubView {
+  client_id: string;
+  login: string;
+  repo_url: string;
+  synced_at: string;
+  idle: number;
 }
 
 export interface MyTeam {

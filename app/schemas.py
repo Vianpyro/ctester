@@ -126,3 +126,16 @@ class TeamLeaveIn(BaseModel):
     model_config = _CONFIG
 
     assignment_id: str = ""
+
+
+class GitHubLinkIn(BaseModel):
+    model_config = _CONFIG
+
+    code: str = ""
+
+
+class GitHubCommitIn(BaseModel):
+    model_config = _CONFIG
+
+    assignment_id: str = ""
+    message: str = ""

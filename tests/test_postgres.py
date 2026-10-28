@@ -24,7 +24,7 @@ TABLES = ("exercise_draft", "exercise_state", "practice_attempt",
           "forum_message", "forum_report", "forum_moderation",
           "forum_profile", "forum_reported_name", "forum_helpful",
           "team_member", "team_revision",
-          "display_preference")
+          "display_preference", "github_link")
 
 ALICE, BOB = "sub-alice", "sub-bob"
 
@@ -760,6 +760,33 @@ def team_submissions():
     print("ok   team_submission: one handin per team, replaceable")
 
 
+def github_sync_rows():
+    import datetime as dt
+    assert state.github_pending("devoir", ["dev-a"], 0) == [], "no linked member yet"
+    assert state.write_github_link(ALICE, 101, "alice-gh")
+    assert state.github_link_of(ALICE) == {"github_id": 101, "login": "alice-gh"}
+    assert state.github_link_of(BOB) == {}
+    assert state.github_links([ALICE, BOB]) == {
+        ALICE: {"github_id": 101, "login": "alice-gh"}}
+    assert state.github_pending("devoir", ["dev-a"], 0) == ["g04-e01"]
+    assert state.github_pending("devoir", ["dev-a"], 3600) == [], "still being edited"
+    assert state.github_pending("devoir", ["autre"], 0) == []
+    assert state.github_authors("g04-e01", ["dev-a"], None) == [CLEO, ALICE]
+
+    assert state.read_github_repo("devoir", "g04-e01") == {}
+    now = dt.datetime.now(dt.timezone.utc)
+    assert state.write_github_repo("devoir", "g04-e01", "devoir-g04-e01", now,
+                                   {"101": "alice-gh"})
+    record = state.read_github_repo("devoir", "g04-e01")
+    assert record["repo"] == "devoir-g04-e01" and record["collaborators"] == {"101": "alice-gh"}
+    assert state.github_pending("devoir", ["dev-a"], 0) == [], "copied already"
+    assert state.github_authors("g04-e01", ["dev-a"], now) == []
+
+    assert state.drop_github_link(ALICE) and state.github_link_of(ALICE) == {}
+    assert state.write_github_link(ALICE, 101, "alice-gh")
+    print("ok   github: pending teams, authors since the last copy, one link per account")
+
+
 def team_privileges():
     if ADMIN_DSN == DSN:
         print("--   team privileges: skipped (no distinct CTESTER_DB_ADMIN_DSN)")
@@ -818,6 +845,7 @@ def main():
     teams()
     team_documents()
     team_submissions()
+    github_sync_rows()
     team_privileges()
     forum_privileges()
     preferences()

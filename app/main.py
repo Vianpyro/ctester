@@ -9,8 +9,9 @@ import log
 import security
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from routers import (account, catalog, forum, health, leaderboard, page,
-                     progress, scratch, submission, team)
+from routers import (account, catalog, forum, github, health, leaderboard,
+                     page, progress, scratch, submission, team)
+from services import github as github_service
 from starlette.exceptions import HTTPException
 
 
@@ -49,6 +50,7 @@ def create_app():
     app.include_router(forum.router)
     app.include_router(team.router)
     app.include_router(scratch.router)
+    app.include_router(github.router)
     # Last: the page router ends with a catch-all route.
     if config.PAGE:
         app.include_router(page.router)
@@ -84,6 +86,7 @@ def _started():
         "ctester.feature.chat": config.CHAT,
         "ctester.feature.scratch": config.SCRATCH,
         "ctester.feature.discord": bool(config.DISCORD_WEBHOOK),
+        "ctester.feature.github": github_service.enabled(),
     })
 
 
@@ -97,6 +100,7 @@ if __name__ == "__main__":
     _warn()
     _started()
     os.makedirs(config.SPOOL, exist_ok=True)
+    github_service.start()
 
     uvicorn.run(
         app,

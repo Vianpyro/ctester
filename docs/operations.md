@@ -229,6 +229,48 @@ managed on the IdP, not in `.env`.
 cat /opt/ctester/spool/moderators.json   # the account ids the API last saw in the group
 ```
 
+## GitHub
+
+Each team's work can be copied to a private repository of a course organization, so a team
+can show its history on GitHub without leaving CTester. Students link their GitHub account
+once from the team band; nothing else is asked of them.
+
+- **What is copied:** the hand-in's files when the assignment declares a `handin`, else one
+  folder per exercise. A commit goes out after `CTESTER_GITHUB_IDLE` minutes (10) without an
+  edit, at each hand-in, and when a student presses "Send to GitHub" (their message, if any,
+  titles the commit). An identical tree makes no commit.
+- **Who is credited:** the author is the student who wrote last, the others who wrote since
+  the previous copy are `Co-authored-by:` trailers. Both use the GitHub noreply address, so
+  GitHub shows each student's avatar on the commit. The server pushes; no student token is kept.
+- **Access:** linked members get read access (an invitation to accept once), and lose it when
+  they leave the team. The organization's owners see every repository.
+- **One way:** CTester to GitHub. Files added on GitHub stay, a file CTester also writes is
+  replaced at the next copy (the old version stays in the history).
+- **Deleting an account** drops the link. Commits already on GitHub stay there, which the
+  link button tells the student before they link.
+
+Setup, once:
+
+1. Create an organization for the course and add the teacher as an owner.
+2. Under the organization's settings, *Developer settings → OAuth Apps*, register an OAuth App.
+   Its callback URL is the page's URL (the address students open). It is asked for no scope.
+3. Create a fine-grained personal access token whose resource owner is the organization, with
+   *Administration* and *Contents* read and write (*Metadata* read comes with them). The
+   organization may have to allow fine-grained tokens and approve this one. Note its expiry.
+4. Set in `/opt/ctester/.env`, then restart web:
+
+```sh
+CTESTER_GITHUB_ORG=<organization>
+CTESTER_GITHUB_TOKEN=<fine-grained token>
+CTESTER_GITHUB_CLIENT_ID=<OAuth App client id>
+CTESTER_GITHUB_CLIENT_SECRET=<OAuth App client secret>
+```
+
+`service.start` then lists `ctester.feature.github: true`. Repositories are named
+`<assignment>-<team>`, e.g. `tp2-g04-e01`. Commit titles are in `CTESTER_LANG` (`en`, `fr`).
+When the token expires every copy fails: `github.sync_failed` is logged once, and teams catch
+up on their own when a new token is in place.
+
 ## Deployment pitfalls
 
 | Topic | What to know |
@@ -244,6 +286,7 @@ cat /opt/ctester/spool/moderators.json   # the account ids the API last saw in t
 | Rauthy | Enable the `refresh_token` flow on the client, and allow the `groups` scope on it. `refresh_token_lifetime` (240 h) must match `SESSION_MAX_DAYS` in `frontend/src/lib/auth/keys.ts`. |
 | Typst | Pull the `CTESTER_TYPST_IMAGE` image (default `ghcr.io/typst/typst:0.15.1`) before the first publication. |
 | Discord | Off by default (`COMPOSE_PROFILES=discord`). The webhook, bot token and bridge key are secrets. |
+| GitHub | Off until the four `CTESTER_GITHUB_*` settings are set ([GitHub](#github)). The token and the client secret are secrets. |
 | Docs | Never set `CTESTER_DOCS=1` in production: it makes `/docs` and `/openapi.json` public. |
 | Schema | Every statement must stay idempotent, and an index must follow the `ALTER` that adds its column. |
 
@@ -386,6 +429,7 @@ To send them elsewhere later, an OpenTelemetry Collector reads these lines as th
 | `moderators.changed` | INFO | web | an account joined or left the moderator roster ([Moderators](#moderators)) |
 | `moderators.unwritable` | ERROR | web | `spool/moderators.json` could not be replaced; roles stay as they were |
 | `discord.webhook_failed` | WARN | web | a chat message did not reach Discord |
+| `github.sync_failed`, `github.restored` | WARN, INFO | web | team work stopped or resumed reaching GitHub; once per outage ([GitHub](#github)) |
 | `journal.ingest_failed`, `journal.ingest_restored` | WARN, INFO | admin | see [The run journal](#the-run-journal) |
 | `bridge.api_unreachable`, `bridge.refused` | WARN | bridge | a Discord message did not reach the chat |
 | `bridge.discord_unreachable`, `bridge.prime_failed` | WARN | bridge | Discord could not be read |

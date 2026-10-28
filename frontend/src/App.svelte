@@ -19,7 +19,7 @@
   import { matchShortcut } from "./lib/domain/shortcuts";
   import { fetchDeployment } from "./lib/api/public";
   import type { Deployment } from "./lib/api/types";
-  import { RETURN_KEY } from "./lib/auth/keys";
+  import { GITHUB_STATE_KEY, RETURN_KEY } from "./lib/auth/keys";
   import { ensureValid, session, whenSessionLost } from "./lib/auth/session.svelte";
   import { sessionGet } from "./lib/storage";
   import { expectedOf } from "./lib/domain/labels";
@@ -203,7 +203,8 @@
     session.deployment = deployment;
     if (!session.token && !authCode) return;
 
-    if (authCode) {
+    const fromGitHub = !!authState && sessionGet(GITHUB_STATE_KEY) === authState;
+    if (authCode && !fromGitHub) {
       const { finishSignIn } = await import("./lib/auth/oidc");
       const ok = await finishSignIn(authCode, authState ?? "");
       if (!ok && !session.token) {
@@ -213,6 +214,11 @@
     if (!session.token) return;
     await ensureValid();
     if (!session.token) return;
+    // Before the exercise reopens, so the team band reads the new link.
+    if (authCode && fromGitHub) {
+      const { finishGitHubLink } = await import("./features/team/githubReturn");
+      await finishGitHubLink(authCode);
+    }
     await Promise.all([theme.loadFromAccount(), statuses.load()]);
     if (catalog.selectedId) await exercise.open(catalog.selectedId);
     if (!session.chatOffered && !(deployment.forum && catalog.staff)) return;

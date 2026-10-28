@@ -1,5 +1,6 @@
 <script lang="ts">
   import "./team.css";
+  import GitHubLink from "./GitHubLink.svelte";
   import { collaborators } from "../../lib/state/collaborators.svelte";
   import { room } from "../../lib/collab/room.svelte";
   import { fetchArchive, fetchRevisions, handIn, restoreRevision } from "../../lib/api/team";
@@ -168,6 +169,8 @@
     <span class="grow"></span>
     <span class="help">{room.note}</span>
   </div>
+
+  <GitHubLink />
 
   {#if history}
     <div class="teamhistory">
