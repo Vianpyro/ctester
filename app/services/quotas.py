@@ -2,23 +2,26 @@ import config
 
 
 class Quota:
+    """A token bucket refilled at `hourly` per hour. A sliding window made a student who spent
+    the hour's quota in ten minutes of a lab wait for the rest of the hour."""
+
     def __init__(self, cooldown, hourly):
         self.cooldown = cooldown
         self.hourly = hourly
         self.seen = {}
 
     def check(self, who, now):
-        hits = [t for t in self.seen.get(who, ()) if t > now - 3600]
-        if hits and now - hits[-1] < self.cooldown:
-            return int(self.cooldown - (now - hits[-1])) + 1
-        if len(hits) >= self.hourly:
-            return int(3600 - (now - hits[0])) + 1
-        hits.append(now)
-        self.seen[who] = hits
+        tokens, last = self.seen.get(who, (self.hourly, None))
+        if last is not None:
+            if now - last < self.cooldown:
+                return int(self.cooldown - (now - last)) + 1
+            tokens = min(self.hourly, tokens + (now - last) * self.hourly / 3600)
+        if tokens < 1:
+            return int((1 - tokens) * 3600 / self.hourly) + 1
+        self.seen[who] = (tokens - 1, now)
         if len(self.seen) > 5000:
-            self.seen = {
-                k: v for k, v in self.seen.items() if v and v[-1] > now - 3600
-            }
+            # An hour after its last request a bucket is full again, the same as a new one.
+            self.seen = {k: v for k, v in self.seen.items() if v[1] > now - 3600}
         return 0
 
 

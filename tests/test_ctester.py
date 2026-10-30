@@ -2339,6 +2339,16 @@ def test_quota():
     assert q.check("ip", now + 3700) == 0
 
 
+def test_quota_after_a_burst_waits_one_refill_not_the_hour():
+    q = quotas.Quota(cooldown=0, hourly=40)
+    now = time.time()
+    for _ in range(40):
+        assert q.check("lab", now) == 0
+    wait = q.check("lab", now)
+    assert 0 < wait <= 91, wait
+    assert q.check("lab", now + 90) == 0
+
+
 def test_quota_prunes_its_inactive_clients_past_five_thousand():
     q = quotas.Quota(cooldown=0, hourly=100)
     now = time.time()

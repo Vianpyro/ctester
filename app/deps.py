@@ -12,7 +12,7 @@ from services import quotas
 
 lock = Lock()
 quota = quotas.Quota(config.COOLDOWN, config.HOURLY)
-signed_in_quota = quotas.Quota(config.COOLDOWN_SIGNED_IN, config.HOURLY)
+signed_in_quota = quotas.Quota(config.COOLDOWN_SIGNED_IN, config.HOURLY_SIGNED_IN)
 state_quota = quotas.Quota(cooldown=1, hourly=1200)
 forum_quota = quotas.Quota(config.FORUM_COOLDOWN, config.FORUM_HOURLY)
 scratch_quota = quotas.Quota(config.SCRATCH_COOLDOWN, config.SCRATCH_HOURLY)
